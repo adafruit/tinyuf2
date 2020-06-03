@@ -1,6 +1,6 @@
-idf_component_register(SRCS "main.c"
+idf_component_register(SRCS "main.c" "boards/boards.c"
                     INCLUDE_DIRS "."
-                    REQUIRES freertos soc)
+                    REQUIRES freertos soc led_strip)
 
 target_compile_options(${COMPONENT_TARGET} PUBLIC
   "-DCFG_TUSB_MCU=OPT_MCU_ESP32S2"

@@ -25,6 +25,7 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdbool.h>
 #include <string.h>
 
 #include "esp_log.h"
@@ -34,7 +35,7 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 
-//#include "bsp/board.h"
+#include "boards/boards.h"
 //#include "tusb.h"
 
 //--------------------------------------------------------------------+
@@ -83,18 +84,19 @@ static const char *TAG = "uf2";
 // Main
 //--------------------------------------------------------------------+
 
-int main(void)
+void app_main(void)
 {
   ESP_LOGI(TAG, "Hello");
 
-#if 0
   board_init();
-  tusb_init();
+
+//  tusb_init();
 
   // soft timer for blinky
   blinky_tm = xTimerCreateStatic(NULL, pdMS_TO_TICKS(BLINK_NOT_MOUNTED), true, NULL, led_blinky_cb, &blinky_tmdef);
   xTimerStart(blinky_tm, 0);
 
+#if 0
   // Create a task for tinyusb device stack
   (void) xTaskCreateStatic( usb_device_task, "usbd", USBD_STACK_SIZE, NULL, configMAX_PRIORITIES-1, usb_device_stack, &usb_device_taskdef);
 
@@ -102,15 +104,7 @@ int main(void)
   (void) xTaskCreateStatic( cdc_task, "cdc", CDC_STACK_SZIE, NULL, configMAX_PRIORITIES-2, cdc_stack, &cdc_taskdef);
 #endif
 
-  return 0;
 }
-
-#if CFG_TUSB_MCU == OPT_MCU_ESP32S2
-void app_main(void)
-{
-  main();
-}
-#endif
 
 #if 0
 // USB Device Driver task
@@ -213,6 +207,7 @@ void tud_cdc_rx_cb(uint8_t itf)
   (void) itf;
 }
 
+#endif
 
 //--------------------------------------------------------------------+
 // BLINKING TASK
@@ -225,5 +220,3 @@ void led_blinky_cb(TimerHandle_t xTimer)
   board_led_write(led_state);
   led_state = 1 - led_state; // toggle
 }
-
-#endif
