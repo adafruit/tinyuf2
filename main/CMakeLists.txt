@@ -1,14 +1,3 @@
-idf_component_register(SRCS "main.c" "boards/boards.c"
+idf_component_register(SRCS main.c usb_descriptors.c msc_disk.c boards/boards.c
                     INCLUDE_DIRS "."
-                    REQUIRES freertos soc led_strip)
-
-target_compile_options(${COMPONENT_TARGET} PUBLIC
-  "-DCFG_TUSB_MCU=OPT_MCU_ESP32S2"
-)
-
-idf_component_get_property( FREERTOS_ORIG_INCLUDE_PATH freertos ORIG_INCLUDE_PATH)
-target_include_directories(${COMPONENT_TARGET} PUBLIC
-  "${FREERTOS_ORIG_INCLUDE_PATH}"
-#  "${TOP}/hw"
-# "${TOP}/src"
-)
+                    REQUIRES led_strip tinyusb)

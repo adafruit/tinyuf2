@@ -28,15 +28,15 @@
 #include <stdbool.h>
 #include <string.h>
 
-#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/timers.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 
+#include "esp_log.h"
 #include "boards/boards.h"
-//#include "tusb.h"
+#include "tusb.h"
 
 //--------------------------------------------------------------------+
 // MACRO CONSTANT TYPEDEF PROTYPES
@@ -89,24 +89,22 @@ void app_main(void)
   ESP_LOGI(TAG, "Hello");
 
   board_init();
-
-//  tusb_init();
+  tusb_init();
 
   // soft timer for blinky
   blinky_tm = xTimerCreateStatic(NULL, pdMS_TO_TICKS(BLINK_NOT_MOUNTED), true, NULL, led_blinky_cb, &blinky_tmdef);
   xTimerStart(blinky_tm, 0);
 
-#if 0
   // Create a task for tinyusb device stack
   (void) xTaskCreateStatic( usb_device_task, "usbd", USBD_STACK_SIZE, NULL, configMAX_PRIORITIES-1, usb_device_stack, &usb_device_taskdef);
 
+#if 0
   // Create CDC task
   (void) xTaskCreateStatic( cdc_task, "cdc", CDC_STACK_SZIE, NULL, configMAX_PRIORITIES-2, cdc_stack, &cdc_taskdef);
 #endif
 
 }
 
-#if 0
 // USB Device Driver task
 // This top level thread process all usb events and invoke callbacks
 void usb_device_task(void* param)
@@ -152,6 +150,7 @@ void tud_resume_cb(void)
   xTimerChangePeriod(blinky_tm, pdMS_TO_TICKS(BLINK_MOUNTED), 0);
 }
 
+#if 0
 //--------------------------------------------------------------------+
 // USB CDC
 //--------------------------------------------------------------------+

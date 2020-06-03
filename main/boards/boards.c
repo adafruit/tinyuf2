@@ -26,9 +26,11 @@
 
 #include "driver/gpio.h"
 #include "driver/periph_ctrl.h"
-
 #include "driver/rmt.h"
 #include "led_strip.h"
+
+#include "hal/usb_hal.h"
+#include "soc/usb_periph.h"
 
 //--------------------------------------------------------------------+
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
@@ -54,6 +56,19 @@ void board_init(void)
   strip = led_strip_new_rmt_ws2812(&strip_config);
   strip->clear(strip, 100); // off led
 
+
+  // USB Controller Hal init
+  periph_module_reset(PERIPH_USB_MODULE);
+  periph_module_enable(PERIPH_USB_MODULE);
+
+  usb_hal_context_t hal = {
+    .use_external_phy = false // use built-in PHY
+  };
+  usb_hal_init(&hal);
+
+  // Pin drive strength
+  gpio_set_drive_capability(USBPHY_DM_NUM, GPIO_DRIVE_CAP_3);
+  gpio_set_drive_capability(USBPHY_DP_NUM, GPIO_DRIVE_CAP_3);
 }
 
 void board_teardown(void)
