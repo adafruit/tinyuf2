@@ -31,9 +31,21 @@
 
 //#include "board.h"
 
+
+enum {
+  STATE_BOOTLOADER_STARTED = 0,
+  STATE_USB_MOUNTED,
+  STATE_USB_UNMOUNTED,
+  STATE_WRITING_STARTED,
+  STATE_WRITING_FINISHED,
+};
+
+
 void board_init(void);
 void board_teardown(void);
 
 void board_led_write(bool state);
+
+void board_led_state(uint32_t state);
 
 #endif

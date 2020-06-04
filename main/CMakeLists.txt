@@ -1,3 +1,3 @@
-idf_component_register(SRCS main.c usb_descriptors.c msc_disk.c boards/boards.c
+idf_component_register(SRCS boards/boards.c ghostfat.c main.c msc.c usb_descriptors.c
                     INCLUDE_DIRS "."
                     REQUIRES led_strip tinyusb)

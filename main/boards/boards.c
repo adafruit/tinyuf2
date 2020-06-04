@@ -83,3 +83,8 @@ void board_led_write(bool state)
   strip->set_pixel(strip, 0, (state ? 0x88 : 0x00), 0x00, 0x00);
   strip->refresh(strip, 100);
 }
+
+void board_led_state(uint32_t state)
+{
+  (void) state;
+}

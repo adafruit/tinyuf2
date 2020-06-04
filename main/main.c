@@ -59,20 +59,10 @@ TimerHandle_t blinky_tm;
 
 // static task for usbd
 // Increase stack size when debug log is enabled
-#if CFG_TUSB_DEBUG
-  #define USBD_STACK_SIZE     (3*configMINIMAL_STACK_SIZE)
-#else
-  #define USBD_STACK_SIZE     (3*configMINIMAL_STACK_SIZE/2)
-#endif
+#define USBD_STACK_SIZE     (4*1024)
 
 StackType_t  usb_device_stack[USBD_STACK_SIZE];
 StaticTask_t usb_device_taskdef;
-
-// static task for cdc
-#define CDC_STACK_SZIE      configMINIMAL_STACK_SIZE
-StackType_t  cdc_stack[CDC_STACK_SZIE];
-StaticTask_t cdc_taskdef;
-
 
 void led_blinky_cb(TimerHandle_t xTimer);
 void usb_device_task(void* param);
@@ -149,64 +139,6 @@ void tud_resume_cb(void)
 {
   xTimerChangePeriod(blinky_tm, pdMS_TO_TICKS(BLINK_MOUNTED), 0);
 }
-
-#if 0
-//--------------------------------------------------------------------+
-// USB CDC
-//--------------------------------------------------------------------+
-void cdc_task(void* params)
-{
-  (void) params;
-
-  // RTOS forever loop
-  while ( 1 )
-  {
-    if ( tud_cdc_connected() )
-    {
-      // connected and there are data available
-      if ( tud_cdc_available() )
-      {
-        uint8_t buf[64];
-
-        // read and echo back
-        uint32_t count = tud_cdc_read(buf, sizeof(buf));
-
-        for(uint32_t i=0; i<count; i++)
-        {
-          tud_cdc_write_char(buf[i]);
-
-          if ( buf[i] == '\r' ) tud_cdc_write_char('\n');
-        }
-
-        tud_cdc_write_flush();
-      }
-    }
-
-    // For ESP32-S2 this delay is essential to allow idle how to run and reset wdt
-    vTaskDelay(pdMS_TO_TICKS(10));
-  }
-}
-
-// Invoked when cdc when line state changed e.g connected/disconnected
-void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts)
-{
-  (void) itf;
-
-  // connected
-  if ( dtr && rts )
-  {
-    // print initial message when connected
-    tud_cdc_write_str("\r\nTinyUSB CDC MSC device with FreeRTOS example\r\n");
-  }
-}
-
-// Invoked when CDC interface received data from host
-void tud_cdc_rx_cb(uint8_t itf)
-{
-  (void) itf;
-}
-
-#endif
 
 //--------------------------------------------------------------------+
 // BLINKING TASK
