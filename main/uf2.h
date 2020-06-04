@@ -45,8 +45,8 @@ SOFTWARE.
 #define CFG_UF2_FLASH_SIZE        (1024*1024) // 1 MB
 
 // Application Address Space TODO use partition table
-#define USER_FLASH_START          0x200000
-#define USER_FLASH_END            (0x200000 + 0x10000)
+#define USER_FLASH_START          0x10000
+#define USER_FLASH_END            0x90000 // 512 KB of OTA0
 
 
 #define CFG_UF2_NUM_BLOCKS        0x10109     // just under 32MB
