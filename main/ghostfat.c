@@ -167,13 +167,10 @@ STATIC_ASSERT( CLUSTER_COUNT >= 0x1015 && CLUSTER_COUNT < 0xFFD5 );
 
 
 #define UF2_FIRMWARE_BYTES_PER_SECTOR 256
-#define TRUE_USER_FLASH_SIZE (USER_FLASH_END-USER_FLASH_START)
-STATIC_ASSERT(TRUE_USER_FLASH_SIZE % UF2_FIRMWARE_BYTES_PER_SECTOR == 0); // UF2 requirement -- overall size must be integral multiple of per-sector payload?
-
-#define UF2_SECTORS        ( (TRUE_USER_FLASH_SIZE / UF2_FIRMWARE_BYTES_PER_SECTOR) + \
-                            ((TRUE_USER_FLASH_SIZE % UF2_FIRMWARE_BYTES_PER_SECTOR) ? 1 : 0))
+#define UF2_SECTORS        ((USER_FLASH_END-USER_FLASH_START) / UF2_FIRMWARE_BYTES_PER_SECTOR)
 #define UF2_SIZE           (UF2_SECTORS * BPB_SECTOR_SIZE)
 
+STATIC_ASSERT((USER_FLASH_END-USER_FLASH_START) % UF2_FIRMWARE_BYTES_PER_SECTOR == 0); // UF2 requirement -- overall size must be integral multiple of per-sector payload?
 STATIC_ASSERT(UF2_SECTORS == ((UF2_SIZE/2) / 256)); // Not a requirement ... ensuring replacement of literal value is not a change
 
 #define UF2_FIRST_SECTOR   ((NUM_FILES + 1) * BPB_SECTORS_PER_CLUSTER) // WARNING -- code presumes each non-UF2 file content fits in single sector
@@ -243,10 +240,9 @@ void uf2_read_block(uint32_t block_no, uint8_t *data) {
         memcpy(data, &BootBlock, sizeof(BootBlock));
         data[510] = 0x55; // Always at offsets 510/511, even when BPB_SECTOR_SIZE is larger
         data[511] = 0xaa; // Always at offsets 510/511, even when BPB_SECTOR_SIZE is larger
-        // logval("data[0]", data[0]);
     } else if (block_no < FS_START_ROOTDIR_SECTOR) {  // Requested FAT table sector
         sectionIdx -= FS_START_FAT0_SECTOR;
-        // logval("sidx", sectionIdx);
+
         if (sectionIdx >= BPB_SECTORS_PER_FAT) {
             sectionIdx -= BPB_SECTORS_PER_FAT; // second FAT is same as the first...
         }
@@ -378,12 +374,6 @@ int uf2_write_block (uint32_t block_no, uint8_t *data, WriteState *state)
       if ( state->numWritten >= state->numBlocks )
       {
         //flash_nrf5x_flush(true);
-
-        // Failed if update bootloader without UCIR value
-        if ( state->update_bootloader && !state->has_uicr )
-        {
-          state->aborted = true;
-        }
       }
     }
   }

@@ -42,11 +42,11 @@ SOFTWARE.
 // Family ID for updating Application
 #define CFG_UF2_FAMILY_ID         0xbfdd4eee
 
-#define CFG_UF2_FLASH_SIZE        (1024*1024) // 1 MB
+#define CFG_UF2_FLASH_SIZE        (512*1024)
 
 // Application Address Space TODO use partition table
-#define USER_FLASH_START          0x10000
-#define USER_FLASH_END            0x90000 // 512 KB of OTA0
+#define USER_FLASH_START          0x3FFE0000 //0x10000
+#define USER_FLASH_END            0x40000000 // 0x90000 // 512 KB of OTA0
 
 
 #define CFG_UF2_NUM_BLOCKS        0x10109     // just under 32MB
@@ -70,9 +70,6 @@ typedef struct {
     uint32_t numWritten;
 
     bool aborted;             // aborting update and reset
-    bool update_bootloader;   // if updating bootloader (else app)
-    bool has_uicr;            // if containing uicr data
-    bool boot_id_matches;     // if bootloader id in cf2 config matches our VID/PID
 
     uint8_t writtenMask[MAX_BLOCKS / 8 + 1];
 } WriteState;
