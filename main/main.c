@@ -42,20 +42,9 @@
 // MACRO CONSTANT TYPEDEF PROTYPES
 //--------------------------------------------------------------------+
 
-/* Blink pattern
- * - 250 ms  : device not mounted
- * - 1000 ms : device mounted
- * - 2500 ms : device is suspended
- */
-enum  {
-  BLINK_NOT_MOUNTED = 250,
-  BLINK_MOUNTED = 1000,
-  BLINK_SUSPENDED = 2500,
-};
-
-// static timer
-StaticTimer_t blinky_tmdef;
-TimerHandle_t blinky_tm;
+//// static timer
+//StaticTimer_t blinky_tmdef;
+//TimerHandle_t blinky_tm;
 
 // static task for usbd
 // Increase stack size when debug log is enabled
@@ -66,7 +55,6 @@ StaticTask_t usb_device_taskdef;
 
 void led_blinky_cb(TimerHandle_t xTimer);
 void usb_device_task(void* param);
-void cdc_task(void* params);
 
 static const char *TAG = "uf2";
 
@@ -79,19 +67,16 @@ void app_main(void)
   ESP_LOGI(TAG, "Hello");
 
   board_init();
+  board_led_state(STATE_BOOTLOADER_STARTED);
+
   tusb_init();
 
   // soft timer for blinky
-  blinky_tm = xTimerCreateStatic(NULL, pdMS_TO_TICKS(BLINK_NOT_MOUNTED), true, NULL, led_blinky_cb, &blinky_tmdef);
-  xTimerStart(blinky_tm, 0);
+//  blinky_tm = xTimerCreateStatic(NULL, pdMS_TO_TICKS(BLINK_NOT_MOUNTED), true, NULL, led_blinky_cb, &blinky_tmdef);
+//  xTimerStart(blinky_tm, 0);
 
   // Create a task for tinyusb device stack
   (void) xTaskCreateStatic( usb_device_task, "usbd", USBD_STACK_SIZE, NULL, configMAX_PRIORITIES-1, usb_device_stack, &usb_device_taskdef);
-
-#if 0
-  // Create CDC task
-  (void) xTaskCreateStatic( cdc_task, "cdc", CDC_STACK_SZIE, NULL, configMAX_PRIORITIES-2, cdc_stack, &cdc_taskdef);
-#endif
 
 }
 
@@ -116,13 +101,13 @@ void usb_device_task(void* param)
 // Invoked when device is mounted
 void tud_mount_cb(void)
 {
-  xTimerChangePeriod(blinky_tm, pdMS_TO_TICKS(BLINK_MOUNTED), 0);
+  board_led_state(STATE_USB_MOUNTED);
 }
 
 // Invoked when device is unmounted
 void tud_umount_cb(void)
 {
-  xTimerChangePeriod(blinky_tm, pdMS_TO_TICKS(BLINK_NOT_MOUNTED), 0);
+  board_led_state(STATE_USB_UNMOUNTED);
 }
 
 // Invoked when usb bus is suspended
@@ -131,23 +116,21 @@ void tud_umount_cb(void)
 void tud_suspend_cb(bool remote_wakeup_en)
 {
   (void) remote_wakeup_en;
-  xTimerChangePeriod(blinky_tm, pdMS_TO_TICKS(BLINK_SUSPENDED), 0);
 }
 
 // Invoked when usb bus is resumed
 void tud_resume_cb(void)
 {
-  xTimerChangePeriod(blinky_tm, pdMS_TO_TICKS(BLINK_MOUNTED), 0);
 }
 
 //--------------------------------------------------------------------+
 // BLINKING TASK
 //--------------------------------------------------------------------+
-void led_blinky_cb(TimerHandle_t xTimer)
-{
-  (void) xTimer;
-  static bool led_state = false;
-
-  board_led_write(led_state);
-  led_state = 1 - led_state; // toggle
-}
+//void led_blinky_cb(TimerHandle_t xTimer)
+//{
+//  (void) xTimer;
+//  static bool led_state = false;
+//
+//  board_led_write(led_state);
+//  led_state = 1 - led_state; // toggle
+//}

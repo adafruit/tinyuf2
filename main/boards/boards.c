@@ -86,5 +86,21 @@ void board_led_write(bool state)
 
 void board_led_state(uint32_t state)
 {
-  (void) state;
+  switch(state)
+  {
+    case STATE_BOOTLOADER_STARTED:
+    case STATE_USB_UNMOUNTED:
+      strip->set_pixel(strip, 0, 0x88, 0x00, 0x00);
+    break;
+
+    case STATE_USB_MOUNTED:
+      strip->set_pixel(strip, 0, 0x00, 0x88, 0x00);
+    break;
+
+    default:
+      strip->set_pixel(strip, 0, 0x00, 0x00, 0x88);
+    break;
+  }
+
+  strip->refresh(strip, 100);
 }
