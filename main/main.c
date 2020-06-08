@@ -36,16 +36,13 @@
 
 #include "esp_log.h"
 #include "boards/boards.h"
+#include "flash_hal.h"
 #include "tusb.h"
 #include "uf2.h"
 
 //--------------------------------------------------------------------+
 // MACRO CONSTANT TYPEDEF PROTYPES
 //--------------------------------------------------------------------+
-
-//// static timer
-//StaticTimer_t blinky_tmdef;
-//TimerHandle_t blinky_tm;
 
 // static task for usbd
 // Increase stack size when debug log is enabled
@@ -54,7 +51,6 @@
 StackType_t  usb_device_stack[USBD_STACK_SIZE];
 StaticTask_t usb_device_taskdef;
 
-void led_blinky_cb(TimerHandle_t xTimer);
 void usb_device_task(void* param);
 
 static const char *TAG = "uf2";
@@ -70,12 +66,9 @@ void app_main(void)
   board_init();
   board_led_state(STATE_BOOTLOADER_STARTED);
 
+  flash_hal_init();
   uf2_init();
   tusb_init();
-
-  // soft timer for blinky
-//  blinky_tm = xTimerCreateStatic(NULL, pdMS_TO_TICKS(BLINK_NOT_MOUNTED), true, NULL, led_blinky_cb, &blinky_tmdef);
-//  xTimerStart(blinky_tm, 0);
 
   // Create a task for tinyusb device stack
   (void) xTaskCreateStatic( usb_device_task, "usbd", USBD_STACK_SIZE, NULL, configMAX_PRIORITIES-1, usb_device_stack, &usb_device_taskdef);
@@ -124,14 +117,4 @@ void tud_resume_cb(void)
 {
 }
 
-//--------------------------------------------------------------------+
-// BLINKING TASK
-//--------------------------------------------------------------------+
-//void led_blinky_cb(TimerHandle_t xTimer)
-//{
-//  (void) xTimer;
-//  static bool led_state = false;
-//
-//  board_led_write(led_state);
-//  led_state = 1 - led_state; // toggle
-//}
+

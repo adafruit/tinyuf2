@@ -43,7 +43,6 @@ SOFTWARE.
 #define CFG_UF2_FAMILY_ID         0xbfdd4eee
 
 #define CFG_UF2_FLASH_SIZE        (4*1024*1024)
-
 #define CFG_UF2_NUM_BLOCKS        0x10109     // just under 32MB
 
 //--------------------------------------------------------------------+

@@ -32,6 +32,9 @@
 #include "hal/usb_hal.h"
 #include "soc/usb_periph.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/timers.h"
+
 //--------------------------------------------------------------------+
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
 //--------------------------------------------------------------------+
@@ -76,11 +79,25 @@ void board_teardown(void)
 
 }
 
+//--------------------------------------------------------------------+
+// LED pattern
+//--------------------------------------------------------------------+
+TimerHandle_t blinky_tm =  NULL;
 
-// Turn LED on or off
-void board_led_write(bool state)
+void led_blinky_cb(TimerHandle_t xTimer)
 {
-  strip->set_pixel(strip, 0, (state ? 0x88 : 0x00), 0x00, 0x00);
+  (void) xTimer;
+  static bool led_state = false;
+  led_state = 1 - led_state; // toggle
+
+  if ( led_state )
+  {
+    strip->set_pixel(strip, 0, 0xff, 0x80, 0x00);
+  }else
+  {
+    strip->set_pixel(strip, 0, 0x00, 0x00, 0x00);
+  }
+
   strip->refresh(strip, 100);
 }
 
@@ -95,6 +112,17 @@ void board_led_state(uint32_t state)
 
     case STATE_USB_MOUNTED:
       strip->set_pixel(strip, 0, 0x00, 0x88, 0x00);
+    break;
+
+    case STATE_WRITING_STARTED:
+      // soft timer for blinky
+      blinky_tm = xTimerCreate(NULL, pdMS_TO_TICKS(100), true, NULL, led_blinky_cb);
+      xTimerStart(blinky_tm, 0);
+    break;
+
+    case STATE_WRITING_FINISHED:
+      xTimerStop(blinky_tm, 0);
+      strip->set_pixel(strip, 0, 0xff, 0x80, 0x00);
     break;
 
     default:

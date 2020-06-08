@@ -26,6 +26,9 @@
 #include "uf2.h"
 #include "boards/boards.h"
 
+#include "esp_partition.h"
+#include "esp_ota_ops.h"
+
 /*------------------------------------------------------------------*/
 /* MACRO TYPEDEF CONSTANT ENUM
  *------------------------------------------------------------------*/
@@ -171,7 +174,11 @@ void tud_msc_write10_complete_cb(uint8_t lun)
     // All block of uf2 file is complete --> complete DFU process
     if (_wr_state.numWritten >= _wr_state.numBlocks)
     {
+      // Set partition OTA0 as bootable
+      esp_ota_set_boot_partition(esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL));
       board_led_state(STATE_WRITING_FINISHED);
+
+      esp_restart();
     }
   }
 }

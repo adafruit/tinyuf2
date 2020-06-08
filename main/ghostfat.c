@@ -28,11 +28,11 @@
 #include <stdio.h>
 #include <assert.h>
 
+#include "esp_log.h"
+
 #include "uf2.h"
 #include "compile_date.h"
-
-#include "esp_log.h"
-#include "esp_partition.h"
+#include "flash_hal.h"
 
 //--------------------------------------------------------------------+
 //
@@ -170,13 +170,11 @@ STATIC_ASSERT( CLUSTER_COUNT >= 0x0FF5 && CLUSTER_COUNT < 0xFFF5 );
 STATIC_ASSERT( CLUSTER_COUNT >= 0x1015 && CLUSTER_COUNT < 0xFFD5 );
 
 
-#define UF2_FIRMWARE_BYTES_PER_SECTOR 256
-#define UF2_SECTORS        (_part_ota0->size / UF2_FIRMWARE_BYTES_PER_SECTOR)
-#define UF2_SIZE           (UF2_SECTORS * BPB_SECTOR_SIZE)
-
-
 #define USER_FLASH_START   0
 
+#define UF2_FIRMWARE_BYTES_PER_SECTOR 256
+#define UF2_SECTORS        (_flash_size / UF2_FIRMWARE_BYTES_PER_SECTOR)
+#define UF2_SIZE           (UF2_SECTORS * BPB_SECTOR_SIZE)
 
 #define UF2_FIRST_SECTOR   ((NUM_FILES + 1) * BPB_SECTORS_PER_CLUSTER) // WARNING -- code presumes each non-UF2 file content fits in single sector
 #define UF2_LAST_SECTOR    ((UF2_FIRST_SECTOR + UF2_SECTORS - 1) * BPB_SECTORS_PER_CLUSTER)
@@ -211,8 +209,8 @@ static FAT_BootBlock const BootBlock = {
     .FilesystemIdentifier = "FAT16   ",
 };
 
-// uf2 will always write to ota0 partition
-static esp_partition_t const * _part_ota0 = NULL;
+// ota0 partition size
+static uint32_t _flash_size;
 
 //--------------------------------------------------------------------+
 //
@@ -229,14 +227,7 @@ static inline bool is_uf2_block (UF2_Block const *bl)
 
 void uf2_init(void)
 {
-  _part_ota0 = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL);
-  assert(_part_ota0 != NULL);
-
-  PRINT_INT(_part_ota0->type);
-  PRINT_HEX(_part_ota0->subtype);
-  PRINT_HEX(_part_ota0->address);
-  PRINT_HEX(_part_ota0->size);
-  PRINT_INT(_part_ota0->encrypted);
+  _flash_size = flash_hal_size();
 }
 
 /*------------------------------------------------------------------*/
@@ -360,10 +351,9 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
         bl->flags = UF2_FLAG_FAMILYID;
         bl->familyID = CFG_UF2_FAMILY_ID;
 
-        esp_partition_read(_part_ota0, addr, bl->data, bl->payloadSize);
+        flash_hal_read(addr, bl->data, bl->payloadSize);
       }
     }
-
   }
 }
 
@@ -417,7 +407,7 @@ int uf2_write_block (uint32_t block_no, uint8_t *data, WriteState *state)
       // TODO numWritten can be smaller than numBlocks if return early
       if ( state->numWritten >= state->numBlocks )
       {
-        //flash_nrf5x_flush(true);
+        flash_hal_flush();
       }
     }
   }
