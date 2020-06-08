@@ -42,12 +42,7 @@ SOFTWARE.
 // Family ID for updating Application
 #define CFG_UF2_FAMILY_ID         0xbfdd4eee
 
-#define CFG_UF2_FLASH_SIZE        (512*1024)
-
-// Application Address Space TODO use partition table
-#define USER_FLASH_START          0x3FFE0000 //0x10000
-#define USER_FLASH_END            0x40000000 // 0x90000 // 512 KB of OTA0
-
+#define CFG_UF2_FLASH_SIZE        (4*1024*1024)
 
 #define CFG_UF2_NUM_BLOCKS        0x10109     // just under 32MB
 

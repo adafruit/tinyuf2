@@ -37,6 +37,7 @@
 #include "esp_log.h"
 #include "boards/boards.h"
 #include "tusb.h"
+#include "uf2.h"
 
 //--------------------------------------------------------------------+
 // MACRO CONSTANT TYPEDEF PROTYPES
@@ -69,6 +70,7 @@ void app_main(void)
   board_init();
   board_led_state(STATE_BOOTLOADER_STARTED);
 
+  uf2_init();
   tusb_init();
 
   // soft timer for blinky
@@ -77,7 +79,6 @@ void app_main(void)
 
   // Create a task for tinyusb device stack
   (void) xTaskCreateStatic( usb_device_task, "usbd", USBD_STACK_SIZE, NULL, configMAX_PRIORITIES-1, usb_device_stack, &usb_device_taskdef);
-
 }
 
 // USB Device Driver task

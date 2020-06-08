@@ -26,9 +26,13 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <assert.h>
 
 #include "uf2.h"
 #include "compile_date.h"
+
+#include "esp_log.h"
+#include "esp_partition.h"
 
 //--------------------------------------------------------------------+
 //
@@ -167,11 +171,12 @@ STATIC_ASSERT( CLUSTER_COUNT >= 0x1015 && CLUSTER_COUNT < 0xFFD5 );
 
 
 #define UF2_FIRMWARE_BYTES_PER_SECTOR 256
-#define UF2_SECTORS        ((USER_FLASH_END-USER_FLASH_START) / UF2_FIRMWARE_BYTES_PER_SECTOR)
+#define UF2_SECTORS        (_part_ota0->size / UF2_FIRMWARE_BYTES_PER_SECTOR)
 #define UF2_SIZE           (UF2_SECTORS * BPB_SECTOR_SIZE)
 
-STATIC_ASSERT((USER_FLASH_END-USER_FLASH_START) % UF2_FIRMWARE_BYTES_PER_SECTOR == 0); // UF2 requirement -- overall size must be integral multiple of per-sector payload?
-STATIC_ASSERT(UF2_SECTORS == ((UF2_SIZE/2) / 256)); // Not a requirement ... ensuring replacement of literal value is not a change
+
+#define USER_FLASH_START   0
+
 
 #define UF2_FIRST_SECTOR   ((NUM_FILES + 1) * BPB_SECTORS_PER_CLUSTER) // WARNING -- code presumes each non-UF2 file content fits in single sector
 #define UF2_LAST_SECTOR    ((UF2_FIRST_SECTOR + UF2_SECTORS - 1) * BPB_SECTORS_PER_CLUSTER)
@@ -181,6 +186,9 @@ STATIC_ASSERT(UF2_SECTORS == ((UF2_SIZE/2) / 256)); // Not a requirement ... ens
 #define FS_START_ROOTDIR_SECTOR   (FS_START_FAT1_SECTOR + BPB_SECTORS_PER_FAT)
 #define FS_START_CLUSTERS_SECTOR  (FS_START_ROOTDIR_SECTOR + ROOT_DIR_SECTOR_COUNT)
 
+//--------------------------------------------------------------------+
+//
+//--------------------------------------------------------------------+
 
 static FAT_BootBlock const BootBlock = {
     .JumpInstruction      = {0xeb, 0x3c, 0x90},
@@ -203,17 +211,32 @@ static FAT_BootBlock const BootBlock = {
     .FilesystemIdentifier = "FAT16   ",
 };
 
+// uf2 will always write to ota0 partition
+static esp_partition_t const * _part_ota0 = NULL;
+
 //--------------------------------------------------------------------+
 //
 //--------------------------------------------------------------------+
+
 static inline bool is_uf2_block (UF2_Block const *bl)
 {
   return (bl->magicStart0 == UF2_MAGIC_START0) &&
          (bl->magicStart1 == UF2_MAGIC_START1) &&
          (bl->magicEnd == UF2_MAGIC_END) &&
          (bl->flags & UF2_FLAG_FAMILYID) &&
-         !(bl->flags & UF2_FLAG_NOFLASH) &&
-         (bl->payloadSize == UF2_FIRMWARE_BYTES_PER_SECTOR);
+         !(bl->flags & UF2_FLAG_NOFLASH);
+}
+
+void uf2_init(void)
+{
+  _part_ota0 = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL);
+  assert(_part_ota0 != NULL);
+
+  PRINT_INT(_part_ota0->type);
+  PRINT_HEX(_part_ota0->subtype);
+  PRINT_HEX(_part_ota0->address);
+  PRINT_HEX(_part_ota0->size);
+  PRINT_INT(_part_ota0->encrypted);
 }
 
 /*------------------------------------------------------------------*/
@@ -232,95 +255,116 @@ void padded_memcpy (char *dst, char const *src, int len)
   }
 }
 
-void uf2_read_block(uint32_t block_no, uint8_t *data) {
-    memset(data, 0, BPB_SECTOR_SIZE);
-    uint32_t sectionIdx = block_no;
+void uf2_read_block (uint32_t block_no, uint8_t *data)
+{
+  memset(data, 0, BPB_SECTOR_SIZE);
+  uint32_t sectionIdx = block_no;
 
-    if (block_no == 0) { // Requested boot block
-        memcpy(data, &BootBlock, sizeof(BootBlock));
-        data[510] = 0x55; // Always at offsets 510/511, even when BPB_SECTOR_SIZE is larger
-        data[511] = 0xaa; // Always at offsets 510/511, even when BPB_SECTOR_SIZE is larger
-    } else if (block_no < FS_START_ROOTDIR_SECTOR) {  // Requested FAT table sector
-        sectionIdx -= FS_START_FAT0_SECTOR;
+  if ( block_no == 0 )
+  {
+    // Requested boot block
+    memcpy(data, &BootBlock, sizeof(BootBlock));
+    data[510] = 0x55;    // Always at offsets 510/511, even when BPB_SECTOR_SIZE is larger
+    data[511] = 0xaa;    // Always at offsets 510/511, even when BPB_SECTOR_SIZE is larger
+  }
+  else if ( block_no < FS_START_ROOTDIR_SECTOR )
+  {
+    // Requested FAT table sector
+    sectionIdx -= FS_START_FAT0_SECTOR;
 
-        if (sectionIdx >= BPB_SECTORS_PER_FAT) {
-            sectionIdx -= BPB_SECTORS_PER_FAT; // second FAT is same as the first...
-        }
-        if (sectionIdx == 0) {
-            // first FAT entry must match BPB MediaDescriptor
-            data[0] = BPB_MEDIA_DESCRIPTOR_BYTE;
-            // WARNING -- code presumes only one NULL .content for .UF2 file
-            //            and all non-NULL .content fit in one sector
-            //            and requires it be the last element of the array
-            uint32_t const end = (NUM_FILES * FAT_ENTRY_SIZE) + (2 * FAT_ENTRY_SIZE);
-            for (uint32_t i = 1; i < end; ++i) {
-                data[i] = 0xff;
-            }
-        }
-        for (uint32_t i = 0; i < FAT_ENTRIES_PER_SECTOR; ++i) { // Generate the FAT chain for the firmware "file"
-            uint32_t v = (sectionIdx * FAT_ENTRIES_PER_SECTOR) + i;
-            if (UF2_FIRST_SECTOR <= v && v <= UF2_LAST_SECTOR)
-                ((uint16_t *)(void *)data)[i] = v == UF2_LAST_SECTOR ? 0xffff : v + 1;
-        }
-    } else if (block_no < FS_START_CLUSTERS_SECTOR) { // Requested root directory sector
+    // second FAT is same as the first...
+    if ( sectionIdx >= BPB_SECTORS_PER_FAT ) sectionIdx -= BPB_SECTORS_PER_FAT;
 
-        sectionIdx -= FS_START_ROOTDIR_SECTOR;
-
-        DirEntry *d = (void *)data;
-        int remainingEntries = DIRENTRIES_PER_SECTOR;
-        if (sectionIdx == 0) { // volume label first
-            // volume label is first directory entry
-            padded_memcpy(d->name, (char const *) BootBlock.VolumeLabel, 11);
-            d->attrs = 0x28;
-            d++;
-            remainingEntries--;
-        }
-
-        for (uint32_t i = DIRENTRIES_PER_SECTOR * sectionIdx;
-             remainingEntries > 0 && i < NUM_FILES;
-             i++, d++) {
-
-            // WARNING -- code presumes all but last file take exactly one sector
-            uint16_t startCluster = i + 2;
-
-            struct TextFile const * inf = &info[i];
-            padded_memcpy(d->name, inf->name, 11);
-            d->createTimeFine   = __SECONDS_INT__ % 2 * 100;
-            d->createTime       = __DOSTIME__;
-            d->createDate       = __DOSDATE__;
-            d->lastAccessDate   = __DOSDATE__;
-            d->highStartCluster = startCluster >> 16;
-            // DIR_WrtTime and DIR_WrtDate must be supported
-            d->updateTime       = __DOSTIME__;
-            d->updateDate       = __DOSDATE__;
-            d->startCluster     = startCluster & 0xFFFF;
-            d->size = (inf->content ? strlen(inf->content) : UF2_SIZE);
-        }
-
-    } else if (block_no < BPB_TOTAL_SECTORS) {
-
-        sectionIdx -= FS_START_CLUSTERS_SECTOR;
-        if (sectionIdx < NUM_FILES - 1) {
-            memcpy(data, info[sectionIdx].content, strlen(info[sectionIdx].content));
-        } else { // generate the UF2 file data on-the-fly
-            sectionIdx -= NUM_FILES - 1;
-            uint32_t addr = USER_FLASH_START + (sectionIdx * UF2_FIRMWARE_BYTES_PER_SECTOR);
-            if (addr < CFG_UF2_FLASH_SIZE) {
-                UF2_Block *bl = (void *)data;
-                bl->magicStart0 = UF2_MAGIC_START0;
-                bl->magicStart1 = UF2_MAGIC_START1;
-                bl->magicEnd = UF2_MAGIC_END;
-                bl->blockNo = sectionIdx;
-                bl->numBlocks = UF2_SECTORS;
-                bl->targetAddr = addr;
-                bl->payloadSize = UF2_FIRMWARE_BYTES_PER_SECTOR;
-                bl->flags = UF2_FLAG_FAMILYID;
-                bl->familyID = CFG_UF2_FAMILY_ID;
-                memcpy(bl->data, (void *)addr, bl->payloadSize);
-            }
-        }
-
+    if ( sectionIdx == 0 )
+    {
+      // first FAT entry must match BPB MediaDescriptor
+      data[0] = BPB_MEDIA_DESCRIPTOR_BYTE;
+      // WARNING -- code presumes only one NULL .content for .UF2 file
+      //            and all non-NULL .content fit in one sector
+      //            and requires it be the last element of the array
+      uint32_t const end = (NUM_FILES * FAT_ENTRY_SIZE) + (2 * FAT_ENTRY_SIZE);
+      for ( uint32_t i = 1; i < end; ++i ) data[i] = 0xff;
     }
+
+    for ( uint32_t i = 0; i < FAT_ENTRIES_PER_SECTOR; ++i )
+    {
+      // Generate the FAT chain for the firmware "file"
+      uint32_t v = (sectionIdx * FAT_ENTRIES_PER_SECTOR) + i;
+
+      if ( UF2_FIRST_SECTOR <= v && v <= UF2_LAST_SECTOR )
+      {
+        ((uint16_t*) (void*) data)[i] = v == UF2_LAST_SECTOR ? 0xffff : v + 1;
+      }
+    }
+  }
+  else if ( block_no < FS_START_CLUSTERS_SECTOR )
+  {
+    // Requested root directory sector
+
+    sectionIdx -= FS_START_ROOTDIR_SECTOR;
+
+    DirEntry *d = (void*) data;
+    int remainingEntries = DIRENTRIES_PER_SECTOR;
+    if ( sectionIdx == 0 )
+    {
+      // volume label first
+      // volume label is first directory entry
+      padded_memcpy(d->name, (char const*) BootBlock.VolumeLabel, 11);
+      d->attrs = 0x28;
+      d++;
+      remainingEntries--;
+    }
+
+    for ( uint32_t i = DIRENTRIES_PER_SECTOR * sectionIdx;
+        remainingEntries > 0 && i < NUM_FILES;
+        i++, d++ )
+    {
+      // WARNING -- code presumes all but last file take exactly one sector
+      uint16_t startCluster = i + 2;
+
+      struct TextFile const *inf = &info[i];
+      padded_memcpy(d->name, inf->name, 11);
+      d->createTimeFine = __SECONDS_INT__ % 2 * 100;
+      d->createTime = __DOSTIME__;
+      d->createDate = __DOSDATE__;
+      d->lastAccessDate = __DOSDATE__;
+      d->highStartCluster = startCluster >> 16;
+      d->updateTime = __DOSTIME__;
+      d->updateDate = __DOSDATE__;
+      d->startCluster = startCluster & 0xFFFF;
+      d->size = (inf->content ? strlen(inf->content) : UF2_SIZE);
+    }
+  }
+  else if ( block_no < BPB_TOTAL_SECTORS )
+  {
+    sectionIdx -= FS_START_CLUSTERS_SECTOR;
+    if ( sectionIdx < NUM_FILES - 1 )
+    {
+      memcpy(data, info[sectionIdx].content, strlen(info[sectionIdx].content));
+    }
+    else
+    {
+      // generate the UF2 file data on-the-fly
+      sectionIdx -= NUM_FILES - 1;
+      uint32_t addr = USER_FLASH_START + (sectionIdx * UF2_FIRMWARE_BYTES_PER_SECTOR);
+      if ( addr < CFG_UF2_FLASH_SIZE )
+      {
+        UF2_Block *bl = (void*) data;
+        bl->magicStart0 = UF2_MAGIC_START0;
+        bl->magicStart1 = UF2_MAGIC_START1;
+        bl->magicEnd = UF2_MAGIC_END;
+        bl->blockNo = sectionIdx;
+        bl->numBlocks = UF2_SECTORS;
+        bl->targetAddr = addr;
+        bl->payloadSize = UF2_FIRMWARE_BYTES_PER_SECTOR;
+        bl->flags = UF2_FLAG_FAMILYID;
+        bl->familyID = CFG_UF2_FAMILY_ID;
+
+        esp_partition_read(_part_ota0, addr, bl->data, bl->payloadSize);
+      }
+    }
+
+  }
 }
 
 /*------------------------------------------------------------------*/
