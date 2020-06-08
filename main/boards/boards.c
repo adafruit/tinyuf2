@@ -115,7 +115,7 @@ void board_led_state(uint32_t state)
 
     case STATE_WRITING_STARTED:
       // soft timer for blinky
-      blinky_tm = xTimerCreate(NULL, pdMS_TO_TICKS(100), true, NULL, led_blinky_cb);
+      blinky_tm = xTimerCreate(NULL, pdMS_TO_TICKS(50), true, NULL, led_blinky_cb);
       xTimerStart(blinky_tm, 0);
     break;
 
