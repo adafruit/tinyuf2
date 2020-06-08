@@ -376,7 +376,12 @@ int uf2_write_block (uint32_t block_no, uint8_t *data, WriteState *state)
 
   if (bl->familyID == CFG_UF2_FAMILY_ID)
   {
-
+    // generic family ID
+    flash_hal_write(bl->targetAddr, bl->data, bl->payloadSize);
+  }else
+  {
+    // TODO family matches VID/PID
+    return -1;
   }
 
   //------------- Update written blocks -------------//

@@ -59,7 +59,6 @@ void board_init(void)
   strip = led_strip_new_rmt_ws2812(&strip_config);
   strip->clear(strip, 100); // off led
 
-
   // USB Controller Hal init
   periph_module_reset(PERIPH_USB_MODULE);
   periph_module_enable(PERIPH_USB_MODULE);
@@ -82,7 +81,7 @@ void board_teardown(void)
 //--------------------------------------------------------------------+
 // LED pattern
 //--------------------------------------------------------------------+
-TimerHandle_t blinky_tm =  NULL;
+TimerHandle_t blinky_tm = NULL;
 
 void led_blinky_cb(TimerHandle_t xTimer)
 {

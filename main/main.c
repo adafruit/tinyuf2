@@ -44,20 +44,28 @@
 // MACRO CONSTANT TYPEDEF PROTYPES
 //--------------------------------------------------------------------+
 
+static const char *TAG = "uf2";
+
 // static task for usbd
 // Increase stack size when debug log is enabled
 #define USBD_STACK_SIZE     (4*1024)
 
-StackType_t  usb_device_stack[USBD_STACK_SIZE];
-StaticTask_t usb_device_taskdef;
+static StackType_t  usb_device_stack[USBD_STACK_SIZE];
+static StaticTask_t usb_device_taskdef;
 
-void usb_device_task(void* param);
+// USB Device Driver task
+// This top level thread process all usb events and invoke callbacks
+void usb_device_task(void* param)
+{
+  (void) param;
 
-static const char *TAG = "uf2";
+  // RTOS forever loop
+  while (1)
+  {
+    tud_task();
+  }
+}
 
-//--------------------------------------------------------------------+
-// Main
-//--------------------------------------------------------------------+
 
 void app_main(void)
 {
@@ -71,21 +79,7 @@ void app_main(void)
   tusb_init();
 
   // Create a task for tinyusb device stack
-  (void) xTaskCreateStatic( usb_device_task, "usbd", USBD_STACK_SIZE, NULL, configMAX_PRIORITIES-1, usb_device_stack, &usb_device_taskdef);
-}
-
-// USB Device Driver task
-// This top level thread process all usb events and invoke callbacks
-void usb_device_task(void* param)
-{
-  (void) param;
-
-  // RTOS forever loop
-  while (1)
-  {
-    // tinyusb device task
-    tud_task();
-  }
+  (void) xTaskCreateStatic( usb_device_task, "usbd", USBD_STACK_SIZE, NULL, configMAX_PRIORITIES-2, usb_device_stack, &usb_device_taskdef);
 }
 
 //--------------------------------------------------------------------+

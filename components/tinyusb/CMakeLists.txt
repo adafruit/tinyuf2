@@ -21,5 +21,5 @@ target_sources(${COMPONENT_TARGET} INTERFACE
     "${COMPONENT_DIR}/tinyusb/src/class/net/net_device.c"
     "${COMPONENT_DIR}/tinyusb/src/class/usbtmc/usbtmc_device.c"
     "${COMPONENT_DIR}/tinyusb/src/class/vendor/vendor_device.c"
-    "${COMPONENT_DIR}/tinyusb/src/portable/espressif/esp32s2/dcd_esp32s2.c"    
+    "${COMPONENT_DIR}/tinyusb/src/portable/espressif/esp32s2/dcd_esp32s2.c"
 )
