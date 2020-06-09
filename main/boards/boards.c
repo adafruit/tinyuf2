@@ -71,6 +71,12 @@ void board_init(void)
   // Pin drive strength
   gpio_set_drive_capability(USBPHY_DM_NUM, GPIO_DRIVE_CAP_3);
   gpio_set_drive_capability(USBPHY_DP_NUM, GPIO_DRIVE_CAP_3);
+
+//#define BLINK_GPIO 26
+//  gpio_pad_select_gpio(BLINK_GPIO);
+//  gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
+//  gpio_set_drive_capability(BLINK_GPIO, GPIO_DRIVE_CAP_3);
+//  gpio_set_level(BLINK_GPIO, 1);
 }
 
 void board_teardown(void)

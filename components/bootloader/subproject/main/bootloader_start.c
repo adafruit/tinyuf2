@@ -22,6 +22,85 @@ static const char *TAG = "boot";
 static int select_partition_number(bootloader_state_t *bs);
 static int selected_boot_partition(const bootloader_state_t *bs);
 
+#include "esp32s2/rom/gpio.h"
+#include "soc/gpio_periph.h"
+
+#include "soc/cpu.h"
+#include "soc/rtc.h"
+#include "esp32s2/rom/rtc.h"
+
+//#define LED_PIN               18 // v1.2 and later
+#define LED_PIN               17 // v1.1
+
+void board_neopixel_set(uint32_t num_pin, uint8_t pixels[], uint32_t numBytes)
+{
+  rtc_cpu_freq_config_t clk_config;
+  rtc_clk_cpu_freq_get_config(&clk_config);
+
+  uint32_t const f_cpu  = clk_config.freq_mhz*1000*1000;
+  uint32_t const time0  = f_cpu / 2500000; // 0.4 us
+  uint32_t const time1  = f_cpu / 1250000; // 0.8 us
+  uint32_t const period = f_cpu /  800000; // 1.25us per bit
+
+  uint8_t *p, *end, pix, mask;
+  uint32_t t, c, startTime;
+
+  p         = pixels;
+  end       =  p + numBytes;
+  pix       = *p++;
+  mask      = 0x80;
+  startTime = 0;
+
+  for(t = time0;; t = time0) {
+    if(pix & mask) t = time1;                             // Bit high duration
+    while(((c = esp_cpu_get_ccount()) - startTime) < period); // Wait for bit start
+
+    GPIO_OUTPUT_SET(num_pin, 1); // Set high
+    startTime = c;                                        // Save start time
+    while(((c = esp_cpu_get_ccount()) - startTime) < t);      // Wait high duration
+
+    GPIO_OUTPUT_SET(num_pin, 0); // Set low
+    if(!(mask >>= 1)) {                                   // Next bit/byte
+      if(p >= end) break;
+      pix  = *p++;
+      mask = 0x80;
+    }
+  }
+
+  while((esp_cpu_get_ccount() - startTime) < period); // Wait for last bit
+}
+
+void board_led_on(void)
+{
+  uint32_t num_pin = LED_PIN;
+
+  gpio_pad_select_gpio(num_pin);
+
+  if (GPIO_PIN_MUX_REG[num_pin])
+  {
+    PIN_INPUT_DISABLE(GPIO_PIN_MUX_REG[num_pin]);
+  }else
+  {
+    gpio_pad_input_disable(num_pin);
+  }
+
+  gpio_pad_set_drv(num_pin, 3);
+
+  // TODO want to set color to Orange, but the color is rather blue !!!
+  uint8_t pixels[3] = { 0xe0, 0x60, 0x00 };
+  board_neopixel_set(num_pin, pixels, sizeof(pixels));
+}
+
+void board_led_off(void)
+{
+  uint32_t num_pin = LED_PIN;
+
+  uint8_t pixels[3] = { 0x00, 0x00, 0x00 };
+  board_neopixel_set(num_pin, pixels, sizeof(pixels));
+
+  // TODO should de-select GPIO to set it back to default state
+}
+
 /*
  * We arrive here after the ROM bootloader finished loading this second stage bootloader from flash.
  * The hardware is mostly uninitialized, flash cache is down and the app CPU is in reset.
@@ -106,6 +185,34 @@ static int selected_boot_partition(const bootloader_state_t *bs)
             }
         }
 #endif
+        // UF2 modification to detect if GPIO0 is pressed during this time to load uf2 "bootloader" app
+        if ( boot_index != FACTORY_INDEX )
+        {
+          board_led_on();
+
+          uint32_t num_pin = 0;
+          gpio_pad_select_gpio(num_pin);
+          if (GPIO_PIN_MUX_REG[num_pin]) {
+            PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[num_pin]);
+          }
+          gpio_pad_pullup(num_pin);
+
+          uint32_t tm_start = esp_log_early_timestamp();
+          while (500 > (esp_log_early_timestamp() - tm_start) )
+          {
+            if ( GPIO_INPUT_GET(num_pin) == 0 )
+            {
+              ESP_LOGI(TAG, "Detect a condition of the UF2 Bootloader");
+
+              // Simply return factory index without erasing any other partition
+              boot_index = FACTORY_INDEX;
+              break;
+            }
+          }
+
+          board_led_off();
+        }
+
         // Customer implementation.
         // if (gpio_pin_1 == true && ...){
         //     boot_index = required_boot_partition;

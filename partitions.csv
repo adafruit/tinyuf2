@@ -11,5 +11,5 @@ ota_1    , 0    , ota_1   ,  0x90000 , 512K   ,
 nvs      , data , nvs     , 0x110000 , 0x6000 ,
 
 # temporarily incrase size for debugging, optimize later
-uf2      , app  , factory ,  , 512K   ,
+uf2      , app  , factory ,  , 512K  ,
 user_fs  , data , fat     , 0x200000 , 2M     ,
