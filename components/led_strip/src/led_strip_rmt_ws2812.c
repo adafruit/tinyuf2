@@ -46,6 +46,7 @@ typedef struct {
     led_strip_t parent;
     rmt_channel_t rmt_channel;
     uint32_t strip_len;
+    uint8_t brightness;
     uint8_t buffer[0];
 } ws2812_t;
 
@@ -99,6 +100,15 @@ static esp_err_t ws2812_set_pixel(led_strip_t *strip, uint32_t index, uint32_t r
     ws2812_t *ws2812 = __containerof(strip, ws2812_t, parent);
     STRIP_CHECK(index < ws2812->strip_len, "index out of the maximum number of leds", err, ESP_ERR_INVALID_ARG);
     uint32_t start = index * 3;
+
+    // brightness correction
+    if ( ws2812->brightness )
+    {
+      green = (green * ws2812->brightness) >> 8;
+      red   = (red   * ws2812->brightness) >> 8;
+      blue  = (blue  * ws2812->brightness) >> 8;
+    }
+
     // In thr order of GRB
     ws2812->buffer[start + 0] = green & 0xFF;
     ws2812->buffer[start + 1] = red & 0xFF;
@@ -134,6 +144,14 @@ static esp_err_t ws2812_del(led_strip_t *strip)
     return ESP_OK;
 }
 
+static esp_err_t ws2812_set_brightness(led_strip_t *strip, uint8_t brightness)
+{
+    ws2812_t *ws2812 = __containerof(strip, ws2812_t, parent);
+    ws2812->brightness = brightness;
+    return ESP_OK;
+}
+
+
 led_strip_t *led_strip_new_rmt_ws2812(const led_strip_config_t *config)
 {
     led_strip_t *ret = NULL;
@@ -159,11 +177,13 @@ led_strip_t *led_strip_new_rmt_ws2812(const led_strip_config_t *config)
 
     ws2812->rmt_channel = (rmt_channel_t)config->dev;
     ws2812->strip_len = config->max_leds;
+    ws2812->brightness = 0;
 
     ws2812->parent.set_pixel = ws2812_set_pixel;
     ws2812->parent.refresh = ws2812_refresh;
     ws2812->parent.clear = ws2812_clear;
     ws2812->parent.del = ws2812_del;
+    ws2812->parent.set_brightness = ws2812_set_brightness;
 
     return &ws2812->parent;
 err:

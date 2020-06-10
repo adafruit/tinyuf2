@@ -91,6 +91,10 @@ struct led_strip_s {
     *      - ESP_FAIL: Free resources failed because error occurred
     */
     esp_err_t (*del)(led_strip_t *strip);
+
+
+    // brightness is from 0 to 255
+    esp_err_t (*set_brightness) (led_strip_t *strip, uint8_t brightness);
 };
 
 /**
