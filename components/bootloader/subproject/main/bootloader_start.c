@@ -23,82 +23,88 @@ static int select_partition_number(bootloader_state_t *bs);
 static int selected_boot_partition(const bootloader_state_t *bs);
 
 #include "esp32s2/rom/gpio.h"
-#include "soc/gpio_periph.h"
-
 #include "soc/cpu.h"
-#include "soc/rtc.h"
-#include "esp32s2/rom/rtc.h"
+#include "hal/gpio_ll.h"
 
 //#define LED_PIN               18 // v1.2 and later
 #define LED_PIN               17 // v1.1
 
+// min 0, max 255
+#define LED_BRIGHTNESS    0x40
+
+static inline uint32_t ns2cycle(uint32_t ns)
+{
+  extern uint32_t g_ticks_per_us_pro; // e.g 80 for 80 Mhz
+  return (g_ticks_per_us_pro*ns) / 1000;
+}
+
+static inline uint32_t delay_cycle(uint32_t cycle)
+{
+  uint32_t ccount;
+  uint32_t start = esp_cpu_get_ccount();
+  while( (ccount = esp_cpu_get_ccount()) - start < cycle ) {}
+  return ccount;
+}
+
 void board_neopixel_set(uint32_t num_pin, uint8_t pixels[], uint32_t numBytes)
 {
-  rtc_cpu_freq_config_t clk_config;
-  rtc_clk_cpu_freq_get_config(&clk_config);
+  // WS2812B should be
+  // uint32_t const time0 = ns2cycle(400);
+  // uint32_t const time1  = ns2cycle(800);
+  // uint32_t const period = ns2cycle(1250);
 
-  uint32_t const f_cpu  = clk_config.freq_mhz*1000*1000;
-  uint32_t const time0  = f_cpu / 2500000; // 0.4 us
-  uint32_t const time1  = f_cpu / 1250000; // 0.8 us
-  uint32_t const period = f_cpu /  800000; // 1.25us per bit
+  // WS2812
+  uint32_t const time0  = ns2cycle(350);
+  uint32_t const time1  = ns2cycle(700);
+  uint32_t const period = ns2cycle(1250);
 
-  uint8_t *p, *end, pix, mask;
-  uint32_t t, c, startTime;
+  uint32_t cyc = 0;
+  for(uint16_t n=0; n<numBytes; n++) {
+    uint8_t pix = ((*pixels++) * LED_BRIGHTNESS) >> 8;
 
-  p         = pixels;
-  end       =  p + numBytes;
-  pix       = *p++;
-  mask      = 0x80;
-  startTime = 0;
+    for(uint8_t mask = 0x80; mask > 0; mask >>= 1) {
+      uint32_t ccount;
+      while( (ccount = esp_cpu_get_ccount()) - cyc < period ) {}
 
-  for(t = time0;; t = time0) {
-    if(pix & mask) t = time1;                             // Bit high duration
-    while(((c = esp_cpu_get_ccount()) - startTime) < period); // Wait for bit start
+      // gpio_ll_set_level() only take 6 cycles, while GPIO_OUTPUT_SET() take 40 cycles to set/clear
+      gpio_ll_set_level(&GPIO, num_pin, 1);
 
-    GPIO_OUTPUT_SET(num_pin, 1); // Set high
-    startTime = c;                                        // Save start time
-    while(((c = esp_cpu_get_ccount()) - startTime) < t);      // Wait high duration
+      cyc = ccount;
+      uint32_t const t_hi = (pix & mask) ? time1 : time0;
+      while( (ccount = esp_cpu_get_ccount()) - cyc < t_hi ) {}
 
-    GPIO_OUTPUT_SET(num_pin, 0); // Set low
-    if(!(mask >>= 1)) {                                   // Next bit/byte
-      if(p >= end) break;
-      pix  = *p++;
-      mask = 0x80;
+      gpio_ll_set_level(&GPIO, num_pin, 0);
     }
   }
 
-  while((esp_cpu_get_ccount() - startTime) < period); // Wait for last bit
+  while(esp_cpu_get_ccount() - cyc < period) {}
 }
 
 void board_led_on(void)
 {
-  uint32_t num_pin = LED_PIN;
+  gpio_pad_select_gpio(LED_PIN);
+  gpio_ll_input_disable(&GPIO, LED_PIN);
+  gpio_ll_output_enable(&GPIO, LED_PIN);
+  gpio_ll_set_level(&GPIO, LED_PIN, 0);
 
-  gpio_pad_select_gpio(num_pin);
+  // Need at least 200 us for Neopixel reset time
+  delay_cycle( ns2cycle(200000) ) ;
 
-  if (GPIO_PIN_MUX_REG[num_pin])
-  {
-    PIN_INPUT_DISABLE(GPIO_PIN_MUX_REG[num_pin]);
-  }else
-  {
-    gpio_pad_input_disable(num_pin);
-  }
-
-  gpio_pad_set_drv(num_pin, 3);
-
-  // TODO want to set color to Orange, but the color is rather blue !!!
-  uint8_t pixels[3] = { 0xe0, 0x60, 0x00 };
-  board_neopixel_set(num_pin, pixels, sizeof(pixels));
+  // Note: WS2812 color order is GRB
+  uint8_t pixels[3] = { 0x00, 0x86, 0xb3 };
+  board_neopixel_set(LED_PIN, pixels, sizeof(pixels));
 }
 
 void board_led_off(void)
 {
-  uint32_t num_pin = LED_PIN;
-
   uint8_t pixels[3] = { 0x00, 0x00, 0x00 };
-  board_neopixel_set(num_pin, pixels, sizeof(pixels));
+  board_neopixel_set(LED_PIN, pixels, sizeof(pixels));
 
-  // TODO should de-select GPIO to set it back to default state
+  // Neopixel 200us reset time
+  delay_cycle( ns2cycle(200000) ) ;
+
+  // TODO how to de-select GPIO pad to set it back to default state !?
+  gpio_ll_output_disable(&GPIO, LED_PIN);
 }
 
 /*

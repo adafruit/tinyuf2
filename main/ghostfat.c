@@ -120,7 +120,7 @@ STATIC_ASSERT(FAT_ENTRIES_PER_SECTOR                       ==       256); // FAT
 #define UF2_VERSION "0.0.0"
 #define UF2_PRODUCT_NAME "Espressif saola"
 #define UF2_BOARD_ID  "adafruit-test-board"
-#define UF2_VOLUME_LABEL "ESP32SBOOT"
+#define UF2_VOLUME_LABEL "ESP32S BOOT"
 #define UF2_INDEX_URL "https://adafruit.com"
 
 #define UF2_ARRAY_SIZE(_arr)    ( sizeof(_arr) / sizeof(_arr[0]) )
