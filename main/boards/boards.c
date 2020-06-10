@@ -44,6 +44,9 @@
 //#define LED_PIN               18 // v1.2 and later
 #define LED_PIN               17 // v1.1
 
+// min 0, max 255
+#define LED_BRIGHTNESS    0x20
+
 static led_strip_t *strip;
 
 void board_init(void)
@@ -58,6 +61,7 @@ void board_init(void)
   led_strip_config_t strip_config = LED_STRIP_DEFAULT_CONFIG(1, (led_strip_dev_t) config.channel);
   strip = led_strip_new_rmt_ws2812(&strip_config);
   strip->clear(strip, 100); // off led
+  strip->set_brightness(strip, LED_BRIGHTNESS);
 
   // USB Controller Hal init
   periph_module_reset(PERIPH_USB_MODULE);
@@ -112,11 +116,11 @@ void board_led_state(uint32_t state)
   {
     case STATE_BOOTLOADER_STARTED:
     case STATE_USB_UNMOUNTED:
-      strip->set_pixel(strip, 0, 0x88, 0x00, 0x00);
+      strip->set_pixel(strip, 0, 0xff, 0x00, 0x00);
     break;
 
     case STATE_USB_MOUNTED:
-      strip->set_pixel(strip, 0, 0x00, 0x88, 0x00);
+      strip->set_pixel(strip, 0, 0x00, 0xff, 0x00);
     break;
 
     case STATE_WRITING_STARTED:

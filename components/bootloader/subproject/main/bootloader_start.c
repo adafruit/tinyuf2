@@ -30,7 +30,7 @@ static int selected_boot_partition(const bootloader_state_t *bs);
 #define LED_PIN               17 // v1.1
 
 // min 0, max 255
-#define LED_BRIGHTNESS    0x40
+#define LED_BRIGHTNESS    0x20
 
 static inline uint32_t ns2cycle(uint32_t ns)
 {
