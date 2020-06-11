@@ -45,7 +45,7 @@
 #define LED_PIN               17 // v1.1
 
 // min 0, max 255
-#define LED_BRIGHTNESS    0x20
+#define LED_BRIGHTNESS    0x10
 
 static led_strip_t *strip;
 

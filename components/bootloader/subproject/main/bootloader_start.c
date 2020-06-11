@@ -49,14 +49,9 @@ static inline uint32_t delay_cycle(uint32_t cycle)
 void board_neopixel_set(uint32_t num_pin, uint8_t pixels[], uint32_t numBytes)
 {
   // WS2812B should be
-  // uint32_t const time0 = ns2cycle(400);
-  // uint32_t const time1  = ns2cycle(800);
-  // uint32_t const period = ns2cycle(1250);
-
-  // WS2812
-  uint32_t const time0  = ns2cycle(350);
-  uint32_t const time1  = ns2cycle(700);
-  uint32_t const period = ns2cycle(1250);
+   uint32_t const time0 = ns2cycle(400);
+   uint32_t const time1  = ns2cycle(800);
+   uint32_t const period = ns2cycle(1250);
 
   uint32_t cyc = 0;
   for(uint16_t n=0; n<numBytes; n++) {
@@ -87,7 +82,7 @@ void board_led_on(void)
   gpio_ll_output_enable(&GPIO, LED_PIN);
   gpio_ll_set_level(&GPIO, LED_PIN, 0);
 
-  // Need at least 200 us for Neopixel reset time
+  // Need at least 200 us for initial delay although Neopixel reset time is only 50 us
   delay_cycle( ns2cycle(200000) ) ;
 
   // Note: WS2812 color order is GRB
@@ -100,8 +95,8 @@ void board_led_off(void)
   uint8_t pixels[3] = { 0x00, 0x00, 0x00 };
   board_neopixel_set(LED_PIN, pixels, sizeof(pixels));
 
-  // Neopixel 200us reset time
-  delay_cycle( ns2cycle(200000) ) ;
+  // Neopixel 50us reset time
+  delay_cycle( ns2cycle(50000) ) ;
 
   // TODO how to de-select GPIO pad to set it back to default state !?
   gpio_ll_output_disable(&GPIO, LED_PIN);
