@@ -4,7 +4,6 @@ import glob
 import sys
 import subprocess
 import time
-from pip.cmdoptions import build_dir
 
 subprocess.run("rm -rf _build/", shell=True)
 subprocess.run("rm -rf bin/", shell=True)
