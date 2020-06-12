@@ -22,4 +22,4 @@ jobs:
         submodules: 'true'
 
     - name: Build
-      run: docker run --rm -v $PWD:/project -w /project espressif/idf:latest idf.py build -DBOARD=${{ matrix.example }}
+      run: docker run --rm -v $PWD:/project -w /project espressif/idf:latest idf.py build -DBOARD=${{ matrix.board }}
