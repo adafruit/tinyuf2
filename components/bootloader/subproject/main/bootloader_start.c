@@ -26,11 +26,8 @@ static int selected_boot_partition(const bootloader_state_t *bs);
 #include "soc/cpu.h"
 #include "hal/gpio_ll.h"
 
-//#define LED_PIN               18 // v1.2 and later
-#define LED_PIN               17 // v1.1
-
-// min 0, max 255
-#define LED_BRIGHTNESS    0x20
+// Specific board header specified with -DBOARD=
+#include "board.h"
 
 static inline uint32_t ns2cycle(uint32_t ns)
 {
@@ -55,7 +52,7 @@ void board_neopixel_set(uint32_t num_pin, uint8_t pixels[], uint32_t numBytes)
 
   uint32_t cyc = 0;
   for(uint16_t n=0; n<numBytes; n++) {
-    uint8_t pix = ((*pixels++) * LED_BRIGHTNESS) >> 8;
+    uint8_t pix = ((*pixels++) * NEOPIXEL_BRIGHTNESS) >> 8;
 
     for(uint8_t mask = 0x80; mask > 0; mask >>= 1) {
       uint32_t ccount;
@@ -77,29 +74,29 @@ void board_neopixel_set(uint32_t num_pin, uint8_t pixels[], uint32_t numBytes)
 
 void board_led_on(void)
 {
-  gpio_pad_select_gpio(LED_PIN);
-  gpio_ll_input_disable(&GPIO, LED_PIN);
-  gpio_ll_output_enable(&GPIO, LED_PIN);
-  gpio_ll_set_level(&GPIO, LED_PIN, 0);
+  gpio_pad_select_gpio(PIN_NEOPIXEL);
+  gpio_ll_input_disable(&GPIO, PIN_NEOPIXEL);
+  gpio_ll_output_enable(&GPIO, PIN_NEOPIXEL);
+  gpio_ll_set_level(&GPIO, PIN_NEOPIXEL, 0);
 
   // Need at least 200 us for initial delay although Neopixel reset time is only 50 us
   delay_cycle( ns2cycle(200000) ) ;
 
   // Note: WS2812 color order is GRB
   uint8_t pixels[3] = { 0x00, 0x86, 0xb3 };
-  board_neopixel_set(LED_PIN, pixels, sizeof(pixels));
+  board_neopixel_set(PIN_NEOPIXEL, pixels, sizeof(pixels));
 }
 
 void board_led_off(void)
 {
   uint8_t pixels[3] = { 0x00, 0x00, 0x00 };
-  board_neopixel_set(LED_PIN, pixels, sizeof(pixels));
+  board_neopixel_set(PIN_NEOPIXEL, pixels, sizeof(pixels));
 
   // Neopixel 50us reset time
   delay_cycle( ns2cycle(50000) ) ;
 
   // TODO how to de-select GPIO pad to set it back to default state !?
-  gpio_ll_output_disable(&GPIO, LED_PIN);
+  gpio_ll_output_disable(&GPIO, PIN_NEOPIXEL);
 }
 
 /*

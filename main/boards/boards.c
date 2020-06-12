@@ -39,29 +39,26 @@
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
 //--------------------------------------------------------------------+
 
-// Note: On the production version (v1.2) WS2812 is connected to GPIO 18,
-// however earlier revision v1.1 WS2812 is connected to GPIO 17
-//#define LED_PIN               18 // v1.2 and later
-#define LED_PIN               17 // v1.1
-
-// min 0, max 255
-#define LED_BRIGHTNESS    0x10
-
+#ifdef PIN_NEOPIXEL
 static led_strip_t *strip;
+#endif
 
 void board_init(void)
 {
+
+#ifdef PIN_NEOPIXEL
   // WS2812 Neopixel driver with RMT peripheral
-  rmt_config_t config = RMT_DEFAULT_CONFIG_TX(LED_PIN, RMT_CHANNEL_0);
+  rmt_config_t config = RMT_DEFAULT_CONFIG_TX(PIN_NEOPIXEL, RMT_CHANNEL_0);
   config.clk_div = 2; // set counter clock to 40MHz
 
   rmt_config(&config);
   rmt_driver_install(config.channel, 0, 0);
 
-  led_strip_config_t strip_config = LED_STRIP_DEFAULT_CONFIG(1, (led_strip_dev_t) config.channel);
+  led_strip_config_t strip_config = LED_STRIP_DEFAULT_CONFIG(NEOPIXEL_NUMBER, (led_strip_dev_t) config.channel);
   strip = led_strip_new_rmt_ws2812(&strip_config);
   strip->clear(strip, 100); // off led
-  strip->set_brightness(strip, LED_BRIGHTNESS);
+  strip->set_brightness(strip, NEOPIXEL_BRIGHTNESS);
+#endif
 
   // USB Controller Hal init
   periph_module_reset(PERIPH_USB_MODULE);
@@ -91,7 +88,15 @@ void board_teardown(void)
 //--------------------------------------------------------------------+
 // LED pattern
 //--------------------------------------------------------------------+
+
+#ifdef PIN_NEOPIXEL
 TimerHandle_t blinky_tm = NULL;
+
+static void neopixel_set(uint8_t r, uint8_t g, uint8_t b)
+{
+  strip->set_pixel(strip, 0, r, g, b);
+  strip->refresh(strip, 100);
+}
 
 void led_blinky_cb(TimerHandle_t xTimer)
 {
@@ -101,13 +106,11 @@ void led_blinky_cb(TimerHandle_t xTimer)
 
   if ( led_state )
   {
-    strip->set_pixel(strip, 0, 0xff, 0x80, 0x00);
+    neopixel_set(0xff, 0x80, 0x00);
   }else
   {
-    strip->set_pixel(strip, 0, 0x00, 0x00, 0x00);
+    neopixel_set(0x00, 0x00, 0x00);
   }
-
-  strip->refresh(strip, 100);
 }
 
 void board_led_state(uint32_t state)
@@ -116,11 +119,11 @@ void board_led_state(uint32_t state)
   {
     case STATE_BOOTLOADER_STARTED:
     case STATE_USB_UNMOUNTED:
-      strip->set_pixel(strip, 0, 0xff, 0x00, 0x00);
+      neopixel_set(0xff, 0x00, 0x00);
     break;
 
     case STATE_USB_MOUNTED:
-      strip->set_pixel(strip, 0, 0x00, 0xff, 0x00);
+      neopixel_set( 0x00, 0xff, 0x00);
     break;
 
     case STATE_WRITING_STARTED:
@@ -131,13 +134,13 @@ void board_led_state(uint32_t state)
 
     case STATE_WRITING_FINISHED:
       xTimerStop(blinky_tm, 0);
-      strip->set_pixel(strip, 0, 0xff, 0x80, 0x00);
+      neopixel_set(0xff, 0x80, 0x00);
     break;
 
     default:
-      strip->set_pixel(strip, 0, 0x00, 0x00, 0x88);
+      neopixel_set(0x00, 0x00, 0x88);
     break;
   }
-
-  strip->refresh(strip, 100);
 }
+
+#endif
