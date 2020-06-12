@@ -43,9 +43,24 @@ user_fs  , data , fat     , 0x200000 , 2M     ,
 
 ## Build and Flash
 
+### Build 
+
+Use `-DBOARD=` to specify target board
+
 ```
-idf.py build flash
+idf.py build -DBOARD=espressif_saola_1_wrover
 ```
+
+### Flash with UART
+
+```
+idf.py flash -DBOARD=espressif_saola_1_wrover
+```
+
+### Flash with ROM USB DFU
+
+TODO: update later
+
 
 FIXME: There is a bug with UART baudrate = 115200, the board will not enumerate, but it works just fine with baudrate of 921600. This is possibly a race condition somewhere to fix. This is observed with ubuntu 18.04
  
