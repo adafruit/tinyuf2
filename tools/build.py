@@ -13,14 +13,14 @@ fail_count = 0
 exit_status = 0
 
 build_format = '| {:32} | {:9} | {:7} | {:6} | {:6} |'
-build_separator = '-' * 74
+build_separator = '-' * 75
 
 # All supported boards
+if len(sys.argv) != 2:
+    sys.exit(1)
+
 all_boards = []
-for entry in os.scandir("main/boards"):
-    if entry.is_dir():
-        all_boards.append(entry.name)
-all_boards.sort()
+all_boards.append(sys.argv[1])
 
 #sha, version = build_info.get_version_info()
 
@@ -68,9 +68,9 @@ for board in all_boards:
         print(make_result.stdout.decode("utf-8"))
 
 # Build Summary
-total_time = time.monotonic() - total_time
-print(build_separator)
-print("Build Sumamary: {} \033[32msucceeded\033[0m, {} \033[31mfailed\033[0m and took {:.2f}s".format(success_count, fail_count, total_time))
-print(build_separator)
+#total_time = time.monotonic() - total_time
+#print(build_separator)
+#print("Build Sumamary: {} \033[32msucceeded\033[0m, {} \033[31mfailed\033[0m and took {:.2f}s".format(success_count, fail_count, total_time))
+#print(build_separator)
 
 sys.exit(exit_status)
