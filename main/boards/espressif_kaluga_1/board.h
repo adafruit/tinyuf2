@@ -22,17 +22,17 @@
  * THE SOFTWARE.
  */
 
-#ifndef ESPRESSIF_SAOLA_1_WROOM_H_
-#define ESPRESSIF_SAOLA_1_WROOM_H_
+#ifndef ESPRESSIF_SAOLA_1_WROVER_H_
+#define ESPRESSIF_SAOLA_1_WROVER_H_
 
 //--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
 
 // GPIO connected to Neopixel data
-// Note: On the production version Saola (v1.2) it is GPIO 18,
-// however on earlier revision v1.1 it is GPIO 17
-#define PIN_NEOPIXEL          17
+// Note: Need to insert Jumper (default is Off) to control neopixel
+// On Kaluga this pin is also connected to Camera D3
+#define PIN_NEOPIXEL          45
 
 // Brightness percentage from 1 to 255
 #define NEOPIXEL_BRIGHTNESS   0x10
@@ -44,9 +44,10 @@
 // USB UF2
 //--------------------------------------------------------------------+
 
-#define UF2_PRODUCT_NAME "Espressif Saola 1M WROVER"
-#define UF2_BOARD_ID     "ESP32S2-Saola1M-v1.2"
-#define UF2_VOLUME_LABEL "SAOLA1MBOOT"
-#define UF2_INDEX_URL    "https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-saola-1-v1.2.html"
+#define UF2_PRODUCT_NAME "Espressif Kaluga 1"
+#define UF2_BOARD_ID     "ESP32S2-Kaluga-v1.2"
+#define UF2_VOLUME_LABEL "KALUGA1BOOT"
+#define UF2_INDEX_URL    "https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-esp32-s2-kaluga-1-kit.html"
+
 
 #endif

@@ -40,4 +40,13 @@
 // Number of neopixels
 #define NEOPIXEL_NUMBER       1
 
+//--------------------------------------------------------------------+
+// USB UF2
+//--------------------------------------------------------------------+
+
+#define UF2_PRODUCT_NAME "Espressif Saola 1R WROVER"
+#define UF2_BOARD_ID     "ESP32S2-Saola1R-v1.2"
+#define UF2_VOLUME_LABEL "SAOLA1RBOOT"
+#define UF2_INDEX_URL    "https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-saola-1-v1.2.html"
+
 #endif
