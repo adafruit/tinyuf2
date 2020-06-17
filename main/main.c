@@ -66,6 +66,18 @@ void usb_device_task(void* param)
   }
 }
 
+/*
+  #include "esp_private/system_internal.h"
+  void reboot_to_uf2(void)
+  {
+    enum { APP_REQUEST_UF2_RESET_HINT = 0x11F2 };
+
+    // call esp_reset_reason() is required for idf.py to properly links esp_reset_reason_set_hint()
+    (void) esp_reset_reason();
+    esp_reset_reason_set_hint(APP_REQUEST_UF2_RESET_HINT);
+    esp_restart();
+  }
+*/
 
 void app_main(void)
 {
@@ -110,5 +122,3 @@ void tud_suspend_cb(bool remote_wakeup_en)
 void tud_resume_cb(void)
 {
 }
-
-

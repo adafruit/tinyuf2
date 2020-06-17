@@ -21,15 +21,15 @@ It will show up as mass storage device and accept uf2 file to write to user appl
 
 After complete writing, uf2 will set the ota0 as bootloader and reset, and the application should be running in the next boot.
 
-NOTE: uf2 bootlaoder, customized 2nd bootloader and partition table can be overwritten by ROM DFU and/or UART uploading. Especially the `idf.py flash` which will upload everything from the user application project. It is advisable to upload only user application only with `idf.py app-flash` and leave other intact provided the user partition table matched this uf2 partition.
+NOTE: uf2 bootloader, customized 2nd bootloader and partition table can be overwritten by ROM DFU and/or UART uploading. Especially the `idf.py flash` which will upload everything from the user application project. It is advisable to upload only user application only with `idf.py app-flash` and leave other intact provided the user partition table matched this uf2 partition.
 
-**TODO** Since uf2 is full-fledged application, we can also present a second MassStorage LUN for user FAT if it is present as way to edit the corrupted script/data.
+~~**TODO** Since uf2 is full-fledged application, we can also present a second MassStorage LUN for user FAT if it is present as way to edit the corrupted script/data.~~
 
 ## Partition
 
 The following partition isn't final yet, current build without optimization and lots of debug is around 100 KB. Since IDF requires application type must be 64KB aligned, uf2 is best with size of 64KB, we will try to see if we could fit  https://github.com/microsoft/uf2/blob/master/hf2.md and https://github.com/microsoft/uf2/blob/master/cf2.md within 64KB.
 
-UF2 bootloader only uses `ota_0` and `user_fs` (additional LUN), user application can change partition table (e.g increase ota_0 size, re-arrange layout/address) but should not overwrite the uf2 part. If an complete re-design partition is required, `uf2_bootloader.bin` and the `modified 2nd_stage_bootloader.bin` should be included as part of user combined binary for flash command.
+UF2 bootloader only uses `ota_0` ~~and `user_fs` (additional LUN)~~, user application can change partition table (e.g increase ota_0 size, re-arrange layout/address) but should not overwrite the uf2 part. If an complete re-design partition is required, `uf2_bootloader.bin` and the `modified 2nd_stage_bootloader.bin` should be included as part of user combined binary for flash command.
 
 ```
 # Name   , Type , SubType ,   Offset , Size   , Flags
@@ -39,7 +39,7 @@ ota_0    , 0    , ota_0   ,  0x10000 , 512K   ,
 ota_1    , 0    , ota_1   ,  0x90000 , 512K   ,
 nvs      , data , nvs     , 0x110000 , 0x6000 ,
 
-# temporarily incrase size for debugging, optimize later
+# temporarily increased size for debugging, optimize later
 uf2      , app  , factory ,  , 512K  ,
 user_fs  , data , fat     , 0x200000 , 2M     ,
 ```
@@ -51,13 +51,13 @@ user_fs  , data , fat     , 0x200000 , 2M     ,
 Use `-DBOARD=` to specify target board
 
 ```
-idf.py build -DBOARD=espressif_saola_1_wrover
+idf.py -DBOARD=espressif_saola_1_wrover build
 ```
 
 ### Flash with UART
 
 ```
-idf.py flash -DBOARD=espressif_saola_1_wrover
+idf.py -DBOARD=espressif_saola_1_wrover flash
 ```
 
 ### Flash with ROM USB DFU
