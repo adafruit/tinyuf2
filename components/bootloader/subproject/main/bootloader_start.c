@@ -61,6 +61,10 @@ uint32_t /*IRAM_ATTR*/ esp_reset_reason_get_hint(void)
     return low;
 }
 
+static void esp_reset_reason_clear_hint(void)
+{
+    REG_WRITE(RTC_RESET_CAUSE_REG, 0);
+}
 
 /*
  * We arrive here after the ROM bootloader finished loading this second stage bootloader from flash.
@@ -157,6 +161,7 @@ static int selected_boot_partition(const bootloader_state_t *bs)
           {
             if ( APP_REQUEST_UF2_RESET_HINT == esp_reset_reason_get_hint() )
             {
+              esp_reset_reason_clear_hint(); // clear the hint
               ESP_LOGI(TAG, "Detect application request to enter UF2 bootloader");
               boot_index = FACTORY_INDEX;
             }
@@ -169,37 +174,34 @@ static int selected_boot_partition(const bootloader_state_t *bs)
         {
           board_led_on();
 
-#define TEST_DOUBLE_RESET   0
-
-#if TEST_DOUBLE_RESET
-          //uint32_t dbl_reset_pin = 16;
-          PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[16]);
-          if ( GPIO_INPUT_GET(16) == 1 )
+#ifdef PIN_DOUBLE_RESET_RC
+          // Double reset detect if board implements 1-bit memory with RC components
+          PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[PIN_DOUBLE_RESET_RC]);
+          if ( GPIO_INPUT_GET(PIN_DOUBLE_RESET_RC) == 1 )
           {
-            ESP_LOGI(TAG, "Detect double reset using RC on GPIO %d to enter UF2 bootloader", 16);
+            ESP_LOGI(TAG, "Detect double reset using RC on GPIO %d to enter UF2 bootloader", PIN_DOUBLE_RESET_RC);
             boot_index = FACTORY_INDEX;
           }
           else
           {
-            GPIO_OUTPUT_SET(16, 1);
+            GPIO_OUTPUT_SET(PIN_DOUBLE_RESET_RC, 1);
           }
 #endif
 
           if ( boot_index != FACTORY_INDEX )
           {
-            uint32_t num_pin = 0;
-            gpio_pad_select_gpio(num_pin);
-            if (GPIO_PIN_MUX_REG[num_pin]) {
-              PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[num_pin]);
+            gpio_pad_select_gpio(PIN_BUTTON_UF2);
+            if (GPIO_PIN_MUX_REG[PIN_BUTTON_UF2]) {
+              PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[PIN_BUTTON_UF2]);
             }
-            gpio_pad_pullup(num_pin);
+            gpio_pad_pullup(PIN_BUTTON_UF2);
 
             uint32_t tm_start = esp_log_early_timestamp();
             while (UF2_DETECTION_DELAY_MS > (esp_log_early_timestamp() - tm_start) )
             {
-              if ( GPIO_INPUT_GET(num_pin) == 0 )
+              if ( GPIO_INPUT_GET(PIN_BUTTON_UF2) == 0 )
               {
-                ESP_LOGI(TAG, "Detect GPIO %d active to enter UF2 bootloader", num_pin);
+                ESP_LOGI(TAG, "Detect GPIO %d active to enter UF2 bootloader", PIN_BUTTON_UF2);
 
                 // Simply return factory index without erasing any other partition
                 boot_index = FACTORY_INDEX;
@@ -208,9 +210,10 @@ static int selected_boot_partition(const bootloader_state_t *bs)
             }
           }
 
-#if TEST_DOUBLE_RESET
-          GPIO_OUTPUT_SET(16, 0);
+#if PIN_DOUBLE_RESET_RC
+          GPIO_OUTPUT_SET(PIN_DOUBLE_RESET_RC, 0);
 #endif
+
           board_led_off();
         }
 

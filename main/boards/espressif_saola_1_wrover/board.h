@@ -26,6 +26,19 @@
 #define ESPRESSIF_SAOLA_1_WROVER_H_
 
 //--------------------------------------------------------------------+
+// Button
+//--------------------------------------------------------------------+
+
+// Enter UF2 mode if GPIO is pressed while 2nd stage bootloader indicator
+// is on e.g RGB = Purple. If it is GPIO0, user should not hold this while
+// reset since that will instead run the 1st stage ROM bootloader
+#define PIN_BUTTON_UF2       0
+
+// GPIO that implement 1-bit memory with RC components which hold the
+// pin value long enough for double reset detection.
+// #define PIN_DOUBLE_RESET_RC
+
+//--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
 
