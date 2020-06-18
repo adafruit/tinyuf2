@@ -66,22 +66,6 @@ void usb_device_task(void* param)
   }
 }
 
-/* Following codes can be included in application to request to reboot to UF2
- * using reset reason hint
-
-  #include "esp_private/system_internal.h"
-  void reboot_to_uf2(void)
-  {
-    // Check out esp_reset_reason_t for other Espressif pre-defined values
-    enum { APP_REQUEST_UF2_RESET_HINT = 0x11F2 };
-
-    // call esp_reset_reason() is required for idf.py to properly links esp_reset_reason_set_hint()
-    (void) esp_reset_reason();
-    esp_reset_reason_set_hint(APP_REQUEST_UF2_RESET_HINT);
-    esp_restart();
-  }
-*/
-
 void app_main(void)
 {
   ESP_LOGI(TAG, "Hello");

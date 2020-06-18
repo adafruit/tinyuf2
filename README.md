@@ -14,7 +14,7 @@ There are a few ways to enter UF2 mode:
   - Holding `GPIO0` then reset -> ROM bootloader
   - Press reset, see indicator on (purple RGB) then press `GPIO0` -> UF2 bootloader
 - `PIN_DOUBLE_RESET_RC` GPIO is attached to an 100K resistor and 1uF Capacitor to serve as 1-bit memory, which hold the pin value long enough for double reset detection. Simply press double reset to enter UF2
-- Request by application using [system reset reason](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/system.html?highlight=esp_reset_reason#reset-reason) with hint of `0x11F2`. Reset reason hint is different than hardware reset source, it is written to RTC's store6 register and hold value through a software reset. Since Espressif only use an dozen of value in `esp_reset_reason_t`, it is safe to hijack and use *0x11F2* as reset reason to enter UF2 using following snippet.
+- Request by application using [system reset reason](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/system.html?highlight=esp_reset_reason#reset-reason) with hint of `0x11F2`. Reset reason hint is different than hardware reset source, it is written to RTC's store6 register and hold value through a software reset. Since Espressif only uses an dozen of value in `esp_reset_reason_t`, it is safe to hijack and use *0x11F2* as reset reason to enter UF2 using following snippet.
   ```
   #include "esp_private/system_internal.h"
   void reboot_to_uf2(void)
@@ -70,9 +70,9 @@ user_fs  , data , fat     , 0x200000 , 2M     ,
 
 ## Build and Flash
 
-### Build 
-
 Use `-DBOARD=` to specify target board
+
+### Build
 
 ```
 idf.py -DBOARD=espressif_saola_1_wrover build
@@ -90,4 +90,3 @@ TODO: update later
 
 
 **FIXME**: There is a bug with UART baudrate = 115200, the board will not enumerate, but it works just fine with baudrate of 921600. This is possibly a race condition somewhere to fix. This is observed with ubuntu 18.04
- 
