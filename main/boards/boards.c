@@ -43,6 +43,11 @@
 static led_strip_t *strip;
 #endif
 
+#define RGB_USB_UNMOUNTED   0xff, 0x00, 0x00 // Red
+#define RGB_USB_MOUNTED     0x00, 0xff, 0x00 // Green
+#define RGB_WRITING         0xcc, 0x66, 0x00
+#define RGB_UNKNOWN         0x00, 0x00, 0x88 // for debug
+
 void board_init(void)
 {
 
@@ -106,10 +111,10 @@ void led_blinky_cb(TimerHandle_t xTimer)
 
   if ( led_state )
   {
-    neopixel_set(0xff, 0x80, 0x00);
+    neopixel_set(RGB_WRITING);
   }else
   {
-    neopixel_set(0x00, 0x00, 0x00);
+    strip->clear(strip, 100);
   }
 }
 
@@ -119,11 +124,11 @@ void board_led_state(uint32_t state)
   {
     case STATE_BOOTLOADER_STARTED:
     case STATE_USB_UNMOUNTED:
-      neopixel_set(0xff, 0x00, 0x00);
+      neopixel_set(RGB_USB_UNMOUNTED);
     break;
 
     case STATE_USB_MOUNTED:
-      neopixel_set( 0x00, 0xff, 0x00);
+      neopixel_set(RGB_USB_MOUNTED);
     break;
 
     case STATE_WRITING_STARTED:
@@ -134,11 +139,11 @@ void board_led_state(uint32_t state)
 
     case STATE_WRITING_FINISHED:
       xTimerStop(blinky_tm, 0);
-      neopixel_set(0xff, 0x80, 0x00);
+      neopixel_set(RGB_WRITING);
     break;
 
     default:
-      neopixel_set(0x00, 0x00, 0x88);
+      neopixel_set(RGB_UNKNOWN);
     break;
   }
 }
