@@ -51,6 +51,9 @@ static led_strip_t *strip;
 void board_init(void)
 {
 
+#ifdef PIN_LED
+#endif
+
 #ifdef PIN_NEOPIXEL
   // WS2812 Neopixel driver with RMT peripheral
   rmt_config_t config = RMT_DEFAULT_CONFIG_TX(PIN_NEOPIXEL, RMT_CHANNEL_0);

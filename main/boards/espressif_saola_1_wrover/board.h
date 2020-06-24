@@ -53,6 +53,11 @@
 // Number of neopixels
 #define NEOPIXEL_NUMBER       1
 
+
+// LED for indicator and writing flash
+// If not defined neopixel will be use for flash writing instead
+#define PIN_LED               33
+
 //--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
