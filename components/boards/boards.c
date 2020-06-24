@@ -52,6 +52,11 @@ void board_init(void)
 {
 
 #ifdef PIN_LED
+//#define BLINK_GPIO 26
+//  gpio_pad_select_gpio(BLINK_GPIO);
+//  gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
+//  gpio_set_drive_capability(BLINK_GPIO, GPIO_DRIVE_CAP_3);
+//  gpio_set_level(BLINK_GPIO, 1);
 #endif
 
 #ifdef PIN_NEOPIXEL
@@ -68,6 +73,12 @@ void board_init(void)
   strip->set_brightness(strip, NEOPIXEL_BRIGHTNESS);
 #endif
 
+#if USE_SCREEN
+  // TODO iit LCD after USB --> no enumeration
+  // Init LCD
+  screen_init();
+#endif
+
   // USB Controller Hal init
   periph_module_reset(PERIPH_USB_MODULE);
   periph_module_enable(PERIPH_USB_MODULE);
@@ -80,12 +91,6 @@ void board_init(void)
   // Pin drive strength
   gpio_set_drive_capability(USBPHY_DM_NUM, GPIO_DRIVE_CAP_3);
   gpio_set_drive_capability(USBPHY_DP_NUM, GPIO_DRIVE_CAP_3);
-
-//#define BLINK_GPIO 26
-//  gpio_pad_select_gpio(BLINK_GPIO);
-//  gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
-//  gpio_set_drive_capability(BLINK_GPIO, GPIO_DRIVE_CAP_3);
-//  gpio_set_level(BLINK_GPIO, 1);
 }
 
 void board_teardown(void)

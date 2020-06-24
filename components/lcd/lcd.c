@@ -23,7 +23,7 @@
 #include "lcd.h"
 #include "boards.h"
 
-#ifdef PIN_DISPLAY_SCK
+#if USE_SCREEN
 
 static const char *TAG = "LCD";
 
@@ -157,7 +157,7 @@ esp_err_t lcd_init(spi_device_handle_t spi)
     }
 
     /*!< /Enable backlight */
-    gpio_set_level(PIN_DISPLAY_BL, 0);
+    gpio_set_level(PIN_DISPLAY_BL, DISPLAY_BL_STATE);
 
     return ESP_OK;
 }

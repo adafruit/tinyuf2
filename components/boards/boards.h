@@ -39,10 +39,19 @@ enum {
   STATE_WRITING_FINISHED,
 };
 
-
 void board_init(void);
 void board_teardown(void);
 void board_led_state(uint32_t state);
+
+
+#ifdef PIN_DISPLAY_SCK
+  #define USE_SCREEN 1
+
+  void screen_init(void);
+#else
+  #define USE_SCREEN 0
+#endif
+
 
 // Debug helper, remove later
 #define PRINTF(...)           ESP_LOGI("uf2", __VA_ARGS__)
