@@ -73,12 +73,6 @@ void board_init(void)
   strip->set_brightness(strip, NEOPIXEL_BRIGHTNESS);
 #endif
 
-#if USE_SCREEN
-  // TODO iit LCD after USB --> no enumeration
-  // Init LCD
-  screen_init();
-#endif
-
   // USB Controller Hal init
   periph_module_reset(PERIPH_USB_MODULE);
   periph_module_enable(PERIPH_USB_MODULE);

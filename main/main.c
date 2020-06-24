@@ -79,6 +79,10 @@ void app_main(void)
 
   // Create a task for tinyusb device stack
   (void) xTaskCreateStatic( usb_device_task, "usbd", USBD_STACK_SIZE, NULL, configMAX_PRIORITIES-2, usb_device_stack, &usb_device_taskdef);
+
+#if USE_SCREEN
+  screen_init();
+#endif
 }
 
 //--------------------------------------------------------------------+
