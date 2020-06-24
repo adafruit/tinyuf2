@@ -5,8 +5,11 @@
 #include <string.h>
 #include "lcd.h"
 
-//#define DISPLAY_WIDTH 160
-//#define DISPLAY_HEIGHT 128
+// TODO fix later
+#define UF2_VERSION_BASE "0.0.0"
+
+#define DISPLAY_WIDTH 160
+#define DISPLAY_HEIGHT 128
 
 // Overlap 4x chars by this much.
 #define CHAR4_KERNING 2
@@ -58,6 +61,8 @@
 
 #define ST7735_GMCTRP1 0xE0
 #define ST7735_GMCTRN1 0xE1
+
+spi_device_handle_t _spi;
 
 #if 0
 uint32_t lookupCfg(uint32_t key, uint32_t defl);
@@ -221,6 +226,7 @@ static void configure(uint8_t madctl, uint32_t frmctr1) {
     sendCmd(cmd0, sizeof(cmd0));
     sendCmd(cmd1, cmd1[3] == 0xff ? 3 : 4);
 }
+#endif
 
 #define COL0(r, g, b) ((((r) >> 3) << 11) | (((g) >> 2) << 5) | ((b) >> 3))
 #define COL(c) COL0((c >> 16) & 0xff, (c >> 8) & 0xff, c & 0xff)
@@ -244,7 +250,7 @@ const uint16_t palette[] = {
     COL(0x000000), // 15
 };
 
-uint8_t fb[168 * 128];
+uint8_t fb[DISPLAY_WIDTH * DISPLAY_HEIGHT];
 extern const uint8_t font8[];
 extern const uint8_t fileLogo[];
 extern const uint8_t pendriveLogo[];
@@ -304,8 +310,7 @@ void printicon(int x, int y, int col, const uint8_t *icon) {
                     c = 1;
                 runlen--;
             } else {
-                if (sz-- <= 0)
-                    panic(10);
+                if (sz-- <= 0) ESP_LOGE("screen", "Panic code = 10");
                 lastb = *icon++;
                 if (lastb & 0x80) {
                     runlen = lastb & 63;
@@ -363,16 +368,7 @@ void print4(int x, int y, int col, const char *text) {
     }
 }
 
-void draw_screen() {
-    if (lookupCfg(CFG_PIN_DISPLAY_SCK, 1000) == 1000)
-        return;
-
-    cmdBuf[0] = ST7735_RAMWR;
-    sendCmd(cmdBuf, 1);
-
-    SET_DC(1);
-    SET_CS(0);
-
+static void draw_screen(void) {
     uint8_t *p = fb;
     for (int i = 0; i < DISPLAY_WIDTH; ++i) {
         uint8_t cc[DISPLAY_HEIGHT * 2];
@@ -382,10 +378,9 @@ void draw_screen() {
             cc[dst++] = color >> 8;
             cc[dst++] = color & 0xff;
         }
-        transfer(cc, sizeof(cc));
-    }
 
-    SET_CS(1);
+        lcd_draw_lines(_spi, i, (uint16_t*) cc);
+    }
 }
 
 void drawBar(int y, int h, int c) {
@@ -405,9 +400,9 @@ void draw_drag() {
     drawBar(52, 55, 8);
     drawBar(107, 14, 4);
 
-    // Center PRODUCT_NAME and UF2_VERSION_BASE.
-    int name_x = (DISPLAY_WIDTH - (6 * 4 - CHAR4_KERNING) * (int) strlen(PRODUCT_NAME)) / 2;
-    print4(name_x >= 0 ? name_x : 0, 5, 1, PRODUCT_NAME);
+    // Center UF2_PRODUCT_NAME and UF2_VERSION_BASE.
+    int name_x = (DISPLAY_WIDTH - (6 * 4 - CHAR4_KERNING) * (int) strlen(DISPLAY_PRODUCT_NAME)) / 2;
+    print4(name_x >= 0 ? name_x : 0, 5, 1, DISPLAY_PRODUCT_NAME);
     int version_x = (DISPLAY_WIDTH - 6 * (int) strlen(UF2_VERSION_BASE)) / 2;
     print(version_x >= 0 ? version_x : 0, 40, 6, UF2_VERSION_BASE);
     print(23, 110, 1, "arcade.makecode.com");
@@ -418,17 +413,14 @@ void draw_drag() {
     printicon(DRAGX + 66, DRAG, 1, arrowLogo);
     printicon(DRAGX + 108, DRAG, 1, pendriveLogo);
     print(10, DRAG - 12, 1, "arcade.uf2");
-    print(90, DRAG - 12, 1, VOLUME_LABEL);
+    print(90, DRAG - 12, 1, UF2_VOLUME_LABEL);
 
     draw_screen();
 }
 
-#endif
 
 void screen_init(void)
 {
-  spi_device_handle_t spi = {0};
-
   spi_bus_config_t bus_cfg = {
     .miso_io_num     = PIN_DISPLAY_MISO,
     .mosi_io_num     = PIN_DISPLAY_MOSI,
@@ -450,10 +442,10 @@ void screen_init(void)
   ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &bus_cfg, DMA_CHAN));
 
   /*!< Attach the LCD to the SPI bus */
-  ESP_ERROR_CHECK(spi_bus_add_device(LCD_HOST, &devcfg, &spi));
+  ESP_ERROR_CHECK(spi_bus_add_device(LCD_HOST, &devcfg, &_spi));
 
   /**< Initialize the LCD */
-  ESP_ERROR_CHECK(lcd_init(spi));
+  ESP_ERROR_CHECK(lcd_init(_spi));
 
 #if 0
     uint32_t cfg0 = CFG(DISPLAY_CFG0);
@@ -471,6 +463,9 @@ void screen_init(void)
 #endif
 
     memset(fb, 0, sizeof(fb));
+
+    ESP_LOGI("screen", "draw drag");
+    draw_drag();
 }
 
 #endif

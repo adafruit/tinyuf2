@@ -117,8 +117,6 @@ STATIC_ASSERT(FAT_ENTRIES_PER_SECTOR                       ==       256); // FAT
 #define STR0(x) #x
 #define STR(x) STR0(x)
 
-#define UF2_VERSION      "0.0.0"
-
 #define UF2_ARRAY_SIZE(_arr)    ( sizeof(_arr) / sizeof(_arr[0]) )
 
 char infoUf2File[128*3] =

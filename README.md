@@ -29,6 +29,16 @@ There are a few ways to enter UF2 mode:
   }
   ```
 
+## Convert Binary to UF2
+
+To create your own UF2 file, simply use the [Python conversion script](https://github.com/Microsoft/uf2/blob/master/utils/uf2conv.py) on a .bin file, specifying the family as **0xbfdd4eee**. Note you must specify application address of 0x00 with the -b switch, the bootloader will use it as offset to write to ota partition.
+
+To create a UF2 image from a .bin file:
+
+```
+uf2conv.py firmware.bin -c -b 0x00 -f 0xbfdd4eee
+```
+
 ## 2nd Stage Bootloader
 
 After 1st stage ROM bootloader runs, which mostly checks GPIO0 to determine whether it should go into ROM DFU, 2nd stage bootloader is loaded. It is responsible for determining and loading either UF2 or user application (OTA0, OTA1). This is the place where we added detection code for entering UF2 mode mentioned by above methods. 

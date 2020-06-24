@@ -39,6 +39,8 @@ SOFTWARE.
 // UF2 Configuration
 //--------------------------------------------------------------------+
 
+#define UF2_VERSION      "0.0.0"
+
 // Family ID for updating Application
 #define CFG_UF2_FAMILY_ID         0xbfdd4eee
 
