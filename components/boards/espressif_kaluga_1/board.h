@@ -66,12 +66,11 @@
 #define PIN_DISPLAY_BL       6
 
 #define DISPLAY_BL_STATE     0  // GPIO state to enable back light
-//#define DISPLAY_WIDTH      320
-//#define DISPLAY_HEIGHT     240
+#define DISPLAY_WIDTH      320
+#define DISPLAY_HEIGHT     240
 
 #define DISPLAY_PRODUCT_NAME "Kaluga"
 #define DISPLAY_MADCTL       0x08
-
 
 //--------------------------------------------------------------------+
 // USB UF2
