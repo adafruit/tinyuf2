@@ -35,7 +35,7 @@
 #include "freertos/semphr.h"
 
 #include "esp_log.h"
-#include "boards/boards.h"
+#include "boards.h"
 #include "flash_hal.h"
 #include "tusb.h"
 #include "uf2.h"

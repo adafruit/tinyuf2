@@ -24,7 +24,6 @@
 
 #include "tusb.h"
 #include "uf2.h"
-#include "boards/boards.h"
 
 #include "esp_partition.h"
 #include "esp_ota_ops.h"

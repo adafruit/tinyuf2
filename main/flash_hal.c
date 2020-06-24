@@ -23,7 +23,7 @@
  */
 
 #include <string.h>
-#include "boards/boards.h"
+#include "boards.h"
 #include "flash_hal.h"
 
 #include "esp_log.h"

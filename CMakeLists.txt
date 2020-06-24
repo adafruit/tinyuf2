@@ -5,8 +5,8 @@ cmake_minimum_required(VERSION 3.5)
 # hack default to espressif_saola_1_wrover for quick testing
 
 # Check for -DBOARD=
-if(NOT (DEFINED BOARD AND EXISTS "${CMAKE_SOURCE_DIR}/main/boards/${BOARD}/board.h") )
-  file(GLOB BOARD_LIST RELATIVE ${CMAKE_SOURCE_DIR}/main/boards "main/boards/*/board.h")
+if(NOT (DEFINED BOARD AND EXISTS "${CMAKE_SOURCE_DIR}/components/boards/${BOARD}/board.h") )
+  file(GLOB BOARD_LIST RELATIVE ${CMAKE_SOURCE_DIR}/components/boards "components/boards/*/board.h")
   
   message("Please specify `-DBOARD=` with one of supported boards")
   foreach(board IN LISTS BOARD_LIST)
