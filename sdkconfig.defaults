@@ -13,8 +13,3 @@ CONFIG_PARTITION_TABLE_MD5=y
 
 # Serial flasher config
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
-
-# TODO currently uf2 usb only enumerated with 921600 but failed with 115200
-# There is probably a race condition somewhere
-CONFIG_ESP_CONSOLE_UART_BAUDRATE=921600
-CONFIG_MONITOR_BAUD_921600B=y

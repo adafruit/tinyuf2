@@ -71,11 +71,11 @@ void app_main(void)
   ESP_LOGI(TAG, "Hello");
 
   board_init();
-  board_led_state(STATE_BOOTLOADER_STARTED);
+  tusb_init();
 
   flash_hal_init();
   uf2_init();
-  tusb_init();
+  board_led_state(STATE_BOOTLOADER_STARTED);
 
   // Create a task for tinyusb device stack
   (void) xTaskCreateStatic( usb_device_task, "usbd", USBD_STACK_SIZE, NULL, configMAX_PRIORITIES-2, usb_device_stack, &usb_device_taskdef);
