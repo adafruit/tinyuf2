@@ -48,6 +48,8 @@ void board_led_state(uint32_t state);
   #define USE_SCREEN 1
 
   void screen_init(void);
+  void screen_draw_drag(void);
+  void screen_draw_hf2(void);
 #else
   #define USE_SCREEN 0
 #endif

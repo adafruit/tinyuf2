@@ -176,13 +176,13 @@ void drawBar(int y, int h, int c) {
     }
 }
 
-void draw_hf2() {
+void screen_draw_hf2(void) {
     print4(20, 22, 5, "<-->");
     print(40, 110, 7, "flashing...");
     draw_screen();
 }
 
-void draw_drag() {
+void screen_draw_drag(void) {
     drawBar(0, 52, 7);
     drawBar(52, 55, 8);
     drawBar(107, 14, 4);
@@ -235,8 +235,6 @@ void screen_init(void)
   ESP_ERROR_CHECK(lcd_init(_spi));
 
   memset(fb, 0, sizeof(fb));
-
-  draw_drag();
 }
 
 #endif

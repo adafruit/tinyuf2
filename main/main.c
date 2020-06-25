@@ -82,6 +82,7 @@ void app_main(void)
 
 #if USE_SCREEN
   screen_init();
+  screen_draw_drag();
 #endif
 }
 
