@@ -45,7 +45,7 @@
 // GPIO connected to Neopixel data
 // Note: On the production version Saola (v1.2) it is GPIO 18,
 // however on earlier revision v1.1 it is GPIO 17
-#define PIN_NEOPIXEL          17
+#define PIN_NEOPIXEL          18
 
 // Brightness percentage from 1 to 255
 #define NEOPIXEL_BRIGHTNESS   0x10
@@ -62,7 +62,12 @@
 // USB UF2
 //--------------------------------------------------------------------+
 
-#define UF2_PRODUCT_NAME "Espressif Saola 1R WROVER"
+#define USB_VID           0xCAFE
+#define USB_PID           0x4016
+#define USB_MANUFACTURER  "Espressif"
+#define USB_PRODUCT       "Saola 1R WROVER"
+
+#define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID     "ESP32S2-Saola1R-v1.2"
 #define UF2_VOLUME_LABEL "SAOLA1RBOOT"
 #define UF2_INDEX_URL    "https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-saola-1-v1.2.html"

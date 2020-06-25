@@ -68,18 +68,21 @@
 #define DISPLAY_BL_STATE       0  // GPIO state to enable back light
 #define DISPLAY_WIDTH          320
 #define DISPLAY_HEIGHT         240
-
-#define DISPLAY_PRODUCT_NAME   "Kaluga"
 #define DISPLAY_MADCTL         0x08
 
 //--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
 
-#define UF2_PRODUCT_NAME "Espressif Kaluga 1"
-#define UF2_BOARD_ID     "ESP32S2-Kaluga-v1.2"
-#define UF2_VOLUME_LABEL "KALUGA1BOOT"
-#define UF2_INDEX_URL    "https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-esp32-s2-kaluga-1-kit.html"
+#define USB_VID           0xCAFE
+#define USB_PID           0x4016
+#define USB_MANUFACTURER  "Espressif"
+#define USB_PRODUCT       "Kaluga 1"
+
+#define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
+#define UF2_BOARD_ID      "ESP32S2-Kaluga-v1.2"
+#define UF2_VOLUME_LABEL  "KALUGA1BOOT"
+#define UF2_INDEX_URL     "https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-esp32-s2-kaluga-1-kit.html"
 
 
 #endif

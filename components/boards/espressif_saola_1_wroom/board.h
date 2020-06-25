@@ -57,9 +57,14 @@
 // USB UF2
 //--------------------------------------------------------------------+
 
-#define UF2_PRODUCT_NAME "Espressif Saola 1M WROVER"
-#define UF2_BOARD_ID     "ESP32S2-Saola1M-v1.2"
-#define UF2_VOLUME_LABEL "SAOLA1MBOOT"
-#define UF2_INDEX_URL    "https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-saola-1-v1.2.html"
+#define USB_VID           0xCAFE
+#define USB_PID           0x4016
+#define USB_MANUFACTURER  "Espressif"
+#define USB_PRODUCT       "Saola 1M WROOM"
+
+#define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
+#define UF2_BOARD_ID      "ESP32S2-Saola1M-v1.2"
+#define UF2_VOLUME_LABEL  "SAOLA1MBOOT"
+#define UF2_INDEX_URL     "https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-saola-1-v1.2.html"
 
 #endif

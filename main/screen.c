@@ -188,8 +188,8 @@ void screen_draw_drag(void) {
     drawBar(107, 14, 4);
 
     // Center UF2_PRODUCT_NAME and UF2_VERSION_BASE.
-    int name_x = (DISPLAY_WIDTH - (6 * 4 - CHAR4_KERNING) * (int) strlen(DISPLAY_PRODUCT_NAME)) / 2;
-    print4(name_x >= 0 ? name_x : 0, 5, 1, DISPLAY_PRODUCT_NAME);
+    int name_x = (DISPLAY_WIDTH - (6 * 4 - CHAR4_KERNING) * (int) strlen(USB_PRODUCT)) / 2;
+    print4(name_x >= 0 ? name_x : 0, 5, 1, USB_PRODUCT);
     int version_x = (DISPLAY_WIDTH - 6 * (int) strlen(UF2_VERSION_BASE)) / 2;
     print(version_x >= 0 ? version_x : 0, 40, 6, UF2_VERSION_BASE);
     print(23, 110, 1, "arcade.makecode.com");

@@ -24,16 +24,27 @@
  */
 
 #include "tusb.h"
+#include "boards.h"
 
-/* A combination of interfaces must have a unique product id, since PC will save device driver after the first plug.
- * Same VID/PID with different interface e.g MSC (first), then CDC (later) will possibly cause system error on PC.
- *
- * Auto ProductID layout's Bitmap:
- *   [MSB]         HID | MSC | CDC          [LSB]
- */
-#define _PID_MAP(itf, n)  ( (CFG_TUD_##itf) << (n) )
-#define USB_PID           (0x4000 | _PID_MAP(CDC, 0) | _PID_MAP(MSC, 1) | _PID_MAP(HID, 2) | \
-                           _PID_MAP(MIDI, 3) | _PID_MAP(VENDOR, 4) )
+// String Descriptor Index
+enum
+{
+  STRID_LANGID = 0,
+  STRID_MANUFACTURER,
+  STRID_PRODUCT,
+  STRID_SERIAL,
+  STRID_MSC,
+  STRID_HID,
+  STRID_VENDOR,
+};
+
+enum
+{
+  ITF_NUM_MSC,
+  ITF_NUM_HID,
+  ITF_NUM_VENDOR, // webUSB
+  ITF_NUM_TOTAL
+};
 
 //--------------------------------------------------------------------+
 // Device Descriptors
@@ -48,13 +59,13 @@ tusb_desc_device_t const desc_device =
     .bDeviceProtocol    = 0x00,
     .bMaxPacketSize0    = CFG_TUD_ENDPOINT0_SIZE,
 
-    .idVendor           = 0xCafe,
+    .idVendor           = USB_VID,
     .idProduct          = USB_PID,
     .bcdDevice          = 0x0100,
 
-    .iManufacturer      = 0x01,
-    .iProduct           = 0x02,
-    .iSerialNumber      = 0x03,
+    .iManufacturer      = STRID_MANUFACTURER,
+    .iProduct           = STRID_PRODUCT,
+    .iSerialNumber      = STRID_SERIAL,
 
     .bNumConfigurations = 0x01
 };
@@ -67,19 +78,37 @@ uint8_t const * tud_descriptor_device_cb(void)
 }
 
 //--------------------------------------------------------------------+
+// HID Report Descriptor
+//--------------------------------------------------------------------+
+
+uint8_t const desc_hid_report[] =
+{
+  TUD_HID_REPORT_DESC_GENERIC_INOUT(CFG_TUD_HID_BUFSIZE)
+};
+
+// Invoked when received GET HID REPORT DESCRIPTOR
+// Application return pointer to descriptor
+// Descriptor contents must exist long enough for transfer to complete
+uint8_t const * tud_hid_descriptor_report_cb(void)
+{
+  return desc_hid_report;
+}
+
+
+//--------------------------------------------------------------------+
 // Configuration Descriptor
 //--------------------------------------------------------------------+
 
-enum
-{
-  ITF_NUM_MSC,
-  ITF_NUM_TOTAL
-};
-
-#define CONFIG_TOTAL_LEN  (TUD_CONFIG_DESC_LEN + TUD_MSC_DESC_LEN)
+#define CONFIG_TOTAL_LEN  (TUD_CONFIG_DESC_LEN + TUD_MSC_DESC_LEN + TUD_HID_INOUT_DESC_LEN + TUD_VENDOR_DESC_LEN)
 
 #define EPNUM_MSC_OUT     0x01
 #define EPNUM_MSC_IN      0x81
+
+#define EPNUM_HID_OUT     0x02
+#define EPNUM_HID_IN      0x82
+
+#define EPNUM_VENDOR_OUT  0x03
+#define EPNUM_VENDOR_IN   0x83
 
 uint8_t const desc_configuration[] =
 {
@@ -87,7 +116,13 @@ uint8_t const desc_configuration[] =
   TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
 
   // Interface number, string index, EP Out & EP In address, EP size
-  TUD_MSC_DESCRIPTOR(ITF_NUM_MSC, 4, EPNUM_MSC_OUT, EPNUM_MSC_IN, 64),
+  TUD_MSC_DESCRIPTOR(ITF_NUM_MSC, STRID_MSC, EPNUM_MSC_OUT, EPNUM_MSC_IN, 64),
+
+  // Interface number, string index, protocol, report descriptor len, EP In & Out address, size & polling interval
+  TUD_HID_INOUT_DESCRIPTOR(ITF_NUM_HID, STRID_HID, HID_PROTOCOL_NONE, sizeof(desc_hid_report), EPNUM_HID_OUT, EPNUM_HID_IN, CFG_TUD_HID_BUFSIZE, 10),
+
+  // Interface number, string index, EP Out & IN address, EP size
+  TUD_VENDOR_DESCRIPTOR(ITF_NUM_VENDOR, STRID_VENDOR, EPNUM_VENDOR_OUT, EPNUM_VENDOR_IN, 64)
 };
 
 
@@ -104,14 +139,19 @@ uint8_t const * tud_descriptor_configuration_cb(uint8_t index)
 // String Descriptors
 //--------------------------------------------------------------------+
 
+// Serial is 64-bit DeviceID -> 16 chars len
+static char desc_str_serial[1+16] = { 0 };
+
 // array of pointer to string descriptors
 char const* string_desc_arr [] =
 {
   (const char[]) { 0x09, 0x04 }, // 0: is supported language is English (0x0409)
-  "TinyUSB",                     // 1: Manufacturer
-  "TinyUSB Device",              // 2: Product
-  "123456",                      // 3: Serials, should use chip ID
-  "TinyUSB MSC",                 // 4: MSC Interface
+  USB_MANUFACTURER,              // 1: Manufacturer
+  USB_PRODUCT,                   // 2: Product
+  desc_str_serial,               // 3: Serials, use default MAC address
+  "UF2",                         // 4: MSC Interface
+  "HF2 HID",
+  "HF2 WebUSB"
 };
 
 static uint16_t _desc_str[32];
@@ -130,6 +170,15 @@ uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid)
     chr_count = 1;
   }else
   {
+    if ( (index == STRID_SERIAL) && (desc_str_serial[0] == 0) )
+    {
+      // use factory default MAC as serial ID
+      uint8_t mac[6];
+      esp_efuse_mac_get_default(mac);
+
+      sprintf(desc_str_serial, "%02X%02X%02X%02X%02X%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    }
+
     // Convert ASCII string into UTF-16
 
     if ( !(index < sizeof(string_desc_arr)/sizeof(string_desc_arr[0])) ) return NULL;

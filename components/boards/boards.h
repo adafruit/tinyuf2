@@ -56,6 +56,7 @@ void board_led_state(uint32_t state);
 
 
 // Debug helper, remove later
+#include "esp_log.h"
 #define PRINTF(...)           ESP_LOGI("uf2", __VA_ARGS__)
 #define PRINT_LOCATION()      ESP_LOGI("uf2", "%s: %d", __PRETTY_FUNCTION__, __LINE__)
 #define PRINT_MESS(x)         ESP_LOGI("uf2", "%s", (char*)(x))
