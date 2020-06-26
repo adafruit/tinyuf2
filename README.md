@@ -82,6 +82,13 @@ user_fs  , data , fat     , 0x200000 , 2M     ,
 
 Use `-DBOARD=` to specify target board
 
+### Setup
+
+```
+git submodule --init
+```
+Then install esp-idf by following the guide here: https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/get-started/
+
 ### Build
 
 ```
