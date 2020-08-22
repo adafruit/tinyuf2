@@ -85,7 +85,7 @@ Use `-DBOARD=` to specify target board
 ### Setup
 
 ```
-git submodule --init
+git submodule update --init
 ```
 Then install esp-idf by following the guide here: https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/get-started/
 
