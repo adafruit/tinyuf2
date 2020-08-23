@@ -104,6 +104,3 @@ idf.py -DBOARD=espressif_saola_1_wrover flash
 ### Flash with ROM USB DFU
 
 TODO: update later
-
-
-**FIXME**: There is a bug with UART baudrate = 115200, the board will not enumerate, but it works just fine with baudrate of 921600. This is possibly a race condition somewhere to fix. This is observed with ubuntu 18.04

@@ -1,4 +1,4 @@
-set(BOOTLOADER_OFFSET 0x1000)
+set(BOOTLOADER_OFFSET CONFIG_BOOTLOADER_OFFSET_IN_FLASH)
 
 # Do not generate flash file when building bootloader
 if(BOOTLOADER_BUILD OR NOT CONFIG_APP_BUILD_BOOTLOADER)
@@ -117,7 +117,6 @@ externalproject_add(bootloader
     CMAKE_ARGS  -DSDKCONFIG=${sdkconfig} -DIDF_PATH=${idf_path} -DIDF_TARGET=${idf_target}
                 -DPYTHON_DEPS_CHECKED=1 -DPYTHON=${python}
                 -DEXTRA_COMPONENT_DIRS=${CMAKE_CURRENT_LIST_DIR}
-                -DBOARD=${BOARD}
                 ${sign_key_arg} ${ver_key_arg}
                 # LEGACY_INCLUDE_COMMON_HEADERS has to be passed in via cache variable since
                 # the bootloader common component requirements depends on this and
