@@ -57,8 +57,8 @@
 // USB UF2
 //--------------------------------------------------------------------+
 
-#define USB_VID           0xCAFE
-#define USB_PID           0x4016
+#define USB_VID           0x239A
+#define USB_PID           0x00A7
 #define USB_MANUFACTURER  "Espressif"
 #define USB_PRODUCT       "Saola 1M WROOM"
 
