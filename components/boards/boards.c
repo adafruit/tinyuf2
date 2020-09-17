@@ -119,9 +119,11 @@ void led_blinky_cb(TimerHandle_t xTimer)
     strip->clear(strip, 100);
   }
 }
+#endif
 
 void board_led_state(uint32_t state)
 {
+  #ifdef PIN_NEOPIXEL
   switch(state)
   {
     case STATE_BOOTLOADER_STARTED:
@@ -148,6 +150,5 @@ void board_led_state(uint32_t state)
       neopixel_set(RGB_UNKNOWN);
     break;
   }
+  #endif
 }
-
-#endif
