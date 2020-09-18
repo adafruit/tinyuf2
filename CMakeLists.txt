@@ -3,6 +3,9 @@
 cmake_minimum_required(VERSION 3.5)
 
 # hack default to espressif_saola_1_wrover for quick testing
+if(NOT (DEFINED BOARD))
+  set(BOARD espressif_saola_1_wrover)
+endif()
 
 # Check for -DBOARD=
 if(NOT (DEFINED BOARD AND EXISTS "${CMAKE_SOURCE_DIR}/components/boards/${BOARD}/board.h") )
