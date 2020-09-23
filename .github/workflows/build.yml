@@ -8,7 +8,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        board: ['espressif_saola_1_wroom', 'espressif_saola_1_wrover', 'espressif_kaluga_1']
+        board: ['espressif_kaluga_1', 'espressif_saola_1_wroom', 'espressif_saola_1_wrover', 'microdev_micro_s2']
     steps:
     - name: Setup Python
       uses: actions/setup-python@v1
