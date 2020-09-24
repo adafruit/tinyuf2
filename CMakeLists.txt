@@ -19,6 +19,9 @@ if(NOT (DEFINED BOARD AND EXISTS "${CMAKE_SOURCE_DIR}/components/boards/${BOARD}
   
   message(FATAL_ERROR "Invalid BOARD specified")
 endif()
+
+set(SDKCONFIG_DEFAULTS sdkconfig.defaults components/boards/${BOARD}/sdkconfig)
+set(SDKCONFIG build/sdkconfig)
  
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 set(SUPPORTED_TARGETS esp32s2)
