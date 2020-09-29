@@ -88,7 +88,7 @@ Use `-DBOARD=` to specify target board
 ```
 git submodule update --init
 ```
-Then install esp-idf by following the guide here: https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/get-started/
+Then install the patched esp-idf that is included with CircuitPython. Installation instructions can be found in the [Building and Flashing](https://github.com/adafruit/circuitpython/blob/main/ports/esp32s2/README.md#building-and-flashing) section of the esp32s2 port's readme.
 
 ### Build
 
