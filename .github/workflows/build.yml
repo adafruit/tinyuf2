@@ -1,6 +1,12 @@
 name: Build
 
-on: [pull_request, push, repository_dispatch]
+on:
+  pull_request:
+  push:
+  repository_dispatch:
+  release:
+    types:
+      - created
 
 jobs:
   build:
@@ -8,7 +14,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        board: ['espressif_kaluga_1', 'espressif_saola_1_wroom', 'espressif_saola_1_wrover', 'microdev_micro_s2']
+        board:
+        - 'espressif_kaluga_1'
+        - 'espressif_saola_1_wroom'
+        - 'espressif_saola_1_wrover'
+        - 'microdev_micro_s2'
+        - 'unexpectedmaker_feathers2'
     steps:
     - name: Setup Python
       uses: actions/setup-python@v1
@@ -23,3 +34,30 @@ jobs:
 
     - name: Build
       run: docker run --rm -v $PWD:/project -w /project espressif/idf:latest idf.py build -DBOARD=${{ matrix.board }}
+
+    - name: Rename release artifact
+      run: cp build/uf2-esp32s.bin uf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.bin
+      if: ${{ github.event_name == 'release' }}
+
+    - name: Rename artifact
+      run: cp build/uf2-esp32s.bin uf2-${{ matrix.board }}-$(git describe --always).bin
+
+    - name: List files
+      run: ls -a
+
+    - uses: actions/upload-artifact@v2
+      with:
+        name: ${{ matrix.board }}
+        path: uf2-${{ matrix.board }}-*.bin
+
+    - name: Upload Release Asset
+      id: upload-release-asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: ./uf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.bin
+        asset_name: uf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.bin
+        asset_content_type: application/octet-stream
+      if: ${{ github.event_name == 'release' }}
