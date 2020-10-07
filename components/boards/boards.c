@@ -24,13 +24,14 @@
 
 #include "boards.h"
 
-#include "driver/gpio.h"
+#include "esp_rom_gpio.h"
+#include "hal/gpio_ll.h"
+#include "hal/usb_hal.h"
+#include "soc/usb_periph.h"
+
 #include "driver/periph_ctrl.h"
 #include "driver/rmt.h"
 #include "led_strip.h"
-
-#include "hal/usb_hal.h"
-#include "soc/usb_periph.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/timers.h"
@@ -47,6 +48,8 @@ static led_strip_t *strip;
 #define RGB_USB_MOUNTED     0x00, 0xff, 0x00 // Green
 #define RGB_WRITING         0xcc, 0x66, 0x00
 #define RGB_UNKNOWN         0x00, 0x00, 0x88 // for debug
+
+static void configure_pins(usb_hal_context_t *usb);
 
 void board_init(void)
 {
@@ -81,15 +84,38 @@ void board_init(void)
     .use_external_phy = false // use built-in PHY
   };
   usb_hal_init(&hal);
-
-  // Pin drive strength
-  gpio_set_drive_capability(USBPHY_DM_NUM, GPIO_DRIVE_CAP_3);
-  gpio_set_drive_capability(USBPHY_DP_NUM, GPIO_DRIVE_CAP_3);
+  configure_pins(&hal);
 }
 
 void board_teardown(void)
 {
 
+}
+
+static void configure_pins(usb_hal_context_t *usb)
+{
+  /* usb_periph_iopins currently configures USB_OTG as USB Device.
+   * Introduce additional parameters in usb_hal_context_t when adding support
+   * for USB Host.
+   */
+  for (const usb_iopin_dsc_t *iopin = usb_periph_iopins; iopin->pin != -1; ++iopin) {
+    if ((usb->use_external_phy) || (iopin->ext_phy_only == 0)) {
+      esp_rom_gpio_pad_select_gpio(iopin->pin);
+      if (iopin->is_output) {
+        esp_rom_gpio_connect_out_signal(iopin->pin, iopin->func, false, false);
+      } else {
+        esp_rom_gpio_connect_in_signal(iopin->pin, iopin->func, false);
+        if ((iopin->pin != GPIO_FUNC_IN_LOW) && (iopin->pin != GPIO_FUNC_IN_HIGH)) {
+          gpio_ll_input_enable(&GPIO, iopin->pin);
+        }
+      }
+      esp_rom_gpio_pad_unhold(iopin->pin);
+    }
+  }
+  if (!usb->use_external_phy) {
+    gpio_set_drive_capability(USBPHY_DM_NUM, GPIO_DRIVE_CAP_3);
+    gpio_set_drive_capability(USBPHY_DP_NUM, GPIO_DRIVE_CAP_3);
+  }
 }
 
 //--------------------------------------------------------------------+
