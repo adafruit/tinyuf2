@@ -7,3 +7,9 @@
 [submodule "lib/CMSIS_5"]
 	path = lib/CMSIS_5
 	url = https://github.com/ARM-software/CMSIS_5.git
+[submodule "lib/tinyusb"]
+	path = lib/tinyusb
+	url = https://github.com/hathach/tinyusb.git
+[submodule "ports/esp32s2/components/bootloader/subproject/components/micro-ecc/micro-ecc"]
+	path = ports/esp32s2/components/bootloader/subproject/components/micro-ecc/micro-ecc
+	url = https://github.com/kmackay/micro-ecc.git
