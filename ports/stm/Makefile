@@ -1,6 +1,5 @@
 PORT = stm
 
-include ../../tools/top.mk
 include ../make.mk
 
 # Port source
