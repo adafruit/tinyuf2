@@ -1,9 +1,3 @@
-[submodule "components/tinyusb/tinyusb"]
-	path = components/tinyusb/tinyusb
-	url = https://github.com/hathach/tinyusb.git
-[submodule "components/bootloader/subproject/components/micro-ecc/micro-ecc"]
-	path = components/bootloader/subproject/components/micro-ecc/micro-ecc
-	url = https://github.com/kmackay/micro-ecc.git
 [submodule "lib/st/cmsis_device_f4"]
 	path = lib/st/cmsis_device_f4
 	url = https://github.com/STMicroelectronics/cmsis_device_f4.git
