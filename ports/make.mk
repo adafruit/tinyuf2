@@ -40,9 +40,35 @@ RM = rm
 
 #-------------- Source files and compiler flags --------------
 
-# Include all source C in board folder
-SRC_C += hw/bsp/board.c
-SRC_C += $(subst $(TOP)/,,$(wildcard $(TOP)/hw/bsp/$(BOARD)/*.c))
+# Bootloader src
+SRC_C += $(subst $(TOP)/,,$(wildcard $(TOP)/src/*.c))
+INC += $(TOP)/src
+
+# Include all source C in board folder and Include path
+#SRC_C += hw/bsp/board.c
+SRC_C += $(subst $(TOP)/,,$(wildcard $(TOP)/ports/$(PORT)/boards/$(BOARD)/*.c))
+
+INC += $(TOP)/ports/$(PORT)
+INC += $(TOP)/ports/$(PORT)/boards/$(BOARD)
+
+# TinyUSB Stack source
+TINYUSB_LIB = lib/tinyusb/src
+SRC_C += \
+	$(TINYUSB_LIB)/tusb.c \
+	$(TINYUSB_LIB)/common/tusb_fifo.c \
+	$(TINYUSB_LIB)/device/usbd.c \
+	$(TINYUSB_LIB)/device/usbd_control.c \
+	$(TINYUSB_LIB)/class/cdc/cdc_device.c \
+	$(TINYUSB_LIB)/class/dfu/dfu_rt_device.c \
+	$(TINYUSB_LIB)/class/hid/hid_device.c \
+	$(TINYUSB_LIB)/class/midi/midi_device.c \
+	$(TINYUSB_LIB)/class/msc/msc_device.c \
+	$(TINYUSB_LIB)/class/net/net_device.c \
+	$(TINYUSB_LIB)/class/usbtmc/usbtmc_device.c \
+	$(TINYUSB_LIB)/class/vendor/vendor_device.c \
+	$(TINYUSB_LIB)/portable/$(TINYUSB_DCD)
+
+INC += $(TOP)/$(TINYUSB_LIB)
 
 # Compiler Flags
 CFLAGS += \

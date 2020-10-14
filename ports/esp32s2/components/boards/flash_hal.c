@@ -24,8 +24,6 @@
 
 #include <string.h>
 #include "boards.h"
-#include "flash_hal.h"
-
 #include "esp_log.h"
 #include "esp_partition.h"
 

@@ -12,11 +12,12 @@ CFLAGS += \
 # suppress warning caused by vendor mcu driver
 CFLAGS += -Wno-error=cast-align
 
-ST_HAL_DRIVER = hw/mcu/st/st_driver/STM32F4xx_HAL_Driver
-ST_CMSIS = hw/mcu/st/st_driver/CMSIS/Device/ST/STM32F4xx
+ST_HAL_DRIVER = lib/st/stm32f4xx_hal_driver
+ST_CMSIS = lib/st/cmsis_device_f4
+CMSIS_5 = lib/CMSIS_5
 
 # All source paths should be relative to the top level.
-LD_FILE = hw/bsp/$(BOARD)/STM32F405RGTx_FLASH.ld
+LD_FILE = ports/$(PORT)/boards/$(BOARD)/STM32F405RGTx_FLASH.ld
 
 SRC_C += \
 	$(ST_CMSIS)/Source/Templates/system_stm32f4xx.c \
@@ -30,23 +31,14 @@ SRC_S += \
 	$(ST_CMSIS)/Source/Templates/gcc/startup_stm32f405xx.s
 
 INC += \
-	$(TOP)/hw/mcu/st/st_driver/CMSIS/Include \
+	$(TOP)/$(CMSIS_5)/CMSIS/Core/Include \
 	$(TOP)/$(ST_CMSIS)/Include \
-	$(TOP)/$(ST_HAL_DRIVER)/Inc \
-	$(TOP)/hw/bsp/$(BOARD)
+	$(TOP)/$(ST_HAL_DRIVER)/Inc
 
-# For TinyUSB port source
-VENDOR = st
-CHIP_FAMILY = synopsys
-
-# For freeRTOS port source
-FREERTOS_PORT = ARM_CM4F
+TINYUSB_DCD = st/synopsys/dcd_synopsys.c
 
 # For flash-jlink target
 JLINK_DEVICE = stm32f405rg
-
-# Path to STM32 Cube Programmer CLI, should be added into system path
-STM32Prog = STM32_Programmer_CLI
 
 # flash target ROM bootloader
 flash: $(BUILD)/$(BOARD)-firmware.bin

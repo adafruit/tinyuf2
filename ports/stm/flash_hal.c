@@ -35,11 +35,14 @@ void flash_hal_init(void)
 
 uint32_t flash_hal_size(void)
 {
-  return 0;
+  return 256;
 }
 
 void flash_hal_read(uint32_t addr, void* buffer, uint32_t len)
 {
+  (void) addr;
+  (void) buffer;
+  (void) len;
 }
 
 void flash_hal_flush(void)
@@ -48,5 +51,8 @@ void flash_hal_flush(void)
 
 void flash_hal_write (uint32_t dst, void const *src, uint32_t len)
 {
+  (void) dst;
+  (void) src;
+  (void) len;
 }
 

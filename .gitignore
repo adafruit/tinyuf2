@@ -1,3 +1,6 @@
-/build/
-/_build/
+/ports/*/build/
 /sdkconfig
+.settings/
+*.o
+*.d
+*.P

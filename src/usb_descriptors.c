@@ -172,11 +172,17 @@ uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid)
   {
     if ( (index == STRID_SERIAL) && (desc_str_serial[0] == 0) )
     {
+#if CFG_TUSB_MCU == OPT_MCU_ESP32S2
       // use factory default MAC as serial ID
       uint8_t mac[6];
-      esp_efuse_mac_get_default(mac);
 
+      esp_efuse_mac_get_default(mac);
       sprintf(desc_str_serial, "%02X%02X%02X%02X%02X%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+#else
+      desc_str_serial[0] = 'T';
+      desc_str_serial[1] = 'U';
+#endif
+
     }
 
     // Convert ASCII string into UTF-16

@@ -20,6 +20,8 @@ if(NOT (DEFINED BOARD AND EXISTS "${CMAKE_SOURCE_DIR}/components/boards/${BOARD}
   message(FATAL_ERROR "Invalid BOARD specified")
 endif()
 
+set(EXTRA_COMPONENT_DIRS "../../src")
+
 set(SDKCONFIG_DEFAULTS sdkconfig.defaults components/boards/${BOARD}/sdkconfig)
 set(SDKCONFIG build/sdkconfig)
  

@@ -28,11 +28,15 @@
 #include <stdio.h>
 #include <assert.h>
 
-#include "esp_log.h"
-
-#include "uf2.h"
 #include "compile_date.h"
 #include "flash_hal.h"
+#include "uf2.h"
+
+#include "tusb.h"
+
+#if CFG_TUSB_MCU == OPT_MCU_ESP32S2
+#include "esp_log.h"
+#endif
 
 //--------------------------------------------------------------------+
 //
@@ -364,6 +368,7 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
  */
 int uf2_write_block (uint32_t block_no, uint8_t *data, WriteState *state)
 {
+  (void) block_no;
   UF2_Block *bl = (void*) data;
 
   if ( !is_uf2_block(bl) ) return -1;

@@ -25,8 +25,10 @@
 #include "tusb.h"
 #include "uf2.h"
 
+#if CFG_TUSB_MCU == OPT_MCU_ESP32S2
 #include "esp_partition.h"
 #include "esp_ota_ops.h"
+#endif
 
 /*------------------------------------------------------------------*/
 /* MACRO TYPEDEF CONSTANT ENUM
@@ -134,6 +136,7 @@ int32_t tud_msc_read10_cb (uint8_t lun, uint32_t lba, uint32_t offset, void* buf
 int32_t tud_msc_write10_cb (uint8_t lun, uint32_t lba, uint32_t offset, uint8_t* buffer, uint32_t bufsize)
 {
   (void) lun;
+  (void) offset;
 
   uint32_t count = 0;
   while ( count < bufsize )
@@ -153,6 +156,7 @@ int32_t tud_msc_write10_cb (uint8_t lun, uint32_t lba, uint32_t offset, uint8_t*
 // Callback invoked when WRITE10 command is completed (status received and accepted by host).
 void tud_msc_write10_complete_cb(uint8_t lun)
 {
+  (void) lun;
   static bool first_write = true;
 
   // abort the DFU, uf2 block failed integrity check
@@ -173,11 +177,14 @@ void tud_msc_write10_complete_cb(uint8_t lun)
     // All block of uf2 file is complete --> complete DFU process
     if (_wr_state.numWritten >= _wr_state.numBlocks)
     {
-      // Set partition OTA0 as bootable
-      esp_ota_set_boot_partition(esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL));
       board_led_state(STATE_WRITING_FINISHED);
 
+#if CFG_TUSB_MCU == OPT_MCU_ESP32S2
+      // Set partition OTA0 as bootable
+      esp_ota_set_boot_partition(esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL));
       esp_restart();
+#endif
+
     }
   }
 }

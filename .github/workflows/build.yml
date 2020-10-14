@@ -33,7 +33,7 @@ jobs:
         submodules: 'true'
 
     - name: Build
-      run: docker run --rm -v $PWD:/project -w /project espressif/idf:latest idf.py build -DBOARD=${{ matrix.board }}
+      run: docker run --rm -v $PWD:/project -w /project/ports/esp32s2 espressif/idf:latest idf.py build -DBOARD=${{ matrix.board }}
 
     - name: Rename release artifact
       run: cp build/uf2-esp32s.bin uf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.bin

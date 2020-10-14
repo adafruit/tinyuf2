@@ -28,6 +28,12 @@
 #include <stdbool.h>
 #include <string.h>
 
+#include "flash_hal.h"
+#include "uf2.h"
+#include "boards.h"
+#include "tusb.h"
+
+#if CFG_TUSB_OS == OPT_OS_FREERTOS
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/timers.h"
@@ -35,16 +41,6 @@
 #include "freertos/semphr.h"
 
 #include "esp_log.h"
-#include "boards.h"
-#include "flash_hal.h"
-#include "tusb.h"
-#include "uf2.h"
-
-//--------------------------------------------------------------------+
-// MACRO CONSTANT TYPEDEF PROTYPES
-//--------------------------------------------------------------------+
-
-static const char *TAG = "uf2";
 
 // static task for usbd
 // Increase stack size when debug log is enabled
@@ -66,10 +62,15 @@ void usb_device_task(void* param)
   }
 }
 
-void app_main(void)
-{
-  ESP_LOGI(TAG, "Hello");
+#endif
 
+//--------------------------------------------------------------------+
+// MACRO CONSTANT TYPEDEF PROTYPES
+//--------------------------------------------------------------------+
+
+
+int main(void)
+{
   board_init();
   tusb_init();
 
@@ -77,14 +78,29 @@ void app_main(void)
   uf2_init();
   board_led_state(STATE_BOOTLOADER_STARTED);
 
-  // Create a task for tinyusb device stack
-  (void) xTaskCreateStatic( usb_device_task, "usbd", USBD_STACK_SIZE, NULL, configMAX_PRIORITIES-2, usb_device_stack, &usb_device_taskdef);
-
 #if USE_SCREEN
   screen_init();
   screen_draw_drag();
 #endif
+
+#if CFG_TUSB_OS == OPT_OS_NONE
+  while(1)
+  {
+    tud_task();
+  }
+#endif
 }
+
+#if CFG_TUSB_MCU == OPT_MCU_ESP32S2
+// TODO move to ports/esp32s2
+void app_main(void)
+{
+  main();
+
+  // Create a task for tinyusb device stack
+  (void) xTaskCreateStatic( usb_device_task, "usbd", USBD_STACK_SIZE, NULL, configMAX_PRIORITIES-2, usb_device_stack, &usb_device_taskdef);
+}
+#endif
 
 //--------------------------------------------------------------------+
 // Device callbacks
@@ -140,4 +156,6 @@ void tud_hid_set_report_cb(uint8_t report_id, hid_report_type_t report_type, uin
   // This example doesn't use multiple report and report ID
   (void) report_id;
   (void) report_type;
+  (void) buffer;
+  (void) bufsize;
 }
