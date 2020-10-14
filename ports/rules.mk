@@ -1,24 +1,6 @@
 # ---------------------------------------
-# Common make rules for all examples
+# Common make rules for all
 # ---------------------------------------
-
-ifeq ($(CROSS_COMPILE),xtensa-esp32s2-elf-)
-# Espressif IDF use CMake build system, this add wrapper target to call idf.py
-
-.PHONY: all clean flash
-.DEFAULT_GOAL := all
-
-all:
-	idf.py -B$(BUILD) -DBOARD=$(BOARD) build
-
-clean:
-	idf.py -B$(BUILD) -DBOARD=$(BOARD) clean
-
-flash:
-	idf.py -B$(BUILD) -DBOARD=$(BOARD) flash
-
-else
-# GNU Make build system
 
 # libc
 LIBS += -lgcc -lm -lnosys -lc
@@ -31,6 +13,7 @@ ifeq ($(BOARD), msp_exp430f5529lp)
 else
   LDFLAGS += $(CFLAGS) -fshort-enums -Wl,-T,$(TOP)/$(LD_FILE) -Wl,-Map=$@.map -Wl,-cref -Wl,-gc-sections -specs=nosys.specs -specs=nano.specs
 endif
+
 ASFLAGS += $(CFLAGS)
 
 # Assembly files can be name with upper case .S, convert it to .s
@@ -144,5 +127,3 @@ flash-stlink: $(BUILD)/$(BOARD)-firmware.elf
 flash-pyocd: $(BUILD)/$(BOARD)-firmware.hex
 	pyocd flash -t $(PYOCD_TARGET) $<
 	pyocd reset -t $(PYOCD_TARGET)
-
-endif # Make target

@@ -1,3 +1,4 @@
+/ports/*/_build/
 /ports/*/build/
 /sdkconfig
 .settings/
