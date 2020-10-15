@@ -29,10 +29,8 @@
 #include <assert.h>
 
 #include "compile_date.h"
-#include "flash_hal.h"
+#include "board.h"
 #include "uf2.h"
-
-#include "tusb.h"
 
 #if CFG_TUSB_MCU == OPT_MCU_ESP32S2
 #include "esp_log.h"

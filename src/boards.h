@@ -44,6 +44,14 @@ void board_init(void);
 void board_teardown(void);
 void board_led_state(uint32_t state);
 
+//------------- Flash -------------//
+void     board_flash_init(void);
+uint32_t board_flash_size(void);
+
+void     board_flash_read (uint32_t addr, void* buffer, uint32_t len);
+void     board_flash_write(uint32_t dst, void const *src, uint32_t len);
+void     board_flash_flush(void);
+
 
 #ifdef PIN_DISPLAY_SCK
   #define USE_SCREEN 1

@@ -22,7 +22,6 @@
  * THE SOFTWARE.
  */
 
-#include "flash_hal.h"
 #include "boards.h"
 
 #define FLASH_CACHE_SIZE          4096

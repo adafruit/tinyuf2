@@ -28,7 +28,6 @@
 #include <stdbool.h>
 #include <string.h>
 
-#include "flash_hal.h"
 #include "uf2.h"
 #include "boards.h"
 #include "tusb.h"

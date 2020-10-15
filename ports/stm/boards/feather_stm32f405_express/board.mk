@@ -40,6 +40,8 @@ TINYUSB_DCD = st/synopsys/dcd_synopsys.c
 # For flash-jlink target
 JLINK_DEVICE = stm32f405rg
 
+flash: flash-jlink
+
 # flash target ROM bootloader
-flash: $(BUILD)/$(BOARD)-firmware.bin
-	dfu-util -R -a 0 --dfuse-address 0x08000000 -D $<
+#flash: $(BUILD)/$(BOARD)-firmware.bin
+#	dfu-util -R -a 0 --dfuse-address 0x08000000 -D $<
