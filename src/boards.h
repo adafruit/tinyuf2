@@ -44,6 +44,9 @@ void board_init(void);
 void board_teardown(void);
 void board_led_state(uint32_t state);
 
+// Fill Serial Number and return its length (limit to 16 bytes)
+uint8_t board_usb_get_serial(uint8_t serial_id[16]);
+
 //------------- Flash -------------//
 void     board_flash_init(void);
 uint32_t board_flash_size(void);

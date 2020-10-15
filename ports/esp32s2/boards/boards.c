@@ -130,6 +130,13 @@ void board_teardown(void)
 
 }
 
+uint8_t board_usb_get_serial(uint8_t serial_id[16])
+{
+  // use factory default MAC as serial ID
+  esp_efuse_mac_get_default(serial_id);
+  return 6;
+}
+
 static void configure_pins(usb_hal_context_t *usb)
 {
   /* usb_periph_iopins currently configures USB_OTG as USB Device.

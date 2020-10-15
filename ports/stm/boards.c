@@ -201,6 +201,14 @@ void board_teardown(void)
 
 }
 
+#define STM32_UUID ((uint32_t *)0x1FFF7A10)
+uint8_t board_usb_get_serial(uint8_t serial_id[16])
+{
+  uint8_t const len = 12;
+  memcpy(serial_id, STM32_UUID, len);
+  return len;
+}
+
 //--------------------------------------------------------------------+
 // LED pattern
 //--------------------------------------------------------------------+

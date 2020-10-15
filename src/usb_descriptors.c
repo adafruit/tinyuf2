@@ -171,41 +171,51 @@ uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid)
 
   uint8_t chr_count;
 
-  if ( index == 0)
+  switch (index)
   {
-    memcpy(&_desc_str[1], string_desc_arr[0], 2);
-    chr_count = 1;
-  }else
-  {
-    if ( (index == STRID_SERIAL) && (desc_str_serial[0] == 0) )
+    case STRID_LANGID:
+      memcpy(&_desc_str[1], string_desc_arr[0], 2);
+      chr_count = 1;
+    break;
+
+    case STRID_SERIAL:
     {
-#if CFG_TUSB_MCU == OPT_MCU_ESP32S2
-      // use factory default MAC as serial ID
-      uint8_t mac[6];
+      uint8_t serial_id[16];
+      uint8_t serial_len;
 
-      esp_efuse_mac_get_default(mac);
-      sprintf(desc_str_serial, "%02X%02X%02X%02X%02X%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-#else
-      desc_str_serial[0] = 'T';
-      desc_str_serial[1] = 'U';
-#endif
+      serial_len = board_usb_get_serial(serial_id);
+      chr_count = 2*serial_len;
 
+      for ( uint8_t i = 0; i < serial_len; i++ )
+      {
+        for ( uint8_t j = 0; j < 2; j++ )
+        {
+          const char nibble_to_hex[16] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
+
+          uint8_t nibble = (serial_id[i] >> (j * 4)) & 0xf;
+          _desc_str[1 + i * 2 + (1 - j)] = nibble_to_hex[nibble]; // UTF-16-LE
+        }
+      }
     }
+    break;
 
-    // Convert ASCII string into UTF-16
-
-    if ( !(index < sizeof(string_desc_arr)/sizeof(string_desc_arr[0])) ) return NULL;
-
-    const char* str = string_desc_arr[index];
-
-    // Cap at max char
-    chr_count = strlen(str);
-    if ( chr_count > 31 ) chr_count = 31;
-
-    for(uint8_t i=0; i<chr_count; i++)
+    default:
     {
-      _desc_str[1+i] = str[i];
+      // Convert ASCII string into UTF-16
+      if ( !(index < sizeof(string_desc_arr)/sizeof(string_desc_arr[0])) ) return NULL;
+
+      const char* str = string_desc_arr[index];
+
+      // Cap at max char
+      chr_count = strlen(str);
+      if ( chr_count > 31 ) chr_count = 31;
+
+      for(uint8_t i=0; i<chr_count; i++)
+      {
+        _desc_str[1+i] = str[i];
+      }
     }
+    break;
   }
 
   // first byte is length (including header), second byte is string type
