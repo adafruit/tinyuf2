@@ -41,8 +41,10 @@ enum {
 };
 
 void board_init(void);
-void board_teardown(void);
 void board_led_state(uint32_t state);
+
+// DFU is complete, should reset or jump to application mode
+void board_dfu_complete(void);
 
 // Fill Serial Number and return its length (limit to 16 bytes)
 uint8_t board_usb_get_serial(uint8_t serial_id[16]);

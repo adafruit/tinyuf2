@@ -25,11 +25,6 @@
 #include "tusb.h"
 #include "uf2.h"
 
-#if CFG_TUSB_MCU == OPT_MCU_ESP32S2
-#include "esp_partition.h"
-#include "esp_ota_ops.h"
-#endif
-
 /*------------------------------------------------------------------*/
 /* MACRO TYPEDEF CONSTANT ENUM
  *------------------------------------------------------------------*/
@@ -47,7 +42,7 @@ void tud_msc_inquiry_cb(uint8_t lun, uint8_t vendor_id[8], uint8_t product_id[16
   (void) lun;
 
   const char vid[] = "Adafruit";
-  const char pid[] = "ESP32S UF2";
+  const char pid[] = "UF2 Bootloader";
   const char rev[] = "1.0";
 
   memcpy(vendor_id  , vid, strlen(vid));
@@ -178,13 +173,7 @@ void tud_msc_write10_complete_cb(uint8_t lun)
     if (_wr_state.numWritten >= _wr_state.numBlocks)
     {
       board_led_state(STATE_WRITING_FINISHED);
-
-#if CFG_TUSB_MCU == OPT_MCU_ESP32S2
-      // Set partition OTA0 as bootable
-      esp_ota_set_boot_partition(esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL));
-      esp_restart();
-#endif
-
+      board_dfu_complete();
     }
   }
 }

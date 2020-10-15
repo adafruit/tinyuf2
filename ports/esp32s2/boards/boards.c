@@ -24,6 +24,10 @@
 
 #include "boards.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/timers.h"
+
 #include "esp_rom_gpio.h"
 #include "hal/gpio_ll.h"
 #include "hal/usb_hal.h"
@@ -33,9 +37,8 @@
 #include "driver/rmt.h"
 #include "led_strip.h"
 
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/timers.h"
+#include "esp_partition.h"
+#include "esp_ota_ops.h"
 
 //--------------------------------------------------------------------+
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
@@ -125,9 +128,11 @@ void board_init(void)
   configure_pins(&hal);
 }
 
-void board_teardown(void)
+void board_dfu_complete(void)
 {
-
+  // Set partition OTA0 as bootable and reset
+  esp_ota_set_boot_partition(esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL));
+  esp_restart();
 }
 
 uint8_t board_usb_get_serial(uint8_t serial_id[16])

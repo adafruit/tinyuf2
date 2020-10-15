@@ -196,9 +196,9 @@ void board_init(void)
   USB_OTG_FS->GCCFG |= USB_OTG_GCCFG_VBUSBSEN;
 }
 
-void board_teardown(void)
+void board_dfu_complete(void)
 {
-
+  NVIC_SystemReset();
 }
 
 #define STM32_UUID ((uint32_t *)0x1FFF7A10)
