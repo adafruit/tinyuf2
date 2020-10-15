@@ -42,7 +42,11 @@ enum
 {
   ITF_NUM_MSC,
   ITF_NUM_HID,
+
+#if CFG_TUD_VENDOR
   ITF_NUM_VENDOR, // webUSB
+#endif
+
   ITF_NUM_TOTAL
 };
 
@@ -99,7 +103,7 @@ uint8_t const * tud_hid_descriptor_report_cb(void)
 // Configuration Descriptor
 //--------------------------------------------------------------------+
 
-#define CONFIG_TOTAL_LEN  (TUD_CONFIG_DESC_LEN + TUD_MSC_DESC_LEN + TUD_HID_INOUT_DESC_LEN + TUD_VENDOR_DESC_LEN)
+#define CONFIG_TOTAL_LEN  (TUD_CONFIG_DESC_LEN + TUD_MSC_DESC_LEN + TUD_HID_INOUT_DESC_LEN + CFG_TUD_VENDOR*TUD_VENDOR_DESC_LEN)
 
 #define EPNUM_MSC_OUT     0x01
 #define EPNUM_MSC_IN      0x81
@@ -121,8 +125,11 @@ uint8_t const desc_configuration[] =
   // Interface number, string index, protocol, report descriptor len, EP In & Out address, size & polling interval
   TUD_HID_INOUT_DESCRIPTOR(ITF_NUM_HID, STRID_HID, HID_PROTOCOL_NONE, sizeof(desc_hid_report), EPNUM_HID_OUT, EPNUM_HID_IN, CFG_TUD_HID_BUFSIZE, 10),
 
+#if CFG_TUD_VENDOR
   // Interface number, string index, EP Out & IN address, EP size
   TUD_VENDOR_DESCRIPTOR(ITF_NUM_VENDOR, STRID_VENDOR, EPNUM_VENDOR_OUT, EPNUM_VENDOR_IN, 64)
+#endif
+
 };
 
 

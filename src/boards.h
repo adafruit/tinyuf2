@@ -29,6 +29,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "tusb.h"
 #include "board.h"
 
 enum {
@@ -54,7 +55,7 @@ void board_led_state(uint32_t state);
   #define USE_SCREEN 0
 #endif
 
-
+#if CFG_TUSB_MCU == OPT_MCU_ESP32S2
 // Debug helper, remove later
 #include "esp_log.h"
 #define PRINTF(...)           ESP_LOGI("uf2", __VA_ARGS__)
@@ -71,5 +72,7 @@ void board_led_state(uint32_t state);
     for(uint32_t i=0; i<(n); i++) printf("%x ", p8[i]);\
     printf("\n");\
   }while(0)
+
+#endif
 
 #endif
