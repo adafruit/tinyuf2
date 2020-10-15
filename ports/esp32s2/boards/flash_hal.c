@@ -29,6 +29,22 @@
 
 #include "spi_flash_chip_driver.h"
 
+// Debug helper, remove later
+#define PRINTF(...)           ESP_LOGI("uf2", __VA_ARGS__)
+#define PRINT_LOCATION()      ESP_LOGI("uf2", "%s: %d", __PRETTY_FUNCTION__, __LINE__)
+#define PRINT_MESS(x)         ESP_LOGI("uf2", "%s", (char*)(x))
+#define PRINT_STR(x)          ESP_LOGI("uf2", #x " = %s"   , (char*)(x) )
+#define PRINT_INT(x)          ESP_LOGI("uf2", #x " = %d"  , (int32_t) (x) )
+#define PRINT_HEX(x)          ESP_LOGI("uf2", #x " = 0x%X", (uint32_t) (x) )
+
+#define PRINT_BUFFER(buf, n) \
+  do {\
+    uint8_t const* p8 = (uint8_t const*) (buf);\
+    printf(#buf ": ");\
+    for(uint32_t i=0; i<(n); i++) printf("%x ", p8[i]);\
+    printf("\n");\
+  }while(0)
+
 #define FLASH_CACHE_SIZE          4096
 #define FLASH_CACHE_INVALID_ADDR  0xffffffff
 
