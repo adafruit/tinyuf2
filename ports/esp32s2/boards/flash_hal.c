@@ -38,7 +38,7 @@ static uint8_t _fl_buf[FLASH_CACHE_SIZE] __attribute__((aligned(4)));
 // uf2 will always write to ota0 partition
 static esp_partition_t const * _part_ota0 = NULL;
 
-void flash_hal_init(void)
+void board_flash_init(void)
 {
   _fl_addr = FLASH_CACHE_INVALID_ADDR;
 
@@ -59,17 +59,17 @@ void flash_hal_init(void)
   PRINT_HEX(block_erase);
 }
 
-uint32_t flash_hal_size(void)
+uint32_t board_flash_size(void)
 {
   return _part_ota0->size;
 }
 
-void flash_hal_read(uint32_t addr, void* buffer, uint32_t len)
+void board_flash_read(uint32_t addr, void* buffer, uint32_t len)
 {
   esp_partition_read(_part_ota0, addr, buffer, len);
 }
 
-void flash_hal_flush(void)
+void board_flash_flush(void)
 {
   if ( _fl_addr == FLASH_CACHE_INVALID_ADDR ) return;
 
@@ -83,16 +83,16 @@ void flash_hal_flush(void)
   _fl_addr = FLASH_CACHE_INVALID_ADDR;
 }
 
-void flash_hal_write (uint32_t dst, void const *src, uint32_t len)
+void board_flash_write (uint32_t dst, void const *src, uint32_t len)
 {
   uint32_t new_addr = dst & ~(FLASH_CACHE_SIZE - 1);
 
   if ( new_addr != _fl_addr )
   {
-    flash_hal_flush();
+    board_flash_flush();
 
     _fl_addr = new_addr;
-    flash_hal_read(new_addr, _fl_buf, FLASH_CACHE_SIZE);
+    board_flash_read(new_addr, _fl_buf, FLASH_CACHE_SIZE);
   }
 
   memcpy(_fl_buf + (dst & (FLASH_CACHE_SIZE - 1)), src, len);

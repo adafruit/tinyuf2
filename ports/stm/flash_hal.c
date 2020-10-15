@@ -28,28 +28,28 @@
 #define FLASH_CACHE_SIZE          4096
 #define FLASH_CACHE_INVALID_ADDR  0xffffffff
 
-void flash_hal_init(void)
+void board_flash_init(void)
 {
 
 }
 
-uint32_t flash_hal_size(void)
+uint32_t board_flash_size(void)
 {
   return 256;
 }
 
-void flash_hal_read(uint32_t addr, void* buffer, uint32_t len)
+void board_flash_read(uint32_t addr, void* buffer, uint32_t len)
 {
   (void) addr;
   (void) buffer;
   (void) len;
 }
 
-void flash_hal_flush(void)
+void board_flash_flush(void)
 {
 }
 
-void flash_hal_write (uint32_t dst, void const *src, uint32_t len)
+void board_flash_write (uint32_t dst, void const *src, uint32_t len)
 {
   (void) dst;
   (void) src;

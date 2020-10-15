@@ -42,7 +42,7 @@ int main(void)
   board_init();
   tusb_init();
 
-  flash_hal_init();
+  board_flash_init();
   uf2_init();
   board_led_state(STATE_BOOTLOADER_STARTED);
 

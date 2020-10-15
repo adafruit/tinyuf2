@@ -225,7 +225,7 @@ static inline bool is_uf2_block (UF2_Block const *bl)
 
 void uf2_init(void)
 {
-  _flash_size = flash_hal_size();
+  _flash_size = board_flash_size();
 }
 
 /*------------------------------------------------------------------*/
@@ -349,7 +349,7 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
         bl->flags = UF2_FLAG_FAMILYID;
         bl->familyID = CFG_UF2_FAMILY_ID;
 
-        flash_hal_read(addr, bl->data, bl->payloadSize);
+        board_flash_read(addr, bl->data, bl->payloadSize);
       }
     }
   }
@@ -376,7 +376,7 @@ int uf2_write_block (uint32_t block_no, uint8_t *data, WriteState *state)
   if (bl->familyID == CFG_UF2_FAMILY_ID)
   {
     // generic family ID
-    flash_hal_write(bl->targetAddr, bl->data, bl->payloadSize);
+    board_flash_write(bl->targetAddr, bl->data, bl->payloadSize);
   }else
   {
     // TODO family matches VID/PID
@@ -411,7 +411,7 @@ int uf2_write_block (uint32_t block_no, uint8_t *data, WriteState *state)
       // TODO numWritten can be smaller than numBlocks if return early
       if ( state->numWritten >= state->numBlocks )
       {
-        flash_hal_flush();
+        board_flash_flush();
       }
     }
   }
