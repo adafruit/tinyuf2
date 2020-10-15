@@ -8,8 +8,8 @@ if(NOT (DEFINED BOARD))
 endif()
 
 # Check for -DBOARD=
-if(NOT (DEFINED BOARD AND EXISTS "${CMAKE_SOURCE_DIR}/components/boards/${BOARD}/board.h") )
-  file(GLOB BOARD_LIST RELATIVE ${CMAKE_SOURCE_DIR}/components/boards "components/boards/*/board.h")
+if(NOT (DEFINED BOARD AND EXISTS "${CMAKE_SOURCE_DIR}/boards/${BOARD}/board.h") )
+  file(GLOB BOARD_LIST RELATIVE ${CMAKE_SOURCE_DIR}/boards "boards/*/board.h")
   
   message("Please specify `-DBOARD=` with one of supported boards")
   foreach(board IN LISTS BOARD_LIST)
@@ -24,9 +24,9 @@ endif()
 set(TOP "../..")
 get_filename_component(TOP "${TOP}" REALPATH)
 
-set(EXTRA_COMPONENT_DIRS "${TOP}/src")
+set(EXTRA_COMPONENT_DIRS "${TOP}/src" boards)
 
-set(SDKCONFIG_DEFAULTS sdkconfig.defaults components/boards/${BOARD}/sdkconfig)
+set(SDKCONFIG_DEFAULTS sdkconfig.defaults boards/${BOARD}/sdkconfig)
 set(SDKCONFIG build/sdkconfig)
  
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
