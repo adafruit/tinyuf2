@@ -38,6 +38,7 @@
 #include "esp_partition.h"
 #include "esp_ota_ops.h"
 #include "board_api.h"
+#include "tusb.h"
 
 //--------------------------------------------------------------------+
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION

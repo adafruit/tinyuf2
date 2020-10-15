@@ -29,7 +29,6 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "tusb.h"
 #include "board.h"
 
 enum {
