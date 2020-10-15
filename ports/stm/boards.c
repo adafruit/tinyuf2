@@ -22,7 +22,7 @@
  * THE SOFTWARE.
  */
 
-#include "boards.h"
+#include "board_api.h"
 #include "stm32f4xx.h"
 #include "stm32f4xx_hal_conf.h"
 

@@ -23,11 +23,11 @@
  */
 
 #include <string.h>
-#include "boards.h"
 #include "esp_log.h"
 #include "esp_partition.h"
 
 #include "spi_flash_chip_driver.h"
+#include "board_api.h"
 
 // Debug helper, remove later
 #define PRINTF(...)           ESP_LOGI("uf2", __VA_ARGS__)

@@ -22,8 +22,6 @@
  * THE SOFTWARE.
  */
 
-#include "boards.h"
-
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/timers.h"
@@ -39,6 +37,7 @@
 
 #include "esp_partition.h"
 #include "esp_ota_ops.h"
+#include "board_api.h"
 
 //--------------------------------------------------------------------+
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION

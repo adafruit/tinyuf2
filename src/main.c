@@ -28,8 +28,8 @@
 #include <stdbool.h>
 #include <string.h>
 
+#include "board_api.h"
 #include "uf2.h"
-#include "boards.h"
 #include "tusb.h"
 
 //--------------------------------------------------------------------+

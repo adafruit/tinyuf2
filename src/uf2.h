@@ -33,7 +33,7 @@ SOFTWARE.
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "boards.h"
+#include "board_api.h"
 
 //--------------------------------------------------------------------+
 // UF2 Configuration

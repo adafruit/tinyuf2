@@ -1,4 +1,4 @@
-#include "boards.h"
+#include "board_api.h"
 
 #if USE_SCREEN
 

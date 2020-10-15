@@ -23,8 +23,8 @@
  *
  */
 
+#include "board_api.h"
 #include "tusb.h"
-#include "boards.h"
 
 // String Descriptor Index
 enum

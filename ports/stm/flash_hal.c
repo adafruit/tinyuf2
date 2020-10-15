@@ -22,7 +22,7 @@
  * THE SOFTWARE.
  */
 
-#include "boards.h"
+#include "board_api.h"
 
 #define FLASH_CACHE_SIZE          4096
 #define FLASH_CACHE_INVALID_ADDR  0xffffffff

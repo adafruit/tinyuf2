@@ -21,7 +21,7 @@
 
 #include "driver/gpio.h"
 #include "lcd.h"
-#include "boards.h"
+#include "board_api.h"
 
 #if USE_SCREEN
 
