@@ -34,6 +34,7 @@
 #include "led_strip.h"
 
 #include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "freertos/timers.h"
 
 //--------------------------------------------------------------------+
@@ -49,7 +50,44 @@ static led_strip_t *strip;
 #define RGB_WRITING         0xcc, 0x66, 0x00
 #define RGB_UNKNOWN         0x00, 0x00, 0x88 // for debug
 
+extern int main(void);
 static void configure_pins(usb_hal_context_t *usb);
+
+//--------------------------------------------------------------------+
+// TinyUSB thread
+//--------------------------------------------------------------------+
+
+// static task for usbd
+// Increase stack size when debug log is enabled
+#define USBD_STACK_SIZE     (4*1024)
+
+static StackType_t  usb_device_stack[USBD_STACK_SIZE];
+static StaticTask_t usb_device_taskdef;
+
+// USB Device Driver task
+// This top level thread process all usb events and invoke callbacks
+void usb_device_task(void* param)
+{
+  (void) param;
+
+  // RTOS forever loop
+  while (1)
+  {
+    tud_task();
+  }
+}
+
+void app_main(void)
+{
+  main();
+
+  // Create a task for tinyusb device stack
+  (void) xTaskCreateStatic( usb_device_task, "usbd", USBD_STACK_SIZE, NULL, configMAX_PRIORITIES-2, usb_device_stack, &usb_device_taskdef);
+}
+
+//--------------------------------------------------------------------+
+// Board API
+//--------------------------------------------------------------------+
 
 void board_init(void)
 {

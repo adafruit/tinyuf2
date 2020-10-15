@@ -33,41 +33,9 @@
 #include "boards.h"
 #include "tusb.h"
 
-#if CFG_TUSB_OS == OPT_OS_FREERTOS
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/timers.h"
-#include "freertos/queue.h"
-#include "freertos/semphr.h"
-
-#include "esp_log.h"
-
-// static task for usbd
-// Increase stack size when debug log is enabled
-#define USBD_STACK_SIZE     (4*1024)
-
-static StackType_t  usb_device_stack[USBD_STACK_SIZE];
-static StaticTask_t usb_device_taskdef;
-
-// USB Device Driver task
-// This top level thread process all usb events and invoke callbacks
-void usb_device_task(void* param)
-{
-  (void) param;
-
-  // RTOS forever loop
-  while (1)
-  {
-    tud_task();
-  }
-}
-
-#endif
-
 //--------------------------------------------------------------------+
 // MACRO CONSTANT TYPEDEF PROTYPES
 //--------------------------------------------------------------------+
-
 
 int main(void)
 {
@@ -90,17 +58,6 @@ int main(void)
   }
 #endif
 }
-
-#if CFG_TUSB_MCU == OPT_MCU_ESP32S2
-// TODO move to ports/esp32s2
-void app_main(void)
-{
-  main();
-
-  // Create a task for tinyusb device stack
-  (void) xTaskCreateStatic( usb_device_task, "usbd", USBD_STACK_SIZE, NULL, configMAX_PRIORITIES-2, usb_device_stack, &usb_device_taskdef);
-}
-#endif
 
 //--------------------------------------------------------------------+
 // Device callbacks
