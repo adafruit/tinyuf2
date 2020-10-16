@@ -31,6 +31,10 @@
 
 #include "board.h"
 
+#ifdef PIN_NEOPIXEL
+#define USE_RGB   1
+#endif
+
 #ifdef __cplusplus
  }
 #endif

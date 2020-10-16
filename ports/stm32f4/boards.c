@@ -52,12 +52,7 @@
 
 UART_HandleTypeDef UartHandle;
 
-
-#define RGB_USB_UNMOUNTED   0xff, 0x00, 0x00 // Red
-#define RGB_USB_MOUNTED     0x00, 0xff, 0x00 // Green
-#define RGB_WRITING         0xcc, 0x66, 0x00
-#define RGB_UNKNOWN         0x00, 0x00, 0x88 // for debug
-
+void board_led_state(uint32_t state);
 
 //--------------------------------------------------------------------+
 // Forward USB interrupt events to TinyUSB IRQ Handler
@@ -214,61 +209,19 @@ uint8_t board_usb_get_serial(uint8_t serial_id[16])
 // LED pattern
 //--------------------------------------------------------------------+
 
-#ifdef PIN_NEOPIXEL
+#if USE_RGB
 
-static void neopixel_set(uint8_t r, uint8_t g, uint8_t b)
+void board_rgb_write(uint8_t idx, uint8_t const rgb[])
 {
-  (void) r; (void) g; (void) b;
+  (void) idx;
+  (void) rgb;
 }
 
-//void led_blinky_cb(TimerHandle_t xTimer)
-//{
-//  (void) xTimer;
-//  static bool led_state = false;
-//  led_state = 1 - led_state; // toggle
-//
-//  if ( led_state )
-//  {
-//    neopixel_set(RGB_WRITING);
-//  }else
-//  {
-//    strip->clear(strip, 100);
-//  }
-//}
 #endif
 
 void board_led_state(uint32_t state)
 {
   HAL_GPIO_WritePin(LED_PORT, LED_PIN, state ? LED_STATE_ON : (1-LED_STATE_ON));
-
-  #ifdef PIN_NEOPIXEL
-  switch(state)
-  {
-    case STATE_BOOTLOADER_STARTED:
-    case STATE_USB_UNMOUNTED:
-      neopixel_set(RGB_USB_UNMOUNTED);
-    break;
-
-    case STATE_USB_MOUNTED:
-      neopixel_set(RGB_USB_MOUNTED);
-    break;
-
-    case STATE_WRITING_STARTED:
-      // soft timer for blinky
-//      blinky_tm = xTimerCreate(NULL, pdMS_TO_TICKS(50), true, NULL, led_blinky_cb);
-//      xTimerStart(blinky_tm, 0);
-    break;
-
-    case STATE_WRITING_FINISHED:
-//      xTimerStop(blinky_tm, 0);
-      neopixel_set(RGB_WRITING);
-    break;
-
-    default:
-      neopixel_set(RGB_UNKNOWN);
-    break;
-  }
-  #endif
 }
 
 void SysTick_Handler (void)

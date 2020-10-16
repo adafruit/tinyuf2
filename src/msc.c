@@ -158,7 +158,7 @@ void tud_msc_write10_complete_cb(uint8_t lun)
   if ( _wr_state.aborted )
   {
     // aborted and reset
-    board_led_state(STATE_WRITING_FINISHED);
+    indicator_set(STATE_WRITING_FINISHED);
   }
   else if ( _wr_state.numBlocks )
   {
@@ -166,13 +166,13 @@ void tud_msc_write10_complete_cb(uint8_t lun)
     if (first_write)
     {
       first_write = false;
-      board_led_state(STATE_WRITING_STARTED);
+      indicator_set(STATE_WRITING_STARTED);
     }
 
     // All block of uf2 file is complete --> complete DFU process
     if (_wr_state.numWritten >= _wr_state.numBlocks)
     {
-      board_led_state(STATE_WRITING_FINISHED);
+      indicator_set(STATE_WRITING_FINISHED);
       board_dfu_complete();
     }
   }

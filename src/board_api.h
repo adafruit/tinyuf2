@@ -28,19 +28,22 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
-
 #include "boards.h"
 
-enum {
-  STATE_BOOTLOADER_STARTED = 0,
-  STATE_USB_MOUNTED,
-  STATE_USB_UNMOUNTED,
-  STATE_WRITING_STARTED,
-  STATE_WRITING_FINISHED,
-};
+//--------------------------------------------------------------------+
+// Features
+//--------------------------------------------------------------------+
+
+// Use RGB for indicator e.g neopixel, dotstar
+// 0 for not available, otherwise number of RGBs
+#ifndef USE_RGB
+#define USE_RGB 0
+#endif
 
 void board_init(void);
-void board_led_state(uint32_t state);
+//void board_led_state(uint32_t state);
+
+void board_rgb_write(uint8_t idx, uint8_t const rgb[]);
 
 // DFU is complete, should reset or jump to application mode
 void board_dfu_complete(void);
@@ -66,5 +69,20 @@ void     board_flash_flush(void);
 #else
   #define USE_SCREEN 0
 #endif
+
+
+//--------------------------------------------------------------------+
+// not part of board API, move to its own file later
+//--------------------------------------------------------------------+
+
+enum {
+  STATE_BOOTLOADER_STARTED = 0,
+  STATE_USB_MOUNTED,
+  STATE_USB_UNMOUNTED,
+  STATE_WRITING_STARTED,
+  STATE_WRITING_FINISHED,
+};
+
+void indicator_set(uint32_t state);
 
 #endif

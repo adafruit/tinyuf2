@@ -36,6 +36,8 @@
 // MACRO CONSTANT TYPEDEF PROTYPES
 //--------------------------------------------------------------------+
 
+void indicator_set(uint32_t state);
+
 int main(void)
 {
   board_init();
@@ -43,7 +45,9 @@ int main(void)
 
   board_flash_init();
   uf2_init();
-  board_led_state(STATE_BOOTLOADER_STARTED);
+
+
+  indicator_set(STATE_BOOTLOADER_STARTED);
 
 #if USE_SCREEN
   screen_init();
@@ -65,13 +69,13 @@ int main(void)
 // Invoked when device is mounted
 void tud_mount_cb(void)
 {
-  board_led_state(STATE_USB_MOUNTED);
+  indicator_set(STATE_USB_MOUNTED);
 }
 
 // Invoked when device is unmounted
 void tud_umount_cb(void)
 {
-  board_led_state(STATE_USB_UNMOUNTED);
+  indicator_set(STATE_USB_UNMOUNTED);
 }
 
 // Invoked when usb bus is suspended
@@ -115,3 +119,75 @@ void tud_hid_set_report_cb(uint8_t report_id, hid_report_type_t report_type, uin
   (void) buffer;
   (void) bufsize;
 }
+
+//--------------------------------------------------------------------+
+// Indicator
+//--------------------------------------------------------------------+
+uint8_t const RGB_USB_UNMOUNTED[] = { 0xff, 0x00, 0x00 };    // Red
+uint8_t const RGB_USB_MOUNTED[] = { 0x00, 0xff, 0x00 };    // Green
+uint8_t const RGB_WRITING[] = { 0xcc, 0x66, 0x00 };
+uint8_t const RGB_UNKNOWN[] = { 0x00, 0x00, 0x88 };    // for debug
+uint8_t const RGB_OFF[] = { 0x00, 0x00, 0x00 };
+
+// TODO remove
+#if CFG_TUSB_MCU == OPT_MCU_ESP32S2
+#include "freertos/FreeRTOS.h"
+#include "freertos/timers.h"
+
+TimerHandle_t blinky_tm = NULL;
+
+void led_blinky_cb(TimerHandle_t xTimer)
+{
+  (void) xTimer;
+  static bool led_state = false;
+  led_state = 1 - led_state; // toggle
+
+  if ( led_state )
+  {
+    board_rgb_write(0, RGB_WRITING);
+  }else
+  {
+    board_rgb_write(0, RGB_OFF);
+  }
+}
+#endif
+
+// stub
+#if USE_RGB == 0
+void board_rgb_write(uint8_t idx, uint8_t const rgb[]) { (void) idx; (void) rgb; }
+#endif
+
+void indicator_set(uint32_t state)
+{
+  switch(state)
+  {
+    case STATE_BOOTLOADER_STARTED:
+    case STATE_USB_UNMOUNTED:
+      board_rgb_write(0, RGB_USB_UNMOUNTED);
+    break;
+
+    case STATE_USB_MOUNTED:
+      board_rgb_write(0, RGB_USB_MOUNTED);
+    break;
+
+    case STATE_WRITING_STARTED:
+#if CFG_TUSB_MCU == OPT_MCU_ESP32S2
+      // soft timer for blinky
+      blinky_tm = xTimerCreate(NULL, pdMS_TO_TICKS(50), true, NULL, led_blinky_cb);
+      xTimerStart(blinky_tm, 0);
+#endif
+    break;
+
+    case STATE_WRITING_FINISHED:
+#if CFG_TUSB_MCU == OPT_MCU_ESP32S2
+      xTimerStop(blinky_tm, 0);
+#endif
+      board_rgb_write(0, RGB_WRITING);
+    break;
+
+    default:
+      board_rgb_write(0, RGB_UNKNOWN);
+    break;
+  }
+}
+
