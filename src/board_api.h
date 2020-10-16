@@ -29,7 +29,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "board.h"
+#include "boards.h"
 
 enum {
   STATE_BOOTLOADER_STARTED = 0,
