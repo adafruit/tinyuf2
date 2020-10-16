@@ -1,4 +1,4 @@
-PORT = stm
+PORT = stm32f4
 
 include ../make.mk
 

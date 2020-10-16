@@ -85,4 +85,4 @@ jobs:
         echo `echo $HOME/opt/xPacks/@xpack-dev-tools/arm-none-eabi-gcc/*/.content/bin` >> $GITHUB_PATH
 
     - name: Build
-      run: make -j -C ports/stm BOARD=feather_stm32f405_express all
+      run: make -j -C ports/stm32f4 BOARD=feather_stm32f405_express all
