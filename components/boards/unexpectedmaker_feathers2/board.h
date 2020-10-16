@@ -57,6 +57,6 @@
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID      "UnexpectedMaker-FeatherS2"
 #define UF2_VOLUME_LABEL  "UFTHRS2BOOT"
-#define UF2_INDEX_URL     ""
+#define UF2_INDEX_URL     "https://circuitpython.org/board/unexpectedmaker_feathers2/"
 
 #endif
