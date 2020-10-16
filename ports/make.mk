@@ -79,8 +79,7 @@ SRC_C += \
 	$(TINYUSB_LIB)/class/msc/msc_device.c \
 	$(TINYUSB_LIB)/class/net/net_device.c \
 	$(TINYUSB_LIB)/class/usbtmc/usbtmc_device.c \
-	$(TINYUSB_LIB)/class/vendor/vendor_device.c \
-	$(TINYUSB_LIB)/portable/$(TINYUSB_DCD)
+	$(TINYUSB_LIB)/class/vendor/vendor_device.c
 
 INC += $(TOP)/$(TINYUSB_LIB)
 

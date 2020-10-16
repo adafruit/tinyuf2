@@ -32,6 +32,8 @@
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
 //--------------------------------------------------------------------+
 
+#define STM32_UUID ((uint32_t *)0x1FFF7A10)
+
 // Blue LED is chosen because the other LEDs are connected to ST-LINK lines.
 #define LED_PORT              GPIOC
 #define LED_PIN               GPIO_PIN_1
@@ -201,7 +203,6 @@ void board_dfu_complete(void)
   NVIC_SystemReset();
 }
 
-#define STM32_UUID ((uint32_t *)0x1FFF7A10)
 uint8_t board_usb_get_serial(uint8_t serial_id[16])
 {
   uint8_t const len = 12;
