@@ -31,7 +31,6 @@
 
 #include "driver/periph_ctrl.h"
 #include "driver/rmt.h"
-#include "led_strip.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/timers.h"
@@ -41,7 +40,12 @@
 //--------------------------------------------------------------------+
 
 #ifdef PIN_NEOPIXEL
+#include "led_strip.h"
 static led_strip_t *strip;
+#endif
+
+#ifdef PIN_APA102_SCK
+#include "led_strip_spi_apa102.h"
 #endif
 
 #define RGB_USB_UNMOUNTED   0xff, 0x00, 0x00 // Red
@@ -74,6 +78,22 @@ void board_init(void)
   strip = led_strip_new_rmt_ws2812(&strip_config);
   strip->clear(strip, 100); // off led
   strip->set_brightness(strip, NEOPIXEL_BRIGHTNESS);
+#endif
+
+#ifdef PIN_APA102_SCK
+    // Setup the IO for teh APA DATA and CLK
+    gpio_pad_select_gpio(PIN_APA102_DATA);
+    gpio_pad_select_gpio(PIN_APA102_SCK);
+    gpio_ll_input_disable(&GPIO, PIN_APA102_DATA);
+    gpio_ll_input_disable(&GPIO, PIN_APA102_SCK);
+    gpio_ll_output_enable(&GPIO, PIN_APA102_DATA);
+    gpio_ll_output_enable(&GPIO, PIN_APA102_SCK);
+
+    // Initialise SPI
+    setupSPI(PIN_APA102_DATA, PIN_APA102_SCK);
+
+    // Initialise the APA
+    initAPA(APA102_BRIGHTNESS);
 #endif
 
   // USB Controller Hal init
@@ -147,6 +167,25 @@ void led_blinky_cb(TimerHandle_t xTimer)
 }
 #endif
 
+#ifdef PIN_APA102_SCK
+TimerHandle_t blinky_tm = NULL;
+
+void led_blinky_cb(TimerHandle_t xTimer)
+{
+  (void) xTimer;
+  static bool led_state = false;
+  led_state = 1 - led_state; // toggle
+
+  if ( led_state )
+  {
+    setAPA(RGB_WRITING);
+  }else
+  {
+    setAPA(0,0,0);
+  }
+}
+#endif
+
 void board_led_state(uint32_t state)
 {
   #ifdef PIN_NEOPIXEL
@@ -174,6 +213,35 @@ void board_led_state(uint32_t state)
 
     default:
       neopixel_set(RGB_UNKNOWN);
+    break;
+  }
+  #endif
+
+  #ifdef PIN_APA102_SCK
+  switch(state)
+  {
+    case STATE_BOOTLOADER_STARTED:
+    case STATE_USB_UNMOUNTED:
+        setAPA(RGB_USB_UNMOUNTED);
+    break;
+
+    case STATE_USB_MOUNTED:
+        setAPA(RGB_USB_MOUNTED);
+    break;
+
+    case STATE_WRITING_STARTED:
+        // soft timer for blinky
+        blinky_tm = xTimerCreate(NULL, pdMS_TO_TICKS(50), true, NULL, led_blinky_cb);
+        xTimerStart(blinky_tm, 0);
+    break;
+
+    case STATE_WRITING_FINISHED:
+        xTimerStop(blinky_tm, 0);
+        setAPA(RGB_WRITING);
+    break;
+
+    default:
+        setAPA(RGB_UNKNOWN);
     break;
   }
   #endif

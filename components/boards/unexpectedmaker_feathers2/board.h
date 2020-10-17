@@ -40,6 +40,10 @@
 
 #define PIN_APA102_DATA       40
 #define PIN_APA102_SCK        45
+#define PIN_APA102_PWR        21
+
+// Brightness percentage from 1 to 255
+#define APA102_BRIGHTNESS     175
 
 // LED for indicator and writing flash
 // If not defined neopixel will be use for flash writing instead
