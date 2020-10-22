@@ -41,9 +41,12 @@
 #endif
 
 void board_init(void);
+
+// Turn on or off the LED
 void board_led_write(uint32_t state);
 
-void board_rgb_write(uint8_t idx, uint8_t const rgb[]);
+// Write color to rgb strip
+void board_rgb_write(uint8_t const rgb[]);
 
 // DFU is complete, should reset or jump to application mode
 void board_dfu_complete(void);

@@ -143,17 +143,17 @@ void led_blinky_cb(TimerHandle_t xTimer)
 
   if ( led_state )
   {
-    board_rgb_write(0, RGB_WRITING);
+    board_rgb_write(RGB_WRITING);
   }else
   {
-    board_rgb_write(0, RGB_OFF);
+    board_rgb_write(RGB_OFF);
   }
 }
 #endif
 
 // stub
 #if USE_RGB == 0
-void board_rgb_write(uint8_t idx, uint8_t const rgb[]) { (void) idx; (void) rgb; }
+void board_rgb_write(uint8_t const rgb[]) { (void) rgb; }
 #endif
 
 void indicator_set(uint32_t state)
@@ -162,11 +162,11 @@ void indicator_set(uint32_t state)
   {
     case STATE_BOOTLOADER_STARTED:
     case STATE_USB_UNMOUNTED:
-      board_rgb_write(0, RGB_USB_UNMOUNTED);
+      board_rgb_write(RGB_USB_UNMOUNTED);
     break;
 
     case STATE_USB_MOUNTED:
-      board_rgb_write(0, RGB_USB_MOUNTED);
+      board_rgb_write(RGB_USB_MOUNTED);
     break;
 
     case STATE_WRITING_STARTED:
@@ -181,11 +181,11 @@ void indicator_set(uint32_t state)
 #if CFG_TUSB_MCU == OPT_MCU_ESP32S2
       xTimerStop(blinky_tm, 0);
 #endif
-      board_rgb_write(0, RGB_WRITING);
+      board_rgb_write(RGB_WRITING);
     break;
 
     default:
-      board_rgb_write(0, RGB_UNKNOWN);
+      board_rgb_write(RGB_UNKNOWN);
     break;
   }
 }

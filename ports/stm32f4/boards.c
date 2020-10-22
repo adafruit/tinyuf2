@@ -221,10 +221,8 @@ void board_led_write(uint32_t state)
 #define MAGIC_800_T0H  2800000  // ~0.36 us -> 0.44 field
 #define MAGIC_800_T1H  1350000  // ~0.74 us -> 0.84 field
 
-void board_rgb_write(uint8_t idx, uint8_t const rgb[])
+void board_rgb_write(uint8_t const rgb[])
 {
-  (void) idx;
-
   // neopixel color order is GRB
   uint8_t const pixels[3] = { rgb[1] & NEOPIXEL_BRIGHTNESS, rgb[0] & NEOPIXEL_BRIGHTNESS, rgb[2] & NEOPIXEL_BRIGHTNESS };
   uint32_t numBytes = 3;

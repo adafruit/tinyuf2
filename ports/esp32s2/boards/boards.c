@@ -47,9 +47,9 @@
 #ifdef PIN_NEOPIXEL
 static led_strip_t *strip;
 
-void board_rgb_write(uint8_t idx, uint8_t const rgb[])
+void board_rgb_write(uint8_t const rgb[])
 {
-  strip->set_pixel(strip, idx, rgb[0], rgb[1], rgb[2]);
+  strip->set_pixel(strip, 0, rgb[0], rgb[1], rgb[2]);
   strip->refresh(strip, 100);
 }
 #endif
