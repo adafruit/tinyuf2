@@ -5,11 +5,6 @@
 #include <string.h>
 #include <math.h>
 #include <stdlib.h>
-
-// #include "freertos/FreeRTOS.h"
-// #include "freertos/task.h"
-// #include "esp_system.h"
-// #include "driver/gpio.h"
 #include "driver/spi_master.h"
 
 struct led_strip_spi_apa102

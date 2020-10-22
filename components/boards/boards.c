@@ -52,6 +52,7 @@ static led_strip_t *strip;
 #define RGB_USB_MOUNTED     0x00, 0xff, 0x00 // Green
 #define RGB_WRITING         0xcc, 0x66, 0x00
 #define RGB_UNKNOWN         0x00, 0x00, 0x88 // for debug
+#define RGB_BLACK           0x00, 0x00, 0x00 // clear
 
 static void configure_pins(usb_hal_context_t *usb);
 
@@ -81,7 +82,7 @@ void board_init(void)
 #endif
 
 #ifdef PIN_APA102_SCK
-    // Setup the IO for teh APA DATA and CLK
+    // Setup the IO for the APA DATA and CLK
     gpio_pad_select_gpio(PIN_APA102_DATA);
     gpio_pad_select_gpio(PIN_APA102_SCK);
     gpio_ll_input_disable(&GPIO, PIN_APA102_DATA);
@@ -142,32 +143,37 @@ static void configure_pins(usb_hal_context_t *usb)
 // LED pattern
 //--------------------------------------------------------------------+
 
-#ifdef PIN_NEOPIXEL
-TimerHandle_t blinky_tm = NULL;
 
+
+#ifdef PIN_NEOPIXEL
 static void neopixel_set(uint8_t r, uint8_t g, uint8_t b)
 {
-  strip->set_pixel(strip, 0, r, g, b);
-  strip->refresh(strip, 100);
+    if ( r+g+b == 0 )
+    {
+        // we cant to clear instead of setting black
+        strip->clear(strip, 100);
+    }
+    else
+    {
+        strip->set_pixel(strip, 0, r, g, b);
+        strip->refresh(strip, 100);
+    }
 }
+#endif
 
-void led_blinky_cb(TimerHandle_t xTimer)
+// Common wrapper for setting pixels per type
+void set_pixel(uint8_t r, uint8_t g, uint8_t b)
 {
-  (void) xTimer;
-  static bool led_state = false;
-  led_state = 1 - led_state; // toggle
-
-  if ( led_state )
-  {
-    neopixel_set(RGB_WRITING);
-  }else
-  {
-    strip->clear(strip, 100);
-  }
-}
+#ifdef PIN_NEOPIXEL
+    neopixel_set(r, g, b);
 #endif
 
 #ifdef PIN_APA102_SCK
+    setAPA(r, g, b);
+#endif
+}
+
+#if defined PIN_NEOPIXEL || defined PIN_APA102_SCK
 TimerHandle_t blinky_tm = NULL;
 
 void led_blinky_cb(TimerHandle_t xTimer)
@@ -178,26 +184,27 @@ void led_blinky_cb(TimerHandle_t xTimer)
 
   if ( led_state )
   {
-    setAPA(RGB_WRITING);
+    set_pixel(RGB_WRITING);
   }else
   {
-    setAPA(0,0,0);
+    set_pixel(RGB_BLACK);
   }
 }
 #endif
 
+
 void board_led_state(uint32_t state)
 {
-  #ifdef PIN_NEOPIXEL
+  #if defined PIN_NEOPIXEL || defined PIN_APA102_SCK
   switch(state)
   {
     case STATE_BOOTLOADER_STARTED:
     case STATE_USB_UNMOUNTED:
-      neopixel_set(RGB_USB_UNMOUNTED);
+      set_pixel(RGB_USB_UNMOUNTED);
     break;
 
     case STATE_USB_MOUNTED:
-      neopixel_set(RGB_USB_MOUNTED);
+      set_pixel(RGB_USB_MOUNTED);
     break;
 
     case STATE_WRITING_STARTED:
@@ -208,40 +215,11 @@ void board_led_state(uint32_t state)
 
     case STATE_WRITING_FINISHED:
       xTimerStop(blinky_tm, 0);
-      neopixel_set(RGB_WRITING);
+      set_pixel(RGB_WRITING);
     break;
 
     default:
-      neopixel_set(RGB_UNKNOWN);
-    break;
-  }
-  #endif
-
-  #ifdef PIN_APA102_SCK
-  switch(state)
-  {
-    case STATE_BOOTLOADER_STARTED:
-    case STATE_USB_UNMOUNTED:
-        setAPA(RGB_USB_UNMOUNTED);
-    break;
-
-    case STATE_USB_MOUNTED:
-        setAPA(RGB_USB_MOUNTED);
-    break;
-
-    case STATE_WRITING_STARTED:
-        // soft timer for blinky
-        blinky_tm = xTimerCreate(NULL, pdMS_TO_TICKS(50), true, NULL, led_blinky_cb);
-        xTimerStart(blinky_tm, 0);
-    break;
-
-    case STATE_WRITING_FINISHED:
-        xTimerStop(blinky_tm, 0);
-        setAPA(RGB_WRITING);
-    break;
-
-    default:
-        setAPA(RGB_UNKNOWN);
+      set_pixel(RGB_UNKNOWN);
     break;
   }
   #endif
