@@ -34,28 +34,15 @@
 
 #define STM32_UUID ((uint32_t *)0x1FFF7A10)
 
-// Blue LED is chosen because the other LEDs are connected to ST-LINK lines.
-#define LED_PORT              GPIOC
-#define LED_PIN               GPIO_PIN_1
-#define LED_STATE_ON          1
-
-// Pin D5
-#define BUTTON_PORT           GPIOC
-#define BUTTON_PIN            GPIO_PIN_7
-#define BUTTON_STATE_ACTIVE   0
-
 #define UARTx                 USART3
 #define UART_GPIO_PORT        GPIOB
 #define UART_GPIO_AF          GPIO_AF7_USART3
 #define UART_TX_PIN           GPIO_PIN_10
 #define UART_RX_PIN           GPIO_PIN_11
 
-#define NEOPIXEL_PORT         GPIOC
-#define NEOPIXEL_PIN          GPIO_PIN_0
-
 UART_HandleTypeDef UartHandle;
 
-void board_led_state(uint32_t state);
+void board_led_write(uint32_t state);
 
 //--------------------------------------------------------------------+
 // Forward USB interrupt events to TinyUSB IRQ Handler
@@ -68,9 +55,10 @@ void OTG_FS_IRQHandler(void)
 // enable all LED, Button, Uart, USB clock
 static void all_rcc_clk_enable(void)
 {
-  __HAL_RCC_GPIOA_CLK_ENABLE();  // USB D+, D-
-  __HAL_RCC_GPIOB_CLK_ENABLE();  // Uart tx, rx
-  __HAL_RCC_GPIOC_CLK_ENABLE();  // LED, Button
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOC_CLK_ENABLE();
+
   __HAL_RCC_USART3_CLK_ENABLE(); // Uart module
 }
 
@@ -139,23 +127,25 @@ void board_init(void)
 
   GPIO_InitTypeDef  GPIO_InitStruct;
 
-  // LED
+#ifdef BUTTON_PIN
+  GPIO_InitStruct.Pin = BUTTON_PIN;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FAST;
+  HAL_GPIO_Init(BUTTON_PORT, &GPIO_InitStruct);
+#endif
+
+#ifdef LED_PIN
   GPIO_InitStruct.Pin = LED_PIN;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   GPIO_InitStruct.Speed = GPIO_SPEED_FAST;
   HAL_GPIO_Init(LED_PORT, &GPIO_InitStruct);
 
-  board_led_state(0);
+  board_led_write(0);
+#endif
 
-  // Button
-  GPIO_InitStruct.Pin = BUTTON_PIN;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FAST;
-  HAL_GPIO_Init(BUTTON_PORT, &GPIO_InitStruct);
-
-#ifdef NEOPIXEL_PORT
+#ifdef NEOPIXEL_PIN
   GPIO_InitStruct.Pin = NEOPIXEL_PIN;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
@@ -220,6 +210,11 @@ uint8_t board_usb_get_serial(uint8_t serial_id[16])
 // LED pattern
 //--------------------------------------------------------------------+
 
+void board_led_write(uint32_t state)
+{
+  HAL_GPIO_WritePin(LED_PORT, LED_PIN, state ? LED_STATE_ON : (1-LED_STATE_ON));
+}
+
 #if USE_RGB
 
 #define MAGIC_800_INT  900000  // ~1.11 us  -> 1.2  field
@@ -231,7 +226,7 @@ void board_rgb_write(uint8_t idx, uint8_t const rgb[])
   (void) idx;
 
   // neopixel color order is GRB
-  uint8_t const pixels[3] = { rgb[1], rgb[0], rgb[2] };
+  uint8_t const pixels[3] = { rgb[1] & NEOPIXEL_BRIGHTNESS, rgb[0] & NEOPIXEL_BRIGHTNESS, rgb[2] & NEOPIXEL_BRIGHTNESS };
   uint32_t numBytes = 3;
 
   uint8_t const *p = pixels, *end = p + numBytes;
@@ -276,11 +271,6 @@ void board_rgb_write(uint8_t idx, uint8_t const rgb[])
 }
 
 #endif
-
-void board_led_state(uint32_t state)
-{
-  HAL_GPIO_WritePin(LED_PORT, LED_PIN, state ? LED_STATE_ON : (1-LED_STATE_ON));
-}
 
 void SysTick_Handler (void)
 {

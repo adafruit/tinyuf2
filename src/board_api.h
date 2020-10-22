@@ -41,7 +41,7 @@
 #endif
 
 void board_init(void);
-//void board_led_state(uint32_t state);
+void board_led_write(uint32_t state);
 
 void board_rgb_write(uint8_t idx, uint8_t const rgb[]);
 

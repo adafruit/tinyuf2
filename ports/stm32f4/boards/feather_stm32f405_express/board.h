@@ -25,40 +25,30 @@
 #ifndef BOARD_H_
 #define BOARD_H_
 
-#define USE_RGB   1
-
 //--------------------------------------------------------------------+
 // Button
 //--------------------------------------------------------------------+
-
-// Enter UF2 mode if GPIO is pressed while 2nd stage bootloader indicator
-// is on e.g RGB = Purple. If it is GPIO0, user should not hold this while
-// reset since that will instead run the 1st stage ROM bootloader
-#define PIN_BUTTON_UF2       0
-
-// GPIO that implement 1-bit memory with RC components which hold the
-// pin value long enough for double reset detection.
-// #define PIN_DOUBLE_RESET_RC
 
 //--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
 
-// GPIO connected to Neopixel data
-// Note: On the production version Saola (v1.2) it is GPIO 18,
-// however on earlier revision v1.1 it is GPIO 17
-#define PIN_NEOPIXEL          18
+#define LED_PORT              GPIOC
+#define LED_PIN               GPIO_PIN_1
+#define LED_STATE_ON          1
+
+//--------------------------------------------------------------------+
+// Neopixel
+//--------------------------------------------------------------------+
+
+#define NEOPIXEL_PORT         GPIOC
+#define NEOPIXEL_PIN          GPIO_PIN_0
 
 // Brightness percentage from 1 to 255
 #define NEOPIXEL_BRIGHTNESS   0x10
 
 // Number of neopixels
 #define NEOPIXEL_NUMBER       1
-
-
-// LED for indicator and writing flash
-// If not defined neopixel will be use for flash writing instead
-#define PIN_LED               33
 
 //--------------------------------------------------------------------+
 // USB UF2

@@ -31,6 +31,8 @@
 
 #include "board.h"
 
+#define USE_RGB   NEOPIXEL_NUMBER
+
 #ifdef __cplusplus
  }
 #endif
