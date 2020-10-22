@@ -64,6 +64,13 @@ jobs:
 
   build-arm:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        port:
+        - 'mimxrt10xx'
+        - 'stm32f4'
+
     steps:
     - name: Setup Python
       uses: actions/setup-python@v1
@@ -85,4 +92,4 @@ jobs:
         echo `echo $HOME/opt/xPacks/@xpack-dev-tools/arm-none-eabi-gcc/*/.content/bin` >> $GITHUB_PATH
 
     - name: Build
-      run: make -j -C ports/stm32f4 BOARD=feather_stm32f405_express all
+      run: python3 ports/build_all.py ${{ matrix.port }}
