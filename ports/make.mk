@@ -16,6 +16,14 @@ TOP := $(patsubst %/ports/make.mk,%,$(TOP))
 
 CURRENT_PATH := $(shell realpath --relative-to=$(TOP) `pwd`)
 
+#-------------- Handy check parameter function ------------
+check_defined = \
+    $(strip $(foreach 1,$1, \
+    $(call __check_defined,$1,$(strip $(value 2)))))
+__check_defined = \
+    $(if $(value $1),, \
+    $(error Undefined make flag: $1$(if $2, ($2))))
+    
 #-------------- Select the board to build for. ------------
 BOARD_LIST = $(sort $(subst /.,,$(subst boards/,,$(wildcard boards/*/.))))
 
@@ -25,49 +33,16 @@ ifeq ($(filter $(BOARD),$(BOARD_LIST)),)
   $(error Invalid BOARD specified)
 endif
 
-# Handy check parameter function
-check_defined = \
-    $(strip $(foreach 1,$1, \
-    $(call __check_defined,$1,$(strip $(value 2)))))
-__check_defined = \
-    $(if $(value $1),, \
-    $(error Undefined make flag: $1$(if $2, ($2))))
-    
 # Build directory
 BUILD = _build/build-$(BOARD)
 
-# Board specific define
-include $(TOP)/ports/$(PORT)/boards/$(BOARD)/board.mk
-
-#-------------- Cross Compiler  ------------
-# Can be set by board, default to ARM GCC
-CROSS_COMPILE ?= arm-none-eabi-
-
-CC = $(CROSS_COMPILE)gcc
-CXX = $(CROSS_COMPILE)g++
-OBJCOPY = $(CROSS_COMPILE)objcopy
-SIZE = $(CROSS_COMPILE)size
-MKDIR = mkdir
-SED = sed
-CP = cp
-RM = rm
-
 #-------------- Source files and compiler flags --------------
 
-# Bootloader src
-SRC_C += $(subst $(TOP)/,,$(wildcard $(TOP)/src/*.c))
-INC += $(TOP)/src
-
-# Include all source C in board folder and Include path
-#SRC_C += hw/bsp/board.c
-SRC_C += $(subst $(TOP)/,,$(wildcard $(TOP)/ports/$(PORT)/boards/$(BOARD)/*.c))
-
-INC += $(TOP)/ports/$(PORT)
-INC += $(TOP)/ports/$(PORT)/boards/$(BOARD)
-
-# TinyUSB Stack source
+# Bootloader src, board folder and TinyUSB stack
 TINYUSB_LIB = lib/tinyusb/src
 SRC_C += \
+  $(subst $(TOP)/,,$(wildcard $(TOP)/src/*.c)) \
+  $(subst $(TOP)/,,$(wildcard $(TOP)/ports/$(PORT)/boards/$(BOARD)/*.c)) \
 	$(TINYUSB_LIB)/tusb.c \
 	$(TINYUSB_LIB)/common/tusb_fifo.c \
 	$(TINYUSB_LIB)/device/usbd.c \
@@ -81,7 +56,11 @@ SRC_C += \
 	$(TINYUSB_LIB)/class/usbtmc/usbtmc_device.c \
 	$(TINYUSB_LIB)/class/vendor/vendor_device.c
 
-INC += $(TOP)/$(TINYUSB_LIB)
+INC += \
+  $(TOP)/src \
+  $(TOP)/ports/$(PORT) \
+  $(TOP)/ports/$(PORT)/boards/$(BOARD) \
+  $(TOP)/$(TINYUSB_LIB)
 
 # Compiler Flags
 CFLAGS += \
@@ -127,3 +106,6 @@ ifeq ($(LOGGER),rtt)
 else ifeq ($(LOGGER),swo)
   CFLAGS += -DLOGGER_SWO
 endif
+
+# Board specific define
+include $(TOP)/ports/$(PORT)/boards/$(BOARD)/board.mk

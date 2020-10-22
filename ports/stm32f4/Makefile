@@ -1,5 +1,17 @@
 PORT = stm32f4
 
+#-------------- Cross Compiler  ------------
+CROSS_COMPILE = arm-none-eabi-
+
+CC = $(CROSS_COMPILE)gcc
+CXX = $(CROSS_COMPILE)g++
+OBJCOPY = $(CROSS_COMPILE)objcopy
+SIZE = $(CROSS_COMPILE)size
+MKDIR = mkdir
+SED = sed
+CP = cp
+RM = rm
+
 ST_HAL_DRIVER = lib/st/stm32f4xx_hal_driver
 ST_CMSIS = lib/st/cmsis_device_f4
 CMSIS_5 = lib/CMSIS_5
