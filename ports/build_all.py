@@ -23,7 +23,7 @@ if len(sys.argv) > 1:
     port = sys.argv[1]
 else:
     sys.exit(1)
-os.chdir(port)
+os.chdir("ports/" + port)
 
 # All supported boards
 all_boards = []
