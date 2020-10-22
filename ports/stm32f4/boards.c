@@ -50,6 +50,9 @@
 #define UART_TX_PIN           GPIO_PIN_10
 #define UART_RX_PIN           GPIO_PIN_11
 
+#define NEOPIXEL_PORT         GPIOC
+#define NEOPIXEL_PIN          GPIO_PIN_0
+
 UART_HandleTypeDef UartHandle;
 
 void board_led_state(uint32_t state);
@@ -66,8 +69,8 @@ void OTG_FS_IRQHandler(void)
 static void all_rcc_clk_enable(void)
 {
   __HAL_RCC_GPIOA_CLK_ENABLE();  // USB D+, D-
-  __HAL_RCC_GPIOC_CLK_ENABLE();  // LED, Button
   __HAL_RCC_GPIOB_CLK_ENABLE();  // Uart tx, rx
+  __HAL_RCC_GPIOC_CLK_ENABLE();  // LED, Button
   __HAL_RCC_USART3_CLK_ENABLE(); // Uart module
 }
 
@@ -152,6 +155,14 @@ void board_init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FAST;
   HAL_GPIO_Init(BUTTON_PORT, &GPIO_InitStruct);
 
+#ifdef NEOPIXEL_PORT
+  GPIO_InitStruct.Pin = NEOPIXEL_PIN;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FAST;
+  HAL_GPIO_Init(NEOPIXEL_PORT, &GPIO_InitStruct);
+#endif
+
   // Uart
   GPIO_InitStruct.Pin       = UART_TX_PIN | UART_RX_PIN;
   GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
@@ -211,10 +222,57 @@ uint8_t board_usb_get_serial(uint8_t serial_id[16])
 
 #if USE_RGB
 
+#define MAGIC_800_INT  900000  // ~1.11 us  -> 1.2  field
+#define MAGIC_800_T0H  2800000  // ~0.36 us -> 0.44 field
+#define MAGIC_800_T1H  1350000  // ~0.74 us -> 0.84 field
+
 void board_rgb_write(uint8_t idx, uint8_t const rgb[])
 {
   (void) idx;
-  (void) rgb;
+
+  // neopixel color order is GRB
+  uint8_t const pixels[3] = { rgb[1], rgb[0], rgb[2] };
+  uint32_t numBytes = 3;
+
+  uint8_t const *p = pixels, *end = p + numBytes;
+  uint8_t pix = *p++, mask = 0x80;
+  uint32_t start = 0;
+  uint32_t cyc = 0;
+
+  //assumes 800_000Hz frequency
+  //Theoretical values here are 800_000 -> 1.25us, 2500000->0.4us, 1250000->0.8us
+  //TODO: try to get dynamic weighting working again
+  uint32_t sys_freq = HAL_RCC_GetSysClockFreq();
+  uint32_t interval = sys_freq/MAGIC_800_INT;
+  uint32_t t0 = (sys_freq/MAGIC_800_T0H);
+  uint32_t t1 = (sys_freq/MAGIC_800_T1H);
+
+  __disable_irq();
+
+  // Enable DWT in debug core. Useable when interrupts disabled, as opposed to Systick->VAL
+  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+  DWT->CYCCNT = 0;
+
+  for(;;) {
+    cyc = (pix & mask) ? t1 : t0;
+    start = DWT->CYCCNT;
+
+    HAL_GPIO_WritePin(NEOPIXEL_PORT, NEOPIXEL_PIN, 1);
+    while((DWT->CYCCNT - start) < cyc);
+
+    HAL_GPIO_WritePin(NEOPIXEL_PORT, NEOPIXEL_PIN, 0);
+    while((DWT->CYCCNT - start) < interval);
+
+    if(!(mask >>= 1)) {
+      if(p >= end) break;
+      pix       = *p++;
+      mask = 0x80;
+    }
+  }
+
+  // Enable interrupts again
+  __enable_irq();
 }
 
 #endif

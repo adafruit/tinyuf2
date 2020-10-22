@@ -46,7 +46,6 @@ int main(void)
   board_flash_init();
   uf2_init();
 
-
   indicator_set(STATE_BOOTLOADER_STARTED);
 
 #if USE_SCREEN
