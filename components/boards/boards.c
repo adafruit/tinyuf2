@@ -31,7 +31,6 @@
 
 #include "driver/periph_ctrl.h"
 #include "driver/rmt.h"
-#include "led_strip.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/timers.h"
@@ -41,13 +40,19 @@
 //--------------------------------------------------------------------+
 
 #ifdef PIN_NEOPIXEL
+#include "led_strip.h"
 static led_strip_t *strip;
+#endif
+
+#ifdef PIN_APA102_SCK
+#include "led_strip_spi_apa102.h"
 #endif
 
 #define RGB_USB_UNMOUNTED   0xff, 0x00, 0x00 // Red
 #define RGB_USB_MOUNTED     0x00, 0xff, 0x00 // Green
 #define RGB_WRITING         0xcc, 0x66, 0x00
 #define RGB_UNKNOWN         0x00, 0x00, 0x88 // for debug
+#define RGB_BLACK           0x00, 0x00, 0x00 // clear
 
 static void configure_pins(usb_hal_context_t *usb);
 
@@ -74,6 +79,22 @@ void board_init(void)
   strip = led_strip_new_rmt_ws2812(&strip_config);
   strip->clear(strip, 100); // off led
   strip->set_brightness(strip, NEOPIXEL_BRIGHTNESS);
+#endif
+
+#ifdef PIN_APA102_SCK
+    // Setup the IO for the APA DATA and CLK
+    gpio_pad_select_gpio(PIN_APA102_DATA);
+    gpio_pad_select_gpio(PIN_APA102_SCK);
+    gpio_ll_input_disable(&GPIO, PIN_APA102_DATA);
+    gpio_ll_input_disable(&GPIO, PIN_APA102_SCK);
+    gpio_ll_output_enable(&GPIO, PIN_APA102_DATA);
+    gpio_ll_output_enable(&GPIO, PIN_APA102_SCK);
+
+    // Initialise SPI
+    setupSPI(PIN_APA102_DATA, PIN_APA102_SCK);
+
+    // Initialise the APA
+    initAPA(APA102_BRIGHTNESS);
 #endif
 
   // USB Controller Hal init
@@ -122,14 +143,38 @@ static void configure_pins(usb_hal_context_t *usb)
 // LED pattern
 //--------------------------------------------------------------------+
 
-#ifdef PIN_NEOPIXEL
-TimerHandle_t blinky_tm = NULL;
 
+
+#ifdef PIN_NEOPIXEL
 static void neopixel_set(uint8_t r, uint8_t g, uint8_t b)
 {
-  strip->set_pixel(strip, 0, r, g, b);
-  strip->refresh(strip, 100);
+    if ( r+g+b == 0 )
+    {
+        // we cant to clear instead of setting black
+        strip->clear(strip, 100);
+    }
+    else
+    {
+        strip->set_pixel(strip, 0, r, g, b);
+        strip->refresh(strip, 100);
+    }
 }
+#endif
+
+// Common wrapper for setting pixels per type
+void set_pixel(uint8_t r, uint8_t g, uint8_t b)
+{
+#ifdef PIN_NEOPIXEL
+    neopixel_set(r, g, b);
+#endif
+
+#ifdef PIN_APA102_SCK
+    setAPA(r, g, b);
+#endif
+}
+
+#if defined PIN_NEOPIXEL || defined PIN_APA102_SCK
+TimerHandle_t blinky_tm = NULL;
 
 void led_blinky_cb(TimerHandle_t xTimer)
 {
@@ -139,26 +184,27 @@ void led_blinky_cb(TimerHandle_t xTimer)
 
   if ( led_state )
   {
-    neopixel_set(RGB_WRITING);
+    set_pixel(RGB_WRITING);
   }else
   {
-    strip->clear(strip, 100);
+    set_pixel(RGB_BLACK);
   }
 }
 #endif
 
+
 void board_led_state(uint32_t state)
 {
-  #ifdef PIN_NEOPIXEL
+  #if defined PIN_NEOPIXEL || defined PIN_APA102_SCK
   switch(state)
   {
     case STATE_BOOTLOADER_STARTED:
     case STATE_USB_UNMOUNTED:
-      neopixel_set(RGB_USB_UNMOUNTED);
+      set_pixel(RGB_USB_UNMOUNTED);
     break;
 
     case STATE_USB_MOUNTED:
-      neopixel_set(RGB_USB_MOUNTED);
+      set_pixel(RGB_USB_MOUNTED);
     break;
 
     case STATE_WRITING_STARTED:
@@ -169,11 +215,11 @@ void board_led_state(uint32_t state)
 
     case STATE_WRITING_FINISHED:
       xTimerStop(blinky_tm, 0);
-      neopixel_set(RGB_WRITING);
+      set_pixel(RGB_WRITING);
     break;
 
     default:
-      neopixel_set(RGB_UNKNOWN);
+      set_pixel(RGB_UNKNOWN);
     break;
   }
   #endif
