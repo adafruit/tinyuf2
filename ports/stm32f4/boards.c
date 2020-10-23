@@ -217,7 +217,7 @@ void board_led_write(uint32_t state)
 
 #if USE_RGB
 
-#define MAGIC_800_INT  900000  // ~1.11 us  -> 1.2  field
+#define MAGIC_800_INT   900000  // ~1.11 us  -> 1.2  field
 #define MAGIC_800_T0H  2800000  // ~0.36 us -> 0.44 field
 #define MAGIC_800_T1H  1350000  // ~0.74 us -> 0.84 field
 

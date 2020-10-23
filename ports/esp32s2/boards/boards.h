@@ -31,6 +31,9 @@
 
 #include "board.h"
 
+// Flash Start Address of Application
+#define BOARD_FLASH_APP_START  0
+
 #ifdef PIN_NEOPIXEL
 #define USE_RGB   1
 #endif

@@ -30,7 +30,7 @@ CFLAGS += \
   -DCFG_TUSB_MCU=OPT_MCU_STM32F4
 
 # suppress warning caused by vendor mcu driver
-CFLAGS += -Wno-error=cast-align
+CFLAGS += -Wno-error=cast-align -Wno-error=unused-parameter
 
 # Port source
 SRC_C += \
@@ -41,6 +41,8 @@ SRC_C += \
 	$(ST_HAL_DRIVER)/Src/stm32f4xx_hal_cortex.c \
 	$(ST_HAL_DRIVER)/Src/stm32f4xx_hal_rcc.c \
 	$(ST_HAL_DRIVER)/Src/stm32f4xx_hal_gpio.c \
+	$(ST_HAL_DRIVER)/Src/stm32f4xx_hal_flash.c \
+	$(ST_HAL_DRIVER)/Src/stm32f4xx_hal_flash_ex.c \
 	$(ST_HAL_DRIVER)/Src/stm32f4xx_hal_uart.c
 
 # Port include

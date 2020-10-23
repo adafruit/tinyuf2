@@ -31,6 +31,9 @@
 
 #include "board.h"
 
+// Flash Start Address of Application
+#define BOARD_FLASH_APP_START  0x08010000
+
 #define USE_RGB   NEOPIXEL_NUMBER
 
 #ifdef __cplusplus

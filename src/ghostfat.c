@@ -161,9 +161,6 @@ STATIC_ASSERT( CLUSTER_COUNT >= 0x0FF5 && CLUSTER_COUNT < 0xFFF5 );
 // So, avoid being within 32 of those limits for even greater compatibility.
 STATIC_ASSERT( CLUSTER_COUNT >= 0x1015 && CLUSTER_COUNT < 0xFFD5 );
 
-
-#define USER_FLASH_START   0
-
 #define UF2_FIRMWARE_BYTES_PER_SECTOR 256
 #define UF2_SECTORS        (_flash_size / UF2_FIRMWARE_BYTES_PER_SECTOR)
 #define UF2_SIZE           (UF2_SECTORS * BPB_SECTOR_SIZE)
@@ -329,7 +326,7 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
     {
       // generate the UF2 file data on-the-fly
       sectionIdx -= NUM_FILES - 1;
-      uint32_t addr = USER_FLASH_START + (sectionIdx * UF2_FIRMWARE_BYTES_PER_SECTOR);
+      uint32_t addr = BOARD_FLASH_APP_START + (sectionIdx * UF2_FIRMWARE_BYTES_PER_SECTOR);
       if ( addr < CFG_UF2_FLASH_SIZE )
       {
         UF2_Block *bl = (void*) data;
