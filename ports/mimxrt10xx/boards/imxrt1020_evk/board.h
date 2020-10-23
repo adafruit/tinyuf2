@@ -47,14 +47,6 @@
 // Number of neopixels
 #define NEOPIXEL_NUMBER       0
 
-#if 0
-#define NEOPIXEL_PORT         GPIOC
-#define NEOPIXEL_PIN          GPIO_PIN_0
-
-// Brightness percentage from 1 to 255
-#define NEOPIXEL_BRIGHTNESS   0x10
-#endif
-
 //--------------------------------------------------------------------+
 // Button
 //--------------------------------------------------------------------+

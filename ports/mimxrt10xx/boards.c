@@ -29,8 +29,8 @@
 #include "fsl_gpio.h"
 #include "fsl_iomuxc.h"
 #include "fsl_clock.h"
+#include "fsl_ocotp.h"
 #include "fsl_lpuart.h"
-
 #include "clock_config.h"
 
 #include "tusb.h"
@@ -120,9 +120,20 @@ void board_dfu_complete(void)
 
 uint8_t board_usb_get_serial(uint8_t serial_id[16])
 {
-  uint8_t const len = 4;
-  memcpy(serial_id, "1234", len);
-  return len;
+  OCOTP_Init(OCOTP, CLOCK_GetFreq(kCLOCK_IpgClk));
+
+  // Reads shadow registers 0x01 - 0x04 (Configuration and Manufacturing Info)
+  // into 8 bit wide destination, avoiding punning.
+  for (int i = 0; i < 4; ++i) {
+    uint32_t wr = OCOTP_ReadFuseShadowRegister(OCOTP, i + 1);
+    for (int j = 0; j < 4; j++) {
+      serial_id[i*4+j] = wr & 0xff;
+      wr >>= 8;
+    }
+  }
+  OCOTP_Deinit(OCOTP);
+
+  return 16;
 }
 
 //--------------------------------------------------------------------+

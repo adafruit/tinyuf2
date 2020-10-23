@@ -12,10 +12,6 @@ SED = sed
 CP = cp
 RM = rm
 
-ST_HAL_DRIVER = lib/st/stm32f4xx_hal_driver
-ST_CMSIS = lib/st/cmsis_device_f4
-CMSIS_5 = lib/CMSIS_5
-
 include ../make.mk
 
 MCU_DIR = lib/nxp/sdk/devices/$(MCU)
@@ -45,6 +41,7 @@ SRC_C += \
 	$(MCU_DIR)/drivers/fsl_clock.c \
 	$(MCU_DIR)/drivers/fsl_gpio.c \
 	$(MCU_DIR)/drivers/fsl_common.c \
+	$(MCU_DIR)/drivers/fsl_ocotp.c \
 	$(MCU_DIR)/drivers/fsl_lpuart.c
 
 SRC_S += $(MCU_DIR)/gcc/startup_$(MCU).S
