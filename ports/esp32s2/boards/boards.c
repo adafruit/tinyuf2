@@ -158,13 +158,11 @@ static void _board_timer_cb(TimerHandle_t xTimer)
   board_timer_handler();
 }
 
-// start timer with ms interval
 void board_timer_start(uint32_t ms)
 {
   xTimerChangePeriod(timer_hdl, pdMS_TO_TICKS(ms), 0);
 }
 
-// stop timer
 void board_timer_stop(void)
 {
   xTimerStop(timer_hdl, 0);

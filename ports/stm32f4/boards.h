@@ -31,6 +31,9 @@
 
 #include "board.h"
 
+// Family ID for updating Application
+#define BOARD_UF2_FAMILY_ID     0x57755a57
+
 // Flash Start Address of Application
 #define BOARD_FLASH_APP_START  0x08010000
 

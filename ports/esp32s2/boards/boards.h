@@ -31,8 +31,11 @@
 
 #include "board.h"
 
+// Family ID for updating Application
+#define BOARD_UF2_FAMILY_ID     0xbfdd4eee
+
 // Flash Start Address of Application
-#define BOARD_FLASH_APP_START  0
+#define BOARD_FLASH_APP_START   0
 
 #ifdef PIN_NEOPIXEL
 #define USE_RGB   1

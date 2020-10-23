@@ -118,10 +118,11 @@ static void SystemClock_Config(void)
 
 void board_init(void)
 {
-  // 1ms tick timer
-  SysTick_Config(SystemCoreClock / 1000);
   SystemClock_Config();
   SystemCoreClockUpdate();
+
+  // disable systick
+  SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk;
 
   all_rcc_clk_enable();
 
@@ -270,9 +271,19 @@ void board_rgb_write(uint8_t const rgb[])
 
 #endif
 
+void board_timer_start(uint32_t ms)
+{
+  SysTick_Config( (SystemCoreClock/1000) * ms );
+}
+
+void board_timer_stop(void)
+{
+  SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk;
+}
+
 void SysTick_Handler (void)
 {
-
+  board_timer_handler();
 }
 
 // Required by __libc_init_array in startup code if we are compiling using

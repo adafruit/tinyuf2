@@ -23,7 +23,8 @@
  */
 
 #include "board_api.h"
-#include "stm32f4xx_hal_flash.h"
+#include "stm32f4xx.h"
+#include "stm32f4xx_hal_conf.h"
 
 #define FLASH_CACHE_SIZE          4096
 #define FLASH_CACHE_INVALID_ADDR  0xffffffff
@@ -35,6 +36,8 @@
 #define PANIC(msg) do { DMESG("PANIC! %s", msg); for(;;); } while (0)
 
 #define BOARD_FLASH_SECTORS 8
+#define BOARD_FIRST_FLASH_SECTOR_TO_ERASE 0
+
 #define APP_LOAD_ADDRESS 0x08010000
 
 /* flash parameters that we should not really know */
@@ -86,6 +89,27 @@ static struct {
 	{0x1b, 128 * 1024},
 };
 
+void flash_program_word(uint32_t address, uint32_t data)
+{
+  HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, address, (uint64_t) data);
+}
+
+void
+flash_func_write_word(uint32_t address, uint32_t word)
+{
+	flash_program_word(address + APP_LOAD_ADDRESS, word);
+}
+
+uint32_t
+flash_func_read_word(uint32_t address)
+{
+	if (address & 3) {
+		return 0;
+	}
+
+	return *(uint32_t *)(address + APP_LOAD_ADDRESS);
+}
+
 uint32_t
 flash_func_sector_size(unsigned sector)
 {
@@ -132,10 +156,10 @@ flash_write(uint32_t dst, const uint8_t *src, int len)
 		PANIC("invalid sector");
 
 
-    flash_unlock();
+    HAL_FLASH_Unlock();
 
 	if (!erased && !is_blank(addr, size)) {
-		flash_erase_sector(sector, FLASH_CR_PROGRAM_X32);
+		FLASH_Erase_Sector(sector, FLASH_VOLTAGE_RANGE_3);
 		if (!is_blank(addr, size))
 			PANIC("failed to erase!");
 	}
@@ -151,7 +175,7 @@ flash_write(uint32_t dst, const uint8_t *src, int len)
 void
 flash_func_erase_sector(unsigned sector)
 {
-	if (sector >= BOARD_FLASH_SECTORS || sector < BOARD_FIRST_FLASH_SECTOR_TO_ERASE) {
+	if (sector >= BOARD_FLASH_SECTORS /*|| sector < BOARD_FIRST_FLASH_SECTOR_TO_ERASE*/) {
 		return;
 	}
 
@@ -177,24 +201,8 @@ flash_func_erase_sector(unsigned sector)
 
 	/* erase the sector if it failed the blank check */
 	if (!blank) {
-		flash_erase_sector(flash_sectors[sector].sector_number, FLASH_CR_PROGRAM_X32);
+		FLASH_Erase_Sector(flash_sectors[sector].sector_number, FLASH_VOLTAGE_RANGE_3);
 	}
-}
-
-void
-flash_func_write_word(uint32_t address, uint32_t word)
-{
-	flash_program_word(address + APP_LOAD_ADDRESS, word);
-}
-
-uint32_t
-flash_func_read_word(uint32_t address)
-{
-	if (address & 3) {
-		return 0;
-	}
-
-	return *(uint32_t *)(address + APP_LOAD_ADDRESS);
 }
 
 //--------------------------------------------------------------------+
@@ -207,24 +215,20 @@ void board_flash_init(void)
 
 uint32_t board_flash_size(void)
 {
-  return 256;
+  return BOARD_FLASH_SIZE;
 }
 
 void board_flash_read(uint32_t addr, void* buffer, uint32_t len)
 {
-  (void) addr;
-  (void) buffer;
-  (void) len;
+  memcpy(buffer, (void*) addr, len);
 }
 
 void board_flash_flush(void)
 {
 }
 
-void board_flash_write (uint32_t dst, void const *src, uint32_t len)
+void board_flash_write (uint32_t addr, void const *data, uint32_t len)
 {
-  (void) dst;
-  (void) src;
-  (void) len;
+  flash_write(addr, data, len);
 }
 

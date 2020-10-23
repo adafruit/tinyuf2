@@ -338,7 +338,7 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
         bl->targetAddr = addr;
         bl->payloadSize = UF2_FIRMWARE_BYTES_PER_SECTOR;
         bl->flags = UF2_FLAG_FAMILYID;
-        bl->familyID = CFG_UF2_FAMILY_ID;
+        bl->familyID = BOARD_UF2_FAMILY_ID;
 
         board_flash_read(addr, bl->data, bl->payloadSize);
       }
@@ -364,7 +364,7 @@ int uf2_write_block (uint32_t block_no, uint8_t *data, WriteState *state)
 
   if ( !is_uf2_block(bl) ) return -1;
 
-  if (bl->familyID == CFG_UF2_FAMILY_ID)
+  if (bl->familyID == BOARD_UF2_FAMILY_ID)
   {
     // generic family ID
     board_flash_write(bl->targetAddr, bl->data, bl->payloadSize);
