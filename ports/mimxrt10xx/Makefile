@@ -18,6 +18,8 @@ CMSIS_5 = lib/CMSIS_5
 
 include ../make.mk
 
+MCU_DIR = lib/nxp/sdk/devices/$(MCU)
+
 # Port Compiler Flags
 CFLAGS += \
   -mthumb \
@@ -30,16 +32,28 @@ CFLAGS += \
   -DXIP_BOOT_HEADER_ENABLE=1 \
   -DCFG_TUSB_MCU=OPT_MCU_MIMXRT10XX
 
+# mcu driver cause following warnings
+CFLAGS += -Wno-error=unused-parameter
+
 # Port source
 SRC_C += \
 	$(addprefix $(CURRENT_PATH)/, $(wildcard *.c)) \
 	lib/tinyusb/src/portable/nxp/transdimension/dcd_transdimension.c \
+  $(MCU_DIR)/system_$(MCU).c \
+	$(MCU_DIR)/xip/fsl_flexspi_nor_boot.c \
+	$(MCU_DIR)/project_template/clock_config.c \
+	$(MCU_DIR)/drivers/fsl_clock.c \
+	$(MCU_DIR)/drivers/fsl_gpio.c \
+	$(MCU_DIR)/drivers/fsl_common.c \
+	$(MCU_DIR)/drivers/fsl_lpuart.c
 
+SRC_S += $(MCU_DIR)/gcc/startup_$(MCU).S
 
 # Port include
-#INC += \
-	$(TOP)/$(CMSIS_5)/CMSIS/Core/Include \
-	$(TOP)/$(ST_CMSIS)/Include \
-	$(TOP)/$(ST_HAL_DRIVER)/Inc
+INC += \
+	$(TOP)/$(MCU_DIR)/../../CMSIS/Include \
+	$(TOP)/$(MCU_DIR) \
+	$(TOP)/$(MCU_DIR)/drivers \
+	$(TOP)/$(MCU_DIR)/project_template
 
 include ../rules.mk

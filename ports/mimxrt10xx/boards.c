@@ -35,22 +35,12 @@
 
 #include "tusb.h"
 
-#define LED_PINMUX            IOMUXC_GPIO_AD_B0_09_GPIO1_IO09
-#define LED_PORT              GPIO1
-#define LED_PIN               9
-#define LED_STATE_ON          0
-
-// SW8 button
-#define BUTTON_PINMUX         IOMUXC_SNVS_WAKEUP_GPIO5_IO00
-#define BUTTON_PORT           GPIO5
-#define BUTTON_PIN            0
-#define BUTTON_STATE_ACTIVE   0
-
 // UART
 #define UART_PORT             LPUART1
 #define UART_RX_PINMUX        IOMUXC_GPIO_AD_B0_13_LPUART1_RX
 #define UART_TX_PINMUX        IOMUXC_GPIO_AD_B0_12_LPUART1_TX
 
+// needed by fsl_flexspi_nor_boot
 const uint8_t dcd_data[] = { 0x00 };
 
 void board_init(void)
@@ -65,26 +55,28 @@ void board_init(void)
   // 1ms tick timer
   SysTick_Config(SystemCoreClock / 1000);
 
-  // LED
+#ifdef LED_PIN
   IOMUXC_SetPinMux( LED_PINMUX, 0U);
   IOMUXC_SetPinConfig( LED_PINMUX, 0x10B0U);
 
   gpio_pin_config_t led_config = { kGPIO_DigitalOutput, 0, kGPIO_NoIntmode };
   GPIO_PinInit(LED_PORT, LED_PIN, &led_config);
   board_led_write(true);
+#endif
 
-  // Button
+#ifdef BUTTON_PIN
   IOMUXC_SetPinMux( BUTTON_PINMUX, 0U);
   gpio_pin_config_t button_config = { kGPIO_DigitalInput, 0, kGPIO_IntRisingEdge, };
   GPIO_PinInit(BUTTON_PORT, BUTTON_PIN, &button_config);
+#endif
 
+#if 0
   // UART
   IOMUXC_SetPinMux( UART_TX_PINMUX, 0U);
   IOMUXC_SetPinMux( UART_RX_PINMUX, 0U);
   IOMUXC_SetPinConfig( UART_TX_PINMUX, 0x10B0u);
   IOMUXC_SetPinConfig( UART_RX_PINMUX, 0x10B0u);
 
-#if 0
   lpuart_config_t uart_config;
   LPUART_GetDefaultConfig(&uart_config);
   uart_config.baudRate_Bps = CFG_BOARD_UART_BAUDRATE;
@@ -138,11 +130,13 @@ void board_led_write(uint32_t state)
   GPIO_PinWrite(LED_PORT, LED_PIN, state ? LED_STATE_ON : (1-LED_STATE_ON));
 }
 
+#if 0
 uint32_t board_button_read(void)
 {
   // active low
   return BUTTON_STATE_ACTIVE == GPIO_PinRead(BUTTON_PORT, BUTTON_PIN);
 }
+#endif
 
 
 //--------------------------------------------------------------------+

@@ -7,8 +7,7 @@ LD_FILE = $(MCU_DIR)/gcc/$(MCU)xxxxx_flexspi_nor.ld
 # For flash-jlink target
 JLINK_DEVICE = MIMXRT1062xxx6A
 
-# For flash-pyocd target
-PYOCD_TARGET = mimxrt1060
-
-# flash using pyocd
-flash: flash-pyocd
+# flash by using teensy_loader_cli https://github.com/PaulStoffregen/teensy_loader_cli
+# Make sure it is in your PATH 
+flash: $(BUILD)/$(BOARD)-firmware.hex
+	teensy_loader_cli --mcu=imxrt1062 -v -w $<
