@@ -44,6 +44,8 @@
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
 //--------------------------------------------------------------------+
 
+static TimerHandle_t timer_hdl = NULL;
+
 #ifdef PIN_NEOPIXEL
 static led_strip_t *strip;
 
@@ -56,6 +58,7 @@ void board_rgb_write(uint8_t const rgb[])
 
 extern int main(void);
 static void configure_pins(usb_hal_context_t *usb);
+static void _board_timer_cb(TimerHandle_t xTimer);
 
 //--------------------------------------------------------------------+
 // TinyUSB thread
@@ -118,6 +121,8 @@ void board_init(void)
   strip->set_brightness(strip, NEOPIXEL_BRIGHTNESS);
 #endif
 
+  timer_hdl = xTimerCreate(NULL, pdMS_TO_TICKS(1000), true, NULL, _board_timer_cb);
+
   // USB Controller Hal init
   periph_module_reset(PERIPH_USB_MODULE);
   periph_module_enable(PERIPH_USB_MODULE);
@@ -141,6 +146,28 @@ uint8_t board_usb_get_serial(uint8_t serial_id[16])
   // use factory default MAC as serial ID
   esp_efuse_mac_get_default(serial_id);
   return 6;
+}
+
+//--------------------------------------------------------------------+
+// Timer
+//--------------------------------------------------------------------+
+
+static void _board_timer_cb(TimerHandle_t xTimer)
+{
+  (void) xTimer;
+  board_timer_handler();
+}
+
+// start timer with ms interval
+void board_timer_start(uint32_t ms)
+{
+  xTimerChangePeriod(timer_hdl, pdMS_TO_TICKS(ms), 0);
+}
+
+// stop timer
+void board_timer_stop(void)
+{
+  xTimerStop(timer_hdl, 0);
 }
 
 static void configure_pins(usb_hal_context_t *usb)

@@ -128,34 +128,6 @@ uint8_t const RGB_WRITING[] = { 0xcc, 0x66, 0x00 };
 uint8_t const RGB_UNKNOWN[] = { 0x00, 0x00, 0x88 };    // for debug
 uint8_t const RGB_OFF[] = { 0x00, 0x00, 0x00 };
 
-// TODO remove
-#if CFG_TUSB_MCU == OPT_MCU_ESP32S2
-#include "freertos/FreeRTOS.h"
-#include "freertos/timers.h"
-
-TimerHandle_t blinky_tm = NULL;
-
-void led_blinky_cb(TimerHandle_t xTimer)
-{
-  (void) xTimer;
-  static bool led_state = false;
-  led_state = 1 - led_state; // toggle
-
-  if ( led_state )
-  {
-    board_rgb_write(RGB_WRITING);
-  }else
-  {
-    board_rgb_write(RGB_OFF);
-  }
-}
-#endif
-
-// stub
-#if USE_RGB == 0
-void board_rgb_write(uint8_t const rgb[]) { (void) rgb; }
-#endif
-
 void indicator_set(uint32_t state)
 {
   switch(state)
@@ -170,17 +142,11 @@ void indicator_set(uint32_t state)
     break;
 
     case STATE_WRITING_STARTED:
-#if CFG_TUSB_MCU == OPT_MCU_ESP32S2
-      // soft timer for blinky
-      blinky_tm = xTimerCreate(NULL, pdMS_TO_TICKS(50), true, NULL, led_blinky_cb);
-      xTimerStart(blinky_tm, 0);
-#endif
+      board_timer_start(50);
     break;
 
     case STATE_WRITING_FINISHED:
-#if CFG_TUSB_MCU == OPT_MCU_ESP32S2
-      xTimerStop(blinky_tm, 0);
-#endif
+      board_timer_stop();
       board_rgb_write(RGB_WRITING);
     break;
 
@@ -190,3 +156,26 @@ void indicator_set(uint32_t state)
   }
 }
 
+
+void board_timer_handler(void)
+{
+  static bool led_state = false;
+  led_state = 1 - led_state; // toggle
+
+  if ( led_state )
+  {
+    board_rgb_write(RGB_WRITING);
+  }else
+  {
+    board_rgb_write(RGB_OFF);
+  }
+}
+
+//--------------------------------------------------------------------+
+//
+//--------------------------------------------------------------------+
+
+// stub
+#if USE_RGB == 0
+void board_rgb_write(uint8_t const rgb[]) { (void) rgb; }
+#endif

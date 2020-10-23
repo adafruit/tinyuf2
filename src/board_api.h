@@ -53,6 +53,15 @@ void board_led_write(uint32_t state);
 // Write color to rgb strip
 void board_rgb_write(uint8_t const rgb[]);
 
+// start timer with ms interval
+void board_timer_start(uint32_t ms);
+
+// stop timer
+void board_timer_stop(void);
+
+// timer event handler, must be called by port/board
+extern void board_timer_handler(void);
+
 // DFU is complete, should reset or jump to application mode
 void board_dfu_complete(void);
 
