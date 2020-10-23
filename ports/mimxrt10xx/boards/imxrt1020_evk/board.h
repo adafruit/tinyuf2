@@ -29,16 +29,15 @@
 #define BOARD_H_
 
 // required since iMX RT10xx SDK include this file for board size
-#define BOARD_FLASH_SIZE (2 * 1024 * 1024)
+#define BOARD_FLASH_SIZE (0x800000U)
 
 //--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
 
-// D13
-#define LED_PINMUX            IOMUXC_GPIO_B0_03_GPIO2_IO03
-#define LED_PORT              GPIO2
-#define LED_PIN               3
+#define LED_PINMUX            IOMUXC_GPIO_AD_B0_05_GPIO1_IO05
+#define LED_PORT              GPIO1
+#define LED_PIN               5
 #define LED_STATE_ON          0
 
 //--------------------------------------------------------------------+
@@ -48,24 +47,36 @@
 // Number of neopixels
 #define NEOPIXEL_NUMBER       0
 
-//#define NEOPIXEL_PORT         GPIOC
-//#define NEOPIXEL_PIN          GPIO_PIN_0
-//
-//// Brightness percentage from 1 to 255
-//#define NEOPIXEL_BRIGHTNESS   0x10
+#if 0
+#define NEOPIXEL_PORT         GPIOC
+#define NEOPIXEL_PIN          GPIO_PIN_0
+
+// Brightness percentage from 1 to 255
+#define NEOPIXEL_BRIGHTNESS   0x10
+#endif
+
+//--------------------------------------------------------------------+
+// Button
+//--------------------------------------------------------------------+
+
+// SW8 button
+#define BUTTON_PINMUX         IOMUXC_SNVS_WAKEUP_GPIO5_IO00
+#define BUTTON_PORT           GPIO5
+#define BUTTON_PIN            0
+#define BUTTON_STATE_ACTIVE   0
 
 //--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
 
 #define USB_VID           0x239A
-#define USB_PID           0x0085
-#define USB_MANUFACTURER  "PJRC"
-#define USB_PRODUCT       "Teensy 4.0"
+#define USB_PID           0x0081
+#define USB_MANUFACTURER  "NXP"
+#define USB_PRODUCT       "RT1020 EVK"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "MIMXRT1060-Teensy-4.0"
-#define UF2_VOLUME_LABEL  "TEENSYBOOT"
-#define UF2_INDEX_URL     "https://www.pjrc.com/store/teensy40.html"
+#define UF2_BOARD_ID      "MIMXRT1020-EVK-revA"
+#define UF2_VOLUME_LABEL  "RT1020BOOT"
+#define UF2_INDEX_URL     "https://www.nxp.com/part/MIMXRT1020-EVK#/"
 
 #endif /* BOARD_H_ */

@@ -90,7 +90,11 @@ void board_init(void)
   CLOCK_EnableUsbhs0PhyPllClock(kCLOCK_Usbphy480M, 480000000U);
   CLOCK_EnableUsbhs0Clock(kCLOCK_Usb480M, 480000000U);
 
+#ifdef USBPHY1
   USBPHY_Type* usb_phy = USBPHY1;
+#else
+  USBPHY_Type* usb_phy = USBPHY;
+#endif
 
   // Enable PHY support for Low speed device + LS via FS Hub
   usb_phy->CTRL |= USBPHY_CTRL_SET_ENUTMILEVEL2_MASK | USBPHY_CTRL_SET_ENUTMILEVEL3_MASK;
