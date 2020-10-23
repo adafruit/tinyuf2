@@ -29,6 +29,9 @@
  extern "C" {
 #endif
 
+#include "stm32f4xx.h"
+#include "stm32f4xx_hal_conf.h"
+
 #include "board.h"
 
 // Family ID for updating Application
