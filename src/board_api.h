@@ -62,6 +62,9 @@ void board_timer_stop(void);
 // timer event handler, must be called by port/board
 extern void board_timer_handler(void);
 
+// Init DFU process
+void board_dfu_init(void);
+
 // DFU is complete, should reset or jump to application mode
 void board_dfu_complete(void);
 

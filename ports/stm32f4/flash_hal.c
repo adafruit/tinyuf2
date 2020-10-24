@@ -227,6 +227,7 @@ void board_flash_flush(void)
 {
 }
 
+// TODO not working quite yet
 void board_flash_write (uint32_t addr, void const *data, uint32_t len)
 {
   flash_write(addr, data, len);

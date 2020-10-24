@@ -49,16 +49,6 @@ void OTG_FS_IRQHandler(void)
   tud_int_handler(0);
 }
 
-// enable all LED, Button, Uart, USB clock
-static void all_rcc_clk_enable(void)
-{
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-  __HAL_RCC_GPIOC_CLK_ENABLE();
-
-  __HAL_RCC_USART3_CLK_ENABLE(); // Uart module
-}
-
 /**
   * @brief  System Clock Configuration
   *         The system Clock is configured as follow :
@@ -121,7 +111,9 @@ void board_init(void)
   // disable systick
   SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk;
 
-  all_rcc_clk_enable();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOC_CLK_ENABLE();
 
   GPIO_InitTypeDef  GPIO_InitStruct;
 
@@ -150,14 +142,23 @@ void board_init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FAST;
   HAL_GPIO_Init(NEOPIXEL_PORT, &GPIO_InitStruct);
 #endif
+}
 
+void board_dfu_init(void)
+{
+  GPIO_InitTypeDef  GPIO_InitStruct;
+
+#if 0
   // Uart
+  __HAL_RCC_USART3_CLK_ENABLE();
+
   GPIO_InitStruct.Pin       = UART_TX_PIN | UART_RX_PIN;
   GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
   GPIO_InitStruct.Pull      = GPIO_PULLUP;
   GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_HIGH;
   GPIO_InitStruct.Alternate = UART_GPIO_AF;
   HAL_GPIO_Init(UART_GPIO_PORT, &GPIO_InitStruct);
+#endif
 
   // USB Pin Init
   // PA9- VUSB, PA10- ID, PA11- DM, PA12- DP
