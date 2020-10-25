@@ -220,10 +220,15 @@ void board_led_write(uint32_t state)
 #define MAGIC_800_T0H  2800000  // ~0.36 us -> 0.44 field
 #define MAGIC_800_T1H  1350000  // ~0.74 us -> 0.84 field
 
+static inline uint8_t apply_percentage(uint8_t brightness)
+{
+  return (uint8_t) ((brightness*NEOPIXEL_BRIGHTNESS) >> 8);
+}
+
 void board_rgb_write(uint8_t const rgb[])
 {
   // neopixel color order is GRB
-  uint8_t const pixels[3] = { rgb[1] & NEOPIXEL_BRIGHTNESS, rgb[0] & NEOPIXEL_BRIGHTNESS, rgb[2] & NEOPIXEL_BRIGHTNESS };
+  uint8_t const pixels[3] = { apply_percentage(rgb[1]), apply_percentage(rgb[0]), apply_percentage(rgb[2]) };
   uint32_t numBytes = 3;
 
   uint8_t const *p = pixels, *end = p + numBytes;
