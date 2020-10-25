@@ -134,6 +134,11 @@ void board_init(void)
   configure_pins(&hal);
 }
 
+void board_dfu_init(void)
+{
+  // nothing to do since DFU is always entered
+}
+
 void board_dfu_complete(void)
 {
   // Set partition OTA0 as bootable and reset
@@ -141,11 +146,27 @@ void board_dfu_complete(void)
   esp_restart();
 }
 
+bool board_app_valid(void)
+{
+  // esp32s2 is always enter DFU mode
+  return false;
+}
+
+void board_app_jump(void)
+{
+  // nothing to do
+}
+
 uint8_t board_usb_get_serial(uint8_t serial_id[16])
 {
   // use factory default MAC as serial ID
   esp_efuse_mac_get_default(serial_id);
   return 6;
+}
+
+void board_led_write(uint32_t state)
+{
+  (void) state;
 }
 
 //--------------------------------------------------------------------+

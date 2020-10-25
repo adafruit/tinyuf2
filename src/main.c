@@ -35,12 +35,77 @@
 //--------------------------------------------------------------------+
 // MACRO CONSTANT TYPEDEF PROTYPES
 //--------------------------------------------------------------------+
+#define USE_DFU_BUTTON
+
+#define DFU_DBL_RESET_MAGIC      0x5A1AD5      // SALADS
+#define DFU_DBL_RESET_DELAY      500
+
+uint8_t const RGB_USB_UNMOUNTED[] = { 0xff, 0x00, 0x00 }; // Red
+uint8_t const RGB_USB_MOUNTED[]   = { 0x00, 0xff, 0x00 }; // Green
+uint8_t const RGB_WRITING[]       = { 0xcc, 0x66, 0x00 };
+uint8_t const RGB_DOUBLE_TAP[]    = { 0x80, 0x00, 0xff }; // Purple
+uint8_t const RGB_UNKNOWN[]       = { 0x00, 0x00, 0x88 }; // for debug
+uint8_t const RGB_OFF[]           = { 0x00, 0x00, 0x00 };
+
+//--------------------------------------------------------------------+
+//
+//--------------------------------------------------------------------+
+
+// defined by linker script
+extern uint32_t _board_dfu_dbl_tap[];
+
+static volatile uint32_t _timer_count = 0;
+
 
 void indicator_set(uint32_t state);
+
+// return true if start DFU mode, else App mode
+static bool check_dfu_mode(void)
+{
+  // invalid app
+  if ( !board_app_valid() ) true;
+
+#ifdef USE_DFU_DOUBLE_TAP
+  // TU_LOG1_HEX(_board_dfu_dbl_tap);
+  // TU_LOG1_HEX(_board_dfu_dbl_tap[0]);
+
+  if (_board_dfu_dbl_tap[0] == DFU_DBL_RESET_MAGIC)
+  {
+    // Double tap occurred
+    _board_dfu_dbl_tap[0] = 0;
+    return true;
+  }
+
+  // Register our first reset for double reset detection
+  _board_dfu_dbl_tap[0] = DFU_DBL_RESET_MAGIC;
+  _timer_count = 0;
+
+  // Turn on LED/RGB for visual indicator
+  board_led_write(0xff);
+  board_rgb_write(RGB_DOUBLE_TAP);
+
+  // delay a fraction of second if Reset pin is tap during this delay --> we will enter dfu
+  board_timer_start(DFU_DBL_RESET_DELAY/10);
+  while(_timer_count < 10) {}
+  board_timer_stop();
+
+  // Turn off indicator
+  board_led_write(0x00);
+
+  _board_dfu_dbl_tap[0] = 0;
+#endif
+
+  return false;
+}
 
 int main(void)
 {
   board_init();
+
+  // if not DFU mode, jump to App
+  if ( !check_dfu_mode() ) board_app_jump();
+
+  board_dfu_init();
   tusb_init();
 
   board_flash_init();
@@ -122,14 +187,12 @@ void tud_hid_set_report_cb(uint8_t report_id, hid_report_type_t report_type, uin
 //--------------------------------------------------------------------+
 // Indicator
 //--------------------------------------------------------------------+
-uint8_t const RGB_USB_UNMOUNTED[] = { 0xff, 0x00, 0x00 };    // Red
-uint8_t const RGB_USB_MOUNTED[] = { 0x00, 0xff, 0x00 };    // Green
-uint8_t const RGB_WRITING[] = { 0xcc, 0x66, 0x00 };
-uint8_t const RGB_UNKNOWN[] = { 0x00, 0x00, 0x88 };    // for debug
-uint8_t const RGB_OFF[] = { 0x00, 0x00, 0x00 };
+
+static uint32_t _indicator_state = STATE_BOOTLOADER_STARTED;
 
 void indicator_set(uint32_t state)
 {
+  _indicator_state = state;
   switch(state)
   {
     case STATE_BOOTLOADER_STARTED:
@@ -159,23 +222,47 @@ void indicator_set(uint32_t state)
 
 void board_timer_handler(void)
 {
-  static bool led_state = false;
-  led_state = 1 - led_state; // toggle
+  _timer_count++;
 
-  if ( led_state )
+  if ( _indicator_state == STATE_WRITING_STARTED )
   {
-    board_rgb_write(RGB_WRITING);
-  }else
-  {
-    board_rgb_write(RGB_OFF);
+#if CFG_TUSB_MCU == OPT_MCU_ESP32S2
+    if ( _timer_count & 0x01 )
+    {
+      board_rgb_write(RGB_WRITING);
+    }else
+    {
+      board_rgb_write(RGB_OFF);
+    }
+#else
+    board_led_write(_timer_count & 0x01);
+#endif
   }
 }
 
 //--------------------------------------------------------------------+
-//
+// Logger newlib retarget
 //--------------------------------------------------------------------+
 
-// stub
-#if USE_RGB == 0
-void board_rgb_write(uint8_t const rgb[]) { (void) rgb; }
+#if defined(LOGGER_RTT)
+// Logging with RTT
+
+// If using SES IDE, use the Syscalls/SEGGER_RTT_Syscalls_SES.c instead
+#if !(defined __SES_ARM) && !(defined __SES_RISCV) && !(defined __CROSSWORKS_ARM)
+#include "SEGGER_RTT.h"
+
+TU_ATTR_USED int _write (int fhdl, const void *buf, size_t count)
+{
+  (void) fhdl;
+  SEGGER_RTT_Write(0, (char*) buf, (int) count);
+  return count;
+}
+
+TU_ATTR_USED int _read (int fhdl, char *buf, size_t count)
+{
+  (void) fhdl;
+  return SEGGER_RTT_Read(0, buf, count);
+}
+#endif
+
 #endif

@@ -62,6 +62,12 @@ void board_timer_stop(void);
 // timer event handler, must be called by port/board
 extern void board_timer_handler(void);
 
+// Check if application is valid
+bool board_app_valid(void);
+
+// Jump to Application
+void board_app_jump(void);
+
 // Init DFU process
 void board_dfu_init(void);
 

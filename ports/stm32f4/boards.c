@@ -38,70 +38,7 @@
 #define UART_RX_PIN           GPIO_PIN_11
 
 UART_HandleTypeDef UartHandle;
-
-void board_led_write(uint32_t state);
-
-//--------------------------------------------------------------------+
-// Forward USB interrupt events to TinyUSB IRQ Handler
-//--------------------------------------------------------------------+
-void OTG_FS_IRQHandler(void)
-{
-  tud_int_handler(0);
-}
-
-/**
-  * @brief  System Clock Configuration
-  *         The system Clock is configured as follow :
-  *            System Clock source            = PLL (HSE)
-  *            SYSCLK(Hz)                     = 168000000
-  *            HCLK(Hz)                       = 168000000
-  *            AHB Prescaler                  = 1
-  *            APB1 Prescaler                 = 4
-  *            APB2 Prescaler                 = 2
-  *            HSE Frequency(Hz)              = 12000000
-  *            PLL_M                          = HSE_VALUE/1000000
-  *            PLL_N                          = 336
-  *            PLL_P                          = 2
-  *            PLL_Q                          = 7
-  *            VDD(V)                         = 3.3
-  *            Main regulator output voltage  = Scale1 mode
-  *            Flash Latency(WS)              = 5
-  * @param  None
-  * @retval None
-  */
-static void SystemClock_Config(void)
-{
-  RCC_ClkInitTypeDef RCC_ClkInitStruct;
-  RCC_OscInitTypeDef RCC_OscInitStruct;
-
-  /* Enable Power Control clock */
-  __HAL_RCC_PWR_CLK_ENABLE();
-
-  /* The voltage scaling allows optimizing the power consumption when the device is
-     clocked below the maximum system frequency, to update the voltage scaling value
-     regarding system frequency refer to product datasheet.  */
-  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
-
-  /* Enable HSE Oscillator and activate PLL with HSE as source */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLM = HSE_VALUE/1000000;
-  RCC_OscInitStruct.PLL.PLLN = 336;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = 7;
-  HAL_RCC_OscConfig(&RCC_OscInitStruct);
-
-  /* Select PLL as system clock source and configure the HCLK, PCLK1 and PCLK2
-     clocks dividers */
-  RCC_ClkInitStruct.ClockType = (RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2);
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
-  HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5);
-}
+static void SystemClock_Config(void);
 
 void board_init(void)
 {
@@ -198,6 +135,37 @@ void board_dfu_complete(void)
   NVIC_SystemReset();
 }
 
+
+bool board_app_valid(void)
+{
+  volatile uint32_t const * app_vector = (volatile uint32_t const*) BOARD_FLASH_APP_START;
+
+  // 1st word is stack pointer (should be in SRAM region)
+
+  // 2nd word is App entry point (reset)
+  if (app_vector[1] < BOARD_FLASH_APP_START || app_vector[1] > BOARD_FLASH_APP_START + BOARD_FLASH_SIZE) {
+    return false;
+  }
+
+  return true;
+}
+
+void board_app_jump(void)
+{
+  volatile uint32_t const * app_vector = (volatile uint32_t const*) BOARD_FLASH_APP_START;
+
+  // TODO protect bootloader region
+
+  /* switch exception handlers to the application */
+  SCB->VTOR = (uint32_t) BOARD_FLASH_APP_START;
+
+  // Set stack pointer
+  __set_MSP(app_vector[0]);
+
+  // Jump to Application Entry
+  asm("bx %0" ::"r"(app_vector[1]));
+}
+
 uint8_t board_usb_get_serial(uint8_t serial_id[16])
 {
   uint8_t const len = 12;
@@ -214,9 +182,8 @@ void board_led_write(uint32_t state)
   HAL_GPIO_WritePin(LED_PORT, LED_PIN, state ? LED_STATE_ON : (1-LED_STATE_ON));
 }
 
-#if USE_RGB
 
-#define MAGIC_800_INT   900000  // ~1.11 us  -> 1.2  field
+#define MAGIC_800_INT   900000  // ~1.11 us -> 1.2  field
 #define MAGIC_800_T0H  2800000  // ~0.36 us -> 0.44 field
 #define MAGIC_800_T1H  1350000  // ~0.74 us -> 0.84 field
 
@@ -227,6 +194,7 @@ static inline uint8_t apply_percentage(uint8_t brightness)
 
 void board_rgb_write(uint8_t const rgb[])
 {
+#if USE_RGB
   // neopixel color order is GRB
   uint8_t const pixels[3] = { apply_percentage(rgb[1]), apply_percentage(rgb[0]), apply_percentage(rgb[2]) };
   uint32_t numBytes = 3;
@@ -270,9 +238,13 @@ void board_rgb_write(uint8_t const rgb[])
 
   // Enable interrupts again
   __enable_irq();
+#endif
 }
 
-#endif
+
+//--------------------------------------------------------------------+
+// Timer
+//--------------------------------------------------------------------+
 
 void board_timer_start(uint32_t ms)
 {
@@ -289,9 +261,68 @@ void SysTick_Handler (void)
   board_timer_handler();
 }
 
+
+// Forward USB interrupt events to TinyUSB IRQ Handler
+void OTG_FS_IRQHandler(void)
+{
+  tud_int_handler(0);
+}
+
 // Required by __libc_init_array in startup code if we are compiling using
 // -nostdlib/-nostartfiles.
 void _init(void)
 {
 
+}
+
+/**
+  * @brief  System Clock Configuration
+  *         The system Clock is configured as follow :
+  *            System Clock source            = PLL (HSE)
+  *            SYSCLK(Hz)                     = 168000000
+  *            HCLK(Hz)                       = 168000000
+  *            AHB Prescaler                  = 1
+  *            APB1 Prescaler                 = 4
+  *            APB2 Prescaler                 = 2
+  *            HSE Frequency(Hz)              = 12000000
+  *            PLL_M                          = HSE_VALUE/1000000
+  *            PLL_N                          = 336
+  *            PLL_P                          = 2
+  *            PLL_Q                          = 7
+  *            VDD(V)                         = 3.3
+  *            Main regulator output voltage  = Scale1 mode
+  *            Flash Latency(WS)              = 5
+  */
+static void SystemClock_Config(void)
+{
+  RCC_ClkInitTypeDef RCC_ClkInitStruct;
+  RCC_OscInitTypeDef RCC_OscInitStruct;
+
+  /* Enable Power Control clock */
+  __HAL_RCC_PWR_CLK_ENABLE();
+
+  /* The voltage scaling allows optimizing the power consumption when the device is
+     clocked below the maximum system frequency, to update the voltage scaling value
+     regarding system frequency refer to product datasheet.  */
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+
+  /* Enable HSE Oscillator and activate PLL with HSE as source */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLM = HSE_VALUE/1000000;
+  RCC_OscInitStruct.PLL.PLLN = 336;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = 7;
+  HAL_RCC_OscConfig(&RCC_OscInitStruct);
+
+  /* Select PLL as system clock source and configure the HCLK, PCLK1 and PCLK2
+     clocks dividers */
+  RCC_ClkInitStruct.ClockType = (RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2);
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
+  HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5);
 }
