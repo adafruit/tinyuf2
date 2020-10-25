@@ -84,8 +84,10 @@ void board_init(void)
   uart_config.enableRx = true;
   LPUART_Init(UART_PORT, &uart_config, (CLOCK_GetPllFreq(kCLOCK_PllUsb1) / 6U) / (CLOCK_GetDiv(kCLOCK_UartDiv) + 1U));
 #endif
+}
 
-  //------------- USB0 -------------//
+void board_dfu_init(void)
+{
   // Clock
   CLOCK_EnableUsbhs0PhyPllClock(kCLOCK_Usbphy480M, 480000000U);
   CLOCK_EnableUsbhs0Clock(kCLOCK_Usb480M, 480000000U);
@@ -118,6 +120,17 @@ void board_dfu_complete(void)
   NVIC_SystemReset();
 }
 
+bool board_app_valid(void)
+{
+  // TOOD implement later
+  return false;
+}
+
+void board_app_jump(void)
+{
+  // TOOD implement later
+}
+
 uint8_t board_usb_get_serial(uint8_t serial_id[16])
 {
   OCOTP_Init(OCOTP, CLOCK_GetFreq(kCLOCK_IpgClk));
@@ -137,12 +150,45 @@ uint8_t board_usb_get_serial(uint8_t serial_id[16])
 }
 
 //--------------------------------------------------------------------+
-// Board porting API
+// Timer
+//--------------------------------------------------------------------+
+
+void board_timer_start(uint32_t ms)
+{
+  (void) ms;
+  // TOOD implement later
+}
+
+void board_timer_stop(void)
+{
+  // TOOD implement later
+}
+
+volatile uint32_t system_ticks = 0;
+void SysTick_Handler(void)
+{
+  system_ticks++;
+}
+
+uint32_t board_millis(void)
+{
+  return system_ticks;
+}
+
+//--------------------------------------------------------------------+
+// LED / RGB
 //--------------------------------------------------------------------+
 
 void board_led_write(uint32_t state)
 {
   GPIO_PinWrite(LED_PORT, LED_PIN, state ? LED_STATE_ON : (1-LED_STATE_ON));
+}
+
+void board_rgb_write(uint8_t const rgb[])
+{
+  (void) rgb;
+#if USE_RGB
+#endif
 }
 
 #if 0
@@ -192,14 +238,3 @@ int board_uart_write(void const * buf, int len)
   return len;
 }
 #endif
-
-volatile uint32_t system_ticks = 0;
-void SysTick_Handler(void)
-{
-  system_ticks++;
-}
-
-uint32_t board_millis(void)
-{
-  return system_ticks;
-}

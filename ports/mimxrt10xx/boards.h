@@ -31,6 +31,11 @@
 
 #include "board.h"
 
+// Family ID for updating Application
+#define BOARD_UF2_FAMILY_ID   0x4fb2d5bd
+
+
+
 #ifdef __cplusplus
  }
 #endif
