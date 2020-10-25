@@ -9,7 +9,7 @@ on:
       - created
 
 jobs:
-  build-esp32s2:
+  ESP32-S2:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
