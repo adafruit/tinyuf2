@@ -48,12 +48,6 @@ static TimerHandle_t timer_hdl = NULL;
 
 #ifdef PIN_NEOPIXEL
 static led_strip_t *strip;
-
-void board_rgb_write(uint8_t const rgb[])
-{
-  strip->set_pixel(strip, 0, rgb[0], rgb[1], rgb[2]);
-  strip->refresh(strip, 100);
-}
 #endif
 
 extern int main(void);
@@ -167,6 +161,14 @@ uint8_t board_usb_get_serial(uint8_t serial_id[16])
 void board_led_write(uint32_t state)
 {
   (void) state;
+}
+
+void board_rgb_write(uint8_t const rgb[])
+{
+#ifdef PIN_NEOPIXEL
+  strip->set_pixel(strip, 0, rgb[0], rgb[1], rgb[2]);
+  strip->refresh(strip, 100);
+#endif
 }
 
 //--------------------------------------------------------------------+

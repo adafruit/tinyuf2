@@ -62,7 +62,7 @@ jobs:
         asset_content_type: application/octet-stream
       if: ${{ github.event_name == 'release' }}
 
-  build-arm:
+  ARM:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
