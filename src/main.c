@@ -66,13 +66,11 @@ static bool check_dfu_mode(void)
   if ( !board_app_valid() ) true;
 
 #if USE_DFU_DOUBLE_TAP
-  TU_LOG1_HEX(_board_dfu_dbl_tap);
-  TU_LOG1_HEX(_board_dfu_dbl_tap[0]);
+//  TU_LOG1_HEX(_board_dfu_dbl_tap);
+//  TU_LOG1_HEX(_board_dfu_dbl_tap[0]);
 
   if (_board_dfu_dbl_tap[0] == DFU_DBL_RESET_MAGIC)
   {
-    TU_LOG1_LOCATION();
-
     // Double tap occurred
     _board_dfu_dbl_tap[0] = 0;
     return true;
@@ -87,8 +85,8 @@ static bool check_dfu_mode(void)
   board_rgb_write(RGB_DOUBLE_TAP);
 
   // delay a fraction of second if Reset pin is tap during this delay --> we will enter dfu
-  board_timer_start(DFU_DBL_RESET_DELAY/10);
-  while(_timer_count < 10) {}
+  board_timer_start(10);
+  while(_timer_count < DFU_DBL_RESET_DELAY/10) {}
   board_timer_stop();
 
   // Turn off indicator
@@ -109,6 +107,7 @@ int main(void)
   {
     TU_LOG1_LOCATION();
     board_app_jump();
+    while(1) {}
   }
 
   TU_LOG1_LOCATION();
@@ -213,7 +212,7 @@ void indicator_set(uint32_t state)
     break;
 
     case STATE_WRITING_STARTED:
-      board_timer_start(50);
+      board_timer_start(25);
     break;
 
     case STATE_WRITING_FINISHED:

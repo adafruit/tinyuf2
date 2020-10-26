@@ -46,7 +46,7 @@ void board_init(void)
   SystemCoreClockUpdate();
 
   // disable systick
-  SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk;
+  board_timer_stop();
 
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();

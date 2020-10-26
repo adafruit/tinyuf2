@@ -43,13 +43,12 @@ void board_init(void)
 {
   // Init clock
   BOARD_BootClockRUN();
-  SystemCoreClockUpdate();
+  //SystemCoreClockUpdate();
 
   // Enable IOCON clock
   CLOCK_EnableClock(kCLOCK_Iomuxc);
 
-  // 1ms tick timer
-  SysTick_Config(SystemCoreClock / 1000);
+  board_timer_stop();
 
 #ifdef LED_PIN
   IOMUXC_SetPinMux( LED_PINMUX, 0U);
@@ -57,7 +56,6 @@ void board_init(void)
 
   gpio_pin_config_t led_config = { kGPIO_DigitalOutput, 0, kGPIO_NoIntmode };
   GPIO_PinInit(LED_PORT, LED_PIN, &led_config);
-  board_led_write(true);
 #endif
 
 #ifdef BUTTON_PIN
@@ -135,16 +133,33 @@ void board_dfu_complete(void)
 
 bool board_app_valid(void)
 {
-  // TOOD implement later
-  return false;
+  volatile uint32_t const * app_vector = (volatile uint32_t const*) BOARD_FLASH_APP_START;
+
+  // 1st word is stack pointer (should be in SRAM region)
+
+  // 2nd word is App entry point (reset)
+  if (app_vector[1] < BOARD_FLASH_APP_START || app_vector[1] > BOARD_FLASH_APP_START + BOARD_FLASH_SIZE) {
+    return false;
+  }
+
+  return true;
 }
 
 void board_app_jump(void)
 {
-  // TOOD implement later
+  volatile uint32_t const * app_vector = (volatile uint32_t const*) BOARD_FLASH_APP_START;
+
+  // TODO protect bootloader region
+
+  // Set stack pointer
+  __set_MSP(app_vector[0]);
+
+  /* switch exception handlers to the application */
+  SCB->VTOR = (uint32_t) BOARD_FLASH_APP_START;
+
+  // Jump to Application Entry
+  asm("bx %0" ::"r"(app_vector[1]));
 }
-
-
 
 //--------------------------------------------------------------------+
 // Timer
@@ -152,24 +167,19 @@ void board_app_jump(void)
 
 void board_timer_start(uint32_t ms)
 {
-  (void) ms;
-  // TOOD implement later
+  // due to highspeed SystemCoreClock = 600 mhz, max interval of 24 bit systick is only 27 ms
+  const uint32_t tick = (SystemCoreClock/1000) * ms;
+  SysTick_Config( tick );
 }
 
 void board_timer_stop(void)
 {
-  // TOOD implement later
+  SysTick->CTRL = 0;
 }
 
-volatile uint32_t system_ticks = 0;
 void SysTick_Handler(void)
 {
-  system_ticks++;
-}
-
-uint32_t board_millis(void)
-{
-  return system_ticks;
+  board_timer_handler();
 }
 
 //--------------------------------------------------------------------+
