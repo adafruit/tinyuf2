@@ -151,11 +151,11 @@ void board_app_jump(void)
 
   // TODO protect bootloader region
 
-  // Set stack pointer
-  __set_MSP(app_vector[0]);
-
   /* switch exception handlers to the application */
   SCB->VTOR = (uint32_t) BOARD_FLASH_APP_START;
+
+  // Set stack pointer
+  __set_MSP(app_vector[0]);
 
   // Jump to Application Entry
   asm("bx %0" ::"r"(app_vector[1]));
