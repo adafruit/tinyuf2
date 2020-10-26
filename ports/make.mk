@@ -38,29 +38,33 @@ BUILD = _build/build-$(BOARD)
 
 #-------------- Source files and compiler flags --------------
 
+PORT_DIR = ports/$(PORT)
+BOARD_DIR = $(PORT_DIR)/boards/$(BOARD)
+TINYUSB_DIR = lib/tinyusb/src
+
+
 # Bootloader src, board folder and TinyUSB stack
-TINYUSB_LIB = lib/tinyusb/src
 SRC_C += \
   $(subst $(TOP)/,,$(wildcard $(TOP)/src/*.c)) \
-  $(subst $(TOP)/,,$(wildcard $(TOP)/ports/$(PORT)/boards/$(BOARD)/*.c)) \
-	$(TINYUSB_LIB)/tusb.c \
-	$(TINYUSB_LIB)/common/tusb_fifo.c \
-	$(TINYUSB_LIB)/device/usbd.c \
-	$(TINYUSB_LIB)/device/usbd_control.c \
-	$(TINYUSB_LIB)/class/cdc/cdc_device.c \
-	$(TINYUSB_LIB)/class/dfu/dfu_rt_device.c \
-	$(TINYUSB_LIB)/class/hid/hid_device.c \
-	$(TINYUSB_LIB)/class/midi/midi_device.c \
-	$(TINYUSB_LIB)/class/msc/msc_device.c \
-	$(TINYUSB_LIB)/class/net/net_device.c \
-	$(TINYUSB_LIB)/class/usbtmc/usbtmc_device.c \
-	$(TINYUSB_LIB)/class/vendor/vendor_device.c
+  $(subst $(TOP)/,,$(wildcard $(TOP)/$(BOARD_DIR)/*.c)) \
+	$(TINYUSB_DIR)/tusb.c \
+	$(TINYUSB_DIR)/common/tusb_fifo.c \
+	$(TINYUSB_DIR)/device/usbd.c \
+	$(TINYUSB_DIR)/device/usbd_control.c \
+	$(TINYUSB_DIR)/class/cdc/cdc_device.c \
+	$(TINYUSB_DIR)/class/dfu/dfu_rt_device.c \
+	$(TINYUSB_DIR)/class/hid/hid_device.c \
+	$(TINYUSB_DIR)/class/midi/midi_device.c \
+	$(TINYUSB_DIR)/class/msc/msc_device.c \
+	$(TINYUSB_DIR)/class/net/net_device.c \
+	$(TINYUSB_DIR)/class/usbtmc/usbtmc_device.c \
+	$(TINYUSB_DIR)/class/vendor/vendor_device.c
 
 INC += \
   $(TOP)/src \
-  $(TOP)/ports/$(PORT) \
-  $(TOP)/ports/$(PORT)/boards/$(BOARD) \
-  $(TOP)/$(TINYUSB_LIB)
+  $(TOP)/$(PORT_DIR) \
+  $(TOP)/$(BOARD_DIR) \
+  $(TOP)/$(TINYUSB_DIR)
 
 # Compiler Flags
 CFLAGS += \
@@ -108,4 +112,4 @@ else ifeq ($(LOGGER),swo)
 endif
 
 # Board specific define
-include $(TOP)/ports/$(PORT)/boards/$(BOARD)/board.mk
+include $(TOP)/$(BOARD_DIR)/board.mk

@@ -65,7 +65,7 @@ static bool check_dfu_mode(void)
   // invalid app
   if ( !board_app_valid() ) true;
 
-#ifdef USE_DFU_DOUBLE_TAP
+#if USE_DFU_DOUBLE_TAP
   // TU_LOG1_HEX(_board_dfu_dbl_tap);
   // TU_LOG1_HEX(_board_dfu_dbl_tap[0]);
 

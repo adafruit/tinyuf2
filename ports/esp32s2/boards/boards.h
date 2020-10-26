@@ -37,6 +37,9 @@
 // Flash Start Address of Application
 #define BOARD_FLASH_APP_START   0
 
+// Double Reset tap to enter DFU
+#define USE_DFU_DOUBLE_TAP      0
+
 #ifdef PIN_NEOPIXEL
 #define USE_RGB   1
 #endif

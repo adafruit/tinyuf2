@@ -32,9 +32,13 @@
 #include "board.h"
 
 // Family ID for updating Application
-#define BOARD_UF2_FAMILY_ID   0x4fb2d5bd
+#define BOARD_UF2_FAMILY_ID    0x4fb2d5bd
 
+// Flash Start Address of Application
+#define BOARD_FLASH_APP_START  0x6000C000
 
+// Double Reset tap to enter DFU
+#define USE_DFU_DOUBLE_TAP     1
 
 #ifdef __cplusplus
  }

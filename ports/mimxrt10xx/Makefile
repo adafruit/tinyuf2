@@ -15,6 +15,8 @@ RM = rm
 include ../make.mk
 
 MCU_DIR = lib/nxp/sdk/devices/$(MCU)
+LD_FILE ?= $(PORT_DIR)/linker/$(MCU)xxxxx_flexspi_nor.ld
+LDFLAGS += -L"$(TOP)/$(PORT_DIR)/linker"
 
 # Port Compiler Flags
 CFLAGS += \

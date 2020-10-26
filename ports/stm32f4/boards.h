@@ -38,10 +38,12 @@
 #define BOARD_UF2_FAMILY_ID     0x57755a57
 
 // Flash Start Address of Application
-#define BOARD_FLASH_APP_START  0x08010000
+#define BOARD_FLASH_APP_START   0x08010000
 
-#define USE_DFU_DOUBLE_TAP
-#define USE_RGB   NEOPIXEL_NUMBER
+// Double Reset tap to enter DFU
+#define USE_DFU_DOUBLE_TAP      1
+
+#define USE_RGB                 NEOPIXEL_NUMBER
 
 #ifdef __cplusplus
  }
