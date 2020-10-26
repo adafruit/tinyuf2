@@ -35,10 +35,6 @@
 
 #include "tusb.h"
 
-// UART
-#define UART_PORT             LPUART1
-#define UART_RX_PINMUX        IOMUXC_GPIO_AD_B0_13_LPUART1_RX
-#define UART_TX_PINMUX        IOMUXC_GPIO_AD_B0_12_LPUART1_TX
 
 // needed by fsl_flexspi_nor_boot
 const uint8_t dcd_data[] = { 0x00 };
@@ -70,8 +66,7 @@ void board_init(void)
   GPIO_PinInit(BUTTON_PORT, BUTTON_PIN, &button_config);
 #endif
 
-#if 0
-  // UART
+#ifdef UART_PORT
   IOMUXC_SetPinMux( UART_TX_PINMUX, 0U);
   IOMUXC_SetPinMux( UART_RX_PINMUX, 0U);
   IOMUXC_SetPinConfig( UART_TX_PINMUX, 0x10B0u);
@@ -79,7 +74,7 @@ void board_init(void)
 
   lpuart_config_t uart_config;
   LPUART_GetDefaultConfig(&uart_config);
-  uart_config.baudRate_Bps = CFG_BOARD_UART_BAUDRATE;
+  uart_config.baudRate_Bps = BOARD_UART_BAUDRATE;
   uart_config.enableTx = true;
   uart_config.enableRx = true;
   LPUART_Init(UART_PORT, &uart_config, (CLOCK_GetPllFreq(kCLOCK_PllUsb1) / 6U) / (CLOCK_GetDiv(kCLOCK_UartDiv) + 1U));
@@ -115,22 +110,6 @@ void board_dfu_init(void)
 //  CLOCK_EnableUsbhs1Clock(kCLOCK_Usb480M, 480000000U);
 }
 
-void board_dfu_complete(void)
-{
-  NVIC_SystemReset();
-}
-
-bool board_app_valid(void)
-{
-  // TOOD implement later
-  return false;
-}
-
-void board_app_jump(void)
-{
-  // TOOD implement later
-}
-
 uint8_t board_usb_get_serial(uint8_t serial_id[16])
 {
   OCOTP_Init(OCOTP, CLOCK_GetFreq(kCLOCK_IpgClk));
@@ -148,6 +127,24 @@ uint8_t board_usb_get_serial(uint8_t serial_id[16])
 
   return 16;
 }
+
+void board_dfu_complete(void)
+{
+  NVIC_SystemReset();
+}
+
+bool board_app_valid(void)
+{
+  // TOOD implement later
+  return false;
+}
+
+void board_app_jump(void)
+{
+  // TOOD implement later
+}
+
+
 
 //--------------------------------------------------------------------+
 // Timer
@@ -199,6 +196,19 @@ uint32_t board_button_read(void)
 }
 #endif
 
+//--------------------------------------------------------------------+
+// UART
+//--------------------------------------------------------------------+
+
+int board_uart_write(void const * buf, int len)
+{
+#ifdef UART_PORT
+  LPUART_WriteBlocking(UART_PORT, (uint8_t*)buf, len);
+  return len;
+#else
+  return 0;
+#endif
+}
 
 //--------------------------------------------------------------------+
 // USB Interrupt Handler

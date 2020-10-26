@@ -45,6 +45,9 @@
 #define USE_RGB 0
 #endif
 
+// Baudrate for UART if used
+#define BOARD_UART_BAUDRATE   115200
+
 void board_init(void);
 
 // Turn on or off the LED
@@ -52,6 +55,9 @@ void board_led_write(uint32_t state);
 
 // Write color to rgb strip
 void board_rgb_write(uint8_t const rgb[]);
+
+// Send characters to UART for debugging
+int board_uart_write(void const * buf, int len);
 
 // start timer with ms interval
 void board_timer_start(uint32_t ms);
