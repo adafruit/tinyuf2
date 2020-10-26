@@ -64,7 +64,8 @@ void board_init(void)
   GPIO_PinInit(BUTTON_PORT, BUTTON_PIN, &button_config);
 #endif
 
-#ifdef UART_PORT
+#if defined(UART_DEV) && CFG_TUSB_DEBUG
+  // Enable UART when debug log is on
   IOMUXC_SetPinMux( UART_TX_PINMUX, 0U);
   IOMUXC_SetPinMux( UART_RX_PINMUX, 0U);
   IOMUXC_SetPinConfig( UART_TX_PINMUX, 0x10B0u);
@@ -75,7 +76,7 @@ void board_init(void)
   uart_config.baudRate_Bps = BOARD_UART_BAUDRATE;
   uart_config.enableTx = true;
   uart_config.enableRx = true;
-  LPUART_Init(UART_PORT, &uart_config, (CLOCK_GetPllFreq(kCLOCK_PllUsb1) / 6U) / (CLOCK_GetDiv(kCLOCK_UartDiv) + 1U));
+  LPUART_Init(UART_DEV, &uart_config, (CLOCK_GetPllFreq(kCLOCK_PllUsb1) / 6U) / (CLOCK_GetDiv(kCLOCK_UartDiv) + 1U));
 #endif
 }
 
@@ -212,10 +213,11 @@ uint32_t board_button_read(void)
 
 int board_uart_write(void const * buf, int len)
 {
-#ifdef UART_PORT
-  LPUART_WriteBlocking(UART_PORT, (uint8_t*)buf, len);
+#if defined(UART_DEV) && CFG_TUSB_DEBUG
+  LPUART_WriteBlocking(UART_DEV, (uint8_t*)buf, len);
   return len;
 #else
+  (void) buf; (void) len;
   return 0;
 #endif
 }
@@ -244,17 +246,3 @@ void USB_OTG2_IRQHandler(void)
     tud_int_handler(1);
   #endif
 }
-
-#if 0
-int board_uart_read(uint8_t* buf, int len)
-{
-  LPUART_ReadBlocking(UART_PORT, buf, len);
-  return len;
-}
-
-int board_uart_write(void const * buf, int len)
-{
-  LPUART_WriteBlocking(UART_PORT, (uint8_t*)buf, len);
-  return len;
-}
-#endif

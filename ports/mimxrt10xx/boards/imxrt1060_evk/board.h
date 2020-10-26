@@ -58,14 +58,6 @@
 #define BUTTON_STATE_ACTIVE   0
 
 //--------------------------------------------------------------------+
-// UART
-//--------------------------------------------------------------------+
-
-#define UART_PORT             LPUART1
-#define UART_RX_PINMUX        IOMUXC_GPIO_AD_B0_13_LPUART1_RX
-#define UART_TX_PINMUX        IOMUXC_GPIO_AD_B0_12_LPUART1_TX
-
-//--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
 
@@ -78,5 +70,13 @@
 #define UF2_BOARD_ID      "MIMXRT1060-EVK-revA"
 #define UF2_VOLUME_LABEL  "RT1060BOOT"
 #define UF2_INDEX_URL     "https://www.nxp.com/part/MIMXRT1060-EVK#/"
+
+//--------------------------------------------------------------------+
+// UART
+//--------------------------------------------------------------------+
+
+#define UART_DEV              LPUART1
+#define UART_RX_PINMUX        IOMUXC_GPIO_AD_B0_13_LPUART1_RX
+#define UART_TX_PINMUX        IOMUXC_GPIO_AD_B0_12_LPUART1_TX
 
 #endif /* BOARD_H_ */

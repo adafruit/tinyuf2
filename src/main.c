@@ -62,8 +62,8 @@ void indicator_set(uint32_t state);
 // return true if start DFU mode, else App mode
 static bool check_dfu_mode(void)
 {
-  // invalid app
-  if ( !board_app_valid() ) true;
+  // Check if app is valid
+  if ( !board_app_valid() ) return true;
 
 #if USE_DFU_DOUBLE_TAP
 //  TU_LOG1_HEX(_board_dfu_dbl_tap);
@@ -105,12 +105,9 @@ int main(void)
   // if not DFU mode, jump to App
   if ( !check_dfu_mode() )
   {
-    TU_LOG1_LOCATION();
     board_app_jump();
     while(1) {}
   }
-
-  TU_LOG1_LOCATION();
 
   board_dfu_init();
   tusb_init();
@@ -251,6 +248,9 @@ void board_timer_handler(void)
 // Logger newlib retarget
 //--------------------------------------------------------------------+
 
+// Enable only with LOG is enabled (Note: ESP32-S2 has built-in support already)
+#if CFG_TUSB_DEBUG && (CFG_TUSB_MCU != OPT_MCU_ESP32S2)
+
 #if defined(LOGGER_RTT)
 #include "SEGGER_RTT.h"
 #endif
@@ -266,3 +266,5 @@ TU_ATTR_USED int _write (int fhdl, const void *buf, size_t count)
   return board_uart_write(buf, count);
 #endif
 }
+
+#endif

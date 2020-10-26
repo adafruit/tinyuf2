@@ -71,5 +71,14 @@
 #define UF2_VOLUME_LABEL  "FTHR405BOOT"
 #define UF2_INDEX_URL     "https://www.adafruit.com/product/4382"
 
+//--------------------------------------------------------------------+
+// UART
+//--------------------------------------------------------------------+
 
+#define UART_DEV              USART3
+#define UART_CLOCK_ENABLE     __HAL_RCC_USART3_CLK_ENABLE
+#define UART_GPIO_PORT        GPIOB
+#define UART_GPIO_AF          GPIO_AF7_USART3
+#define UART_TX_PIN           GPIO_PIN_10
+#define UART_RX_PIN           GPIO_PIN_11
 #endif

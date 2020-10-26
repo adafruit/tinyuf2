@@ -31,12 +31,6 @@
 
 #define STM32_UUID ((uint32_t *)0x1FFF7A10)
 
-#define UARTx                 USART3
-#define UART_GPIO_PORT        GPIOB
-#define UART_GPIO_AF          GPIO_AF7_USART3
-#define UART_TX_PIN           GPIO_PIN_10
-#define UART_RX_PIN           GPIO_PIN_11
-
 UART_HandleTypeDef UartHandle;
 static void SystemClock_Config(void);
 
@@ -79,15 +73,9 @@ void board_init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FAST;
   HAL_GPIO_Init(NEOPIXEL_PORT, &GPIO_InitStruct);
 #endif
-}
 
-void board_dfu_init(void)
-{
-  GPIO_InitTypeDef  GPIO_InitStruct;
-
-#if 0
-  // Uart
-  __HAL_RCC_USART3_CLK_ENABLE();
+#if defined(UART_DEV) && CFG_TUSB_DEBUG
+  UART_CLOCK_ENABLE();
 
   GPIO_InitStruct.Pin       = UART_TX_PIN | UART_RX_PIN;
   GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
@@ -96,6 +84,11 @@ void board_dfu_init(void)
   GPIO_InitStruct.Alternate = UART_GPIO_AF;
   HAL_GPIO_Init(UART_GPIO_PORT, &GPIO_InitStruct);
 #endif
+}
+
+void board_dfu_init(void)
+{
+  GPIO_InitTypeDef  GPIO_InitStruct;
 
   // USB Pin Init
   // PA9- VUSB, PA10- ID, PA11- DM, PA12- DP
@@ -259,6 +252,19 @@ void board_timer_stop(void)
 void SysTick_Handler (void)
 {
   board_timer_handler();
+}
+
+
+int board_uart_write(void const * buf, int len)
+{
+#if defined(UART_DEV) && CFG_TUSB_DEBUG
+  HAL_UART_Transmit(&UartHandle, (uint8_t*) buf, len, 0xffff);
+  return len;
+#else
+  (void) buf; (void) len;
+  (void) UartHandle;
+  return 0;
+#endif
 }
 
 
