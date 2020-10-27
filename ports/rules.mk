@@ -110,14 +110,26 @@ endif
 JLINK_IF ?= swd
 
 # Flash using jlink
-flash-jlink: $(BUILD)/$(BOARD)-firmware.hex
-	@echo halt > $(BUILD)/$(BOARD).jlink
-	@echo r > $(BUILD)/$(BOARD).jlink
-	@echo loadfile $^ >> $(BUILD)/$(BOARD).jlink
-	@echo r >> $(BUILD)/$(BOARD).jlink
-	@echo go >> $(BUILD)/$(BOARD).jlink
-	@echo exit >> $(BUILD)/$(BOARD).jlink
-	$(JLINKEXE) -device $(JLINK_DEVICE) -if $(JLINK_IF) -JTAGConf -1,-1 -speed auto -CommandFile $(BUILD)/$(BOARD).jlink
+$(BUILD)/$(BOARD).jlink: $(BUILD)/$(BOARD)-firmware.hex
+	@echo halt > $@
+	@echo r >> $@
+	@echo loadfile $< >> $@
+	@echo r >> $@
+	@echo go >> $@
+	@echo exit >> $@
+
+flash-jlink: $(BUILD)/$(BOARD).jlink
+	$(JLINKEXE) -device $(JLINK_DEVICE) -if $(JLINK_IF) -JTAGConf -1,-1 -speed auto -CommandFile $<
+
+# Erase with jlink
+$(BUILD)/$(BOARD)-erase.jlink:
+	@echo halt > $@
+	@echo r >> $@
+	@echo erase >> $@
+	@echo exit >> $@
+
+erase-jlink: $(BUILD)/$(BOARD)-erase.jlink
+	$(JLINKEXE) -device $(JLINK_DEVICE) -if $(JLINK_IF) -JTAGConf -1,-1 -speed auto -CommandFile $<
 
 # flash STM32 MCU using stlink with STM32 Cube Programmer CLI
 flash-stlink: $(BUILD)/$(BOARD)-firmware.elf
