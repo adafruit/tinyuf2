@@ -29,6 +29,7 @@
  extern "C" {
 #endif
 
+#include "fsl_device_registers.h"
 #include "board.h"
 
 // Family ID for updating Application

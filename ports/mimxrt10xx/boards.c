@@ -25,7 +25,6 @@
 
 #include "board_api.h"
 
-#include "fsl_device_registers.h"
 #include "fsl_gpio.h"
 #include "fsl_iomuxc.h"
 #include "fsl_clock.h"
