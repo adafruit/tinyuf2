@@ -86,23 +86,9 @@ static struct {
 	{0x1b, 128 * 1024},
 };
 
-void flash_program_word(uint32_t address, uint32_t data)
-{
-  HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, address, (uint64_t) data);
-}
+static uint8_t erasedSectors[BOARD_FLASH_SECTORS];
 
-uint32_t
-flash_func_read_word(uint32_t address)
-{
-	if (address & 3) {
-		return 0;
-	}
-
-	return *(uint32_t *)(address + APP_LOAD_ADDRESS);
-}
-
-uint32_t
-flash_func_sector_size(unsigned sector)
+uint32_t flash_func_sector_size(unsigned sector)
 {
 	if (sector < BOARD_FLASH_SECTORS) {
 		return flash_sectors[sector].size;
@@ -110,8 +96,6 @@ flash_func_sector_size(unsigned sector)
 
 	return 0;
 }
-
-static uint8_t erasedSectors[BOARD_FLASH_SECTORS];
 
 static bool is_blank(uint32_t addr, uint32_t size) {
 		for (uint32_t i = 0; i < size; i += sizeof(uint32_t)) {
@@ -188,4 +172,3 @@ void board_flash_write (uint32_t addr, void const *data, uint32_t len)
   // TODO skip matching contents
   flash_write(addr, data, len);
 }
-

@@ -45,6 +45,10 @@
 
 #define USE_RGB                 NEOPIXEL_NUMBER
 
+#ifdef LED_PIN
+#define USE_LED 1
+#endif
+
 #ifdef __cplusplus
  }
 #endif

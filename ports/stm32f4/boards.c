@@ -200,10 +200,10 @@ void board_rgb_write(uint8_t const rgb[])
   //assumes 800_000Hz frequency
   //Theoretical values here are 800_000 -> 1.25us, 2500000->0.4us, 1250000->0.8us
   //TODO: try to get dynamic weighting working again
-  uint32_t sys_freq = HAL_RCC_GetSysClockFreq();
-  uint32_t interval = sys_freq/MAGIC_800_INT;
-  uint32_t t0 = (sys_freq/MAGIC_800_T0H);
-  uint32_t t1 = (sys_freq/MAGIC_800_T1H);
+  uint32_t const sys_freq = HAL_RCC_GetSysClockFreq();
+  uint32_t const interval = sys_freq/MAGIC_800_INT;
+  uint32_t const t0       = sys_freq/MAGIC_800_T0H;
+  uint32_t const t1       = sys_freq/MAGIC_800_T1H;
 
   __disable_irq();
 
@@ -229,7 +229,6 @@ void board_rgb_write(uint8_t const rgb[])
     }
   }
 
-  // Enable interrupts again
   __enable_irq();
 #endif
 }

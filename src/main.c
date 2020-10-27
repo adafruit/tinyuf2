@@ -35,7 +35,7 @@
 //--------------------------------------------------------------------+
 // MACRO CONSTANT TYPEDEF PROTYPES
 //--------------------------------------------------------------------+
-#define USE_DFU_BUTTON
+//#define USE_DFU_BUTTON    1
 
 #define DFU_DBL_RESET_MAGIC      0x5A1AD5      // SALADS
 #define DFU_DBL_RESET_DELAY      500
@@ -53,11 +53,7 @@ uint8_t const RGB_OFF[]           = { 0x00, 0x00, 0x00 };
 
 // defined by linker script
 extern uint32_t _board_dfu_dbl_tap[];
-
 static volatile uint32_t _timer_count = 0;
-
-
-void indicator_set(uint32_t state);
 
 // return true if start DFU mode, else App mode
 static bool check_dfu_mode(void)
@@ -146,19 +142,6 @@ void tud_umount_cb(void)
   indicator_set(STATE_USB_UNMOUNTED);
 }
 
-// Invoked when usb bus is suspended
-// remote_wakeup_en : if host allow us  to perform remote wakeup
-// Within 7ms, device must draw an average of current less than 2.5 mA from bus
-void tud_suspend_cb(bool remote_wakeup_en)
-{
-  (void) remote_wakeup_en;
-}
-
-// Invoked when usb bus is resumed
-void tud_resume_cb(void)
-{
-}
-
 //--------------------------------------------------------------------+
 // USB HID
 //--------------------------------------------------------------------+
@@ -223,23 +206,19 @@ void indicator_set(uint32_t state)
   }
 }
 
-
 void board_timer_handler(void)
 {
   _timer_count++;
 
   if ( _indicator_state == STATE_WRITING_STARTED )
   {
-#if CFG_TUSB_MCU == OPT_MCU_ESP32S2
-    if ( _timer_count & 0x01 )
-    {
-      board_rgb_write(RGB_WRITING);
-    }else
-    {
-      board_rgb_write(RGB_OFF);
-    }
-#else
+#if USE_LED
+    // fast blink LED if available
     board_led_write(_timer_count & 0x01);
+
+#elif USE_RGB
+    // blink RGB if available
+    board_rgb_write( (_timer_count & 0x01) ? RGB_WRITING : RGB_OFF);
 #endif
   }
 }

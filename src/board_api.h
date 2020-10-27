@@ -39,7 +39,12 @@
 #define BOARD_FLASH_APP_START  0
 #endif
 
-// Use RGB for indicator e.g neopixel, dotstar
+// USE LED for part of indicator
+#ifndef USE_LED
+#define USE_LED 0
+#endif
+
+// Use RGB for part of indicator e.g neopixel, dotstar
 // 0 for not available, otherwise number of RGBs
 #ifndef USE_RGB
 #define USE_RGB 0
