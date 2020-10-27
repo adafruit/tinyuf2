@@ -139,3 +139,6 @@ flash-stlink: $(BUILD)/$(BOARD)-firmware.elf
 flash-pyocd: $(BUILD)/$(BOARD)-firmware.hex
 	pyocd flash -t $(PYOCD_TARGET) $<
 	pyocd reset -t $(PYOCD_TARGET)
+
+erase-pyocd:
+	pyocd flash -t $(PYOCD_TARGET) -a chip

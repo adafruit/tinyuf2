@@ -40,6 +40,10 @@
 // Double Reset tap to enter DFU
 #define USE_DFU_DOUBLE_TAP     1
 
+#ifdef LED_PIN
+#define USE_LED 1
+#endif
+
 #ifdef __cplusplus
  }
 #endif
