@@ -9,3 +9,4 @@ PYOCD_TARGET = mimxrt1020
 
 # flash using pyocd
 flash: flash-pyocd
+erase: erase-pyocd
