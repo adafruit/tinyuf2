@@ -31,6 +31,7 @@ _board_dfu_dbl_tap = ORIGIN(m_data) + LENGTH(m_data);
 /* Define output sections */
 SECTIONS
 {
+  /* from 1011 linker */
   __NCACHE_REGION_START = ORIGIN(m_data2);
   __NCACHE_REGION_SIZE  = 0;
 
@@ -47,9 +48,9 @@ SECTIONS
   .ivt : AT(ivt_begin)
   {
     . = ALIGN(4);
-	KEEP(* (.boot_hdr.ivt))           /* ivt section */
-	KEEP(* (.boot_hdr.boot_data))     /* boot section */
-	KEEP(* (.boot_hdr.dcd_data))      /* dcd section */
+	  KEEP(* (.boot_hdr.ivt))           /* ivt section */
+	  KEEP(* (.boot_hdr.boot_data))     /* boot section */
+	  KEEP(* (.boot_hdr.dcd_data))      /* dcd section */
     . = ALIGN(4);
   } > m_ivt
 
@@ -69,8 +70,10 @@ SECTIONS
   .text :
   {
     . = ALIGN(4);
-    *(.text)                 /* .text sections (code) */
-    *(.text*)                /* .text* sections (code) */
+
+    /* all text section except flexspi files */
+    *(EXCLUDE_FILE(*fsl_flexspi.o *flexspi_nor_flash_ops.o) .text*)
+
     *(.rodata)               /* .rodata sections (constants, strings, etc.) */
     *(.rodata*)              /* .rodata* sections (constants, strings, etc.) */
     *(.glue_7)               /* glue arm to thumb code */
@@ -162,6 +165,8 @@ SECTIONS
     *(m_usb_dma_init_data)
     *(.data)                 /* .data sections */
     *(.data*)                /* .data* sections */
+    *fsl_flexspi.o(.text*)
+    *flexspi_nor_flash_ops.o(.text*)
     KEEP(*(.jcr*))
     . = ALIGN(4);
     __data_end__ = .;        /* define a global symbol at data end */
