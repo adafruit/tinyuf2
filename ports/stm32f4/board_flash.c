@@ -100,7 +100,6 @@ uint32_t flash_func_sector_size(unsigned sector)
 static bool is_blank(uint32_t addr, uint32_t size) {
 		for (uint32_t i = 0; i < size; i += sizeof(uint32_t)) {
 			if (*(uint32_t*)(addr + i) != 0xffffffff) {
-				//TU_LOG1("non blank: %08lX i=%lu/%lu\n", addr, i, size);
 				return false;
 			}
 		}
@@ -115,33 +114,48 @@ void flash_write(uint32_t dst, const uint8_t *src, int len)
 	int erased = false;
 	uint32_t size = 0;
 
-	for (unsigned i = 0; i < BOARD_FLASH_SECTORS; i++) {
-		size = flash_func_sector_size(i);
-		if (addr + size > dst) {
-			sector = flash_sectors[i].sector_number;
-			erased = erasedSectors[i];
-			erasedSectors[i] = 1; // don't erase anymore - we will continue writing here!
-			break;
-		}
-		addr += size;
-	}
+  for ( unsigned i = 0; i < BOARD_FLASH_SECTORS; i++ )
+  {
+    size = flash_func_sector_size(i);
+    if ( addr + size > dst )
+    {
+      sector = flash_sectors[i].sector_number;
+      erased = erasedSectors[i];
+      erasedSectors[i] = 1;    // don't erase anymore - we will continue writing here!
+      break;
+    }
+    addr += size;
+  }
 
-	if (sector == 0) TU_LOG1("invalid sector");
+	if (sector == 0)
+	{
+	  TU_LOG1("invalid sector");
+	}
 
 	HAL_FLASH_Unlock();
 
-	if (!erased && !is_blank(addr, size)) {
+	if (!erased && !is_blank(addr, size))
+	{
 	  TU_LOG1("Erase: %08lX size = %lu\n", addr, size);
+
 		FLASH_Erase_Sector(sector, FLASH_VOLTAGE_RANGE_3);
 		FLASH_WaitForLastOperation(HAL_MAX_DELAY);
-		if (!is_blank(addr, size)) TU_LOG1("failed to erase!");
+
+		if (!is_blank(addr, size))
+		{
+		  TU_LOG1("failed to erase!");
+		}
 	}
 
-	for (int i = 0; i < len; i += 4) {
+	for (int i = 0; i < len; i += 4)
+	{
 	  HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, dst + i, (uint64_t) (*(uint32_t*)(src + i)) );
 	}
 
-	if (memcmp((void*)dst, src, len) != 0) TU_LOG1("failed to write");
+	if (memcmp((void*)dst, src, len) != 0)
+	{
+	  TU_LOG1("failed to write");
+	}
 }
 
 //--------------------------------------------------------------------+
