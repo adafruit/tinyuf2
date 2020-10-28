@@ -147,7 +147,15 @@ bool board_app_valid(void)
 
 void board_app_jump(void)
 {
-  volatile uint32_t const * app_vector = (volatile uint32_t const*) BOARD_FLASH_APP_START;
+  // Create the function call to the user application.
+  // Static variables are needed since changed the stack pointer out from under the compiler
+  // we need to ensure the values we are using are not stored on the previous stack
+  static uint32_t stack_pointer;
+  static uint32_t app_entry;
+
+  uint32_t const * app_vector = (uint32_t const*) BOARD_FLASH_APP_START;
+  stack_pointer = app_vector[0];
+  app_entry = app_vector[1];
 
   // TODO protect bootloader region
 
@@ -155,10 +163,11 @@ void board_app_jump(void)
   SCB->VTOR = (uint32_t) BOARD_FLASH_APP_START;
 
   // Set stack pointer
-  __set_MSP(app_vector[0]);
+  __set_MSP(stack_pointer);
+  __set_PSP(stack_pointer);
 
   // Jump to Application Entry
-  asm("bx %0" ::"r"(app_vector[1]));
+  asm("bx %0" ::"r"(app_entry));
 }
 
 //--------------------------------------------------------------------+

@@ -187,7 +187,7 @@ AT_QUICKACCESS_SECTION_CODE(status_t FLEXSPI_CheckAndClearErrorRamfunc(FLEXSPI_T
         }
 
         /* Clear the flags. */
-	base->INTR = status;
+        base->INTR = status;
         //FLEXSPI_ClearInterruptStatusFlags(base, status);
 
         /* Reset fifos. These flags clear automatically. */

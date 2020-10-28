@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef __EVKMIMXRT1060_FLEXSPI_NOR_CONFIG__
-#define __EVKMIMXRT1060_FLEXSPI_NOR_CONFIG__
+#ifndef __FLEXSPI_NOR_CONFIG__
+#define __FLEXSPI_NOR_CONFIG__
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -84,9 +84,18 @@ typedef enum _FlexSpiSerialClockFreq
     kFlexSpiSerialClk_75MHz  = 4,
     kFlexSpiSerialClk_80MHz  = 5,
     kFlexSpiSerialClk_100MHz = 6,
+
+#if defined(MIMXRT1011_SERIES) || defined(MIMXRT1064_SERIES) || defined(MIMXRT1062_SERIES)
     kFlexSpiSerialClk_120MHz = 7,
     kFlexSpiSerialClk_133MHz = 8,
     kFlexSpiSerialClk_166MHz = 9,
+#elif defined(MIMXRT1015_SERIES) || defined(MIMXRT1021_SERIES) || defined(MIMXRT1052_SERIES)
+    kFlexSpiSerialClk_133MHz = 7,
+    kFlexSpiSerialClk_166MHz = 8,
+    kFlexSpiSerialClk_200MHz = 9,
+#else
+  #error This series is not supported
+#endif
 } flexspi_serial_clk_freq_t;
 
 //!@brief FlexSPI clock configuration type
@@ -265,4 +274,4 @@ extern "C" {
 #ifdef __cplusplus
 }
 #endif
-#endif /* __EVKMIMXRT1060_FLEXSPI_NOR_CONFIG__ */
+#endif /* __FLEXSPI_NOR_CONFIG__ */

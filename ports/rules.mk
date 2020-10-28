@@ -141,4 +141,4 @@ flash-pyocd: $(BUILD)/$(BOARD)-firmware.hex
 	pyocd reset -t $(PYOCD_TARGET)
 
 erase-pyocd:
-	pyocd flash -t $(PYOCD_TARGET) -a chip
+	pyocd erase -t $(PYOCD_TARGET) -c

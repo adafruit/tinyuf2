@@ -106,10 +106,10 @@ int main(void)
   }
 
   board_dfu_init();
-  tusb_init();
-
   board_flash_init();
   uf2_init();
+
+  tusb_init();
 
   indicator_set(STATE_BOOTLOADER_STARTED);
 

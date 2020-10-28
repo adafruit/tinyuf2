@@ -327,7 +327,7 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
       // generate the UF2 file data on-the-fly
       sectionIdx -= NUM_FILES - 1;
       uint32_t addr = BOARD_FLASH_APP_START + (sectionIdx * UF2_FIRMWARE_BYTES_PER_SECTOR);
-      if ( addr < CFG_UF2_FLASH_SIZE )
+      if ( addr < CFG_UF2_FLASH_SIZE ) // TODO abstract this out
       {
         UF2_Block *bl = (void*) data;
         bl->magicStart0 = UF2_MAGIC_START0;

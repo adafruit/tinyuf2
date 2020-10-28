@@ -37,8 +37,7 @@ CFLAGS += -Wno-error=unused-parameter
 SRC_C += \
 	$(addprefix $(CURRENT_PATH)/, $(wildcard *.c)) \
 	lib/tinyusb/src/portable/nxp/transdimension/dcd_transdimension.c \
-  $(MCU_DIR)/system_$(MCU).c \
-	$(MCU_DIR)/xip/fsl_flexspi_nor_boot.c \
+	$(MCU_DIR)/system_$(MCU).c \
 	$(MCU_DIR)/project_template/clock_config.c \
 	$(MCU_DIR)/drivers/fsl_clock.c \
 	$(MCU_DIR)/drivers/fsl_gpio.c \
@@ -55,6 +54,7 @@ INC += \
 	$(TOP)/$(MCU_DIR)/../../CMSIS/Include \
 	$(TOP)/$(MCU_DIR) \
 	$(TOP)/$(MCU_DIR)/drivers \
+	$(TOP)/$(MCU_DIR)/xip \
 	$(TOP)/$(MCU_DIR)/project_template
 
 include ../rules.mk

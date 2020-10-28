@@ -29,6 +29,10 @@
  extern "C" {
 #endif
 
+#define SEQUENCE(first, second, third, fourth) first, second, third, fourth
+#define TWO_EMPTY_STEPS 0x00000000
+#define EMPTY_SEQUENCE SEQUENCE(TWO_EMPTY_STEPS, TWO_EMPTY_STEPS, TWO_EMPTY_STEPS, TWO_EMPTY_STEPS)
+
 #include "fsl_device_registers.h"
 #include "board.h"
 
@@ -36,7 +40,7 @@
 #define BOARD_UF2_FAMILY_ID    0x4fb2d5bd
 
 // Flash Start Address of Application
-#define BOARD_FLASH_APP_START  0x6000C000
+#define BOARD_FLASH_APP_START  0x6000C000 // FlexSPI_AMBA_BASE + 0xC000
 
 // Double Reset tap to enter DFU
 #define USE_DFU_DOUBLE_TAP     1
