@@ -5,6 +5,7 @@ The project is composed of customizing the 2nd stage bootloader from IDF and UF2
 - [Espressif Kaluga 1](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-esp32-s2-kaluga-1-kit.html)
 - [Espressif Saola 1R (WROVER) and 1M (WROOM)](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-saola-1-v1.2.html)
 - [microDev microS2](https://circuitpython.org/board/microdev_micro_s2)
+- [Unexpedted Maker FeatherS2](https://circuitpython.org/board/unexpectedmaker_feathers2/)
 
 ## Usage
 
@@ -13,7 +14,7 @@ There are a few ways to enter UF2 mode:
 - There is no `ota application` and/or `ota_data` partition is corrupted
 - `PIN_BUTTON_UF2` is gnd when 2nd stage bootloader indicator is on e.g **RGB led = Purple**. Note: since most ESP32S2 board implement `GPIO0` as button for 1st stage ROM bootloader, it can be used for dual-purpose button here as well. The difference is the pressing order:
   - Holding `GPIO0` then reset -> ROM bootloader
-  - Press reset, see indicator on (purple RGB) then press `GPIO0` -> UF2 bootloader
+  - Press reset, see indicator on (purple RGB) then press `GPIO0` or the boot button -> UF2 bootloader (required on the UM FeatherS2)
 - `PIN_DOUBLE_RESET_RC` GPIO is attached to an 100K resistor and 1uF Capacitor to serve as 1-bit memory, which hold the pin value long enough for double reset detection. Simply press double reset to enter UF2
 - Request by application using [system reset reason](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/system.html?highlight=esp_reset_reason#reset-reason) with hint of `0x11F2`. Reset reason hint is different than hardware reset source, it is written to RTC's store6 register and hold value through a software reset. Since Espressif only uses an dozen of value in `esp_reset_reason_t`, it is safe to hijack and use *0x11F2* as reset reason to enter UF2 using following snippet.
   ```
