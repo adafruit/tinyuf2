@@ -13,3 +13,6 @@ JLINK_DEVICE = stm32f405rg
 
 flash: flash-jlink
 erase: erase-jlink
+
+#flash: flash-stlink
+#erase: erase-stlink

@@ -100,7 +100,7 @@ clean:
 print-%:
 	@echo $* = $($*)
 
-# Flash binary using Jlink
+#-------------------- Flash with Jlink --------------------
 ifeq ($(OS),Windows_NT)
   JLINKEXE = JLink.exe
 else
@@ -109,7 +109,6 @@ endif
 
 JLINK_IF ?= swd
 
-# Flash using jlink
 $(BUILD)/$(BOARD).jlink: $(BUILD)/$(BOARD)-firmware.hex
 	@echo halt > $@
 	@echo r >> $@
@@ -118,6 +117,7 @@ $(BUILD)/$(BOARD).jlink: $(BUILD)/$(BOARD)-firmware.hex
 	@echo go >> $@
 	@echo exit >> $@
 
+# Flash using jlink
 flash-jlink: $(BUILD)/$(BOARD).jlink
 	$(JLINKEXE) -device $(JLINK_DEVICE) -if $(JLINK_IF) -JTAGConf -1,-1 -speed auto -CommandFile $<
 
@@ -131,11 +131,16 @@ $(BUILD)/$(BOARD)-erase.jlink:
 erase-jlink: $(BUILD)/$(BOARD)-erase.jlink
 	$(JLINKEXE) -device $(JLINK_DEVICE) -if $(JLINK_IF) -JTAGConf -1,-1 -speed auto -CommandFile $<
 
-# flash STM32 MCU using stlink with STM32 Cube Programmer CLI
+#-------------------- Flash with STLink --------------------
+
+# STM32_Programmer_CLI must be in PATH
 flash-stlink: $(BUILD)/$(BOARD)-firmware.elf
 	STM32_Programmer_CLI --connect port=swd --write $< --go
 
-# flash with pyocd
+erase-stlink:
+	STM32_Programmer_CLI --connect port=swd --erase all
+
+#-------------------- Flash with pyocd --------------------
 flash-pyocd: $(BUILD)/$(BOARD)-firmware.hex
 	pyocd flash -t $(PYOCD_TARGET) $<
 	pyocd reset -t $(PYOCD_TARGET)
