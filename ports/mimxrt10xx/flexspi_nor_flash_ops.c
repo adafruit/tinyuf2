@@ -49,22 +49,6 @@
  * Prototypes
  ******************************************************************************/
 
-static inline void flexspi_clock_init(void)
-{
-#if defined(XIP_EXTERNAL_FLASH) && (XIP_EXTERNAL_FLASH == 1)
-    /* Switch to PLL2 for XIP to avoid hardfault during re-initialize clock. */
-    CLOCK_InitSysPfd(kCLOCK_Pfd2, 24);    /* Set PLL2 PFD2 clock 396MHZ. */
-    CLOCK_SetMux(kCLOCK_FlexspiMux, 0x2); /* Choose PLL2 PFD2 clock as flexspi source clock. */
-    CLOCK_SetDiv(kCLOCK_FlexspiDiv, 2);   /* flexspi clock 133M. */
-#else
-    const clock_usb_pll_config_t g_ccmConfigUsbPll = {.loopDivider = 0U};
-
-    CLOCK_InitUsb1Pll(&g_ccmConfigUsbPll);
-    CLOCK_InitUsb1Pfd(kCLOCK_Pfd0, 24);   /* Set PLL3 PFD0 clock 360MHZ. */
-    CLOCK_SetMux(kCLOCK_FlexspiMux, 0x3); /* Choose PLL3 PFD0 clock as flexspi source clock. */
-    CLOCK_SetDiv(kCLOCK_FlexspiDiv, 2);   /* flexspi clock 120M. */
-#endif
-}
 
 /*******************************************************************************
  * Variables
@@ -148,10 +132,12 @@ AT_QUICKACCESS_SECTION_CODE(void AHBPrefetchEnable(FLEXSPI_Type *base))
 {
   base->AHBCR |= 0x20;
 }
+
 AT_QUICKACCESS_SECTION_CODE(void AHBPrefetchDisable(FLEXSPI_Type *base))
 {
   base->AHBCR &= ~0x20;
 }
+
 AT_QUICKACCESS_SECTION_CODE(void FLEXSPI_SoftwareResetRamfunc(FLEXSPI_Type *base))
 {
     base->MCR0 |= FLEXSPI_MCR0_SWRESET_MASK;
@@ -159,6 +145,7 @@ AT_QUICKACCESS_SECTION_CODE(void FLEXSPI_SoftwareResetRamfunc(FLEXSPI_Type *base
     {
     }
 }
+
 AT_QUICKACCESS_SECTION_CODE(status_t FLEXSPI_CheckAndClearErrorRamfunc(FLEXSPI_Type *base, uint32_t status))
 {
     status_t result = kStatus_Success;
@@ -197,6 +184,7 @@ AT_QUICKACCESS_SECTION_CODE(status_t FLEXSPI_CheckAndClearErrorRamfunc(FLEXSPI_T
 
     return result;
 }
+
 AT_QUICKACCESS_SECTION_CODE(status_t FLEXSPI_WriteBlockingRamfunc(FLEXSPI_Type *base, uint32_t *buffer, size_t size))
 {
     uint8_t txWatermark = ((base->IPTXFCR & FLEXSPI_IPTXFCR_TXWMRK_MASK) >> FLEXSPI_IPTXFCR_TXWMRK_SHIFT) + 1;
@@ -325,6 +313,7 @@ AT_QUICKACCESS_SECTION_CODE(status_t FLEXSPI_ReadBlockingRamfunc(FLEXSPI_Type *b
 
     return result;
 }
+
 AT_QUICKACCESS_SECTION_CODE(status_t FLEXSPI_TransferBlockingRamfunc(FLEXSPI_Type *base, flexspi_transfer_t *xfer))
 {
     uint32_t configValue = 0;
@@ -675,7 +664,6 @@ AT_QUICKACCESS_SECTION_CODE(status_t flexspi_nor_flash_page_program_byte(FLEXSPI
     return result;
 }
 
-
 AT_QUICKACCESS_SECTION_CODE(status_t flexspi_nor_flash_page_program(FLEXSPI_Type *base, uint32_t dstAddr, uint32_t *src, uint32_t size))
 {
     status_t status;
@@ -744,6 +732,7 @@ AT_QUICKACCESS_SECTION_CODE(status_t flexspi_nor_flash_read(FLEXSPI_Type *base, 
     AHBPrefetchEnable(FLEXSPI);
     return status;
 }
+
 status_t flexspi_nor_get_vendor_id(FLEXSPI_Type *base, uint8_t *vendorId)
 {
     uint32_t temp;

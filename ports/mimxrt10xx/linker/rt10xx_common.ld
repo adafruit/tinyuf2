@@ -72,7 +72,7 @@ SECTIONS
     . = ALIGN(4);
 
     /* all text section except flexspi files */
-    *(EXCLUDE_FILE(*fsl_flexspi.o *flexspi_nor_flash_ops.o) .text*)
+    *(EXCLUDE_FILE(*flexspi_nor_flash_ops.o) .text*)
 
     *(.rodata)               /* .rodata sections (constants, strings, etc.) */
     *(.rodata*)              /* .rodata* sections (constants, strings, etc.) */
@@ -165,7 +165,6 @@ SECTIONS
     *(m_usb_dma_init_data)
     *(.data)                 /* .data sections */
     *(.data*)                /* .data* sections */
-    *fsl_flexspi.o(.text*)
     *flexspi_nor_flash_ops.o(.text*)
     KEEP(*(.jcr*))
     . = ALIGN(4);
