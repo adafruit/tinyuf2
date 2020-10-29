@@ -1,6 +1,19 @@
 # UF2 Bootloader
 
+[![Build Status](https://github.com/adafruit/uf2-esp32s/workflows/Build/badge.svg)](https://github.com/adafruit/uf2-esp32s/actions)[![License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
+
 This repo is cross-platform UF2 Bootloader projects for MCUs based on [TinyUSB](https://github.com/hathach/tinyusb)
+
+```
+.
+├── lib               # Sources from 3rd party such as tinyusb, mcu drivers ...
+├── ports             # Port/family specific sources
+│   ├── esp32s2       
+│   │   └── boards/   # Board specific sources
+│   │   └── Makefile  # Makefile for this port
+│   └── mimxrt10xx         
+├── src               # Cross-platform bootloader sources files
+```
 
 ## Features
 
