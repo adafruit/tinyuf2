@@ -29,7 +29,7 @@
 #include <assert.h>
 
 #include "compile_date.h"
-#include "board.h"
+#include "board_api.h"
 #include "uf2.h"
 
 //--------------------------------------------------------------------+
