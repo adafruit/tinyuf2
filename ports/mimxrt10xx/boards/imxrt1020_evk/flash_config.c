@@ -79,15 +79,15 @@ const flexspi_nor_config_t qspiflash_config = {
 
                     // 0: ROM: Read LUTs
                     // Quad version
-                    // SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0xEB /* the command to send */,
-                    //                          RADDR_SDR, FLEXSPI_4PAD, 24  bits to transmit ),
-                    //          FLEXSPI_LUT_SEQ(DUMMY_SDR, FLEXSPI_4PAD, 6 /* 6 dummy cycles, 2 for M7-0 and 4 dummy */,
-                    //                          READ_SDR,  FLEXSPI_4PAD, 0x04),
+                     SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0xEB /* the command to send */,
+                                              RADDR_SDR, FLEXSPI_4PAD, 24  /* bits to transmit */ ),
+                              FLEXSPI_LUT_SEQ(DUMMY_SDR, FLEXSPI_4PAD, 6 /* 6 dummy cycles, 2 for M7-0 and 4 dummy */,
+                                              READ_SDR,  FLEXSPI_4PAD, 0x04),
                     // Single fast read version, good for debugging.
-                    SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0x0B /* the command to send */,
-                                             RADDR_SDR, FLEXSPI_1PAD, 24  /* bits to transmit */),
-                             FLEXSPI_LUT_SEQ(DUMMY_SDR, FLEXSPI_1PAD, 8 /* 8 dummy clocks */,
-                                             READ_SDR,  FLEXSPI_1PAD, 0x04),
+                    // SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0x0B /* the command to send */,
+                    //                         RADDR_SDR, FLEXSPI_1PAD, 24  /* bits to transmit */),
+                    //         FLEXSPI_LUT_SEQ(DUMMY_SDR, FLEXSPI_1PAD, 8 /* 8 dummy clocks */,
+                    //                         READ_SDR,  FLEXSPI_1PAD, 0x04),
                              TWO_EMPTY_STEPS,
                              TWO_EMPTY_STEPS),
 
