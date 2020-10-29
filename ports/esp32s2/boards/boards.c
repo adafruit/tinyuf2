@@ -191,7 +191,7 @@ void board_rgb_write(uint8_t const rgb[])
 #endif
 
 #ifdef PIN_APA102_SCK
-    setAPA(r, g, b);
+    setAPA(rgb[0], rgb[1], rgb[2]);
 #endif
 }
 

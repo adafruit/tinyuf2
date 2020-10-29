@@ -40,7 +40,7 @@
 // Double Reset tap to enter DFU
 #define USE_DFU_DOUBLE_TAP      0
 
-#ifdef PIN_NEOPIXEL
+#if defined(PIN_NEOPIXEL) || defined(PIN_APA102_SCK)
 #define USE_RGB   1
 #endif
 

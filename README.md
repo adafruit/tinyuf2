@@ -51,10 +51,10 @@ $ make BOARD=feather_stm32f405_express DEBUG=1 all
 
 #### Log
 
-Should you have an issue running example and/or submitting an bug report. You could enable TinyUSB built-in debug logging with optional `LOG=`. LOG=1 will only print out error message, LOG=2 print more information with on-going events. LOG=3 or higher is not used yet. 
+Should you have an issue running example and/or submitting an bug report. You could enable TinyUSB built-in debug logging with optional `LOG=`. LOG=1 will print out only message from bootloader project, while LOG=2 print more information with TinyUSB stack information events as well (note: it is quite a bit). LOG=3 or higher is not used yet. 
 
 ```
-$ make BOARD=feather_stm32f405_express LOG=2 all
+$ make BOARD=feather_stm32f405_express LOG=1 all
 ```
 
 #### Logger
