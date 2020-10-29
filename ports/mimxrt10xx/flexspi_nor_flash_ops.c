@@ -518,13 +518,7 @@ AT_QUICKACCESS_SECTION_CODE(status_t flexspi_nor_flash_erase_sector(FLEXSPI_Type
     AHBPrefetchDisable(FLEXSPI);
 
     /* Write enable */
-    flashXfer.deviceAddress = address;
-    flashXfer.port = kFLEXSPI_PortA1;
-    flashXfer.cmdType = kFLEXSPI_Command;
-    flashXfer.SeqNumber = 1;
-    flashXfer.seqIndex = NOR_CMD_LUT_SEQ_IDX_WRITEENABLE;
-
-    status = FLEXSPI_TransferBlockingRamfunc(base, &flashXfer);
+    status = flexspi_nor_write_enable(base, address);
 
     if (status != kStatus_Success)
     {
@@ -566,7 +560,7 @@ AT_QUICKACCESS_SECTION_CODE(status_t flexspi_nor_flash_page_program_byte(FLEXSPI
     {
     }
 
-    /* Write neable */
+    /* Write enable */
     result = flexspi_nor_write_enable(base, dstAddr);
 
     if (result != kStatus_Success)
