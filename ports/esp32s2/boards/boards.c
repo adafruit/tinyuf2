@@ -33,7 +33,6 @@
 
 #include "driver/periph_ctrl.h"
 #include "driver/rmt.h"
-#include "led_strip.h"
 
 #include "esp_partition.h"
 #include "esp_ota_ops.h"
@@ -47,7 +46,12 @@
 static TimerHandle_t timer_hdl = NULL;
 
 #ifdef PIN_NEOPIXEL
+#include "led_strip.h"
 static led_strip_t *strip;
+#endif
+
+#ifdef PIN_APA102_SCK
+#include "led_strip_spi_apa102.h"
 #endif
 
 extern int main(void);
@@ -115,6 +119,22 @@ void board_init(void)
   strip->set_brightness(strip, NEOPIXEL_BRIGHTNESS);
 #endif
 
+#ifdef PIN_APA102_SCK
+    // Setup the IO for the APA DATA and CLK
+    gpio_pad_select_gpio(PIN_APA102_DATA);
+    gpio_pad_select_gpio(PIN_APA102_SCK);
+    gpio_ll_input_disable(&GPIO, PIN_APA102_DATA);
+    gpio_ll_input_disable(&GPIO, PIN_APA102_SCK);
+    gpio_ll_output_enable(&GPIO, PIN_APA102_DATA);
+    gpio_ll_output_enable(&GPIO, PIN_APA102_SCK);
+
+    // Initialise SPI
+    setupSPI(PIN_APA102_DATA, PIN_APA102_SCK);
+
+    // Initialise the APA
+    initAPA(APA102_BRIGHTNESS);
+#endif
+
   timer_hdl = xTimerCreate(NULL, pdMS_TO_TICKS(1000), true, NULL, _board_timer_cb);
 
   // USB Controller Hal init
@@ -168,6 +188,10 @@ void board_rgb_write(uint8_t const rgb[])
 #ifdef PIN_NEOPIXEL
   strip->set_pixel(strip, 0, rgb[0], rgb[1], rgb[2]);
   strip->refresh(strip, 100);
+#endif
+
+#ifdef PIN_APA102_SCK
+    setAPA(r, g, b);
 #endif
 }
 

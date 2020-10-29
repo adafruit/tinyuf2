@@ -38,8 +38,12 @@
 // LED
 //--------------------------------------------------------------------+
 
-#define PIN_APA102_DATA       44
+#define PIN_APA102_DATA       40
 #define PIN_APA102_SCK        45
+#define PIN_APA102_PWR        21
+
+// Brightness percentage from 1 to 255
+#define APA102_BRIGHTNESS     175
 
 // LED for indicator and writing flash
 // If not defined neopixel will be use for flash writing instead
@@ -52,11 +56,11 @@
 #define USB_VID           0x239A
 #define USB_PID           0x00AB
 #define USB_MANUFACTURER  "Unexpected Maker"
-#define USB_PRODUCT       "Feather S2"
+#define USB_PRODUCT       "FeatherS2"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID      "UnexpectedMaker-FeatherS2"
 #define UF2_VOLUME_LABEL  "UFTHRS2BOOT"
-#define UF2_INDEX_URL     ""
+#define UF2_INDEX_URL     "https://circuitpython.org/board/unexpectedmaker_feathers2/"
 
 #endif
