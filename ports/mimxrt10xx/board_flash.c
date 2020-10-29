@@ -50,12 +50,6 @@ extern status_t flexspi_nor_enable_quad_mode(FLEXSPI_Type *base);
 void board_flash_init(void)
 {
   flexspi_nor_flash_init(FLEXSPI);
-
-//    status = flexspi_nor_enable_quad_mode(FLEXSPI);
-//    if (status != kStatus_Success) {
-//        printf("flexspi_nor_enable_quad_mode fail %ld\r\n", status);
-//        return;
-//    }
 }
 
 uint32_t board_flash_size(void)

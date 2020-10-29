@@ -37,8 +37,14 @@
 //--------------------------------------------------------------------+
 //#define USE_DFU_BUTTON    1
 
-#define DFU_DBL_RESET_MAGIC      0x5A1AD5      // SALADS
-#define DFU_DBL_RESET_DELAY      500
+// Enter DFU magic
+#define DBL_TAP_MAGIC             0xf01669ef
+
+// Skip double tap delay detction
+#define DBL_TAP_MAGIC_QUICK_BOOT  0xf02669ef
+
+// timeout for double tap detection
+#define DBL_TAP_DELAY             500
 
 uint8_t const RGB_USB_UNMOUNTED[] = { 0xff, 0x00, 0x00 }; // Red
 uint8_t const RGB_USB_MOUNTED[]   = { 0x00, 0xff, 0x00 }; // Green
@@ -65,7 +71,14 @@ static bool check_dfu_mode(void)
 //  TU_LOG1_HEX(_board_dfu_dbl_tap);
 //  TU_LOG1_HEX(_board_dfu_dbl_tap[0]);
 
-  if (_board_dfu_dbl_tap[0] == DFU_DBL_RESET_MAGIC)
+  // App want to reboot quickly
+  if (_board_dfu_dbl_tap[0] == DBL_TAP_MAGIC_QUICK_BOOT)
+  {
+    _board_dfu_dbl_tap[0] = 0;
+    return false;
+  }
+
+  if (_board_dfu_dbl_tap[0] == DBL_TAP_MAGIC)
   {
     // Double tap occurred
     _board_dfu_dbl_tap[0] = 0;
@@ -73,7 +86,7 @@ static bool check_dfu_mode(void)
   }
 
   // Register our first reset for double reset detection
-  _board_dfu_dbl_tap[0] = DFU_DBL_RESET_MAGIC;
+  _board_dfu_dbl_tap[0] = DBL_TAP_MAGIC;
   _timer_count = 0;
 
   // Turn on LED/RGB for visual indicator
@@ -82,7 +95,7 @@ static bool check_dfu_mode(void)
 
   // delay a fraction of second if Reset pin is tap during this delay --> we will enter dfu
   board_timer_start(10);
-  while(_timer_count < DFU_DBL_RESET_DELAY/10) {}
+  while(_timer_count < DBL_TAP_DELAY/10) {}
   board_timer_stop();
 
   // Turn off indicator
