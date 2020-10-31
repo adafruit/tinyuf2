@@ -146,13 +146,13 @@ int main(void)
 // Invoked when device is mounted
 void tud_mount_cb(void)
 {
-  indicator_set(STATE_USB_MOUNTED);
+  indicator_set(STATE_USB_PLUGGED);
 }
 
 // Invoked when device is unmounted
 void tud_umount_cb(void)
 {
-  indicator_set(STATE_USB_UNMOUNTED);
+  indicator_set(STATE_USB_UNPLUGGED);
 }
 
 //--------------------------------------------------------------------+
@@ -196,11 +196,11 @@ void indicator_set(uint32_t state)
   switch(state)
   {
     case STATE_BOOTLOADER_STARTED:
-    case STATE_USB_UNMOUNTED:
+    case STATE_USB_UNPLUGGED:
       board_rgb_write(RGB_USB_UNMOUNTED);
     break;
 
-    case STATE_USB_MOUNTED:
+    case STATE_USB_PLUGGED:
       board_rgb_write(RGB_USB_MOUNTED);
     break;
 
