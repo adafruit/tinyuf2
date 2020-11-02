@@ -143,13 +143,13 @@ int main(void)
 // Device callbacks
 //--------------------------------------------------------------------+
 
-// Invoked when device is mounted
+// Invoked when device is plugged and configured
 void tud_mount_cb(void)
 {
   indicator_set(STATE_USB_PLUGGED);
 }
 
-// Invoked when device is unmounted
+// Invoked when device is unplugged
 void tud_umount_cb(void)
 {
   indicator_set(STATE_USB_UNPLUGGED);
