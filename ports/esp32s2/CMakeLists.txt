@@ -27,8 +27,8 @@ get_filename_component(TOP "${TOP}" REALPATH)
 set(EXTRA_COMPONENT_DIRS "${TOP}/src" boards)
 
 set(SDKCONFIG_DEFAULTS sdkconfig.defaults boards/${BOARD}/sdkconfig)
-set(SDKCONFIG build/sdkconfig)
- 
+set(SDKCONFIG ${CMAKE_BINARY_DIR}/sdkconfig)
+
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 set(SUPPORTED_TARGETS esp32s2)
 
