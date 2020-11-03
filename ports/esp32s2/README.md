@@ -6,6 +6,7 @@ The project is composed of customizing the 2nd stage bootloader from IDF and UF2
 - [Espressif Kaluga 1](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-esp32-s2-kaluga-1-kit.html)
 - [Espressif Saola 1R (WROVER) and 1M (WROOM)](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-saola-1-v1.2.html)
 - [microDev microS2](https://circuitpython.org/board/microdev_micro_s2)
+- [Unexpected Maker FeatherS2](https://feathers2.io)
 
 ## Usage
 
