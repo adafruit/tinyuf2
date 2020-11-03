@@ -129,7 +129,6 @@ void board_dfu_complete(void)
   NVIC_SystemReset();
 }
 
-
 bool board_app_valid(void)
 {
   volatile uint32_t const * app_vector = (volatile uint32_t const*) BOARD_FLASH_APP_START;

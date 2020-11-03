@@ -231,7 +231,7 @@ void board_timer_handler(void)
 
 #elif USE_RGB
     // blink RGB if available
-    board_rgb_write( (_timer_count & 0x01) ? RGB_WRITING : RGB_OFF);
+    board_rgb_write((_timer_count & 0x01) ? RGB_WRITING : RGB_OFF);
 #endif
   }
 }
