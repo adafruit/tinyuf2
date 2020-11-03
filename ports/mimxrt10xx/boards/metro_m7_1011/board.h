@@ -1,4 +1,4 @@
-/* 
+/*
  * The MIT License (MIT)
  *
  * Copyright (c) 2020 Ha Thach for Adafruit Industries
@@ -29,16 +29,16 @@
 #define BOARD_H_
 
 // required since iMX RT10xx SDK include this file for board size
-#define BOARD_FLASH_SIZE (0x800000U)
+#define BOARD_FLASH_SIZE     (2*1024*1024)
 
 //--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
 
-#define LED_PINMUX            IOMUXC_GPIO_AD_B0_05_GPIO1_IO05
+#define LED_PINMUX            IOMUXC_GPIO_05_GPIOMUX_IO05
 #define LED_PORT              GPIO1
 #define LED_PIN               5
-#define LED_STATE_ON          0
+#define LED_STATE_ON          1
 
 //--------------------------------------------------------------------+
 // Neopixel
@@ -52,23 +52,31 @@
 //--------------------------------------------------------------------+
 
 // SW8 button
-#define BUTTON_PINMUX         IOMUXC_SNVS_WAKEUP_GPIO5_IO00
-#define BUTTON_PORT           GPIO5
-#define BUTTON_PIN            0
-#define BUTTON_STATE_ACTIVE   0
+//#define BUTTON_PINMUX         IOMUXC_GPIO_SD_05_GPIO2_IO05
+//#define BUTTON_PORT           GPIO2
+//#define BUTTON_PIN            5
+//#define BUTTON_STATE_ACTIVE   0
 
 //--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
 
 #define USB_VID           0x239A
-#define USB_PID           0x0081
-#define USB_MANUFACTURER  "NXP"
-#define USB_PRODUCT       "RT1020 EVK"
+#define USB_PID           0x00E1
+#define USB_MANUFACTURER  "Adafruit"
+#define USB_PRODUCT       "Metro M7 1011"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "MIMXRT1020-EVK-revA"
-#define UF2_VOLUME_LABEL  "RT1020BOOT"
-#define UF2_INDEX_URL     "https://www.nxp.com/part/MIMXRT1020-EVK#/"
+#define UF2_BOARD_ID      "MIMXRT1011-Metro-revA"
+#define UF2_VOLUME_LABEL  "METROM7BOOT"
+#define UF2_INDEX_URL     "https://www.adafruit.com"
+
+//--------------------------------------------------------------------+
+// UART
+//--------------------------------------------------------------------+
+
+#define UART_PORT             LPUART1
+#define UART_RX_PINMUX        IOMUXC_GPIO_09_LPUART1_RXD
+#define UART_TX_PINMUX        IOMUXC_GPIO_10_LPUART1_TXD
 
 #endif /* BOARD_H_ */
