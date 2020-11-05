@@ -256,7 +256,7 @@ void board_rgb_write(uint8_t const rgb[])
 
     if(!(mask >>= 1)) {
       if(p >= end) break;
-      pix       = *p++;
+      pix  = *p++;
       mask = 0x80;
     }
   }
