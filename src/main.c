@@ -225,14 +225,11 @@ void board_timer_handler(void)
 
   if ( _indicator_state == STATE_WRITING_STARTED )
   {
-#if USE_LED
     // fast blink LED if available
     board_led_write(_timer_count & 0x01);
 
-#elif USE_RGB
     // blink RGB if available
     board_rgb_write((_timer_count & 0x01) ? RGB_WRITING : RGB_OFF);
-#endif
   }
 }
 
