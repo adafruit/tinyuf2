@@ -16,3 +16,6 @@
 [submodule "lib/nxp"]
 	path = lib/nxp
 	url = https://github.com/hathach/nxp_driver.git
+[submodule "lib/esp-idf"]
+	path = lib/esp-idf
+	url = https://github.com/espressif/esp-idf.git

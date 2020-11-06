@@ -22,33 +22,55 @@ jobs:
         - 'unexpectedmaker_feathers2'
     steps:
     - name: Setup Python
-      uses: actions/setup-python@v1
-
-    - name: Pull ESP-IDF docker
-      run: docker pull espressif/idf:latest
+      uses: actions/setup-python@v2
 
     - name: Checkout
       uses: actions/checkout@v2
       with:
         submodules: 'true'
+        fetch-depth: 0
+
+    - name: Clone IDF submodules
+      run: |
+        (cd $IDF_PATH && git submodule update --init)
+      env:
+        IDF_PATH: ${{ github.workspace }}/lib/esp-idf
+
+    - name: Install IDF tools
+      run: |
+        $IDF_PATH/tools/idf_tools.py --non-interactive install required
+        $IDF_PATH/tools/idf_tools.py --non-interactive install cmake
+        $IDF_PATH/tools/idf_tools.py --non-interactive install-python-env
+        rm -rf $IDF_TOOLS_PATH/dist
+      env:
+        IDF_PATH: ${{ github.workspace }}/lib/esp-idf
+        IDF_TOOLS_PATH: ${{ github.workspace }}/.idf_tools
 
     - name: Build
-      run: docker run --rm -v $PWD:/project -w /project/ports/esp32s2 espressif/idf:latest idf.py build -DBOARD=${{ matrix.board }}
+      run: |
+        source $IDF_PATH/export.sh
+        make -C ports/esp32s2/ BOARD=${{ matrix.board }}
+      env:
+        IDF_PATH: ${{ github.workspace }}/lib/esp-idf
+        IDF_TOOLS_PATH: ${{ github.workspace }}/.idf_tools
 
-    - name: Rename release artifact
-      run: cp build/uf2-esp32s.bin uf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.bin
-      if: ${{ github.event_name == 'release' }}
+    #- name: Build
+    #  run: docker run --rm -v $PWD:/project -w /project/ports/esp32s2 espressif/idf:latest idf.py build -DBOARD=${{ matrix.board }}
 
-    - name: Rename artifact
-      run: cp ports/esp32s2/build/uf2-esp32s.bin uf2-${{ matrix.board }}-$(git describe --always).bin
+    #- name: Rename release artifact
+    #  run: cp build/uf2-esp32s.bin uf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.bin
+    #  if: ${{ github.event_name == 'release' }}
 
-    - name: List files
-      run: ls -a
+    #- name: Rename artifact
+    #  run: cp ports/esp32s2/build/uf2-esp32s.bin uf2-${{ matrix.board }}-$(git describe --always).bin
 
-    - uses: actions/upload-artifact@v2
-      with:
-        name: ${{ matrix.board }}
-        path: uf2-${{ matrix.board }}-*.bin
+    #- name: List files
+    #  run: ls -a
+
+    #- uses: actions/upload-artifact@v2
+    #  with:
+    #    name: ${{ matrix.board }}
+    #    path: uf2-${{ matrix.board }}-*.bin
 
     - name: Upload Release Asset
       id: upload-release-asset
@@ -73,10 +95,10 @@ jobs:
 
     steps:
     - name: Setup Python
-      uses: actions/setup-python@v1
+      uses: actions/setup-python@v2
 
     - name: Setup Node.js
-      uses: actions/setup-node@v1.1.0
+      uses: actions/setup-node@v1
 
     - name: Checkout code
       uses: actions/checkout@v2
