@@ -57,6 +57,14 @@ void board_init(void)
   GPIO_PinInit(LED_PORT, LED_PIN, &led_config);
 #endif
 
+#if NEOPIXEL_NUMBER
+  IOMUXC_SetPinMux( NEOPIXEL_PINMUX, 0U);
+  IOMUXC_SetPinConfig( NEOPIXEL_PINMUX, 0x10B0U);
+
+  gpio_pin_config_t neopixel_config = { kGPIO_DigitalOutput, 0, kGPIO_NoIntmode };
+  GPIO_PinInit(NEOPIXEL_PORT, NEOPIXEL_PIN, &neopixel_config);
+#endif
+
 #ifdef BUTTON_PIN
   IOMUXC_SetPinMux( BUTTON_PINMUX, 0U);
   gpio_pin_config_t button_config = { kGPIO_DigitalInput, 0, kGPIO_IntRisingEdge, };
@@ -200,12 +208,70 @@ void board_led_write(uint32_t state)
   GPIO_PinWrite(LED_PORT, LED_PIN, state ? LED_STATE_ON : (1-LED_STATE_ON));
 }
 
+#if NEOPIXEL_NUMBER
+#define MAGIC_800_INT   900000  // ~1.11 us -> 1.2  field
+#define MAGIC_800_T0H  2800000  // ~0.36 us -> 0.44 field
+#define MAGIC_800_T1H  1350000  // ~0.74 us -> 0.84 field
+
+static inline uint8_t apply_percentage(uint8_t brightness)
+{
+  return (uint8_t) ((brightness*NEOPIXEL_BRIGHTNESS) >> 8);
+}
+
+void board_rgb_write(uint8_t const rgb[])
+{
+  // neopixel color order is GRB
+  uint8_t const pixels[3] = { apply_percentage(rgb[1]), apply_percentage(rgb[0]), apply_percentage(rgb[2]) };
+  uint32_t const numBytes = 3;
+
+  uint8_t const *p = pixels, *end = p + numBytes;
+  uint8_t pix = *p++, mask = 0x80;
+  uint32_t start = 0;
+  uint32_t cyc = 0;
+
+  //assumes 800_000Hz frequency
+  //Theoretical values here are 800_000 -> 1.25us, 2500000->0.4us, 1250000->0.8us
+  //TODO: try to get dynamic weighting working again
+  uint32_t const sys_freq = SystemCoreClock;
+  uint32_t const interval = sys_freq/MAGIC_800_INT;
+  uint32_t const t0       = sys_freq/MAGIC_800_T0H;
+  uint32_t const t1       = sys_freq/MAGIC_800_T1H;
+
+  __disable_irq();
+
+  // Enable DWT in debug core. Useable when interrupts disabled, as opposed to Systick->VAL
+  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+  DWT->CYCCNT = 0;
+
+  for(;;) {
+    cyc = (pix & mask) ? t1 : t0;
+    start = DWT->CYCCNT;
+
+    GPIO_PinWrite(NEOPIXEL_PORT, NEOPIXEL_PIN, 1);
+    while((DWT->CYCCNT - start) < cyc);
+
+    GPIO_PinWrite(NEOPIXEL_PORT, NEOPIXEL_PIN, 0);
+    while((DWT->CYCCNT - start) < interval);
+
+    if(!(mask >>= 1)) {
+      if(p >= end) break;
+      pix  = *p++;
+      mask = 0x80;
+    }
+  }
+
+  __enable_irq();
+}
+
+#else
+
 void board_rgb_write(uint8_t const rgb[])
 {
   (void) rgb;
-#if USE_RGB
-#endif
 }
+
+#endif
 
 #if 0
 uint32_t board_button_read(void)

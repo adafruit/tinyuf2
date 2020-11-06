@@ -196,7 +196,7 @@ AT_QUICKACCESS_SECTION_CODE(status_t FLEXSPI_WriteBlockingRamfunc(FLEXSPI_Type *
     while (size)
     {
         /* Wait until there is room in the fifo. This also checks for errors. */
-        while (!((status = base->INTR) & kFLEXSPI_IpTxFifoWatermarkEmpltyFlag))
+        while (!((status = base->INTR) & kFLEXSPI_IpTxFifoWatermarkEmptyFlag))
         {
         }
 
@@ -227,7 +227,7 @@ AT_QUICKACCESS_SECTION_CODE(status_t FLEXSPI_WriteBlockingRamfunc(FLEXSPI_Type *
         }
 
         /* Push a watermark level datas into IP TX FIFO. */
-        base->INTR |= kFLEXSPI_IpTxFifoWatermarkEmpltyFlag;
+        base->INTR |= kFLEXSPI_IpTxFifoWatermarkEmptyFlag;
     }
 
     return result;
@@ -608,7 +608,7 @@ AT_QUICKACCESS_SECTION_CODE(status_t flexspi_nor_flash_page_program_byte(FLEXSPI
     while (size)
     {
         /* Wait until there is room in the fifo. This also checks for errors. */
-        while (!((status = base->INTR) & kFLEXSPI_IpTxFifoWatermarkEmpltyFlag))
+        while (!((status = base->INTR) & kFLEXSPI_IpTxFifoWatermarkEmptyFlag))
         {
         }
 
@@ -641,7 +641,7 @@ AT_QUICKACCESS_SECTION_CODE(status_t flexspi_nor_flash_page_program_byte(FLEXSPI
         }
 
         /* Push a watermark level datas into IP TX FIFO. */
-        base->INTR |= kFLEXSPI_IpTxFifoWatermarkEmpltyFlag;
+        base->INTR |= kFLEXSPI_IpTxFifoWatermarkEmptyFlag;
     }
 
     /* Wait for bus idle. */

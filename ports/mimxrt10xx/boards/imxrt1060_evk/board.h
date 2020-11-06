@@ -1,7 +1,7 @@
 /* 
  * The MIT License (MIT)
  *
- * Copyright (c) 2019, Ha Thach (tinyusb.org)
+ * Copyright (c) 2020 Ha Thach for Adafruit Industries
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -46,6 +46,9 @@
 
 // Number of neopixels
 #define NEOPIXEL_NUMBER       0
+//#define NEOPIXEL_PINMUX       IOMUXC_GPIO_AD_B1_07_GPIO1_IO23
+//#define NEOPIXEL_PORT         GPIO1
+//#define NEOPIXEL_PIN          23
 
 //--------------------------------------------------------------------+
 // Button

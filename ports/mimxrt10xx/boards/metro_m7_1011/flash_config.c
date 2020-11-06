@@ -36,7 +36,7 @@ const BOOT_DATA_T boot_data = {
   0xFFFFFFFF                  /* empty - extra data word */
 };
 
-// Config for IS25WP064A with QSPI routed.
+// Config for W25Q16JV with QSPI routed.
 __attribute__((section(".boot_hdr.conf")))
 const flexspi_nor_config_t qspiflash_config = {
     .pageSize           = 256u,
@@ -61,7 +61,13 @@ const flexspi_nor_config_t qspiflash_config = {
               .seqId = 4u,
               .seqNum = 1u,
             },
-            .deviceModeArg = 0x40,
+            .deviceModeArg = 0x0200,
+            .configCmdEnable = 1u,
+            .configModeType[0] = kDeviceConfigCmdType_Generic,
+            .configCmdSeqs[0] = {
+              .seqId = 2u,
+              .seqNum = 1u,
+            },
             .deviceType    = kFlexSpiDeviceType_SerialNOR,
             .sflashPadType = kSerialFlash_4Pads,
             .serialClkFreq = kFlexSpiSerialClk_60MHz,
@@ -99,7 +105,11 @@ const flexspi_nor_config_t qspiflash_config = {
                              TWO_EMPTY_STEPS),
 
                     // 2: Empty
-                    EMPTY_SEQUENCE,
+                    SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0x35 /* the command to send */,
+                                             DUMMY_SDR, FLEXSPI_1PAD, 8),
+                             TWO_EMPTY_STEPS,
+                             TWO_EMPTY_STEPS,
+                             TWO_EMPTY_STEPS),
 
                     // 3: ROM: Write Enable
                     SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR, FLEXSPI_1PAD, 0x06  /* the command to send */,
@@ -110,7 +120,7 @@ const flexspi_nor_config_t qspiflash_config = {
 
                     // 4: Config: Write Status
                     SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0x01  /* the command to send */,
-                                             WRITE_SDR, FLEXSPI_1PAD, 0x01),
+                                             WRITE_SDR, FLEXSPI_1PAD, 0x02),
                              TWO_EMPTY_STEPS,
                              TWO_EMPTY_STEPS,
                              TWO_EMPTY_STEPS),

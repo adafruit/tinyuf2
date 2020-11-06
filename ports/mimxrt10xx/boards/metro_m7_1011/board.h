@@ -1,7 +1,7 @@
-/* 
+/*
  * The MIT License (MIT)
  *
- * Copyright (c) 2019, Ha Thach (tinyusb.org)
+ * Copyright (c) 2020 Ha Thach for Adafruit Industries
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -29,37 +29,57 @@
 #define BOARD_H_
 
 // required since iMX RT10xx SDK include this file for board size
-#define BOARD_FLASH_SIZE (2 * 1024 * 1024)
+#define BOARD_FLASH_SIZE     (2*1024*1024)
 
 //--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
 
-// D13
-#define LED_PINMUX            IOMUXC_GPIO_B0_03_GPIO2_IO03
-#define LED_PORT              GPIO2
+#define LED_PINMUX            IOMUXC_GPIO_03_GPIOMUX_IO03
+#define LED_PORT              GPIO1
 #define LED_PIN               3
-#define LED_STATE_ON          0
+#define LED_STATE_ON          1
 
 //--------------------------------------------------------------------+
 // Neopixel
 //--------------------------------------------------------------------+
 
 // Number of neopixels
-#define NEOPIXEL_NUMBER       0
+#define NEOPIXEL_NUMBER       1
+#define NEOPIXEL_PINMUX       IOMUXC_GPIO_00_GPIOMUX_IO00
+#define NEOPIXEL_PORT         GPIO1
+#define NEOPIXEL_PIN          0
+
+//--------------------------------------------------------------------+
+// Button
+//--------------------------------------------------------------------+
+
+// SW8 button
+//#define BUTTON_PINMUX         IOMUXC_GPIO_SD_05_GPIO2_IO05
+//#define BUTTON_PORT           GPIO2
+//#define BUTTON_PIN            5
+//#define BUTTON_STATE_ACTIVE   0
 
 //--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
 
 #define USB_VID           0x239A
-#define USB_PID           0x0085
-#define USB_MANUFACTURER  "PJRC"
-#define USB_PRODUCT       "Teensy 4.0"
+#define USB_PID           0x00E1
+#define USB_MANUFACTURER  "Adafruit"
+#define USB_PRODUCT       "Metro M7 1011"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "MIMXRT1060-Teensy-4.0"
-#define UF2_VOLUME_LABEL  "TEENSYBOOT"
-#define UF2_INDEX_URL     "https://www.pjrc.com/store/teensy40.html"
+#define UF2_BOARD_ID      "MIMXRT1011-Metro-revA"
+#define UF2_VOLUME_LABEL  "METROM7BOOT"
+#define UF2_INDEX_URL     "https://www.adafruit.com"
+
+//--------------------------------------------------------------------+
+// UART
+//--------------------------------------------------------------------+
+
+#define UART_PORT             LPUART1
+#define UART_RX_PINMUX        IOMUXC_GPIO_09_LPUART1_RXD
+#define UART_TX_PINMUX        IOMUXC_GPIO_10_LPUART1_TXD
 
 #endif /* BOARD_H_ */
