@@ -30,6 +30,13 @@ jobs:
         submodules: 'true'
         fetch-depth: 0
 
+    - uses: actions/cache@v1
+      name: Fetch IDF tool cache
+      id: idf-cache
+      with:
+        path: ${{ github.workspace }}/.idf_tools
+        key: ${{ runner.os }}-idf-tools-${{ hashFiles('.git/modules/lib/esp-idf/HEAD') }}-20200801
+
     - name: Clone IDF submodules
       run: |
         (cd $IDF_PATH && git submodule update --init)
