@@ -61,23 +61,20 @@ jobs:
         IDF_PATH: ${{ github.workspace }}/lib/esp-idf
         IDF_TOOLS_PATH: ${{ github.workspace }}/.idf_tools
 
-    #- name: Build
-    #  run: docker run --rm -v $PWD:/project -w /project/ports/esp32s2 espressif/idf:latest idf.py build -DBOARD=${{ matrix.board }}
-
-    #- name: Rename release artifact
-    #  run: cp build/uf2-esp32s.bin uf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.bin
-    #  if: ${{ github.event_name == 'release' }}
-
     #- name: Rename artifact
-    #  run: cp ports/esp32s2/build/uf2-esp32s.bin uf2-${{ matrix.board }}-$(git describe --always).bin
+    #  run: cp ports/esp32s2/_bin/uf2-esp32s.bin uf2-${{ matrix.board }}-$(git describe --always).bin
 
     #- name: List files
     #  run: ls -a
 
-    #- uses: actions/upload-artifact@v2
-    #  with:
-    #    name: ${{ matrix.board }}
-    #    path: uf2-${{ matrix.board }}-*.bin
+    - uses: actions/upload-artifact@v2
+      with:
+        name: ${{ matrix.board }}
+        path: ports/esp32s2/_bin/${{ matrix.board }}
+
+    - name: Rename release artifact
+      run: cp build/uf2-esp32s.bin uf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.bin
+      if: ${{ github.event_name == 'release' }}
 
     - name: Upload Release Asset
       id: upload-release-asset
@@ -122,3 +119,14 @@ jobs:
 
     - name: Build
       run: python3 ports/build_all.py ${{ matrix.port }}
+
+    #- name: Rename artifact
+    #  run: cp ports/esp32s2/build/uf2-esp32s.bin uf2-${{ matrix.board }}-$(git describe --always).bin
+
+    #- name: List files
+    #  run: ls -a
+
+    #- uses: actions/upload-artifact@v2
+    #  with:
+    #    name: ${{ matrix.board }}
+    #    path: uf2-${{ matrix.board }}-*.bin
