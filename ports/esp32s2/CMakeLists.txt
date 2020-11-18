@@ -32,4 +32,4 @@ set(SDKCONFIG ${CMAKE_BINARY_DIR}/sdkconfig)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 set(SUPPORTED_TARGETS esp32s2)
 
-project(uf2-esp32s)
+project(tinyuf2)
