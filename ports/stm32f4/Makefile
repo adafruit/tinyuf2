@@ -56,5 +56,5 @@ INC += \
 include ../rules.mk
 
 # flash target ROM bootloader
-flash-dfu-util: $(BUILD)/$(BOARD)-firmware.bin
+flash-dfu-util: $(BUILD)/tinyuf2-$(BOARD).bin
 	dfu-util -R -a 0 --dfuse-address 0x08000000 -D $<

@@ -33,29 +33,29 @@ endif
 
 # Set all as default goal
 .DEFAULT_GOAL := all
-all: $(BUILD)/$(BOARD)-firmware.bin $(BUILD)/$(BOARD)-firmware.hex size
+all: $(BUILD)/tinyuf2-$(BOARD).bin $(BUILD)/tinyuf2-$(BOARD).hex size
 
-uf2: $(BUILD)/$(BOARD)-firmware.uf2
+uf2: $(BUILD)/tinyuf2-$(BOARD).uf2
 
 OBJ_DIRS = $(sort $(dir $(OBJ)))
 $(OBJ): | $(OBJ_DIRS)
 $(OBJ_DIRS):
 	@$(MKDIR) -p $@
 
-$(BUILD)/$(BOARD)-firmware.elf: $(OBJ)
+$(BUILD)/tinyuf2-$(BOARD).elf: $(OBJ)
 	@echo LINK $@
 	@$(CC) -o $@ $(LDFLAGS) $^ -Wl,--start-group $(LIBS) -Wl,--end-group
 
-$(BUILD)/$(BOARD)-firmware.bin: $(BUILD)/$(BOARD)-firmware.elf
+$(BUILD)/tinyuf2-$(BOARD).bin: $(BUILD)/tinyuf2-$(BOARD).elf
 	@echo CREATE $@
 	@$(OBJCOPY) -O binary $^ $@
 
-$(BUILD)/$(BOARD)-firmware.hex: $(BUILD)/$(BOARD)-firmware.elf
+$(BUILD)/tinyuf2-$(BOARD).hex: $(BUILD)/tinyuf2-$(BOARD).elf
 	@echo CREATE $@
 	@$(OBJCOPY) -O ihex $^ $@
 
 UF2_FAMILY ?= 0x00
-$(BUILD)/$(BOARD)-firmware.uf2: $(BUILD)/$(BOARD)-firmware.hex
+$(BUILD)/tinyuf2-$(BOARD).uf2: $(BUILD)/tinyuf2-$(BOARD).hex
 	@echo CREATE $@
 	$(PYTHON) $(TOP)/tools/uf2/utils/uf2conv.py -f $(UF2_FAMILY) -c -o $@ $^
 
@@ -86,7 +86,7 @@ $(BUILD)/obj/%.o: %.S
 	@echo AS $(notdir $@)
 	@$(CC) -x assembler-with-cpp $(ASFLAGS) -c -o $@ $<
 
-size: $(BUILD)/$(BOARD)-firmware.elf
+size: $(BUILD)/tinyuf2-$(BOARD).elf
 	-@echo ''
 	@$(SIZE) $<
 	-@echo ''
@@ -109,7 +109,7 @@ endif
 
 JLINK_IF ?= swd
 
-$(BUILD)/$(BOARD).jlink: $(BUILD)/$(BOARD)-firmware.hex
+$(BUILD)/$(BOARD).jlink: $(BUILD)/tinyuf2-$(BOARD).hex
 	@echo halt > $@
 	@echo r >> $@
 	@echo loadfile $< >> $@
@@ -134,14 +134,14 @@ erase-jlink: $(BUILD)/$(BOARD)-erase.jlink
 #-------------------- Flash with STLink --------------------
 
 # STM32_Programmer_CLI must be in PATH
-flash-stlink: $(BUILD)/$(BOARD)-firmware.elf
+flash-stlink: $(BUILD)/tinyuf2-$(BOARD).elf
 	STM32_Programmer_CLI --connect port=swd --write $< --go
 
 erase-stlink:
 	STM32_Programmer_CLI --connect port=swd --erase all
 
 #-------------------- Flash with pyocd --------------------
-flash-pyocd: $(BUILD)/$(BOARD)-firmware.hex
+flash-pyocd: $(BUILD)/tinyuf2-$(BOARD).hex
 	pyocd flash -t $(PYOCD_TARGET) $<
 	pyocd reset -t $(PYOCD_TARGET)
 

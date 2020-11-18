@@ -43,12 +43,11 @@ for port in all_ports:
             all_boards.append(entry.name)
     all_boards.sort()
 
-    subprocess.run("rm -rf {}/_build/".format(port), shell=True)
-    #subprocess.run("rm -rf {}/bin/", shell=True)
+    #subprocess.run("rm -rf {}/_build/".format(port), shell=True)
+    subprocess.run("rm -rf {}/_bin/".format(port), shell=True)
 
     for board in all_boards:
-        #bin_directory = "bin/{}/".format(board)
-        #os.makedirs(bin_directory, exist_ok=True)
+        build_dir = "{}/_build/build-{}".format(port, board)
 
         start_time = time.monotonic()
         make_result = subprocess.run("make -j -C {} BOARD={} all".format(port, board), shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -61,7 +60,7 @@ for port in all_ports:
             success = SUCCEEDED
             success_count += 1
 
-            out_file = glob.glob('{}/_build/build-{}/*.elf'.format(port, board))[0]
+            out_file = glob.glob(build_dir + "/*.elf")[0]
             size_output = subprocess.run('size {}'.format(out_file), shell=True, stdout=subprocess.PIPE).stdout.decode("utf-8")
             size_list = size_output.split('\n')[1].split('\t')
             flash_size = int(size_list[0])
@@ -71,11 +70,20 @@ for port in all_ports:
             success = FAILED
             fail_count += 1
 
-        #for entry in os.scandir("_build/build-{}".format(board)):
-        #    for extension in ["hex", "uf2"]:
-        #        if entry.name.endswith(extension):
-        #            if ("nosd" in entry.name) or ("s140" in entry.name) or ("s132" in entry.name):
-        #                shutil.copy(entry.path, bin_directory)
+        # Copy binary files
+        bin_dir = "{}/_bin/{}/".format(port, board)
+        os.makedirs(bin_dir, exist_ok=True)
+
+        if port == "esp32s2":
+            shutil.copy(build_dir + "/bootloader/bootloader.bin", bin_dir)
+            shutil.copy(build_dir + "/partition_table/partition-table.bin", bin_dir)
+            shutil.copy(build_dir + "/ota_data_initial.bin", bin_dir)
+            shutil.copy(build_dir + "/tinyuf2.bin", bin_dir)
+        else:
+            for entry in os.scandir(build_dir):
+                for extension in ["bin", "hex", "uf2"]:
+                    if entry.name.endswith("." + extension):
+                        shutil.copy(entry.path, bin_dir)
 
         print(build_format.format(board, success, "{:.2f}s".format(build_duration), flash_size, sram_size))
 
