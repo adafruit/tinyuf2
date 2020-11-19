@@ -5,6 +5,7 @@
 
 # Build directory
 BUILD = _build/build-$(BOARD)
+BIN = _bin/$(BOARD)
 
 all:
 	idf.py -B$(BUILD) -DBOARD=$(BOARD) build
@@ -23,10 +24,10 @@ erase:
 monitor:
 	idf.py -B$(BUILD) -DBOARD=$(BOARD) monitor
 
-_bin/$(BOARD):
+$(BIN):
 	@mkdir -p $@
 
-copy-bin: _bin/$(BOARD)
+copy-artifact: $(BIN)
 	@cp $(BUILD)/bootloader/bootloader.bin $<
 	@cp $(BUILD)/partition_table/partition-table.bin $<
 	@cp $(BUILD)/ota_data_initial.bin $<

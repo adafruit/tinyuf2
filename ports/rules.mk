@@ -2,6 +2,11 @@
 # Common make rules for all
 # ---------------------------------------
 
+MKDIR = mkdir
+SED = sed
+CP = cp
+RM = rm
+
 # libc
 LIBS += -lgcc -lm -lnosys -lc
 
@@ -36,6 +41,13 @@ endif
 all: $(BUILD)/tinyuf2-$(BOARD).bin $(BUILD)/tinyuf2-$(BOARD).hex size
 
 uf2: $(BUILD)/tinyuf2-$(BOARD).uf2
+
+$(BIN):
+	@$(MKDIR) -p $@
+
+copy-artifact: $(BIN) $(BUILD)/tinyuf2-$(BOARD).bin $(BUILD)/tinyuf2-$(BOARD).hex
+	@$(CP) $(BUILD)/tinyuf2-$(BOARD).bin $<
+	@$(CP) $(BUILD)/tinyuf2-$(BOARD).hex $<
 
 OBJ_DIRS = $(sort $(dir $(OBJ)))
 $(OBJ): | $(OBJ_DIRS)
@@ -94,6 +106,7 @@ size: $(BUILD)/tinyuf2-$(BOARD).elf
 .PHONY: clean
 clean:
 	$(RM) -rf $(BUILD)
+	$(RM) -rf $(BIN)
 
 # Print out the value of a make variable.
 # https://stackoverflow.com/questions/16467718/how-to-print-out-a-variable-in-makefile

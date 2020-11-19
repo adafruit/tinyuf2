@@ -4,13 +4,8 @@ PORT = mimxrt10xx
 CROSS_COMPILE = arm-none-eabi-
 
 CC = $(CROSS_COMPILE)gcc
-CXX = $(CROSS_COMPILE)g++
 OBJCOPY = $(CROSS_COMPILE)objcopy
 SIZE = $(CROSS_COMPILE)size
-MKDIR = mkdir
-SED = sed
-CP = cp
-RM = rm
 
 include ../make.mk
 
