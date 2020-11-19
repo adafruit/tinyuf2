@@ -35,6 +35,7 @@ endif
 
 # Build directory
 BUILD = _build/build-$(BOARD)
+BIN = _bin/$(BOARD)
 
 #-------------- Source files and compiler flags --------------
 

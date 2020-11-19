@@ -4,13 +4,8 @@ PORT = stm32f4
 CROSS_COMPILE = arm-none-eabi-
 
 CC = $(CROSS_COMPILE)gcc
-CXX = $(CROSS_COMPILE)g++
 OBJCOPY = $(CROSS_COMPILE)objcopy
 SIZE = $(CROSS_COMPILE)size
-MKDIR = mkdir
-SED = sed
-CP = cp
-RM = rm
 
 ST_HAL_DRIVER = lib/st/stm32f4xx_hal_driver
 ST_CMSIS = lib/st/cmsis_device_f4
@@ -56,5 +51,5 @@ INC += \
 include ../rules.mk
 
 # flash target ROM bootloader
-flash-dfu-util: $(BUILD)/$(BOARD)-firmware.bin
+flash-dfu-util: $(BUILD)/tinyuf2-$(BOARD).bin
 	dfu-util -R -a 0 --dfuse-address 0x08000000 -D $<
