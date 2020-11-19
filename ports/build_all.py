@@ -43,14 +43,13 @@ for port in all_ports:
             all_boards.append(entry.name)
     all_boards.sort()
 
-    #subprocess.run("rm -rf {}/_build/".format(port), shell=True)
-    subprocess.run("rm -rf {}/_bin/".format(port), shell=True)
-
     for board in all_boards:
         build_dir = "{}/_build/build-{}".format(port, board)
 
         start_time = time.monotonic()
+        subprocess.run("make -j -C {} BOARD={} clean".format(port, board), shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         make_result = subprocess.run("make -j -C {} BOARD={} all".format(port, board), shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        subprocess.run("make -j -C {} BOARD={} copy-artifact".format(port, board), shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         build_duration = time.monotonic() - start_time
 
         flash_size = "-"
@@ -69,21 +68,6 @@ for port in all_ports:
             exit_status = make_result.returncode
             success = FAILED
             fail_count += 1
-
-        # Copy binary files
-        bin_dir = "{}/_bin/{}/".format(port, board)
-        os.makedirs(bin_dir, exist_ok=True)
-
-        if port == "esp32s2":
-            shutil.copy(build_dir + "/bootloader/bootloader.bin", bin_dir)
-            shutil.copy(build_dir + "/partition_table/partition-table.bin", bin_dir)
-            shutil.copy(build_dir + "/ota_data_initial.bin", bin_dir)
-            shutil.copy(build_dir + "/tinyuf2.bin", bin_dir)
-        else:
-            for entry in os.scandir(build_dir):
-                for extension in ["bin", "hex", "uf2"]:
-                    if entry.name.endswith("." + extension):
-                        shutil.copy(entry.path, bin_dir)
 
         print(build_format.format(board, success, "{:.2f}s".format(build_duration), flash_size, sram_size))
 

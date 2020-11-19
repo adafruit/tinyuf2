@@ -14,6 +14,7 @@ build: all
 
 clean:
 	idf.py -B$(BUILD) -DBOARD=$(BOARD) clean
+	@rm -rf $(BIN)
 
 flash:
 	idf.py -B$(BUILD) -DBOARD=$(BOARD) flash
