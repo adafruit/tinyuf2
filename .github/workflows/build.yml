@@ -123,8 +123,10 @@ jobs:
 
     - name: Find Port
       run: |
-        ls ports
-        echo PORT=`echo ports/*/${{ matrix.board }}/..` >> $GITHUB_ENV
+        PORT=`echo ports/*/boars/${{ matrix.board }}`
+        PORT=`dirname $PORT`
+        PORT=`dirname $PORT`
+        echo PORT=$PORT >> $GITHUB_ENV
 
     - name: Build
       run: make -C $PORT BOARD=${{ matrix.board }} all copy-artifact
