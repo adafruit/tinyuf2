@@ -137,4 +137,4 @@ jobs:
     - uses: actions/upload-artifact@v2
       with:
         name: ${{ matrix.board }}
-        path: ports/$PORT/_bin/{{ matrix.board }}/
+        path: $PORT/_bin/{{ matrix.board }}/
