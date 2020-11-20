@@ -50,7 +50,7 @@ static TimerHandle_t timer_hdl = NULL;
 static led_strip_t *strip;
 #endif
 
-#ifdef PIN_APA102_SCK
+#ifdef DOTSTAR_PIN_SCK
 #include "led_strip_spi_apa102.h"
 #endif
 
@@ -126,20 +126,20 @@ void board_init(void)
   strip->set_brightness(strip, NEOPIXEL_BRIGHTNESS);
 #endif
 
-#ifdef PIN_APA102_SCK
+#ifdef DOTSTAR_PIN_SCK
   // Setup the IO for the APA DATA and CLK
-  gpio_pad_select_gpio(PIN_APA102_DATA);
-  gpio_pad_select_gpio(PIN_APA102_SCK);
-  gpio_ll_input_disable(&GPIO, PIN_APA102_DATA);
-  gpio_ll_input_disable(&GPIO, PIN_APA102_SCK);
-  gpio_ll_output_enable(&GPIO, PIN_APA102_DATA);
-  gpio_ll_output_enable(&GPIO, PIN_APA102_SCK);
+  gpio_pad_select_gpio(DOTSTAR_PIN_DATA);
+  gpio_pad_select_gpio(DOTSTAR_PIN_SCK);
+  gpio_ll_input_disable(&GPIO, DOTSTAR_PIN_DATA);
+  gpio_ll_input_disable(&GPIO, DOTSTAR_PIN_SCK);
+  gpio_ll_output_enable(&GPIO, DOTSTAR_PIN_DATA);
+  gpio_ll_output_enable(&GPIO, DOTSTAR_PIN_SCK);
 
   // Initialise SPI
-  setupSPI(PIN_APA102_DATA, PIN_APA102_SCK);
+  setupSPI(DOTSTAR_PIN_DATA, DOTSTAR_PIN_SCK);
 
   // Initialise the APA
-  initAPA(APA102_BRIGHTNESS);
+  initAPA(DOTSTAR_BRIGHTNESS);
 #endif
 
   timer_hdl = xTimerCreate(NULL, pdMS_TO_TICKS(1000), true, NULL, _board_timer_cb);
@@ -200,7 +200,7 @@ void board_rgb_write(uint8_t const rgb[])
   strip->refresh(strip, 100);
 #endif
 
-#ifdef PIN_APA102_SCK
+#ifdef DOTSTAR_PIN_SCK
     setAPA(rgb[0], rgb[1], rgb[2]);
 #endif
 }
