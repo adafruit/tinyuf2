@@ -39,7 +39,7 @@
 //--------------------------------------------------------------------+
 
 // GPIO connected to Neopixel data
-#define PIN_NEOPIXEL          33
+#define NEOPIXEL_PIN          33
 
 // Brightness percentage from 1 to 255
 #define NEOPIXEL_BRIGHTNESS   0x10

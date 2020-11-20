@@ -45,7 +45,7 @@
 // GPIO connected to Neopixel data
 // Note: Need to insert Jumper (default is Off) to control neopixel
 // On Kaluga this pin is also connected to Camera D3
-#define PIN_NEOPIXEL          45
+#define NEOPIXEL_PIN          45
 
 // Brightness percentage from 1 to 255
 #define NEOPIXEL_BRIGHTNESS   0x10

@@ -45,7 +45,7 @@
 // GPIO connected to Neopixel data
 // Note: On the production version Saola (v1.2) it is GPIO 18,
 // however on earlier revision v1.1 it is GPIO 17
-#define PIN_NEOPIXEL          18
+#define NEOPIXEL_PIN          18
 
 // Brightness percentage from 1 to 255
 #define NEOPIXEL_BRIGHTNESS   0x10

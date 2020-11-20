@@ -45,7 +45,7 @@
 
 static TimerHandle_t timer_hdl = NULL;
 
-#ifdef PIN_NEOPIXEL
+#ifdef NEOPIXEL_PIN
 #include "led_strip.h"
 static led_strip_t *strip;
 #endif
@@ -105,7 +105,7 @@ void board_init(void)
 //  gpio_set_level(BLINK_GPIO, 1);
 #endif
 
-#ifdef PIN_NEOPIXEL
+#ifdef NEOPIXEL_PIN
 
 #ifdef NEOPIXEL_PIN_ENABLE
   gpio_reset_pin(NEOPIXEL_PIN_ENABLE);
@@ -114,7 +114,7 @@ void board_init(void)
 #endif
 
   // WS2812 Neopixel driver with RMT peripheral
-  rmt_config_t config = RMT_DEFAULT_CONFIG_TX(PIN_NEOPIXEL, RMT_CHANNEL_0);
+  rmt_config_t config = RMT_DEFAULT_CONFIG_TX(NEOPIXEL_PIN, RMT_CHANNEL_0);
   config.clk_div = 2; // set counter clock to 40MHz
 
   rmt_config(&config);
@@ -192,7 +192,7 @@ void board_led_write(uint32_t state)
 
 void board_rgb_write(uint8_t const rgb[])
 {
-#ifdef PIN_NEOPIXEL
+#ifdef NEOPIXEL_PIN
   strip->set_pixel(strip, 0, rgb[0], rgb[1], rgb[2]);
   strip->refresh(strip, 100);
 #endif

@@ -249,7 +249,7 @@ static inline uint32_t delay_cycle(uint32_t cycle)
   return ccount;
 }
 
-#ifdef PIN_NEOPIXEL
+#ifdef NEOPIXEL_PIN
 static void board_neopixel_set(uint32_t num_pin, uint8_t pixels[], uint32_t numBytes)
 {
   // WS2812B should be
@@ -326,7 +326,7 @@ static void board_apa102_set(uint32_t num_pin_data,uint32_t num_pin_sck, uint8_t
 
 static void board_led_on(void)
 {
-  #ifdef PIN_NEOPIXEL
+  #ifdef NEOPIXEL_PIN
 
   #ifdef NEOPIXEL_PIN_ENABLE
   gpio_pad_select_gpio(NEOPIXEL_PIN_ENABLE);
@@ -335,10 +335,10 @@ static void board_led_on(void)
   gpio_ll_set_level(&GPIO, NEOPIXEL_PIN_ENABLE, NEOPIXEL_PIN_ENABLE_STATE);
   #endif
 
-  gpio_pad_select_gpio(PIN_NEOPIXEL);
-  gpio_ll_input_disable(&GPIO, PIN_NEOPIXEL);
-  gpio_ll_output_enable(&GPIO, PIN_NEOPIXEL);
-  gpio_ll_set_level(&GPIO, PIN_NEOPIXEL, 0);
+  gpio_pad_select_gpio(NEOPIXEL_PIN);
+  gpio_ll_input_disable(&GPIO, NEOPIXEL_PIN);
+  gpio_ll_output_enable(&GPIO, NEOPIXEL_PIN);
+  gpio_ll_set_level(&GPIO, NEOPIXEL_PIN, 0);
   #endif
 
   #ifdef PIN_APA102_DATA
@@ -369,9 +369,9 @@ static void board_led_on(void)
   delay_cycle( ns2cycle(200000) ) ;
 
   // Note: WS2812 color order is GRB
-  #ifdef PIN_NEOPIXEL
+  #ifdef NEOPIXEL_PIN
   uint8_t pixels[3] = { 0x00, 0x86, 0xb3 };
-  board_neopixel_set(PIN_NEOPIXEL, pixels, sizeof(pixels));
+  board_neopixel_set(NEOPIXEL_PIN, pixels, sizeof(pixels));
   #endif
 
   #ifdef PIN_LED
@@ -389,15 +389,15 @@ static void board_led_on(void)
 
 static void board_led_off(void)
 {
-  #ifdef PIN_NEOPIXEL
+  #ifdef NEOPIXEL_PIN
   uint8_t pixels[3] = { 0x00, 0x00, 0x00 };
-  board_neopixel_set(PIN_NEOPIXEL, pixels, sizeof(pixels));
+  board_neopixel_set(NEOPIXEL_PIN, pixels, sizeof(pixels));
 
   // Neopixel reset time
   delay_cycle( ns2cycle(200000) ) ;
 
   // TODO how to de-select GPIO pad to set it back to default state !?
-  gpio_ll_output_disable(&GPIO, PIN_NEOPIXEL);
+  gpio_ll_output_disable(&GPIO, NEOPIXEL_PIN);
 
   #ifdef NEOPIXEL_PIN_ENABLE
   gpio_ll_set_level(&GPIO, NEOPIXEL_PIN_ENABLE, 1-NEOPIXEL_PIN_ENABLE_STATE);

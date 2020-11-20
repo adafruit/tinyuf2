@@ -43,7 +43,7 @@
 //--------------------------------------------------------------------+
 
 // GPIO connected to Neopixel data
-#define PIN_NEOPIXEL                1
+#define NEOPIXEL_PIN                1
 
 #define NEOPIXEL_PIN_ENABLE         21
 #define NEOPIXEL_PIN_ENABLE_STATE   0
