@@ -32,7 +32,7 @@
 // Enter UF2 mode if GPIO is pressed while 2nd stage bootloader indicator
 // is on e.g RGB = Purple. If it is GPIO0, user should not hold this while
 // reset since that will instead run the 1st stage ROM bootloader
-#define PIN_BUTTON_UF2       0
+#define PIN_BUTTON_UF2        0
 
 //--------------------------------------------------------------------+
 // LED

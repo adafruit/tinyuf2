@@ -57,18 +57,18 @@
 // TFT Display
 //--------------------------------------------------------------------+
 
-#define PIN_DISPLAY_MISO       8
-#define PIN_DISPLAY_MOSI       9
-#define PIN_DISPLAY_SCK        15
-#define PIN_DISPLAY_CS         11
-#define PIN_DISPLAY_DC         13
-#define PIN_DISPLAY_RST        16
-#define PIN_DISPLAY_BL         6
+#define PIN_DISPLAY_MISO      8
+#define PIN_DISPLAY_MOSI      9
+#define PIN_DISPLAY_SCK       15
+#define PIN_DISPLAY_CS        11
+#define PIN_DISPLAY_DC        13
+#define PIN_DISPLAY_RST       16
+#define PIN_DISPLAY_BL        6
 
-#define DISPLAY_BL_STATE       0  // GPIO state to enable back light
-#define DISPLAY_WIDTH          320
-#define DISPLAY_HEIGHT         240
-#define DISPLAY_MADCTL         0x08
+#define DISPLAY_BL_STATE      0  // GPIO state to enable back light
+#define DISPLAY_WIDTH         320
+#define DISPLAY_HEIGHT        240
+#define DISPLAY_MADCTL        0x08
 
 //--------------------------------------------------------------------+
 // USB UF2
