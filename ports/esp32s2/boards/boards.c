@@ -106,6 +106,13 @@ void board_init(void)
 #endif
 
 #ifdef PIN_NEOPIXEL
+
+#ifdef NEOPIXEL_PIN_ENABLE
+  gpio_reset_pin(NEOPIXEL_PIN_ENABLE);
+  gpio_set_direction(NEOPIXEL_PIN_ENABLE, GPIO_MODE_OUTPUT);
+  gpio_set_level(NEOPIXEL_PIN_ENABLE, NEOPIXEL_PIN_ENABLE_STATE);
+#endif
+
   // WS2812 Neopixel driver with RMT peripheral
   rmt_config_t config = RMT_DEFAULT_CONFIG_TX(PIN_NEOPIXEL, RMT_CHANNEL_0);
   config.clk_div = 2; // set counter clock to 40MHz
@@ -120,19 +127,19 @@ void board_init(void)
 #endif
 
 #ifdef PIN_APA102_SCK
-    // Setup the IO for the APA DATA and CLK
-    gpio_pad_select_gpio(PIN_APA102_DATA);
-    gpio_pad_select_gpio(PIN_APA102_SCK);
-    gpio_ll_input_disable(&GPIO, PIN_APA102_DATA);
-    gpio_ll_input_disable(&GPIO, PIN_APA102_SCK);
-    gpio_ll_output_enable(&GPIO, PIN_APA102_DATA);
-    gpio_ll_output_enable(&GPIO, PIN_APA102_SCK);
+  // Setup the IO for the APA DATA and CLK
+  gpio_pad_select_gpio(PIN_APA102_DATA);
+  gpio_pad_select_gpio(PIN_APA102_SCK);
+  gpio_ll_input_disable(&GPIO, PIN_APA102_DATA);
+  gpio_ll_input_disable(&GPIO, PIN_APA102_SCK);
+  gpio_ll_output_enable(&GPIO, PIN_APA102_DATA);
+  gpio_ll_output_enable(&GPIO, PIN_APA102_SCK);
 
-    // Initialise SPI
-    setupSPI(PIN_APA102_DATA, PIN_APA102_SCK);
+  // Initialise SPI
+  setupSPI(PIN_APA102_DATA, PIN_APA102_SCK);
 
-    // Initialise the APA
-    initAPA(APA102_BRIGHTNESS);
+  // Initialise the APA
+  initAPA(APA102_BRIGHTNESS);
 #endif
 
   timer_hdl = xTimerCreate(NULL, pdMS_TO_TICKS(1000), true, NULL, _board_timer_cb);

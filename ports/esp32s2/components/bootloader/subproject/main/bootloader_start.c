@@ -327,6 +327,14 @@ static void board_apa102_set(uint32_t num_pin_data,uint32_t num_pin_sck, uint8_t
 static void board_led_on(void)
 {
   #ifdef PIN_NEOPIXEL
+
+  #ifdef NEOPIXEL_PIN_ENABLE
+  gpio_pad_select_gpio(NEOPIXEL_PIN_ENABLE);
+  gpio_ll_input_disable(&GPIO, NEOPIXEL_PIN_ENABLE);
+  gpio_ll_output_enable(&GPIO, NEOPIXEL_PIN_ENABLE);
+  gpio_ll_set_level(&GPIO, NEOPIXEL_PIN_ENABLE, NEOPIXEL_PIN_ENABLE_STATE);
+  #endif
+
   gpio_pad_select_gpio(PIN_NEOPIXEL);
   gpio_ll_input_disable(&GPIO, PIN_NEOPIXEL);
   gpio_ll_output_enable(&GPIO, PIN_NEOPIXEL);
@@ -377,7 +385,6 @@ static void board_led_on(void)
   board_apa102_set(PIN_APA102_DATA,PIN_APA102_SCK, pixels, sizeof(pixels));
   #endif
 
-
 }
 
 static void board_led_off(void)
@@ -391,6 +398,11 @@ static void board_led_off(void)
 
   // TODO how to de-select GPIO pad to set it back to default state !?
   gpio_ll_output_disable(&GPIO, PIN_NEOPIXEL);
+
+  #ifdef NEOPIXEL_PIN_ENABLE
+  gpio_ll_set_level(&GPIO, NEOPIXEL_PIN_ENABLE, 1-NEOPIXEL_PIN_ENABLE_STATE);
+  gpio_ll_output_disable(&GPIO, NEOPIXEL_PIN_ENABLE);
+  #endif
   #endif
 
   #ifdef PIN_APA102_DATA
@@ -405,7 +417,7 @@ static void board_led_off(void)
 
 
   #ifdef PIN_LED
-  gpio_ll_set_level(&GPIO, PIN_LED, 0);
+  gpio_ll_set_level(&GPIO, PIN_LED, 1);
   gpio_ll_output_disable(&GPIO, PIN_LED);
   #endif
 
