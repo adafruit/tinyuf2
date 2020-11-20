@@ -30,6 +30,9 @@
 // Initial delay in milliseconds to detect user interaction to enter UF2.
 #define UF2_DETECTION_DELAY_MS       500
 
+uint8_t const RGB_DOUBLE_TAP[] = { 0x80, 0x00, 0xff }; // Purple
+uint8_t const RGB_OFF[]        = { 0x00, 0x00, 0x00 };
+
 //--------------------------------------------------------------------+
 //
 //--------------------------------------------------------------------+
@@ -250,16 +253,31 @@ static inline uint32_t delay_cycle(uint32_t cycle)
 }
 
 #ifdef NEOPIXEL_PIN
-static void board_neopixel_set(uint32_t num_pin, uint8_t pixels[], uint32_t numBytes)
+
+static inline uint8_t color_brightness(uint8_t color, uint8_t brightness)
+{
+  return (uint8_t) ((color*brightness) >> 8);
+}
+
+static void board_neopixel_set(uint32_t num_pin, uint8_t rgb[])
 {
   // WS2812B should be
-  uint32_t const time0 = ns2cycle(400);
+  uint32_t const time0  = ns2cycle(400);
   uint32_t const time1  = ns2cycle(800);
   uint32_t const period = ns2cycle(1250);
 
+  uint8_t pixels[3*NEOPIXEL_NUMBER];
+  for(uint32_t i=0; i<NEOPIXEL_NUMBER; i++)
+  {
+    // Note: WS2812 color order is GRB
+    pixels[3*i  ] = color_brightness(rgb[1], NEOPIXEL_BRIGHTNESS);
+    pixels[3*i+1] = color_brightness(rgb[0], NEOPIXEL_BRIGHTNESS);
+    pixels[3*i+2] = color_brightness(rgb[2], NEOPIXEL_BRIGHTNESS);
+  }
+
   uint32_t cyc = 0;
-  for(uint16_t n=0; n<numBytes; n++) {
-    uint8_t pix = ((*pixels++) * NEOPIXEL_BRIGHTNESS) >> 8;
+  for(uint16_t n=0; n<sizeof(pixels); n++) {
+    uint8_t const pix = pixels[n];
 
     for(uint8_t mask = 0x80; mask > 0; mask >>= 1) {
       uint32_t ccount;
@@ -304,11 +322,6 @@ static void SPI_write(int32_t num_pin_data,uint32_t num_pin_sck,uint8_t c) {
  }
 static void board_apa102_set(uint32_t num_pin_data,uint32_t num_pin_sck, uint8_t pixels[], uint32_t numBytes)
 {
-  // WS2812B should be
-  uint32_t const time0 = ns2cycle(400);
-  uint32_t const time1  = ns2cycle(800);
-  uint32_t const period = ns2cycle(1250);
-
   SPI_write(num_pin_data,num_pin_sck,0x00);
   SPI_write(num_pin_data,num_pin_sck,0x00);
   SPI_write(num_pin_data,num_pin_sck,0x00);
@@ -319,14 +332,12 @@ static void board_apa102_set(uint32_t num_pin_data,uint32_t num_pin_sck, uint8_t
   for(uint16_t n=0; n<numBytes; n++) {
     SPI_write(num_pin_data,num_pin_sck,pixels[n]);
   }
-
-
 }
 #endif
 
 static void board_led_on(void)
 {
-  #ifdef NEOPIXEL_PIN
+#ifdef NEOPIXEL_PIN
 
   #ifdef NEOPIXEL_ENABLE_PIN
   gpio_pad_select_gpio(NEOPIXEL_ENABLE_PIN);
@@ -339,9 +350,9 @@ static void board_led_on(void)
   gpio_ll_input_disable(&GPIO, NEOPIXEL_PIN);
   gpio_ll_output_enable(&GPIO, NEOPIXEL_PIN);
   gpio_ll_set_level(&GPIO, NEOPIXEL_PIN, 0);
-  #endif
+#endif
 
-  #ifdef PIN_APA102_DATA
+#ifdef PIN_APA102_DATA
   gpio_pad_select_gpio(PIN_APA102_DATA);
   gpio_ll_input_disable(&GPIO, PIN_APA102_DATA);
   gpio_ll_output_enable(&GPIO, PIN_APA102_DATA);
@@ -356,42 +367,38 @@ static void board_led_on(void)
   gpio_ll_input_disable(&GPIO, PIN_APA102_PWR);
   gpio_ll_output_enable(&GPIO, PIN_APA102_PWR);
   gpio_ll_set_level(&GPIO, PIN_APA102_PWR, 0);
-  #endif
+#endif
 
-  #ifdef LED_PIN
+#ifdef LED_PIN
   gpio_pad_select_gpio(LED_PIN);
   gpio_ll_input_disable(&GPIO, LED_PIN);
   gpio_ll_output_enable(&GPIO, LED_PIN);
   gpio_ll_set_level(&GPIO, LED_PIN, LED_STATE_ON);
-  #endif
+#endif
 
   // Need at least 200 us for initial delay although Neopixel reset time is only 50 us
   delay_cycle( ns2cycle(200000) ) ;
 
-  // Note: WS2812 color order is GRB
-  #ifdef NEOPIXEL_PIN
-  uint8_t pixels[3] = { 0x00, 0x86, 0xb3 };
-  board_neopixel_set(NEOPIXEL_PIN, pixels, sizeof(pixels));
-  #endif
+#ifdef NEOPIXEL_PIN
+  board_neopixel_set(NEOPIXEL_PIN, RGB_DOUBLE_TAP);
+#endif
 
-  #ifdef LED_PIN
+#ifdef LED_PIN
   gpio_ll_set_level(&GPIO, LED_PIN, 1);
-  #endif
+#endif
 
   // APA102 colour order is BGR
-  #ifdef PIN_APA102_DATA
+#ifdef PIN_APA102_DATA
   uint8_t pixels[3] = { 0xb3, 0x00, 0x86 };
   gpio_ll_set_level(&GPIO, PIN_APA102_PWR, 1);
   board_apa102_set(PIN_APA102_DATA,PIN_APA102_SCK, pixels, sizeof(pixels));
-  #endif
-
+#endif
 }
 
 static void board_led_off(void)
 {
-  #ifdef NEOPIXEL_PIN
-  uint8_t pixels[3] = { 0x00, 0x00, 0x00 };
-  board_neopixel_set(NEOPIXEL_PIN, pixels, sizeof(pixels));
+#ifdef NEOPIXEL_PIN
+  board_neopixel_set(NEOPIXEL_PIN, RGB_OFF);
 
   // Neopixel reset time
   delay_cycle( ns2cycle(200000) ) ;
@@ -403,21 +410,19 @@ static void board_led_off(void)
   gpio_ll_set_level(&GPIO, NEOPIXEL_ENABLE_PIN, 1-NEOPIXEL_ENABLE_STATE);
   gpio_ll_output_disable(&GPIO, NEOPIXEL_ENABLE_PIN);
   #endif
-  #endif
+#endif
 
-  #ifdef PIN_APA102_DATA
-  uint8_t pixels[3] = { 0x00, 0x00, 0x00 };
-  board_apa102_set(PIN_APA102_DATA,PIN_APA102_SCK, pixels, sizeof(pixels));
+#ifdef PIN_APA102_DATA
+  board_apa102_set(PIN_APA102_DATA,PIN_APA102_SCK, RGB_OFF, 3);
 
   gpio_ll_output_disable(&GPIO, PIN_APA102_DATA);
   gpio_ll_output_disable(&GPIO, PIN_APA102_SCK);
   gpio_ll_set_level(&GPIO, PIN_APA102_PWR, 0);
   gpio_ll_output_disable(&GPIO, PIN_APA102_PWR);
-  #endif
+#endif
 
-  #ifdef LED_PIN
+#ifdef LED_PIN
   gpio_ll_set_level(&GPIO, LED_PIN, 1-LED_STATE_ON);
   gpio_ll_output_disable(&GPIO, LED_PIN);
-  #endif
-
+#endif
 }

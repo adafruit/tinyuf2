@@ -193,7 +193,10 @@ void board_led_write(uint32_t state)
 void board_rgb_write(uint8_t const rgb[])
 {
 #ifdef NEOPIXEL_PIN
-  strip->set_pixel(strip, 0, rgb[0], rgb[1], rgb[2]);
+  for(uint32_t i=0; i<NEOPIXEL_NUMBER; i++)
+  {
+    strip->set_pixel(strip, i, rgb[0], rgb[1], rgb[2]);
+  }
   strip->refresh(strip, 100);
 #endif
 
