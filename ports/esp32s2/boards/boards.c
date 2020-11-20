@@ -107,10 +107,10 @@ void board_init(void)
 
 #ifdef NEOPIXEL_PIN
 
-#ifdef NEOPIXEL_PIN_ENABLE
-  gpio_reset_pin(NEOPIXEL_PIN_ENABLE);
-  gpio_set_direction(NEOPIXEL_PIN_ENABLE, GPIO_MODE_OUTPUT);
-  gpio_set_level(NEOPIXEL_PIN_ENABLE, NEOPIXEL_PIN_ENABLE_STATE);
+#ifdef NEOPIXEL_ENABLE_PIN
+  gpio_reset_pin(NEOPIXEL_ENABLE_PIN);
+  gpio_set_direction(NEOPIXEL_ENABLE_PIN, GPIO_MODE_OUTPUT);
+  gpio_set_level(NEOPIXEL_ENABLE_PIN, NEOPIXEL_ENABLE_STATE);
 #endif
 
   // WS2812 Neopixel driver with RMT peripheral
