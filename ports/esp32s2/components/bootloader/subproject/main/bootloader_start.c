@@ -358,11 +358,11 @@ static void board_led_on(void)
   gpio_ll_set_level(&GPIO, PIN_APA102_PWR, 0);
   #endif
 
-  #ifdef PIN_LED
-  gpio_pad_select_gpio(PIN_LED);
-  gpio_ll_input_disable(&GPIO, PIN_LED);
-  gpio_ll_output_enable(&GPIO, PIN_LED);
-  gpio_ll_set_level(&GPIO, PIN_LED, 0);
+  #ifdef LED_PIN
+  gpio_pad_select_gpio(LED_PIN);
+  gpio_ll_input_disable(&GPIO, LED_PIN);
+  gpio_ll_output_enable(&GPIO, LED_PIN);
+  gpio_ll_set_level(&GPIO, LED_PIN, LED_STATE_ON);
   #endif
 
   // Need at least 200 us for initial delay although Neopixel reset time is only 50 us
@@ -374,8 +374,8 @@ static void board_led_on(void)
   board_neopixel_set(NEOPIXEL_PIN, pixels, sizeof(pixels));
   #endif
 
-  #ifdef PIN_LED
-  gpio_ll_set_level(&GPIO, PIN_LED, 1);
+  #ifdef LED_PIN
+  gpio_ll_set_level(&GPIO, LED_PIN, 1);
   #endif
 
   // APA102 colour order is BGR
@@ -415,10 +415,9 @@ static void board_led_off(void)
   gpio_ll_output_disable(&GPIO, PIN_APA102_PWR);
   #endif
 
-
-  #ifdef PIN_LED
-  gpio_ll_set_level(&GPIO, PIN_LED, 1);
-  gpio_ll_output_disable(&GPIO, PIN_LED);
+  #ifdef LED_PIN
+  gpio_ll_set_level(&GPIO, LED_PIN, 1-LED_STATE_ON);
+  gpio_ll_output_disable(&GPIO, LED_PIN);
   #endif
 
 }

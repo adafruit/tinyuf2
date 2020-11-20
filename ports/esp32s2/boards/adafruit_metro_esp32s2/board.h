@@ -54,7 +54,8 @@
 
 // LED for indicator and writing flash
 // If not defined neopixel will be use for flash writing instead
-#define PIN_LED               42
+#define LED_PIN               42
+#define LED_STATE_ON          1
 
 //--------------------------------------------------------------------+
 // USB UF2

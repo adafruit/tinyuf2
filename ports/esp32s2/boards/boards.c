@@ -97,7 +97,7 @@ void app_main(void)
 void board_init(void)
 {
 
-#ifdef PIN_LED
+#ifdef LED_PIN
 //#define BLINK_GPIO 26
 //  gpio_pad_select_gpio(BLINK_GPIO);
 //  gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
