@@ -266,7 +266,7 @@ static void board_neopixel_set(uint32_t num_pin, uint8_t rgb[])
   uint32_t const time1  = ns2cycle(800);
   uint32_t const period = ns2cycle(1250);
 
-  uint8_t const pixels[3*NEOPIXEL_NUMBER];
+  uint8_t pixels[3*NEOPIXEL_NUMBER];
   for(uint32_t i=0; i<NEOPIXEL_NUMBER; i++)
   {
     // Note: WS2812 color order is GRB
