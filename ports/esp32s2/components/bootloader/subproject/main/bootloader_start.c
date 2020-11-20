@@ -266,7 +266,7 @@ static void board_neopixel_set(uint32_t num_pin, uint8_t rgb[])
   uint32_t const time1  = ns2cycle(800);
   uint32_t const period = ns2cycle(1250);
 
-  uint8_t pixels[3*NEOPIXEL_NUMBER];
+  uint8_t const pixels[3*NEOPIXEL_NUMBER];
   for(uint32_t i=0; i<NEOPIXEL_NUMBER; i++)
   {
     // Note: WS2812 color order is GRB
@@ -320,7 +320,7 @@ static void SPI_write(int32_t num_pin_data,uint32_t num_pin_sck,uint8_t c) {
   }
 
  }
-static void board_apa102_set(uint32_t num_pin_data,uint32_t num_pin_sck, uint8_t pixels[], uint32_t numBytes)
+static void board_apa102_set(uint32_t num_pin_data,uint32_t num_pin_sck, uint8_t rgb[])
 {
   SPI_write(num_pin_data,num_pin_sck,0x00);
   SPI_write(num_pin_data,num_pin_sck,0x00);
@@ -329,8 +329,11 @@ static void board_apa102_set(uint32_t num_pin_data,uint32_t num_pin_sck, uint8_t
 
   SPI_write(num_pin_data,num_pin_sck,0xe0 | APA102_BRIGHTNESS);
 
-  for(uint16_t n=0; n<numBytes; n++) {
-    SPI_write(num_pin_data,num_pin_sck,pixels[n]);
+  // DotStar APA102 color order is BGR
+  uint8_t const pixels[3] = { rgb[2], rgb[1], rgb[0] };
+
+  for(uint16_t n=0; n<sizeof(pixels); n++) {
+    SPI_write(num_pin_data, num_pin_sck, pixels[n]);
   }
 }
 #endif
@@ -391,7 +394,7 @@ static void board_led_on(void)
 #ifdef PIN_APA102_DATA
   uint8_t pixels[3] = { 0xb3, 0x00, 0x86 };
   gpio_ll_set_level(&GPIO, PIN_APA102_PWR, 1);
-  board_apa102_set(PIN_APA102_DATA,PIN_APA102_SCK, pixels, sizeof(pixels));
+  board_apa102_set(PIN_APA102_DATA, PIN_APA102_SCK, RGB_DOUBLE_TAP);
 #endif
 }
 
@@ -413,7 +416,7 @@ static void board_led_off(void)
 #endif
 
 #ifdef PIN_APA102_DATA
-  board_apa102_set(PIN_APA102_DATA,PIN_APA102_SCK, RGB_OFF, 3);
+  board_apa102_set(PIN_APA102_DATA, PIN_APA102_SCK, RGB_OFF);
 
   gpio_ll_output_disable(&GPIO, PIN_APA102_DATA);
   gpio_ll_output_disable(&GPIO, PIN_APA102_SCK);
