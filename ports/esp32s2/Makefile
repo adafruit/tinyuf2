@@ -19,6 +19,12 @@ clean:
 flash:
 	idf.py -B$(BUILD) -DBOARD=$(BOARD) flash
 
+bootloader-flash:
+	idf.py -B$(BUILD) -DBOARD=$(BOARD) bootloader-flash
+
+app-flash:
+	idf.py -B$(BUILD) -DBOARD=$(BOARD) app-flash
+
 erase:
 	idf.py -B$(BUILD) -DBOARD=$(BOARD) erase_flash
 

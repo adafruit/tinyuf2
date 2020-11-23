@@ -32,7 +32,7 @@
 // Enter UF2 mode if GPIO is pressed while 2nd stage bootloader indicator
 // is on e.g RGB = Purple. If it is GPIO0, user should not hold this while
 // reset since that will instead run the 1st stage ROM bootloader
-#define PIN_BUTTON_UF2       0
+#define PIN_BUTTON_UF2        0
 
 // GPIO that implement 1-bit memory with RC components which hold the
 // pin value long enough for double reset detection.
@@ -43,7 +43,7 @@
 //--------------------------------------------------------------------+
 
 // GPIO connected to Neopixel data
-#define PIN_NEOPIXEL          45
+#define NEOPIXEL_PIN          45
 
 // Brightness percentage from 1 to 255
 #define NEOPIXEL_BRIGHTNESS   0x10
@@ -54,7 +54,8 @@
 
 // LED for indicator and writing flash
 // If not defined neopixel will be use for flash writing instead
-#define PIN_LED               42
+#define LED_PIN               42
+#define LED_STATE_ON          1
 
 //--------------------------------------------------------------------+
 // USB UF2

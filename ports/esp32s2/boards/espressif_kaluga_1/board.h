@@ -45,7 +45,7 @@
 // GPIO connected to Neopixel data
 // Note: Need to insert Jumper (default is Off) to control neopixel
 // On Kaluga this pin is also connected to Camera D3
-#define PIN_NEOPIXEL          45
+#define NEOPIXEL_PIN          45
 
 // Brightness percentage from 1 to 255
 #define NEOPIXEL_BRIGHTNESS   0x10
@@ -57,18 +57,18 @@
 // TFT Display
 //--------------------------------------------------------------------+
 
-#define PIN_DISPLAY_MISO       8
-#define PIN_DISPLAY_MOSI       9
-#define PIN_DISPLAY_SCK        15
-#define PIN_DISPLAY_CS         11
-#define PIN_DISPLAY_DC         13
-#define PIN_DISPLAY_RST        16
-#define PIN_DISPLAY_BL         6
+#define PIN_DISPLAY_MISO      8
+#define PIN_DISPLAY_MOSI      9
+#define PIN_DISPLAY_SCK       15
+#define PIN_DISPLAY_CS        11
+#define PIN_DISPLAY_DC        13
+#define PIN_DISPLAY_RST       16
+#define PIN_DISPLAY_BL        6
 
-#define DISPLAY_BL_STATE       0  // GPIO state to enable back light
-#define DISPLAY_WIDTH          320
-#define DISPLAY_HEIGHT         240
-#define DISPLAY_MADCTL         0x08
+#define DISPLAY_BL_STATE      0  // GPIO state to enable back light
+#define DISPLAY_WIDTH         320
+#define DISPLAY_HEIGHT        240
+#define DISPLAY_MADCTL        0x08
 
 //--------------------------------------------------------------------+
 // USB UF2

@@ -45,12 +45,12 @@
 
 static TimerHandle_t timer_hdl = NULL;
 
-#ifdef PIN_NEOPIXEL
+#ifdef NEOPIXEL_PIN
 #include "led_strip.h"
 static led_strip_t *strip;
 #endif
 
-#ifdef PIN_APA102_SCK
+#ifdef DOTSTAR_PIN_SCK
 #include "led_strip_spi_apa102.h"
 #endif
 
@@ -97,7 +97,7 @@ void app_main(void)
 void board_init(void)
 {
 
-#ifdef PIN_LED
+#ifdef LED_PIN
 //#define BLINK_GPIO 26
 //  gpio_pad_select_gpio(BLINK_GPIO);
 //  gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
@@ -105,9 +105,16 @@ void board_init(void)
 //  gpio_set_level(BLINK_GPIO, 1);
 #endif
 
-#ifdef PIN_NEOPIXEL
+#ifdef NEOPIXEL_PIN
+
+#ifdef NEOPIXEL_ENABLE_PIN
+  gpio_reset_pin(NEOPIXEL_ENABLE_PIN);
+  gpio_set_direction(NEOPIXEL_ENABLE_PIN, GPIO_MODE_OUTPUT);
+  gpio_set_level(NEOPIXEL_ENABLE_PIN, NEOPIXEL_ENABLE_STATE);
+#endif
+
   // WS2812 Neopixel driver with RMT peripheral
-  rmt_config_t config = RMT_DEFAULT_CONFIG_TX(PIN_NEOPIXEL, RMT_CHANNEL_0);
+  rmt_config_t config = RMT_DEFAULT_CONFIG_TX(NEOPIXEL_PIN, RMT_CHANNEL_0);
   config.clk_div = 2; // set counter clock to 40MHz
 
   rmt_config(&config);
@@ -119,20 +126,20 @@ void board_init(void)
   strip->set_brightness(strip, NEOPIXEL_BRIGHTNESS);
 #endif
 
-#ifdef PIN_APA102_SCK
-    // Setup the IO for the APA DATA and CLK
-    gpio_pad_select_gpio(PIN_APA102_DATA);
-    gpio_pad_select_gpio(PIN_APA102_SCK);
-    gpio_ll_input_disable(&GPIO, PIN_APA102_DATA);
-    gpio_ll_input_disable(&GPIO, PIN_APA102_SCK);
-    gpio_ll_output_enable(&GPIO, PIN_APA102_DATA);
-    gpio_ll_output_enable(&GPIO, PIN_APA102_SCK);
+#ifdef DOTSTAR_PIN_SCK
+  // Setup the IO for the APA DATA and CLK
+  gpio_pad_select_gpio(DOTSTAR_PIN_DATA);
+  gpio_pad_select_gpio(DOTSTAR_PIN_SCK);
+  gpio_ll_input_disable(&GPIO, DOTSTAR_PIN_DATA);
+  gpio_ll_input_disable(&GPIO, DOTSTAR_PIN_SCK);
+  gpio_ll_output_enable(&GPIO, DOTSTAR_PIN_DATA);
+  gpio_ll_output_enable(&GPIO, DOTSTAR_PIN_SCK);
 
-    // Initialise SPI
-    setupSPI(PIN_APA102_DATA, PIN_APA102_SCK);
+  // Initialise SPI
+  setupSPI(DOTSTAR_PIN_DATA, DOTSTAR_PIN_SCK);
 
-    // Initialise the APA
-    initAPA(APA102_BRIGHTNESS);
+  // Initialise the APA
+  initAPA(DOTSTAR_BRIGHTNESS);
 #endif
 
   timer_hdl = xTimerCreate(NULL, pdMS_TO_TICKS(1000), true, NULL, _board_timer_cb);
@@ -185,12 +192,15 @@ void board_led_write(uint32_t state)
 
 void board_rgb_write(uint8_t const rgb[])
 {
-#ifdef PIN_NEOPIXEL
-  strip->set_pixel(strip, 0, rgb[0], rgb[1], rgb[2]);
+#ifdef NEOPIXEL_PIN
+  for(uint32_t i=0; i<NEOPIXEL_NUMBER; i++)
+  {
+    strip->set_pixel(strip, i, rgb[0], rgb[1], rgb[2]);
+  }
   strip->refresh(strip, 100);
 #endif
 
-#ifdef PIN_APA102_SCK
+#ifdef DOTSTAR_PIN_SCK
     setAPA(rgb[0], rgb[1], rgb[2]);
 #endif
 }
