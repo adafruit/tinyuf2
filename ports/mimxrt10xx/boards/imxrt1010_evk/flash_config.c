@@ -10,6 +10,21 @@
 #include "boards.h"
 
 
+__attribute__((section(".boot_hdr.sdp")))
+/*************************************
+ *  IVT Data
+ *************************************/
+const ivt sdp_ivt = {
+  IVT_HEADER,                         /* IVT Header */
+  IMAGE_ENTRY_ADDRESS,                /* Image Entry Function */
+  IVT_RSVD,                           /* Reserved = 0 */
+  (uint32_t)0x0,                      /* Address where DCD information is stored */
+  (uint32_t)0x0,                      /* Address where BOOT Data Structure is stored */
+  (uint32_t)&sdp_ivt,                 /* Pointer to IVT Self (absolute address */
+  (uint32_t)0x0,                      /* Address where CSF file is stored */
+  IVT_RSVD                            /* Reserved = 0 */
+};
+
 __attribute__((section(".boot_hdr.ivt")))
 /*************************************
  *  IVT Data

@@ -35,15 +35,24 @@ SECTIONS
   __NCACHE_REGION_START = ORIGIN(m_data2);
   __NCACHE_REGION_SIZE  = 0;
 
-  .flash_config :
+  sdp_begin = ORIGIN(m_sdp);
+
+  .sdp : AT(sdp_begin)
   {
     . = ALIGN(4);
     __FLASH_BASE = .;
+	  KEEP(* (.boot_hdr.sdp))           /* sdp ivt section */
+    . = ALIGN(4);
+  } > m_sdp
+
+  .flash_config :
+  {
+    . = ALIGN(4);
     KEEP(* (.boot_hdr.conf))     /* flash config section */
     . = ALIGN(4);
   } > m_flash_config
 
-  ivt_begin= ORIGIN(m_flash_config) + LENGTH(m_flash_config);
+  ivt_begin = ORIGIN(m_flash_config) + LENGTH(m_flash_config);
 
   .ivt : AT(ivt_begin)
   {

@@ -26,12 +26,13 @@
 /* Specify the memory areas */
 MEMORY
 {
-  m_flash_config        (RX)  : ORIGIN = 0x60000400, LENGTH = 0x00000C00
-  m_ivt                 (RX)  : ORIGIN = 0x60001000, LENGTH = 0x00001000
-  m_interrupts          (RX)  : ORIGIN = 0x60002000, LENGTH = 0x00000400
-  m_text                (RX)  : ORIGIN = 0x60002400, LENGTH = 0x6000C000-0x60002400
+  m_sdp                 (RX)  : ORIGIN = 0x20206000, LENGTH = 0x00000400
+  m_flash_config        (RX)  : ORIGIN = 0x20206400, LENGTH = 0x00000C00
+  m_ivt                 (RX)  : ORIGIN = 0x20207000, LENGTH = 0x00001000
+  m_interrupts          (RX)  : ORIGIN = 0x20208000, LENGTH = 0x00000400
+  m_text                (RX)  : ORIGIN = 0x20208400, LENGTH = 0x20210000-0x20208400
   m_data                (RW)  : ORIGIN = 0x20000000, LENGTH = 0x00008000 - 4 /* double tap */
-  m_data2               (RW)  : ORIGIN = 0x20200000, LENGTH = 0x00010000
+  m_data2               (RW)  : ORIGIN = 0x20210000, LENGTH = 0x00000000
 }
 
 INCLUDE "rt10xx_common.ld"
