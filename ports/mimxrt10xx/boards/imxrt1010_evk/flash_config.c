@@ -15,7 +15,7 @@ __attribute__((section(".boot_hdr.sdp")))
  *  IVT Data
  *************************************/
 const ivt sdp_ivt = {
-  IVT_HEADER,                         /* IVT Header */
+  IVT_HEADER,                         /* IVT Header for serial downloader*/
   IMAGE_ENTRY_ADDRESS,                /* Image Entry Function */
   IVT_RSVD,                           /* Reserved = 0 */
   (uint32_t)0x0,                      /* Address where DCD information is stored */
