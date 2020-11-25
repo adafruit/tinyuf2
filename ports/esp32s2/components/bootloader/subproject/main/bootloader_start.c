@@ -259,7 +259,7 @@ static inline uint8_t color_brightness(uint8_t color, uint8_t brightness)
   return (uint8_t) ((color*brightness) >> 8);
 }
 
-static void board_neopixel_set(uint32_t num_pin, uint8_t rgb[])
+static void board_neopixel_set(uint32_t num_pin, uint8_t const rgb[])
 {
   // WS2812B should be
   uint32_t const time0  = ns2cycle(400);
@@ -320,7 +320,7 @@ static void SPI_write(int32_t num_pin_data,uint32_t num_pin_sck,uint8_t c) {
   }
 
  }
-static void board_apa102_set(uint32_t num_pin_data,uint32_t num_pin_sck, uint8_t rgb[])
+static void board_apa102_set(uint32_t num_pin_data,uint32_t num_pin_sck, uint8_t const rgb[])
 {
   SPI_write(num_pin_data,num_pin_sck,0x00);
   SPI_write(num_pin_data,num_pin_sck,0x00);
