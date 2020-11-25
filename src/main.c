@@ -124,7 +124,7 @@ int main(void)
 
   tusb_init();
 
-  indicator_set(STATE_BOOTLOADER_STARTED);
+  indicator_set(STATE_USB_UNPLUGGED);
 
 #if USE_SCREEN
   screen_init();
@@ -189,23 +189,28 @@ void tud_hid_set_report_cb(uint8_t report_id, hid_report_type_t report_type, uin
 //--------------------------------------------------------------------+
 
 static uint32_t _indicator_state = STATE_BOOTLOADER_STARTED;
+static uint8_t _indicator_rgb[3];
 
 void indicator_set(uint32_t state)
 {
   _indicator_state = state;
   switch(state)
   {
-    case STATE_BOOTLOADER_STARTED:
     case STATE_USB_UNPLUGGED:
-      board_rgb_write(RGB_USB_UNMOUNTED);
+      board_timer_start(1);
+      memcpy(_indicator_rgb, RGB_USB_UNMOUNTED, 3);
+      board_rgb_write(_indicator_rgb);
     break;
 
     case STATE_USB_PLUGGED:
-      board_rgb_write(RGB_USB_MOUNTED);
+      board_timer_start(5);
+      memcpy(_indicator_rgb, RGB_USB_MOUNTED, 3);
+      board_rgb_write(_indicator_rgb);
     break;
 
     case STATE_WRITING_STARTED:
       board_timer_start(25);
+      memcpy(_indicator_rgb, RGB_WRITING, 3);
     break;
 
     case STATE_WRITING_FINISHED:
@@ -213,9 +218,7 @@ void indicator_set(uint32_t state)
       board_rgb_write(RGB_WRITING);
     break;
 
-    default:
-      board_rgb_write(RGB_UNKNOWN);
-    break;
+    default: break; // nothing to do
   }
 }
 
@@ -223,13 +226,37 @@ void board_timer_handler(void)
 {
   _timer_count++;
 
-  if ( _indicator_state == STATE_WRITING_STARTED )
+  switch (_indicator_state)
   {
-    // fast blink LED if available
-    board_led_write(_timer_count & 0x01);
+    case STATE_USB_UNPLUGGED:
+    case STATE_USB_PLUGGED:
+    {
+      // Fading with LED
+      uint8_t duty = _timer_count & 0xff;
+      if ( _timer_count & 0x100 ) duty = 255 - duty;
+      board_led_write(duty);
 
-    // blink RGB if available
-    board_rgb_write((_timer_count & 0x01) ? RGB_WRITING : RGB_OFF);
+      // Skip RGB fading since it is too similar to CircuitPython
+      // uint8_t rgb[3];
+      // rgb_brightness(rgb, _indicator_rgb, duty);
+      // board_rgb_write(rgb);
+    }
+    break;
+
+    case STATE_WRITING_STARTED:
+    {
+      // Fast toggle with both LED and RGB
+      bool is_on = _timer_count & 0x01;
+
+      // fast blink LED if available
+      board_led_write(is_on ? 0xff : 0x000);
+
+      // blink RGB if available
+      board_rgb_write(is_on ? _indicator_rgb : RGB_OFF);
+    }
+    break;
+
+    default: break; // nothing to do
   }
 }
 
