@@ -259,7 +259,7 @@ static inline uint8_t color_brightness(uint8_t color, uint8_t brightness)
   return (uint8_t) ((color*brightness) >> 8);
 }
 
-static void board_neopixel_set(uint32_t num_pin, uint8_t rgb[])
+static void board_neopixel_set(uint32_t num_pin, uint8_t const rgb[])
 {
   // WS2812B should be
   uint32_t const time0  = ns2cycle(400);
@@ -320,7 +320,7 @@ static void SPI_write(int32_t num_pin_data,uint32_t num_pin_sck,uint8_t c) {
   }
 
  }
-static void board_apa102_set(uint32_t num_pin_data,uint32_t num_pin_sck, uint8_t rgb[])
+static void board_apa102_set(uint32_t num_pin_data,uint32_t num_pin_sck, uint8_t const rgb[])
 {
   SPI_write(num_pin_data,num_pin_sck,0x00);
   SPI_write(num_pin_data,num_pin_sck,0x00);
@@ -342,11 +342,11 @@ static void board_led_on(void)
 {
 #ifdef NEOPIXEL_PIN
 
-  #ifdef NEOPIXEL_ENABLE_PIN
-  gpio_pad_select_gpio(NEOPIXEL_ENABLE_PIN);
-  gpio_ll_input_disable(&GPIO, NEOPIXEL_ENABLE_PIN);
-  gpio_ll_output_enable(&GPIO, NEOPIXEL_ENABLE_PIN);
-  gpio_ll_set_level(&GPIO, NEOPIXEL_ENABLE_PIN, NEOPIXEL_ENABLE_STATE);
+  #ifdef NEOPIXEL_POWER_PIN
+  gpio_pad_select_gpio(NEOPIXEL_POWER_PIN);
+  gpio_ll_input_disable(&GPIO, NEOPIXEL_POWER_PIN);
+  gpio_ll_output_enable(&GPIO, NEOPIXEL_POWER_PIN);
+  gpio_ll_set_level(&GPIO, NEOPIXEL_POWER_PIN, NEOPIXEL_POWER_STATE);
   #endif
 
   gpio_pad_select_gpio(NEOPIXEL_PIN);
@@ -409,9 +409,9 @@ static void board_led_off(void)
   // TODO how to de-select GPIO pad to set it back to default state !?
   gpio_ll_output_disable(&GPIO, NEOPIXEL_PIN);
 
-  #ifdef NEOPIXEL_ENABLE_PIN
-  gpio_ll_set_level(&GPIO, NEOPIXEL_ENABLE_PIN, 1-NEOPIXEL_ENABLE_STATE);
-  gpio_ll_output_disable(&GPIO, NEOPIXEL_ENABLE_PIN);
+  #ifdef NEOPIXEL_POWER_PIN
+  gpio_ll_set_level(&GPIO, NEOPIXEL_POWER_PIN, 1-NEOPIXEL_POWER_STATE);
+  gpio_ll_output_disable(&GPIO, NEOPIXEL_POWER_PIN);
   #endif
 #endif
 

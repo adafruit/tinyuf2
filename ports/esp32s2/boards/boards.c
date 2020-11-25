@@ -43,7 +43,7 @@
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
 //--------------------------------------------------------------------+
 
-static TimerHandle_t timer_hdl = NULL;
+static esp_timer_handle_t timer_hdl;
 
 #ifdef NEOPIXEL_PIN
 #include "led_strip.h"
@@ -54,9 +54,23 @@ static led_strip_t *strip;
 #include "led_strip_spi_apa102.h"
 #endif
 
+#ifdef LED_PIN
+#include "driver/ledc.h"
+ledc_channel_config_t ledc_channel =
+{
+  .channel    = LEDC_CHANNEL_0,
+  .duty       = 0,
+  .gpio_num   = LED_PIN,
+  .speed_mode = LEDC_LOW_SPEED_MODE,
+  .hpoint     = 0,
+  .timer_sel  = LEDC_TIMER_0
+};
+#endif
+
+
 extern int main(void);
 static void configure_pins(usb_hal_context_t *usb);
-static void _board_timer_cb(TimerHandle_t xTimer);
+static void internal_timer_cb(void* arg);
 
 //--------------------------------------------------------------------+
 // TinyUSB thread
@@ -96,22 +110,26 @@ void app_main(void)
 
 void board_init(void)
 {
-
 #ifdef LED_PIN
-//#define BLINK_GPIO 26
-//  gpio_pad_select_gpio(BLINK_GPIO);
-//  gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
-//  gpio_set_drive_capability(BLINK_GPIO, GPIO_DRIVE_CAP_3);
-//  gpio_set_level(BLINK_GPIO, 1);
+  ledc_timer_config_t ledc_timer =
+  {
+    .duty_resolution = LEDC_TIMER_8_BIT      , // resolution of PWM duty
+    .freq_hz         = 5000                  , // frequency of PWM signal
+    .speed_mode      = LEDC_LOW_SPEED_MODE   , // timer mode
+    .timer_num       = ledc_channel.timer_sel, // timer index
+    .clk_cfg         = LEDC_AUTO_CLK         , // Auto select the source clock
+  };
+  ledc_timer_config(&ledc_timer);
+  ledc_channel_config(&ledc_channel);
 #endif
 
 #ifdef NEOPIXEL_PIN
 
-#ifdef NEOPIXEL_ENABLE_PIN
-  gpio_reset_pin(NEOPIXEL_ENABLE_PIN);
-  gpio_set_direction(NEOPIXEL_ENABLE_PIN, GPIO_MODE_OUTPUT);
-  gpio_set_level(NEOPIXEL_ENABLE_PIN, NEOPIXEL_ENABLE_STATE);
-#endif
+  #ifdef NEOPIXEL_POWER_PIN
+  gpio_reset_pin(NEOPIXEL_POWER_PIN);
+  gpio_set_direction(NEOPIXEL_POWER_PIN, GPIO_MODE_OUTPUT);
+  gpio_set_level(NEOPIXEL_POWER_PIN, NEOPIXEL_POWER_STATE);
+  #endif
 
   // WS2812 Neopixel driver with RMT peripheral
   rmt_config_t config = RMT_DEFAULT_CONFIG_TX(NEOPIXEL_PIN, RMT_CHANNEL_0);
@@ -142,7 +160,9 @@ void board_init(void)
   initAPA(DOTSTAR_BRIGHTNESS);
 #endif
 
-  timer_hdl = xTimerCreate(NULL, pdMS_TO_TICKS(1000), true, NULL, _board_timer_cb);
+  // Set up timer
+  const esp_timer_create_args_t periodic_timer_args = { .callback = internal_timer_cb };
+  esp_timer_create(&periodic_timer_args, &timer_hdl);
 
   // USB Controller Hal init
   periph_module_reset(PERIPH_USB_MODULE);
@@ -185,9 +205,14 @@ uint8_t board_usb_get_serial(uint8_t serial_id[16])
   return 6;
 }
 
-void board_led_write(uint32_t state)
+void board_led_write(uint32_t value)
 {
-  (void) state;
+  (void) value;
+
+#ifdef LED_PIN
+  ledc_set_duty(ledc_channel.speed_mode, ledc_channel.channel, value);
+  ledc_update_duty(ledc_channel.speed_mode, ledc_channel.channel);
+#endif
 }
 
 void board_rgb_write(uint8_t const rgb[])
@@ -209,20 +234,21 @@ void board_rgb_write(uint8_t const rgb[])
 // Timer
 //--------------------------------------------------------------------+
 
-static void _board_timer_cb(TimerHandle_t xTimer)
+static void internal_timer_cb(void*  arg)
 {
-  (void) xTimer;
+  (void) arg;
   board_timer_handler();
 }
 
 void board_timer_start(uint32_t ms)
 {
-  xTimerChangePeriod(timer_hdl, pdMS_TO_TICKS(ms), 0);
+  esp_timer_stop(timer_hdl);
+  esp_timer_start_periodic(timer_hdl, ms*1000);
 }
 
 void board_timer_stop(void)
 {
-  xTimerStop(timer_hdl, 0);
+  esp_timer_stop(timer_hdl);
 }
 
 static void configure_pins(usb_hal_context_t *usb)
