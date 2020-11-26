@@ -100,6 +100,7 @@ static bool check_dfu_mode(void)
 
   // Turn off indicator
   board_led_write(0x00);
+  board_rgb_write(RGB_OFF);
 
   _board_dfu_dbl_tap[0] = 0;
 #endif
@@ -110,6 +111,8 @@ static bool check_dfu_mode(void)
 int main(void)
 {
   board_init();
+
+  TU_LOG1("TinyUF2\r\n");
 
   // if not DFU mode, jump to App
   if ( !check_dfu_mode() )
