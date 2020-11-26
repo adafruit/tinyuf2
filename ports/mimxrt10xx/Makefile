@@ -39,6 +39,8 @@ SRC_C += \
 	$(MCU_DIR)/drivers/fsl_common.c \
 	$(MCU_DIR)/drivers/fsl_ocotp.c \
 	$(MCU_DIR)/drivers/fsl_cache.c \
+	$(MCU_DIR)/drivers/fsl_pwm.c \
+	$(MCU_DIR)/drivers/fsl_xbara.c \
 	$(MCU_DIR)/drivers/fsl_lpuart.c
 
 SRC_S += $(MCU_DIR)/gcc/startup_$(MCU).S

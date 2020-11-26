@@ -30,10 +30,16 @@
 #include "fsl_clock.h"
 #include "fsl_ocotp.h"
 #include "fsl_lpuart.h"
-#include "clock_config.h"
 
+#ifdef LED_PINMUX
+#include "fsl_pwm.h"
+#include "fsl_xbara.h"
+#endif
+
+#include "clock_config.h"
 #include "tusb.h"
 
+static bool _dfu_mode = false;
 
 // needed by fsl_flexspi_nor_boot
 const uint8_t dcd_data[] = { 0x00 };
@@ -42,16 +48,18 @@ void board_init(void)
 {
   // Init clock
   BOARD_BootClockRUN();
-  //SystemCoreClockUpdate();
+
+  // TODO System clock update could cause incorrect neopixel timing, make sure it right later
+  // SystemCoreClockUpdate();
+
+  board_timer_stop();
 
   // Enable IOCON clock
   CLOCK_EnableClock(kCLOCK_Iomuxc);
 
-  board_timer_stop();
-
-#ifdef LED_PIN
-  IOMUXC_SetPinMux( LED_PINMUX, 0U);
-  IOMUXC_SetPinConfig( LED_PINMUX, 0x10B0U);
+#ifdef LED_PINMUX
+  IOMUXC_SetPinMux(LED_PINMUX, 0U);
+  IOMUXC_SetPinConfig(LED_PINMUX, 0x10B0U);
 
   gpio_pin_config_t led_config = { kGPIO_DigitalOutput, 0, kGPIO_NoIntmode };
   GPIO_PinInit(LED_PORT, LED_PIN, &led_config);
@@ -66,24 +74,35 @@ void board_init(void)
 #endif
 
 #ifdef BUTTON_PIN
-  IOMUXC_SetPinMux( BUTTON_PINMUX, 0U);
+  IOMUXC_SetPinMux(BUTTON_PINMUX, 0U);
   gpio_pin_config_t button_config = { kGPIO_DigitalInput, 0, kGPIO_IntRisingEdge, };
   GPIO_PinInit(BUTTON_PORT, BUTTON_PIN, &button_config);
 #endif
 
 #if defined(UART_DEV) && CFG_TUSB_DEBUG
   // Enable UART when debug log is on
-  IOMUXC_SetPinMux( UART_TX_PINMUX, 0U);
-  IOMUXC_SetPinMux( UART_RX_PINMUX, 0U);
-  IOMUXC_SetPinConfig( UART_TX_PINMUX, 0x10B0u);
-  IOMUXC_SetPinConfig( UART_RX_PINMUX, 0x10B0u);
+  IOMUXC_SetPinMux(UART_TX_PINMUX, 0U);
+  IOMUXC_SetPinMux(UART_RX_PINMUX, 0U);
+  IOMUXC_SetPinConfig(UART_TX_PINMUX, 0x10A0u);
+  IOMUXC_SetPinConfig(UART_RX_PINMUX, 0x10A0u);
 
   lpuart_config_t uart_config;
   LPUART_GetDefaultConfig(&uart_config);
   uart_config.baudRate_Bps = BOARD_UART_BAUDRATE;
   uart_config.enableTx = true;
   uart_config.enableRx = true;
-  LPUART_Init(UART_DEV, &uart_config, (CLOCK_GetPllFreq(kCLOCK_PllUsb1) / 6U) / (CLOCK_GetDiv(kCLOCK_UartDiv) + 1U));
+
+  uint32_t freq;
+  if (CLOCK_GetMux(kCLOCK_UartMux) == 0) /* PLL3 div6 80M */
+  {
+    freq = (CLOCK_GetPllFreq(kCLOCK_PllUsb1) / 6U) / (CLOCK_GetDiv(kCLOCK_UartDiv) + 1U);
+  }
+  else
+  {
+    freq = CLOCK_GetOscFreq() / (CLOCK_GetDiv(kCLOCK_UartDiv) + 1U);
+  }
+
+  LPUART_Init(UART_DEV, &uart_config, freq);
 #endif
 }
 
@@ -114,6 +133,41 @@ void board_dfu_init(void)
   // USB1
 //  CLOCK_EnableUsbhs1PhyPllClock(kCLOCK_Usbphy480M, 480000000U);
 //  CLOCK_EnableUsbhs1Clock(kCLOCK_Usb480M, 480000000U);
+
+  _dfu_mode = true;
+
+#ifdef LED_PWM_PINMUX
+  IOMUXC_SetPinMux(LED_PWM_PINMUX, 0U);
+  IOMUXC_SetPinConfig(LED_PWM_PINMUX, 0x10B0U);
+
+  CLOCK_SetDiv(kCLOCK_AhbDiv, 0x2); /* Set AHB PODF to 2, divide by 3 */
+  CLOCK_SetDiv(kCLOCK_IpgDiv, 0x3); /* Set IPG PODF to 3, divide by 4 */
+  SystemCoreClockUpdate();
+
+  XBARA_Init(XBARA);
+  XBARA_SetSignalsConnection(XBARA, kXBARA1_InputLogicHigh, kXBARA1_OutputFlexpwm1Fault0);
+  XBARA_SetSignalsConnection(XBARA, kXBARA1_InputLogicHigh, kXBARA1_OutputFlexpwm1Fault1);
+  XBARA_SetSignalsConnection(XBARA, kXBARA1_InputLogicHigh, kXBARA1_OutputFlexpwm1Fault2);
+  XBARA_SetSignalsConnection(XBARA, kXBARA1_InputLogicHigh, kXBARA1_OutputFlexpwm1Fault3);
+
+  pwm_config_t pwmConfig;
+  PWM_GetDefaultConfig(&pwmConfig);
+
+  PWM_Init(LED_PWM_BASE, LED_PWM_MODULE, &pwmConfig);
+
+  pwm_signal_param_t pwmSignal =
+  {
+    .pwmChannel       = LED_PWM_CHANNEL,
+    .dutyCyclePercent = 0,
+    .level            = LED_STATE_ON ? kPWM_HighTrue : kPWM_LowTrue,
+    .deadtimeValue    = 0,
+    .faultState       = kPWM_PwmFaultState0
+  };
+  PWM_SetupPwm(LED_PWM_BASE, LED_PWM_MODULE, &pwmSignal, 1, kPWM_SignedCenterAligned, 5000, CLOCK_GetFreq(kCLOCK_IpgClk));
+
+  PWM_SetPwmLdok(LED_PWM_BASE, 1 << LED_PWM_MODULE, true);
+  PWM_StartTimer(LED_PWM_BASE, 1 << LED_PWM_MODULE);
+#endif
 }
 
 uint8_t board_usb_get_serial(uint8_t serial_id[16])
@@ -203,9 +257,23 @@ void SysTick_Handler(void)
 // LED / RGB
 //--------------------------------------------------------------------+
 
-void board_led_write(uint32_t state)
+void board_led_write(uint32_t value)
 {
-  GPIO_PinWrite(LED_PORT, LED_PIN, state ? LED_STATE_ON : (1-LED_STATE_ON));
+  (void) value;
+
+#ifdef LED_PINMUX
+#ifdef LED_PWM_PINMUX
+  if (_dfu_mode)
+  {
+    uint8_t duty = (value * 100) / 0xff;
+    PWM_UpdatePwmDutycycle(LED_PWM_BASE, LED_PWM_MODULE, LED_PWM_CHANNEL, kPWM_SignedCenterAligned, duty);
+    PWM_SetPwmLdok(LED_PWM_BASE, 1 << LED_PWM_MODULE, true);
+  }else
+#endif
+  {
+    GPIO_PinWrite(LED_PORT, LED_PIN, value ? LED_STATE_ON : (1-LED_STATE_ON));
+  }
+#endif
 }
 
 #if NEOPIXEL_NUMBER

@@ -87,15 +87,19 @@ static bool check_dfu_mode(void)
 
   // Register our first reset for double reset detection
   _board_dfu_dbl_tap[0] = DBL_TAP_MAGIC;
+
   _timer_count = 0;
+
+  // neopixel may need a bit of delay to work
+//  board_timer_start(1);
+//  while(_timer_count < 1) {}
 
   // Turn on LED/RGB for visual indicator
   board_led_write(0xff);
   board_rgb_write(RGB_DOUBLE_TAP);
 
   // delay a fraction of second if Reset pin is tap during this delay --> we will enter dfu
-  board_timer_start(10);
-  while(_timer_count < DBL_TAP_DELAY/10) {}
+  while(_timer_count < DBL_TAP_DELAY) {}
   board_timer_stop();
 
   // Turn off indicator

@@ -46,9 +46,6 @@
 
 // Number of neopixels
 #define NEOPIXEL_NUMBER       0
-//#define NEOPIXEL_PINMUX       IOMUXC_GPIO_AD_B1_07_GPIO1_IO23
-//#define NEOPIXEL_PORT         GPIO1
-//#define NEOPIXEL_PIN          23
 
 //--------------------------------------------------------------------+
 // Button
