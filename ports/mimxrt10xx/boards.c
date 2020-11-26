@@ -30,11 +30,8 @@
 #include "fsl_clock.h"
 #include "fsl_ocotp.h"
 #include "fsl_lpuart.h"
-
-#ifdef LED_PINMUX
 #include "fsl_pwm.h"
 #include "fsl_xbara.h"
-#endif
 
 #include "clock_config.h"
 #include "tusb.h"
@@ -83,8 +80,8 @@ void board_init(void)
   // Enable UART when debug log is on
   IOMUXC_SetPinMux(UART_TX_PINMUX, 0U);
   IOMUXC_SetPinMux(UART_RX_PINMUX, 0U);
-  IOMUXC_SetPinConfig(UART_TX_PINMUX, 0x10A0u);
-  IOMUXC_SetPinConfig(UART_RX_PINMUX, 0x10A0u);
+  IOMUXC_SetPinConfig(UART_TX_PINMUX, 0x10B0u);
+  IOMUXC_SetPinConfig(UART_RX_PINMUX, 0x10B0u);
 
   lpuart_config_t uart_config;
   LPUART_GetDefaultConfig(&uart_config);
