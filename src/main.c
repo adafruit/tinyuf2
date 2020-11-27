@@ -89,10 +89,10 @@ static bool check_dfu_mode(void)
   _board_dfu_dbl_tap[0] = DBL_TAP_MAGIC;
 
   _timer_count = 0;
+  board_timer_start(1);
 
-  // neopixel may need a bit of delay to work
-//  board_timer_start(1);
-//  while(_timer_count < 1) {}
+  // neopixel may need a bit of prior delay to work
+  // while(_timer_count < 1) {}
 
   // Turn on LED/RGB for visual indicator
   board_led_write(0xff);
@@ -103,8 +103,8 @@ static bool check_dfu_mode(void)
   board_timer_stop();
 
   // Turn off indicator
-  board_led_write(0x00);
   board_rgb_write(RGB_OFF);
+  board_led_write(0x00);
 
   _board_dfu_dbl_tap[0] = 0;
 #endif
