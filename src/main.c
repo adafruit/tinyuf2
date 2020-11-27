@@ -87,18 +87,23 @@ static bool check_dfu_mode(void)
 
   // Register our first reset for double reset detection
   _board_dfu_dbl_tap[0] = DBL_TAP_MAGIC;
+
   _timer_count = 0;
+  board_timer_start(1);
+
+  // neopixel may need a bit of prior delay to work
+  // while(_timer_count < 1) {}
 
   // Turn on LED/RGB for visual indicator
   board_led_write(0xff);
   board_rgb_write(RGB_DOUBLE_TAP);
 
   // delay a fraction of second if Reset pin is tap during this delay --> we will enter dfu
-  board_timer_start(10);
-  while(_timer_count < DBL_TAP_DELAY/10) {}
+  while(_timer_count < DBL_TAP_DELAY) {}
   board_timer_stop();
 
   // Turn off indicator
+  board_rgb_write(RGB_OFF);
   board_led_write(0x00);
 
   _board_dfu_dbl_tap[0] = 0;
@@ -110,6 +115,8 @@ static bool check_dfu_mode(void)
 int main(void)
 {
   board_init();
+
+  TU_LOG1("TinyUF2\r\n");
 
   // if not DFU mode, jump to App
   if ( !check_dfu_mode() )

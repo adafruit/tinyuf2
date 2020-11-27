@@ -38,14 +38,31 @@
 #define LED_PINMUX            IOMUXC_GPIO_11_GPIOMUX_IO11
 #define LED_PORT              GPIO1
 #define LED_PIN               11
-#define LED_STATE_ON          0
+#define LED_STATE_ON          1
+
+#if 0
+// PWM Test on Arduino header D8
+#define LED_PWM_PINMUX        IOMUXC_GPIO_SD_02_FLEXPWM1_PWM0_A
+#define LED_PWM_BASE          PWM1
+#define LED_PWM_MODULE        kPWM_Module_0
+#define LED_PWM_CHANNEL       kPWM_PwmA
+#endif
 
 //--------------------------------------------------------------------+
 // Neopixel
 //--------------------------------------------------------------------+
 
 // Number of neopixels
+#if 1
 #define NEOPIXEL_NUMBER       0
+
+#else
+// Neopixel Test on Arduino header A0
+#define NEOPIXEL_NUMBER       1
+#define NEOPIXEL_PINMUX       IOMUXC_GPIO_AD_07_GPIOMUX_IO21
+#define NEOPIXEL_PORT         GPIO1
+#define NEOPIXEL_PIN          21
+#endif
 
 //--------------------------------------------------------------------+
 // Button
@@ -75,6 +92,7 @@
 // UART
 //--------------------------------------------------------------------+
 
+// TODO UART1 does not work on rt1010 evk yet
 #define UART_PORT             LPUART1
 #define UART_RX_PINMUX        IOMUXC_GPIO_09_LPUART1_RXD
 #define UART_TX_PINMUX        IOMUXC_GPIO_10_LPUART1_TXD
