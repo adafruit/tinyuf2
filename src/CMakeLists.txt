@@ -2,14 +2,6 @@ idf_component_register(SRCS ghostfat.c images.c main.c msc.c screen.c usb_descri
                     INCLUDE_DIRS "."
                     REQUIRES boards)
 
-idf_component_get_property( FREERTOS_ORIG_INCLUDE_PATH freertos ORIG_INCLUDE_PATH)
-
-target_include_directories(${COMPONENT_TARGET} PUBLIC
-  "${FREERTOS_ORIG_INCLUDE_PATH}"
-  "${TOP}/lib/tinyusb/src"
-  "${TOP}/ports/esp32s2"
-)
-
 target_sources(${COMPONENT_TARGET} PUBLIC
   "${TOP}/lib/tinyusb/src/tusb.c"
   "${TOP}/lib/tinyusb/src/common/tusb_fifo.c"

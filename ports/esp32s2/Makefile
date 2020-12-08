@@ -35,6 +35,9 @@ erase:
 monitor:
 	idf.py -B$(BUILD) -DBOARD=$(BOARD) monitor
 
+self-update:
+	idf.py -C self_update/ -Bself_update/$(BUILD) -DBOARD=$(BOARD) app
+
 $(BIN):
 	@mkdir -p $@
 

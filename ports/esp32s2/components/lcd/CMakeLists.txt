@@ -1,5 +1,3 @@
-set(lcd_srcs "lcd.c")
-
-idf_component_register(SRCS "${lcd_srcs}"
+idf_component_register(SRCS "lcd.c"
                        INCLUDE_DIRS "include"
-                       REQUIRES boards src)
+                       REQUIRES boards)
