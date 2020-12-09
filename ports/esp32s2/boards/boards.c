@@ -37,7 +37,10 @@
 #include "esp_partition.h"
 #include "esp_ota_ops.h"
 #include "board_api.h"
+
+#ifndef TINYUF2_SELF_UPDATE
 #include "tusb.h"
+#endif
 
 //--------------------------------------------------------------------+
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
@@ -76,6 +79,15 @@ static void internal_timer_cb(void* arg);
 // TinyUSB thread
 //--------------------------------------------------------------------+
 
+#ifdef TINYUF2_SELF_UPDATE
+
+void app_main(void)
+{
+  main();
+}
+
+#else
+
 // static task for usbd
 // Increase stack size when debug log is enabled
 #define USBD_STACK_SIZE     (4*1024)
@@ -104,6 +116,8 @@ void app_main(void)
   (void) xTaskCreateStatic( usb_device_task, "usbd", USBD_STACK_SIZE, NULL, configMAX_PRIORITIES-2, usb_device_stack, &usb_device_taskdef);
 }
 
+#endif
+
 //--------------------------------------------------------------------+
 // Board API
 //--------------------------------------------------------------------+
@@ -124,7 +138,6 @@ void board_init(void)
 #endif
 
 #ifdef NEOPIXEL_PIN
-
   #ifdef NEOPIXEL_POWER_PIN
   gpio_reset_pin(NEOPIXEL_POWER_PIN);
   gpio_set_direction(NEOPIXEL_POWER_PIN, GPIO_MODE_OUTPUT);
@@ -163,7 +176,10 @@ void board_init(void)
   // Set up timer
   const esp_timer_create_args_t periodic_timer_args = { .callback = internal_timer_cb };
   esp_timer_create(&periodic_timer_args, &timer_hdl);
+}
 
+void board_dfu_init(void)
+{
   // USB Controller Hal init
   periph_module_reset(PERIPH_USB_MODULE);
   periph_module_enable(PERIPH_USB_MODULE);
@@ -173,11 +189,6 @@ void board_init(void)
   };
   usb_hal_init(&hal);
   configure_pins(&hal);
-}
-
-void board_dfu_init(void)
-{
-  // nothing to do since DFU is always entered
 }
 
 void board_dfu_complete(void)
@@ -251,6 +262,20 @@ void board_timer_stop(void)
   esp_timer_stop(timer_hdl);
 }
 
+//--------------------------------------------------------------------+
+// Self Update
+//--------------------------------------------------------------------+
+
+//#ifdef TINYUF2_SELF_UPDATE
+void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
+{
+
+}
+//#endif
+
+//--------------------------------------------------------------------+
+// Helper
+//--------------------------------------------------------------------+
 static void configure_pins(usb_hal_context_t *usb)
 {
   /* usb_periph_iopins currently configures USB_OTG as USB Device.
