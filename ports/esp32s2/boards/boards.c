@@ -263,17 +263,6 @@ void board_timer_stop(void)
 }
 
 //--------------------------------------------------------------------+
-// Self Update
-//--------------------------------------------------------------------+
-
-//#ifdef TINYUF2_SELF_UPDATE
-void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
-{
-
-}
-//#endif
-
-//--------------------------------------------------------------------+
 // Helper
 //--------------------------------------------------------------------+
 static void configure_pins(usb_hal_context_t *usb)

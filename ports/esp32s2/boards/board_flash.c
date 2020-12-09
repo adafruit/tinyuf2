@@ -24,7 +24,9 @@
 
 #include <string.h>
 #include "esp_log.h"
+#include "esp_system.h"
 #include "esp_partition.h"
+#include "esp_ota_ops.h"
 
 #include "spi_flash_chip_driver.h"
 #include "board_api.h"
@@ -118,4 +120,34 @@ void board_flash_write (uint32_t dst, void const *src, uint32_t len)
 
   memcpy(_fl_buf + (dst & (FLASH_CACHE_SIZE - 1)), src, len);
 }
+
+
+//--------------------------------------------------------------------+
+// Self Update
+//--------------------------------------------------------------------+
+
+#ifdef TINYUF2_SELF_UPDATE
+void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
+{
+  enum { SECTOR_SZ = 4096UL };
+  esp_partition_t const * _part_uf2;
+
+  _part_uf2 = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_FACTORY, NULL);
+  assert(_part_uf2 != NULL);
+
+  // make len aligned to 4K
+  uint32_t erase_sz = (bootloader_len & ~(SECTOR_SZ-1));
+  if (bootloader_len & (SECTOR_SZ-1)) erase_sz += SECTOR_SZ;
+
+  // Erase old bootloader
+  esp_partition_erase_range(_part_uf2, 0, erase_sz);
+
+  // Write new bootloader
+  esp_partition_write(_part_uf2, 0, bootloader_bin, bootloader_len);
+
+  // Set UF2 as next boot and restart
+  esp_ota_set_boot_partition(_part_uf2);
+  esp_restart();
+}
+#endif
 
