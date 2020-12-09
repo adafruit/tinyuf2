@@ -47,8 +47,9 @@ for port in all_ports:
         build_dir = "{}/_build/build-{}".format(port, board)
 
         start_time = time.monotonic()
-        subprocess.run("make -j -C {} BOARD={} clean".format(port, board), shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        #subprocess.run("make -j -C {} BOARD={} clean".format(port, board), shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         make_result = subprocess.run("make -j -C {} BOARD={} all".format(port, board), shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        subprocess.run("make -j -C {} BOARD={} self-update".format(port, board), shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         subprocess.run("make -j -C {} BOARD={} copy-artifact".format(port, board), shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         build_duration = time.monotonic() - start_time
 
