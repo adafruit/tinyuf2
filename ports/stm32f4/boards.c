@@ -175,7 +175,6 @@ void board_led_write(uint32_t state)
   HAL_GPIO_WritePin(LED_PORT, LED_PIN, state ? LED_STATE_ON : (1-LED_STATE_ON));
 }
 
-
 #if NEOPIXEL_NUMBER
 #define MAGIC_800_INT   900000  // ~1.11 us -> 1.2  field
 #define MAGIC_800_T0H  2800000  // ~0.36 us -> 0.44 field

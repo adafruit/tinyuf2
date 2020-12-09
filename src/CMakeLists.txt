@@ -1,14 +1,6 @@
 idf_component_register(SRCS ghostfat.c images.c main.c msc.c screen.c usb_descriptors.c
                     INCLUDE_DIRS "."
-                    REQUIRES app_update boards led_strip spi_flash lcd)
-
-idf_component_get_property( FREERTOS_ORIG_INCLUDE_PATH freertos ORIG_INCLUDE_PATH)
-
-target_include_directories(${COMPONENT_TARGET} PUBLIC
-  "${FREERTOS_ORIG_INCLUDE_PATH}"
-  "${TOP}/lib/tinyusb/src"
-  "${TOP}/ports/esp32s2"
-)
+                    REQUIRES boards)
 
 target_sources(${COMPONENT_TARGET} PUBLIC
   "${TOP}/lib/tinyusb/src/tusb.c"

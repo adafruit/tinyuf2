@@ -107,6 +107,8 @@ void     board_flash_flush(void);
   #define USE_SCREEN 0
 #endif
 
+// perform self-update on bootloader
+void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len);
 
 //--------------------------------------------------------------------+
 // not part of board API, move to its own file later
