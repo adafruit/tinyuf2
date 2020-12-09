@@ -56,7 +56,7 @@ jobs:
     - name: Build
       run: |
         source $IDF_PATH/export.sh
-        make -C ports/esp32s2/ BOARD=${{ matrix.board }} all copy-artifact
+        make -C ports/esp32s2/ BOARD=${{ matrix.board }} all self-update copy-artifact
       env:
         IDF_PATH: ${{ github.workspace }}/lib/esp-idf
         IDF_TOOLS_PATH: ${{ github.workspace }}/.idf_tools
