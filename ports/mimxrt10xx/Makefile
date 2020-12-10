@@ -10,7 +10,7 @@ SIZE = $(CROSS_COMPILE)size
 include ../make.mk
 
 MCU_DIR = lib/nxp/sdk/devices/$(MCU)
-LD_FILE ?= $(PORT_DIR)/linker/$(MCU)xxxxx_flexspi_nor.ld
+LD_FILE ?= $(PORT_DIR)/linker/$(MCU)_nor.ld
 LDFLAGS += -L"$(TOP)/$(PORT_DIR)/linker"
 
 # Port Compiler Flags
@@ -29,9 +29,8 @@ CFLAGS += \
 CFLAGS += -Wno-error=unused-parameter
 
 # Port source
-SRC_C += \
+PORT_SRC_C = \
 	$(addprefix $(CURRENT_PATH)/, $(wildcard *.c)) \
-	lib/tinyusb/src/portable/nxp/transdimension/dcd_transdimension.c \
 	$(MCU_DIR)/system_$(MCU).c \
 	$(MCU_DIR)/project_template/clock_config.c \
 	$(MCU_DIR)/drivers/fsl_clock.c \
@@ -42,6 +41,10 @@ SRC_C += \
 	$(MCU_DIR)/drivers/fsl_pwm.c \
 	$(MCU_DIR)/drivers/fsl_xbara.c \
 	$(MCU_DIR)/drivers/fsl_lpuart.c
+
+SRC_C += \
+	$(PORT_SRC_C) \
+	lib/tinyusb/src/portable/nxp/transdimension/dcd_transdimension.c
 
 SRC_S += $(MCU_DIR)/gcc/startup_$(MCU).S
 
@@ -54,3 +57,7 @@ INC += \
 	$(TOP)/$(MCU_DIR)/project_template
 
 include ../rules.mk
+include ../self_update.mk
+
+#$(SELF_BUILD_OBJ)/self_update/$(OUTNAME).c: $(BUILD)/$(OUTNAME).bin
+#	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py --carray $^ -o $@
