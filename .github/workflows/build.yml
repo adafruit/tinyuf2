@@ -22,6 +22,8 @@ jobs:
         - 'targett_mcb_wroom'
         - 'targett_mcb_wrover'
         - 'unexpectedmaker_feathers2'
+        - 'adafruit_magtag_29gray'
+        - 'adafruit_metro_esp32s2'
     steps:
     - name: Setup Python
       uses: actions/setup-python@v2
