@@ -43,7 +43,6 @@ PORT_DIR = ports/$(PORT)
 BOARD_DIR = $(PORT_DIR)/boards/$(BOARD)
 TINYUSB_DIR = lib/tinyusb/src
 
-
 # Bootloader src, board folder and TinyUSB stack
 SRC_C += \
   $(subst $(TOP)/,,$(wildcard $(TOP)/src/*.c)) \

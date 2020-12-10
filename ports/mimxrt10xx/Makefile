@@ -1,4 +1,5 @@
 PORT = mimxrt10xx
+UF2_FAMILY_ID = 0x4fb2d5bd
 
 #-------------- Cross Compiler  ------------
 CROSS_COMPILE = arm-none-eabi-
@@ -23,7 +24,8 @@ CFLAGS += \
   -D__ARMVFP__=0 -D__ARMFPV5__=0 \
   -DXIP_EXTERNAL_FLASH=1 \
   -DXIP_BOOT_HEADER_ENABLE=1 \
-  -DCFG_TUSB_MCU=OPT_MCU_MIMXRT10XX
+  -DCFG_TUSB_MCU=OPT_MCU_MIMXRT10XX \
+  -DBOARD_UF2_FAMILY_ID=$(UF2_FAMILY_ID)
 
 # mcu driver cause following warnings
 CFLAGS += -Wno-error=unused-parameter
@@ -57,7 +59,20 @@ INC += \
 	$(TOP)/$(MCU_DIR)/project_template
 
 include ../rules.mk
+
+#-------------- Self-update  --------------
 include ../self_update.mk
 
-#$(SELF_BUILD_OBJ)/self_update/$(OUTNAME).c: $(BUILD)/$(OUTNAME).bin
-#	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py --carray $^ -o $@
+SELF_LDFLAGS = $(LDFLAGS) -Wl,--defsym,m_text_start=0xC000 -Wl,--defsym,m_text_end=0x20000
+
+# required for uf2 conversion
+$(SELF_BUILD_OBJ)/$(SELF_OUTNAME).hex: $(SELF_BUILD_OBJ)/$(SELF_OUTNAME).elf
+	@echo CREATE $@
+	@$(OBJCOPY) -O ihex -R .flash_config -R .ivt -R .interrupts $^ $@
+
+# required for self-update elf compile
+$(SELF_BUILD_OBJ)/self_update/$(OUTNAME).c: $(SELF_BUILD_OBJ)/self_update/$(OUTNAME)-textonly.bin
+	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py --carray $^ -o $@
+
+$(SELF_BUILD_OBJ)/self_update/$(OUTNAME)-textonly.bin: $(BUILD)/$(OUTNAME).elf
+	@$(OBJCOPY) -O binary -R .flash_config -R .ivt -R .interrupts $^ $@

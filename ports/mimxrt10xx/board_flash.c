@@ -130,3 +130,11 @@ void board_flash_write (uint32_t addr, void const *src, uint32_t len)
   // Overwrite part or all of the page cache with the src data.
   memcpy(_flash_cache + (addr & (SECTOR_SIZE - 1)), src, len);
 }
+
+
+#ifdef TINYUF2_SELF_UPDATE
+void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
+{
+
+}
+#endif

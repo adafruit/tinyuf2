@@ -53,14 +53,13 @@ int main(void)
   // Set indicator similar to WRITING
   board_timer_start(25);
 
+  // This should never return
   board_self_update((uint8_t const*) bindata, (uint32_t) bindata_len);
 
-#if CFG_TUSB_OS == OPT_OS_NONE
   while(1)
   {
 
   }
-#endif
 }
 
 void board_timer_handler(void)

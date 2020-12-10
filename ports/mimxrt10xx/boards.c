@@ -364,6 +364,8 @@ int board_uart_write(void const * buf, int len)
 //--------------------------------------------------------------------+
 // USB Interrupt Handler
 //--------------------------------------------------------------------+
+#ifndef TINYUF2_SELF_UPDATE
+
 void USB_OTG1_IRQHandler(void)
 {
   #if CFG_TUSB_RHPORT0_MODE & OPT_MODE_HOST
@@ -385,3 +387,5 @@ void USB_OTG2_IRQHandler(void)
     tud_int_handler(1);
   #endif
 }
+
+#endif
