@@ -11,8 +11,7 @@ SIZE = $(CROSS_COMPILE)size
 include ../make.mk
 
 MCU_DIR = lib/nxp/sdk/devices/$(MCU)
-LD_FILE ?= $(PORT_DIR)/linker/$(MCU)_nor.ld
-LDFLAGS += -L"$(TOP)/$(PORT_DIR)/linker"
+LD_FILES ?= $(PORT_DIR)/linker/$(MCU)_nor.ld $(PORT_DIR)/linker/memory.ld $(PORT_DIR)/linker/common.ld
 
 # Port Compiler Flags
 CFLAGS += \
@@ -61,18 +60,21 @@ INC += \
 include ../rules.mk
 
 #-------------- Self-update  --------------
-include ../self_update.mk
+SELF_CFLAGS  = $(CFLAGS) -DTINYUF2_SELF_UPDATE
+SELF_LDFLAGS = $(LDFLAGS)
+SELF_LD_FILES ?= $(PORT_DIR)/linker/$(MCU)_nor.ld $(PORT_DIR)/linker/self_update_memory.ld $(PORT_DIR)/linker/common.ld
+SELF_ASFLAGS = $(ASFLAGS)
 
-SELF_LDFLAGS = $(LDFLAGS) -Wl,--defsym,m_text_start=0xC000 -Wl,--defsym,m_text_end=0x20000
+include ../self_update.mk
 
 # required for uf2 conversion
 $(SELF_BUILD_OBJ)/$(SELF_OUTNAME).hex: $(SELF_BUILD_OBJ)/$(SELF_OUTNAME).elf
 	@echo CREATE $@
-	@$(OBJCOPY) -O ihex -R .flash_config -R .ivt -R .interrupts $^ $@
+	@$(OBJCOPY) -O ihex -R .flash_config -R .ivt $^ $@
 
 # required for self-update elf compile
 $(SELF_BUILD_OBJ)/self_update/$(OUTNAME).c: $(SELF_BUILD_OBJ)/self_update/$(OUTNAME)-textonly.bin
 	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py --carray $^ -o $@
 
 $(SELF_BUILD_OBJ)/self_update/$(OUTNAME)-textonly.bin: $(BUILD)/$(OUTNAME).elf
-	@$(OBJCOPY) -O binary -R .flash_config -R .ivt -R .interrupts $^ $@
+	@$(OBJCOPY) -O binary -R .flash_config -R .ivt $^ $@

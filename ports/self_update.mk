@@ -21,7 +21,8 @@ $(SELF_BUILD_OBJ)/$(SELF_OUTNAME).uf2: $(SELF_BUILD_OBJ)/$(SELF_OUTNAME).hex
 
 $(SELF_BUILD_OBJ)/$(SELF_OUTNAME).elf: $(SELF_OBJ)
 	@echo LINK $@
-	@$(CC) -o $@ $(SELF_LDFLAGS) $^ -Wl,--start-group $(LIBS) -Wl,--end-group
+	@$(CC) -o $@ $(SELF_LDFLAGS) $(addprefix $(LD_SCRIPT_FLAG), $(SELF_LD_FILES)) $^ -Wl,--start-group $(LIBS) -Wl,--end-group
+	@$(SIZE) $@
 
 #-------------- Compile Rules --------------
 
@@ -30,7 +31,7 @@ $(SELF_BUILD_OBJ)/$(SELF_OUTNAME).elf: $(SELF_OBJ)
 # to be used to compile all .c files.
 $(SELF_BUILD_OBJ)/%.o: %.c
 	@echo CC $(notdir $@)
-	@$(CC) $(CFLAGS) -DTINYUF2_SELF_UPDATE -c -MD -o $@ $<
+	@$(CC) $(SELF_CFLAGS) -c -MD -o $@ $<
 	@# The following fixes the dependency file.
 	@# See http://make.paulandlesley.org/autodep.html for details.
 	@# Regex adjusted from the above to play better with Windows paths, etc.
@@ -43,13 +44,13 @@ $(SELF_BUILD_OBJ)/%.o: %.c
 vpath %.s . $(TOP)
 $(SELF_BUILD_OBJ)/%.o: %.s
 	@echo AS $(notdir $@)
-	@$(CC) -x assembler-with-cpp $(ASFLAGS) -c -o $@ $<
+	@$(CC) -x assembler-with-cpp $(SELF_ASFLAGS) -c -o $@ $<
 
 # ASM sources upper case .S
 vpath %.S . $(TOP)
 $(SELF_BUILD_OBJ)/%.o: %.S
 	@echo AS $(notdir $@)
-	@$(CC) -x assembler-with-cpp $(ASFLAGS) -c -o $@ $<
+	@$(CC) -x assembler-with-cpp $(SELF_ASFLAGS) -c -o $@ $<
 
 #-------------- Artifacts --------------
 $(BIN):

@@ -13,16 +13,11 @@ RM = rm
 # libc
 LIBS += -lgcc -lm -lnosys -lc
 
-CFLAGS += $(addprefix -I,$(INC))
-
-# TODO Skip nanolib for MSP430
-ifeq ($(BOARD), msp_exp430f5529lp)
-  LDFLAGS += $(CFLAGS) -fshort-enums -Wl,-T,$(TOP)/$(LD_FILE) -Wl,-Map=$@.map -Wl,-cref -Wl,-gc-sections
-else
-  LDFLAGS += $(CFLAGS) -fshort-enums -Wl,-T,$(TOP)/$(LD_FILE) -Wl,-Map=$@.map -Wl,-cref -Wl,-gc-sections -specs=nosys.specs -specs=nano.specs
-endif
-
+CFLAGS  += $(addprefix -I,$(INC))
+LDFLAGS += $(CFLAGS)
 ASFLAGS += $(CFLAGS)
+
+LD_SCRIPT_FLAG := -Wl,-T,$(TOP)/
 
 # Verbose mode
 ifeq ("$(V)","1")
@@ -51,7 +46,7 @@ $(OBJ_DIRS):
 
 $(BUILD)/$(OUTNAME).elf: $(OBJ)
 	@echo LINK $@
-	@$(CC) -o $@ $(LDFLAGS) $^ -Wl,--start-group $(LIBS) -Wl,--end-group
+	@$(CC) -o $@ $(LDFLAGS) $(addprefix $(LD_SCRIPT_FLAG), $(LD_FILES)) $^ -Wl,--start-group $(LIBS) -Wl,--end-group
 
 $(BUILD)/$(OUTNAME).bin: $(BUILD)/$(OUTNAME).elf
 	@echo CREATE $@

@@ -60,6 +60,7 @@ SRC_C += \
 	$(TINYUSB_DIR)/class/usbtmc/usbtmc_device.c \
 	$(TINYUSB_DIR)/class/vendor/vendor_device.c
 
+# Include
 INC += \
   $(TOP)/src \
   $(TOP)/$(PORT_DIR) \
@@ -110,6 +111,15 @@ ifeq ($(LOGGER),rtt)
 else ifeq ($(LOGGER),swo)
   CFLAGS += -DLOGGER_SWO
 endif
+
+# Linker Flags
+LDFLAGS += \
+	-fshort-enums \
+	-Wl,-Map=$@.map \
+	-Wl,-cref \
+	-Wl,-gc-sections \
+	-specs=nosys.specs \
+	-specs=nano.specs \
 
 # Board specific define
 include $(TOP)/$(BOARD_DIR)/board.mk

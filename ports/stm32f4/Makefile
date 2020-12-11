@@ -27,7 +27,7 @@ CFLAGS += \
 # suppress warning caused by vendor mcu driver
 CFLAGS += -Wno-error=cast-align -Wno-error=unused-parameter
 
-LD_FILE ?= ports/$(PORT)/linker/stm32f4.ld
+LD_FILES ?= ports/$(PORT)/linker/stm32f4.ld
 
 # Port source
 SRC_C += \
