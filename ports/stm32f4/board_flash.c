@@ -186,3 +186,12 @@ void board_flash_write (uint32_t addr, void const *data, uint32_t len)
   // TODO skip matching contents
   flash_write(addr, data, len);
 }
+
+
+#ifdef TINYUF2_SELF_UPDATE
+void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
+{
+  (void) bootloader_bin;
+  (void) bootloader_len;
+}
+#endif
