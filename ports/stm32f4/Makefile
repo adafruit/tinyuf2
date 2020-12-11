@@ -51,5 +51,13 @@ INC += \
 include ../rules.mk
 
 # flash target ROM bootloader
-flash-dfu-util: $(BUILD)/tinyuf2-$(BOARD).bin
+flash-dfu-util: $(BUILD)/$(OUTNAME).bin
 	dfu-util -R -a 0 --dfuse-address 0x08000000 -D $<
+
+#-------------- Self-update  --------------
+SELF_CFLAGS  = $(CFLAGS) -DTINYUF2_SELF_UPDATE
+SELF_LDFLAGS = $(LDFLAGS)
+SELF_LD_FILES ?=
+SELF_ASFLAGS = $(ASFLAGS)
+
+include ../self_update.mk

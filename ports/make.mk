@@ -98,9 +98,8 @@ else
 endif
 
 # Log level is mapped to TUSB DEBUG option
-ifneq ($(LOG),)
-  CFLAGS += -DCFG_TUSB_DEBUG=$(LOG)
-endif
+LOG ?= 0
+CFLAGS += -DTUF2_LOG=$(LOG) -DCFG_TUSB_DEBUG=$(LOG)
 
 # Logger: default is uart, can be set to rtt or swo
 ifeq ($(LOGGER),rtt)
