@@ -272,12 +272,15 @@ int board_uart_write(void const * buf, int len)
 #endif
 }
 
+#ifndef TINYUF2_SELF_UPDATE
 
 // Forward USB interrupt events to TinyUSB IRQ Handler
 void OTG_FS_IRQHandler(void)
 {
   tud_int_handler(0);
 }
+
+#endif
 
 // Required by __libc_init_array in startup code if we are compiling using
 // -nostdlib/-nostartfiles.

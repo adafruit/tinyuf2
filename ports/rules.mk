@@ -2,6 +2,9 @@
 # Common make rules for all
 # ---------------------------------------
 
+OUTNAME = tinyuf2-$(BOARD)
+
+PYTHON3 ?= python3
 MKDIR = mkdir
 SED = sed
 CP = cp
@@ -10,24 +13,11 @@ RM = rm
 # libc
 LIBS += -lgcc -lm -lnosys -lc
 
-CFLAGS += $(addprefix -I,$(INC))
-
-# TODO Skip nanolib for MSP430
-ifeq ($(BOARD), msp_exp430f5529lp)
-  LDFLAGS += $(CFLAGS) -fshort-enums -Wl,-T,$(TOP)/$(LD_FILE) -Wl,-Map=$@.map -Wl,-cref -Wl,-gc-sections
-else
-  LDFLAGS += $(CFLAGS) -fshort-enums -Wl,-T,$(TOP)/$(LD_FILE) -Wl,-Map=$@.map -Wl,-cref -Wl,-gc-sections -specs=nosys.specs -specs=nano.specs
-endif
-
+CFLAGS  += $(addprefix -I,$(INC))
+LDFLAGS += $(CFLAGS)
 ASFLAGS += $(CFLAGS)
 
-# Assembly files can be name with upper case .S, convert it to .s
-SRC_S := $(SRC_S:.S=.s)
-
-# Due to GCC LTO bug https://bugs.launchpad.net/gcc-arm-embedded/+bug/1747966
-# assembly file should be placed first in linking order
-OBJ += $(addprefix $(BUILD)/obj/, $(SRC_S:.s=.o))
-OBJ += $(addprefix $(BUILD)/obj/, $(SRC_C:.c=.o))
+LD_SCRIPT_FLAG := -Wl,-T,$(TOP)/
 
 # Verbose mode
 ifeq ("$(V)","1")
@@ -36,46 +26,53 @@ $(info LDFLAGS $(LDFLAGS)) $(info )
 $(info ASFLAGS $(ASFLAGS)) $(info )
 endif
 
+# Assembly files can be name with upper case .S, convert it to .s
+SRC_S := $(SRC_S:.S=.s)
+
+# Due to GCC LTO bug https://bugs.launchpad.net/gcc-arm-embedded/+bug/1747966
+# assembly file should be placed first in linking order
+BUILD_OBJ = $(BUILD)/obj
+OBJ += $(addprefix $(BUILD_OBJ)/, $(SRC_S:.s=.o))
+OBJ += $(addprefix $(BUILD_OBJ)/, $(SRC_C:.c=.o))
+
 # Set all as default goal
 .DEFAULT_GOAL := all
-all: $(BUILD)/tinyuf2-$(BOARD).bin $(BUILD)/tinyuf2-$(BOARD).hex size
-
-uf2: $(BUILD)/tinyuf2-$(BOARD).uf2
-
-$(BIN):
-	@$(MKDIR) -p $@
-
-copy-artifact: $(BIN) $(BUILD)/tinyuf2-$(BOARD).bin $(BUILD)/tinyuf2-$(BOARD).hex
-	@$(CP) $(BUILD)/tinyuf2-$(BOARD).bin $<
-	@$(CP) $(BUILD)/tinyuf2-$(BOARD).hex $<
+all: $(BUILD)/$(OUTNAME).bin $(BUILD)/$(OUTNAME).hex size
 
 OBJ_DIRS = $(sort $(dir $(OBJ)))
 $(OBJ): | $(OBJ_DIRS)
 $(OBJ_DIRS):
 	@$(MKDIR) -p $@
 
-$(BUILD)/tinyuf2-$(BOARD).elf: $(OBJ)
+$(BUILD)/$(OUTNAME).elf: $(OBJ)
 	@echo LINK $@
-	@$(CC) -o $@ $(LDFLAGS) $^ -Wl,--start-group $(LIBS) -Wl,--end-group
+	@$(CC) -o $@ $(LDFLAGS) $(addprefix $(LD_SCRIPT_FLAG), $(LD_FILES)) $^ -Wl,--start-group $(LIBS) -Wl,--end-group
 
-$(BUILD)/tinyuf2-$(BOARD).bin: $(BUILD)/tinyuf2-$(BOARD).elf
+$(BUILD)/$(OUTNAME).bin: $(BUILD)/$(OUTNAME).elf
 	@echo CREATE $@
 	@$(OBJCOPY) -O binary $^ $@
 
-$(BUILD)/tinyuf2-$(BOARD).hex: $(BUILD)/tinyuf2-$(BOARD).elf
+$(BUILD)/$(OUTNAME).hex: $(BUILD)/$(OUTNAME).elf
 	@echo CREATE $@
 	@$(OBJCOPY) -O ihex $^ $@
 
-UF2_FAMILY ?= 0x00
-$(BUILD)/tinyuf2-$(BOARD).uf2: $(BUILD)/tinyuf2-$(BOARD).hex
-	@echo CREATE $@
-	$(PYTHON) $(TOP)/tools/uf2/utils/uf2conv.py -f $(UF2_FAMILY) -c -o $@ $^
+size: $(BUILD)/$(OUTNAME).elf
+	-@echo ''
+	@$(SIZE) $<
+	-@echo ''
+
+.PHONY: clean
+clean:
+	$(RM) -rf $(BUILD)
+	$(RM) -rf $(BIN)
+
+#-------------- Compile Rules --------------
 
 # We set vpath to point to the top of the tree so that the source files
 # can be located. By following this scheme, it allows a single build rule
 # to be used to compile all .c files.
 vpath %.c . $(TOP)
-$(BUILD)/obj/%.o: %.c
+$(BUILD_OBJ)/%.o: %.c
 	@echo CC $(notdir $@)
 	@$(CC) $(CFLAGS) -c -MD -o $@ $<
 	@# The following fixes the dependency file.
@@ -88,25 +85,15 @@ $(BUILD)/obj/%.o: %.c
 
 # ASM sources lower case .s
 vpath %.s . $(TOP)
-$(BUILD)/obj/%.o: %.s
+$(BUILD_OBJ)/%.o: %.s
 	@echo AS $(notdir $@)
 	@$(CC) -x assembler-with-cpp $(ASFLAGS) -c -o $@ $<
 
 # ASM sources upper case .S
 vpath %.S . $(TOP)
-$(BUILD)/obj/%.o: %.S
+$(BUILD_OBJ)/%.o: %.S
 	@echo AS $(notdir $@)
 	@$(CC) -x assembler-with-cpp $(ASFLAGS) -c -o $@ $<
-
-size: $(BUILD)/tinyuf2-$(BOARD).elf
-	-@echo ''
-	@$(SIZE) $<
-	-@echo ''
-
-.PHONY: clean
-clean:
-	$(RM) -rf $(BUILD)
-	$(RM) -rf $(BIN)
 
 # Print out the value of a make variable.
 # https://stackoverflow.com/questions/16467718/how-to-print-out-a-variable-in-makefile
@@ -122,7 +109,7 @@ endif
 
 JLINK_IF ?= swd
 
-$(BUILD)/$(BOARD).jlink: $(BUILD)/tinyuf2-$(BOARD).hex
+$(BUILD)/$(BOARD).jlink: $(BUILD)/$(OUTNAME).hex
 	@echo halt > $@
 	@echo r >> $@
 	@echo loadfile $< >> $@
@@ -145,16 +132,15 @@ erase-jlink: $(BUILD)/$(BOARD)-erase.jlink
 	$(JLINKEXE) -device $(JLINK_DEVICE) -if $(JLINK_IF) -JTAGConf -1,-1 -speed auto -CommandFile $<
 
 #-------------------- Flash with STLink --------------------
-
 # STM32_Programmer_CLI must be in PATH
-flash-stlink: $(BUILD)/tinyuf2-$(BOARD).elf
+flash-stlink: $(BUILD)/$(OUTNAME).elf
 	STM32_Programmer_CLI --connect port=swd --write $< --go
 
 erase-stlink:
 	STM32_Programmer_CLI --connect port=swd --erase all
 
 #-------------------- Flash with pyocd --------------------
-flash-pyocd: $(BUILD)/tinyuf2-$(BOARD).hex
+flash-pyocd: $(BUILD)/$(OUTNAME).hex
 	pyocd flash -t $(PYOCD_TARGET) $<
 	pyocd reset -t $(PYOCD_TARGET)
 

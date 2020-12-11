@@ -34,7 +34,7 @@ ifeq ($(filter $(BOARD),$(BOARD_LIST)),)
 endif
 
 # Build directory
-BUILD = _build/build-$(BOARD)
+BUILD = _build/$(BOARD)
 BIN = _bin/$(BOARD)
 
 #-------------- Source files and compiler flags --------------
@@ -42,7 +42,6 @@ BIN = _bin/$(BOARD)
 PORT_DIR = ports/$(PORT)
 BOARD_DIR = $(PORT_DIR)/boards/$(BOARD)
 TINYUSB_DIR = lib/tinyusb/src
-
 
 # Bootloader src, board folder and TinyUSB stack
 SRC_C += \
@@ -61,6 +60,7 @@ SRC_C += \
 	$(TINYUSB_DIR)/class/usbtmc/usbtmc_device.c \
 	$(TINYUSB_DIR)/class/vendor/vendor_device.c
 
+# Include
 INC += \
   $(TOP)/src \
   $(TOP)/$(PORT_DIR) \
@@ -98,9 +98,8 @@ else
 endif
 
 # Log level is mapped to TUSB DEBUG option
-ifneq ($(LOG),)
-  CFLAGS += -DCFG_TUSB_DEBUG=$(LOG)
-endif
+LOG ?= 0
+CFLAGS += -DTUF2_LOG=$(LOG) -DCFG_TUSB_DEBUG=$(LOG)
 
 # Logger: default is uart, can be set to rtt or swo
 ifeq ($(LOGGER),rtt)
@@ -111,6 +110,15 @@ ifeq ($(LOGGER),rtt)
 else ifeq ($(LOGGER),swo)
   CFLAGS += -DLOGGER_SWO
 endif
+
+# Linker Flags
+LDFLAGS += \
+	-fshort-enums \
+	-Wl,-Map=$@.map \
+	-Wl,-cref \
+	-Wl,-gc-sections \
+	-specs=nosys.specs \
+	-specs=nano.specs \
 
 # Board specific define
 include $(TOP)/$(BOARD_DIR)/board.mk

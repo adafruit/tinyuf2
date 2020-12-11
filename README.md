@@ -20,11 +20,18 @@ This repo is cross-platform UF2 Bootloader projects for MCUs based on [TinyUSB](
 TODO more docs later
 
 - Support ESP32-S2, iMXRT10xx, STM32F4
+- Self update with update file in uf2 format
 - Indicator: LED, RGB
 - Debug log with uart/swd
 - Double tap to enter DFU, reboot to DFU and quick reboot from application
 
-## How to build
+## Build and Flash
+
+### Requirements
+
+- GCC cross compiler and Make
+
+### Compile
 
 Firstly clone this repo and its submodules with 
 
@@ -74,7 +81,7 @@ $ make BOARD=feather_stm32f405_express LOG=1 all
 
 By default log message is printed via on-board UART which is slow and take lots of CPU time comparing to USB speed. If your board support on-board/external debugger, it would be more efficient to use it for logging. There are 2 protocols: 
 
-- `LOGGER=rtt`: use [Segger RTT protocol](https://www.segger.com/products/debug-probes/j-link/technology/about-real-time-transfer/)   
+- `LOGGER=rtt`: use [Segger RTT protocol](https://www.segger.com/products/debug-probes/j-link/technology/about-real-time-transfer/)
   - Cons: requires jlink as the debugger.
   - Pros: work with most if not all MCUs
   - Software viewer is JLink RTT Viewer/Client/Logger which is bundled with JLink driver package.

@@ -83,7 +83,7 @@
 // UART
 //--------------------------------------------------------------------+
 
-#define UART_PORT             LPUART1
+#define UART_DEV              LPUART1
 #define UART_RX_PINMUX        IOMUXC_GPIO_09_LPUART1_RXD
 #define UART_TX_PINMUX        IOMUXC_GPIO_10_LPUART1_TXD
 

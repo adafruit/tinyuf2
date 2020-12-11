@@ -46,21 +46,19 @@ int main(void)
 {
   board_init();
 
-  printf("Self-update TinyUF2\r\n");
+  printf("TinyUF2: Self-update\r\n");
   printf("bin data size = %ld\r\n", bindata_len);
-  //board_flash_init();
 
   // Set indicator similar to WRITING
   board_timer_start(25);
 
+  // This should never return
   board_self_update((uint8_t const*) bindata, (uint32_t) bindata_len);
 
-#if CFG_TUSB_OS == OPT_OS_NONE
   while(1)
   {
 
   }
-#endif
 }
 
 void board_timer_handler(void)
@@ -76,3 +74,28 @@ void board_timer_handler(void)
   // blink RGB if available
   board_rgb_write(is_on ? RGB_WRITING : RGB_OFF);
 }
+
+//--------------------------------------------------------------------+
+// Logger newlib retarget
+//--------------------------------------------------------------------+
+
+// Enable only with LOG is enabled (Note: ESP32-S2 has built-in support already)
+#if TUF2_LOG // && (CFG_TUSB_MCU != OPT_MCU_ESP32S2)
+
+#if defined(LOGGER_RTT)
+#include "SEGGER_RTT.h"
+#endif
+
+__attribute__ ((used)) int _write (int fhdl, const void *buf, size_t count)
+{
+  (void) fhdl;
+
+#if defined(LOGGER_RTT)
+  SEGGER_RTT_Write(0, (char*) buf, (int) count);
+  return count;
+#else
+  return board_uart_write(buf, count);
+#endif
+}
+
+#endif

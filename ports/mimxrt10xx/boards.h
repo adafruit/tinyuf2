@@ -36,9 +36,6 @@
 #include "fsl_device_registers.h"
 #include "board.h"
 
-// Family ID for updating Application
-#define BOARD_UF2_FAMILY_ID    0x4fb2d5bd
-
 // Flash Start Address of Application
 #define BOARD_FLASH_APP_START  0x6000C000 // FlexSPI_AMBA_BASE + 0xC000
 
