@@ -34,7 +34,7 @@ ifeq ($(filter $(BOARD),$(BOARD_LIST)),)
 endif
 
 # Build directory
-BUILD = _build/build-$(BOARD)
+BUILD = _build/$(BOARD)
 BIN = _bin/$(BOARD)
 
 #-------------- Source files and compiler flags --------------

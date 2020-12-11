@@ -7,7 +7,7 @@
 PYTHON3 ?= python3
 
 # Build directory
-BUILD = _build/build-$(BOARD)
+BUILD = _build/$(BOARD)
 SELF_BUILD = self_update/$(BUILD)
 BIN = _bin/$(BOARD)
 TOP = ../..

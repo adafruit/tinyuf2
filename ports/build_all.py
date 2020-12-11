@@ -44,7 +44,7 @@ for port in all_ports:
     all_boards.sort()
 
     for board in all_boards:
-        build_dir = "{}/_build/build-{}".format(port, board)
+        build_dir = "{}/_build/{}".format(port, board)
 
         start_time = time.monotonic()
         #subprocess.run("make -j -C {} BOARD={} clean".format(port, board), shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
