@@ -9,6 +9,7 @@
 
 #include "fsl_flexspi.h"
 #include "boards.h"
+#include "tusb.h"
 
 #include <stdio.h>
 
@@ -421,7 +422,44 @@ AT_QUICKACCESS_SECTION_CODE(void FLEXSPI_UpdateLUTRamfunc(FLEXSPI_Type *base, ui
 
 void flexspi_nor_flash_init(FLEXSPI_Type *base)
 {
+    /*
+    flexspi_config_t config;
+    serial_nor_config_option_t *option = [BOARD_FLASH_OPTIONS];
+
+    flexspi_nor_get_config(base, flexspi_nor_config_t *config, serial_nor_config_option_t *option);
+
+    TU_LOG2("FlexSPI init...\r\n");
+    FLEXSPI_Init(base, &config);
+*/
+
+/*
+// FlexSPI Device Config
+flexspi_device_config_t deviceconfig = {
+    .flexspiRootClk       = 133000000,
+    .flashSize            = FLASH_SIZE,
+    .CSIntervalUnit       = kFLEXSPI_CsIntervalUnit1SckCycle,
+    .CSInterval           = 2,
+    .CSHoldTime           = 3,
+    .CSSetupTime          = 3,
+    .dataValidTime        = 0,
+    .columnspace          = 0,
+    .enableWordAddress    = 0,
+    .AWRSeqIndex          = 0,
+    .AWRSeqNumber         = 0,
+    .ARDSeqIndex          = NOR_CMD_LUT_SEQ_IDX_READ_FAST_QUAD,
+    .ARDSeqNumber         = 1,
+    .AHBWriteWaitUnit     = kFLEXSPI_AhbWriteWaitUnit2AhbCycle,
+    .AHBWriteWaitInterval = 0,
+};
+*/
+
+    /* Configure flash settings according to serial flash feature. */
+//    FLEXSPI_SetFlashConfig(base, &deviceconfig, kFLEXSPI_PortA1);
+
   FLEXSPI_UpdateLUTRamfunc(base, 4, &g_customLUT[4], CUSTOM_LUT_LENGTH-4);
+
+      /* Do software reset. */
+//    FLEXSPI_SoftwareReset(base);
 }
 
 AT_QUICKACCESS_SECTION_CODE(status_t flexspi_nor_wait_bus_busy(FLEXSPI_Type *base))

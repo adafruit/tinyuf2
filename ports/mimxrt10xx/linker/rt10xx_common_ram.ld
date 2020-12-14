@@ -35,11 +35,13 @@ SECTIONS
   __NCACHE_REGION_START = ORIGIN(m_data2);
   __NCACHE_REGION_SIZE  = 0;
 
+
   ivt_begin = ORIGIN(m_ivt);
 
   .ivt : AT(ivt_begin)
   {
     . = ALIGN(4);
+    __FLASH_BASE = .;
 	  KEEP(* (.boot_hdr.ivt))           /* ivt section */
 	  KEEP(* (.boot_hdr.boot_data))     /* boot section */
 	  KEEP(* (.boot_hdr.dcd_data))      /* dcd section */
@@ -236,3 +238,4 @@ SECTIONS
 
   ASSERT(__StackLimit >= __HeapLimit, "region m_data overflowed with stack and heap")
 }
+
