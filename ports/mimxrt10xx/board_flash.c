@@ -44,8 +44,8 @@ static uint8_t  _flash_cache[SECTOR_SIZE] __attribute__((aligned(4)));
 extern void     flexspi_nor_flash_init(FLEXSPI_Type *base);
 extern status_t flexspi_nor_flash_erase_sector(FLEXSPI_Type *base, uint32_t address);
 extern status_t flexspi_nor_flash_page_program(FLEXSPI_Type *base, uint32_t dstAddr, uint32_t *src, uint32_t size);
-extern status_t flexspi_nor_get_vendor_id(FLEXSPI_Type *base, uint8_t *vendorId);
-extern status_t flexspi_nor_enable_quad_mode(FLEXSPI_Type *base);
+//extern status_t flexspi_nor_get_vendor_id(FLEXSPI_Type *base, uint8_t *vendorId);
+//extern status_t flexspi_nor_enable_quad_mode(FLEXSPI_Type *base);
 
 void board_flash_init(void)
 {

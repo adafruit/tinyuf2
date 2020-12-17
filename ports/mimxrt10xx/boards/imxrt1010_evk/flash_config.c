@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "flexspi_nor_config.h"
+#include "flexspi_nor_flash.h"
 #include "fsl_flexspi_nor_boot.h"
 #include "boards.h"
 
