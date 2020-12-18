@@ -16,7 +16,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 // Definitions
 ////////////////////////////////////////////////////////////////////////////////
-
+#define FLEXSPI_INSTANCE  (uint32_t)0x0
 
 ////////////////////////////////////////////////////////////////////////////////
 // Variables
@@ -34,11 +34,11 @@ extern const flexspi_nor_config_t qspiflash_config;
 
 void     flexspi_nor_flash_init(FLEXSPI_Type *base) {
     flexspi_mem_config_t *memCfg = (flexspi_mem_config_t *)&qspiflash_config;
-    uint32_t instance = (uint32_t)base;
-    status_t status = kStatus_InvalidArgument;
-    status = flexspi_init(instance, memCfg);
+//    uint32_t instance = (uint32_t)base;
+    status_t status = kStatus_Fail;
+    status = flexspi_init(FLEXSPI_INSTANCE, memCfg);
     if (status != kStatus_Success) {
-        TU_LOG1("FlexSPI initialization failed\r\n");
+        TU_LOG1("FlexSPI initialization failed: 0x%08X\r\n", (uint)status);
     }
 
     // Configure Lookup table for Read
@@ -47,19 +47,19 @@ void     flexspi_nor_flash_init(FLEXSPI_Type *base) {
 }
 
 status_t flexspi_nor_flash_erase_sector(FLEXSPI_Type *base, uint32_t address) {
-    status_t status;
+    status_t status = kStatus_Fail;
     flexspi_xfer_t flashXfer;
     flexspi_mem_config_t *memCfg = (flexspi_mem_config_t *)&qspiflash_config;
-    uint32_t instance = (uint32_t)base;
+//    uint32_t instance = (uint32_t)base;
     bool isParallelMode = flexspi_is_parallel_mode(memCfg);
 
     do
     {
-        status = flexspi_device_write_enable(instance, memCfg, isParallelMode, address);
+        status = flexspi_device_write_enable(FLEXSPI_INSTANCE, memCfg, isParallelMode, address);
         if (status != kStatus_Success)
         {
-            TU_LOG1("FlexSPI write enable failed\r\n");
-            break;
+            TU_LOG1("FlexSPI write enable failed: 0x%08X\r\n", (uint)status);
+//            break;
         }
 
         flashXfer.baseAddress = address;
@@ -68,7 +68,7 @@ status_t flexspi_nor_flash_erase_sector(FLEXSPI_Type *base, uint32_t address) {
         flashXfer.seqId = NOR_CMD_LUT_SEQ_IDX_ERASESECTOR;
         flashXfer.isParallelModeEnable = isParallelMode;
 
-        status = flexspi_command_xfer(instance, &flashXfer);
+        status = flexspi_command_xfer(FLEXSPI_INSTANCE, &flashXfer);
         if (status != kStatus_Success)
         {
             TU_LOG1("FlexSPI erase transfer failed\r\n");
@@ -76,7 +76,7 @@ status_t flexspi_nor_flash_erase_sector(FLEXSPI_Type *base, uint32_t address) {
         }
 
         // Wait until the sector erase operation completes on Serial NOR Flash side.
-        status = flexspi_device_wait_busy(instance, memCfg, isParallelMode, address);
+        status = flexspi_device_wait_busy(FLEXSPI_INSTANCE, memCfg, isParallelMode, address);
         if (status != kStatus_Success)
         {
             TU_LOG1("FlexSPI nor wait failed\r\n");
@@ -85,23 +85,23 @@ status_t flexspi_nor_flash_erase_sector(FLEXSPI_Type *base, uint32_t address) {
 
     } while (0);
 
-    flexspi_clear_cache(instance);
+    flexspi_clear_cache(FLEXSPI_INSTANCE);
 
     return status;
 
 }
 
 status_t flexspi_nor_flash_page_program(FLEXSPI_Type *base, uint32_t dstAddr, uint32_t *src, uint32_t size) {
-    status_t status;
+    status_t status = kStatus_Fail;
     flexspi_xfer_t flashXfer;
     flexspi_mem_config_t *memCfg = (flexspi_mem_config_t *)&qspiflash_config;
-    uint32_t instance = (uint32_t)base;
+//    uint32_t instance = (uint32_t)base;
     bool isParallelMode = flexspi_is_parallel_mode(memCfg);
 
     do
     {
         // Send write enable before executing page program command
-        status = flexspi_device_write_enable(instance, memCfg, isParallelMode, dstAddr);
+        status = flexspi_device_write_enable(FLEXSPI_INSTANCE, memCfg, isParallelMode, dstAddr);
         if (status != kStatus_Success)
         {
             TU_LOG1("FlexSPI write enable failed\r\n");
@@ -117,7 +117,7 @@ status_t flexspi_nor_flash_page_program(FLEXSPI_Type *base, uint32_t dstAddr, ui
         flashXfer.txBuffer = (uint32_t *)src;
         flashXfer.txSize = size;
 
-        status = flexspi_command_xfer(instance, &flashXfer);
+        status = flexspi_command_xfer(FLEXSPI_INSTANCE, &flashXfer);
         if (status != kStatus_Success)
         {
             TU_LOG1("FlexSPI program page transfer failed\r\n");
@@ -125,7 +125,7 @@ status_t flexspi_nor_flash_page_program(FLEXSPI_Type *base, uint32_t dstAddr, ui
         }
 
         // Wait until the program operation completes on Serial NOR Flash side.
-        status = flexspi_device_wait_busy(instance, memCfg, isParallelMode, dstAddr);
+        status = flexspi_device_wait_busy(FLEXSPI_INSTANCE, memCfg, isParallelMode, dstAddr);
         if (status != kStatus_Success)
         {
             break;
@@ -133,7 +133,7 @@ status_t flexspi_nor_flash_page_program(FLEXSPI_Type *base, uint32_t dstAddr, ui
 
     } while (0);
 
-    flexspi_clear_cache(instance);
+    flexspi_clear_cache(FLEXSPI_INSTANCE);
 
     return status;
 
