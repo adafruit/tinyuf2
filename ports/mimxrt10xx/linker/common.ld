@@ -54,15 +54,6 @@ SECTIONS
     . = ALIGN(4);
   } > m_ivt
 
-  sdp_begin = ORIGIN(m_sdp);
-
-  .sdp : AT(sdp_begin)
-  {
-    . = ALIGN(4);
-	  KEEP(* (.boot_hdr.sdp))           /* ivt section for serial download */
-    . = ALIGN(4);
-  } > m_sdp
-
   /* The startup code goes first into internal RAM */
   .interrupts :
   {

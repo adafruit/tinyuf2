@@ -36,21 +36,6 @@ const BOOT_DATA_T boot_data = {
   0xFFFFFFFF                  /* empty - extra data word */
 };
 
-__attribute__((section(".boot_hdr.sdp")))
-/*************************************
- *  IVT Data for Serial Download
- *************************************/
-const ivt sdp_ivt = {
-  IVT_HEADER,                         /* IVT Header */
-  IMAGE_ENTRY_ADDRESS,                /* Image Entry Function */
-  IVT_RSVD,                           /* Reserved = 0 */
-  (uint32_t)DCD_ADDRESS,              /* Address where DCD information is stored */
-  0x0U,                               /* Address where BOOT Data Structure is stored */
-  (uint32_t)&sdp_ivt,      /* Pointer to IVT Self (absolute address */
-  (uint32_t)CSF_ADDRESS,              /* Address where CSF file is stored */
-  IVT_RSVD                            /* Reserved = 0 */
-};
-
 // Config for AT25SF128A with QSPI routed.
 __attribute__((section(".boot_hdr.conf")))
 const flexspi_nor_config_t qspiflash_config = {
