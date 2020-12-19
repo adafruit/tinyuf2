@@ -30,8 +30,8 @@ __attribute__((section(".boot_hdr.boot_data")))
  *  Boot Data
  *************************************/
 const BOOT_DATA_T boot_data = {
-  0x20206000,                 /* boot start location */
-  0x0000A000,                 /* size  40K */
+  0x00000000,                 /* boot start location */
+  0x00008000,                 /* size  32K */
   PLUGIN_FLAG,                /* Plugin flag*/
   0xFFFFFFFF                  /* empty - extra data word */
 };

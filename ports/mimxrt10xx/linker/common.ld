@@ -35,7 +35,9 @@ SECTIONS
   __NCACHE_REGION_START = ORIGIN(m_data2);
   __NCACHE_REGION_SIZE  = 0;
 
-  .flash_config :
+  fcfb_begin = ORIGIN(m_flash_config);
+
+  .flash_config : AT(fcfb_begin)
   {
     . = ALIGN(4);
     __FLASH_BASE = .;

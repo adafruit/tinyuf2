@@ -1,5 +1,12 @@
-m_flash_base = 0x60000000;
-m_flash_config_origin = 0x60000400;
-m_data_length = 32K;
-m_ocram_base = 0x20200000;
-m_ocram_config_origin = 0x20206400;
+m_flash_base =   0x60000000;
+m_itcm_base =    0x00000000;
+m_itcm_size =    32K;
+m_dtcm_base =    0x20000000;
+m_dtcm_size =    32K;
+m_ocram_base =   0x20200000;
+m_ocram_size =   64K;
+m_fcfb_origin =  0x00000400;
+m_ivt_origin =   0x00001000;
+m_int_origin =   0x00001400;
+m_txt_origin =   0x00001800;
+m_data_length =  32K;
