@@ -8,11 +8,11 @@ The serial download protocol (SDP) implemented in the RT10xx ROM does not have t
 2. Power up RT1011 and connect USB cable
 3. Copy flashloader into RAM using sdphost
 
-        sdphost.exe -u 0x1fc9,0x0145 -V -- write-file 0x20206400 "tinyuf2-imxrt1010_evk.bin"
+        sdphost.exe -u 0x1fc9,0x0145 -V -- write-file 0x400 "tinyuf2-imxrt1010_evk.bin"
 
 4. Launch flashloader
 
-        sdphost.exe -u 0x1fc9,0x0145 -V -- jump-address 0x20207000
+        sdphost.exe -u 0x1fc9,0x0145 -V -- jump-address 0x1000
 
 ## Copy Image to flash with UF2
 

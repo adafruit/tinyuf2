@@ -23,7 +23,8 @@
  */
 
 #include "board_api.h"
-#include "fsl_flexspi.h"
+#include "bl_flexspi.h"
+#include "flexspi_nor_flash.h"
 #include "fsl_cache.h"
 
 #include "tusb.h" // for logging
@@ -38,18 +39,18 @@
 #define FLASH_PAGE_SIZE 256
 #define FILESYSTEM_BLOCK_SIZE 256
 
+#define FLEXSPI_INSTANCE 0
+
+// Flash Configuration Structure 
+extern flexspi_nor_config_t qspiflash_config;
+
 static uint32_t _flash_page_addr = NO_CACHE;
 static uint8_t  _flash_cache[SECTOR_SIZE] __attribute__((aligned(4)));
 
-extern void     flexspi_nor_flash_init(FLEXSPI_Type *base);
-extern status_t flexspi_nor_flash_erase_sector(FLEXSPI_Type *base, uint32_t address);
-extern status_t flexspi_nor_flash_page_program(FLEXSPI_Type *base, uint32_t dstAddr, uint32_t *src, uint32_t size);
-//extern status_t flexspi_nor_get_vendor_id(FLEXSPI_Type *base, uint8_t *vendorId);
-//extern status_t flexspi_nor_enable_quad_mode(FLEXSPI_Type *base);
 
 void board_flash_init(void)
 {
-  flexspi_nor_flash_init(FLEXSPI);
+  flexspi_nor_flash_init(FLEXSPI_INSTANCE, &qspiflash_config);
 }
 
 uint32_t board_flash_size(void)
@@ -79,7 +80,7 @@ void board_flash_flush(void)
     uint32_t const sector_addr = (_flash_page_addr - FlexSPI_AMBA_BASE);
 
     __disable_irq();
-    status = flexspi_nor_flash_erase_sector(FLEXSPI, sector_addr);
+    status = flexspi_nor_flash_erase(FLEXSPI_INSTANCE, &qspiflash_config, sector_addr, SECTOR_SIZE);
     __enable_irq();
 
     SCB_InvalidateDCache_by_Addr((uint32_t *)sector_addr, SECTOR_SIZE);
@@ -96,7 +97,7 @@ void board_flash_flush(void)
       void* page_data =  _flash_cache + i * FLASH_PAGE_SIZE;
 
       __disable_irq();
-      status = flexspi_nor_flash_page_program(FLEXSPI, page_addr, (uint32_t*) page_data, FLASH_PAGE_SIZE);
+      status = flexspi_nor_flash_page_program(FLEXSPI_INSTANCE, &qspiflash_config, page_addr, (uint32_t*) page_data);
       __enable_irq();
 
       if ( status != kStatus_Success )

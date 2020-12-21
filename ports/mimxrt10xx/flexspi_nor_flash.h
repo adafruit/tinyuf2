@@ -44,30 +44,10 @@
 #define NOR_CMD_LUT_SEQ_IDX_EXIT_NOCMD \
     15 //!< 15 Exit 0-4-4/0-8-8 mode sequence id in lookupTable stored in config blobk
 
-//! @brief Bootloader status group numbers.
-//!
-//! @ingroup bl_core
-enum _bl_status_groups
-{
-    kStatusGroup_Bootloader = 100,      //!< Bootloader status group number (100).
-    kStatusGroup_SBLoader = 101,        //!< SB loader status group number (101).
-    kStatusGroup_MemoryInterface = 102, //!< Memory interface status group number (102).
-    kStatusGroup_PropertyStore = 103,   //!< Property store status group number (103).
-    kStatusGroup_AppCrcCheck = 104,     //!< Application crc check status group number (104).
-    kStatusGroup_Packetizer = 105,      //!< Packetizer status group number (105).
-    kStatusGroup_ReliableUpdate = 106,  //!< Reliable Update status groupt number (106).
-
-    kStatusGroup_SerialNorEeprom = 107, //!< Serial NOR/EEPROM status group number
-    kStatusGroup_FlexSPINAND = 200,     //!< FlexSPINAND status group number.
-    kStatusGroup_FLEXSPINOR = 201,      //!< FlexSPINOR status group number.
-    kStatusGroup_OCOTP = 202,           //!< OCOTP status group number.
-    kStatusGroup_SemcNOR = 211,         //!< SEMC NOR status group number.
-    kStatusGroup_SemcNAND = 212,        //!< SEMC NAND status group number.
-};
-
 /* FlexSPI NOR status */
 enum _flexspi_nor_status
 {
+    kStatusGroup_FLEXSPINOR = 201,      //!< FlexSPINOR status group number.
     kStatus_FLEXSPINOR_ProgramFail = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 0), //!< Status for Page programming failure
     kStatus_FLEXSPINOR_EraseSectorFail = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 1), //!< Status for Sector Erase failure
     kStatus_FLEXSPINOR_EraseAllFail = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 2),    //!< Status for Chip Erase failure
@@ -225,20 +205,6 @@ extern "C" {
 #endif
 
 //!@brief Initialize Serial NOR devices via FlexSPI
-void     flexspi_nor_flash_init(FLEXSPI_Type *base);
-
-//!@brief Erase one block specified by address
-status_t flexspi_nor_flash_erase_sector(FLEXSPI_Type *base, uint32_t address);
-
-//!@brief Program data to Serial NOR via FlexSPI
-status_t flexspi_nor_flash_page_program(FLEXSPI_Type *base, uint32_t dstAddr, uint32_t *src, uint32_t size);
-
-status_t flexspi_nor_get_vendor_id(FLEXSPI_Type *base, uint8_t *vendorId);
-
-status_t flexspi_nor_enable_quad_mode(FLEXSPI_Type *base);
-
-/*
-//!@brief Initialize Serial NOR devices via FlexSPI
 status_t flexspi_nor_flash_init(uint32_t instance, flexspi_nor_config_t *config);
 
 //!@brief Program data to Serial NOR via FlexSPI
@@ -276,7 +242,6 @@ extern status_t flexspi_nor_read_persistent(uint32_t *data);
 status_t flexspi_nor_restore_spi_protocol(uint32_t instance,
                                           flexspi_nor_config_t *config,
                                           flash_run_context_t *run_ctx);
-*/
 
 #ifdef __cplusplus
 }
