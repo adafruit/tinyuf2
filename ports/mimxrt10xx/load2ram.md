@@ -8,17 +8,29 @@ The serial download protocol (SDP) implemented in the RT10xx ROM does not have t
 2. Power up RT1011 and connect USB cable
 3. Copy flashloader into RAM using sdphost
 
-        sdphost.exe -u 0x1fc9,0x0145 -V -- write-file 0x400 "tinyuf2-imxrt1010_evk.bin"
+    MIMXRT1011
+        sdphost.exe -u 0x1fc9,0x0145 -V -- write-file 0x20206400 "tinyuf2-imxrt1010_evk.bin"
+
+    MIMXRT1062
+        sdphost.exe -u 0x1fc9,0x0135 -V -- write-file 0x400 "tinyuf2-imxrt1060_evk.bin"
 
 4. Launch flashloader
 
-        sdphost.exe -u 0x1fc9,0x0145 -V -- jump-address 0x1000
+    MIMXRT1011
+        sdphost.exe -u 0x1fc9,0x0145 -V -- jump-address 0x20207000
+
+    MIMXRT1062
+        sdphost.exe -u 0x1fc9,0x0135 -V -- jump-address 0x1000
 
 ## Copy Image to flash with UF2
 
 1. Generate UF2 file from binary image using `uf2conv.py`
 
+    MIMXRT1011
         uf2conv.py -b 0x60000400 -o imxrt1010_evk-bl.uf2 -f MIMXRT10XX tinyuf2-imxrt1010_evk.bin
+
+    MIMXRT1062
+        uf2conv.py -b 0x60000400 -o imxrt1060_evk-bl.uf2 -f MIMXRT10XX tinyuf2-imxrt1060_evk.bin
 
 2. Get board into UF2 mode by loading the image through SDP or double pressing the reset button if it is already present in flash
 3. Drag-N-Drop `imxrt1010_evk-bl.uf2` onto `RT1010BOOT` drive.

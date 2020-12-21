@@ -9,4 +9,5 @@ m_fcfb_origin =  0x00000400;
 m_ivt_origin =   0x00001000;
 m_int_origin =   0x00001400;
 m_txt_origin =   0x00001800;
+m_txt_length =   0x0000A800;
 m_data_length =  128K;
