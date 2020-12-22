@@ -40,7 +40,7 @@ jobs:
       id: idf-cache
       with:
         path: ${{ github.workspace }}/.idf_tools
-        key: ${{ runner.os }}-idf-tools-${{ hashFiles('.git/modules/lib/esp-idf/HEAD') }}-20200801
+        key: ${{ runner.os }}-idf-tools-${{ hashFiles('.git/modules/lib/esp-idf/HEAD') }}-20201222
 
     - name: Clone IDF submodules
       run: |
