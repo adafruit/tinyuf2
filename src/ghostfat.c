@@ -118,7 +118,7 @@ STATIC_ASSERT(FAT_ENTRIES_PER_SECTOR                       ==       256); // FAT
 #define UF2_ARRAY_SIZE(_arr)    ( sizeof(_arr) / sizeof(_arr[0]) )
 
 char infoUf2File[128*3] =
-    "UF2 Bootloader " UF2_VERSION "\r\n"
+    "TinyUF2 Bootloader " UF2_VERSION "\r\n"
     "Model: " UF2_PRODUCT_NAME "\r\n"
     "Board-ID: " UF2_BOARD_ID "\r\n";
 

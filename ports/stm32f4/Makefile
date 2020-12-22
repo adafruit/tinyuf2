@@ -14,6 +14,7 @@ CMSIS_5 = lib/CMSIS_5
 
 include ../make.mk
 
+# Version
 GIT_VERSION := $(shell git describe --dirty --always --tags)
 GIT_SUBMODULE_VERSIONS := $(shell git submodule status $(addprefix ../../lib/,CMSIS_5 st tinyusb) | cut -d" " -f3,4 | paste -s -d" " -)
 GIT_SUBMODULE_VERSIONS := $(subst ../../lib/,,$(GIT_SUBMODULE_VERSIONS))
