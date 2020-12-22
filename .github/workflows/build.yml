@@ -49,6 +49,7 @@ jobs:
         IDF_PATH: ${{ github.workspace }}/lib/esp-idf
 
     - name: Install IDF tools
+      if: steps.idf-cache.outputs.cache-hit != 'true'
       run: |
         $IDF_PATH/tools/idf_tools.py --non-interactive install required
         $IDF_PATH/tools/idf_tools.py --non-interactive install cmake
