@@ -14,6 +14,10 @@ CMSIS_5 = lib/CMSIS_5
 
 include ../make.mk
 
+GIT_VERSION := $(shell git describe --dirty --always --tags)
+GIT_SUBMODULE_VERSIONS := $(shell git submodule status $(addprefix ../../lib/,CMSIS_5 st tinyusb) | cut -d" " -f3,4 | paste -s -d" " -)
+GIT_SUBMODULE_VERSIONS := $(subst ../../lib/,,$(GIT_SUBMODULE_VERSIONS))
+
 # Port Compiler Flags
 CFLAGS += \
   -flto \
@@ -24,7 +28,8 @@ CFLAGS += \
   -mfpu=fpv4-sp-d16 \
   -nostdlib -nostartfiles \
   -DCFG_TUSB_MCU=OPT_MCU_STM32F4 \
-  -DBOARD_UF2_FAMILY_ID=$(UF2_FAMILY_ID)
+  -DBOARD_UF2_FAMILY_ID=$(UF2_FAMILY_ID) \
+  -DUF2_VERSION='"$(GIT_VERSION) - $(GIT_SUBMODULE_VERSIONS)"'
 
 # suppress warning caused by vendor mcu driver
 CFLAGS += -Wno-error=cast-align -Wno-error=unused-parameter
