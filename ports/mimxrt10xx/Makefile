@@ -1,12 +1,5 @@
-PORT = mimxrt10xx
 UF2_FAMILY_ID = 0x4fb2d5bd
-
-#-------------- Cross Compiler  ------------
 CROSS_COMPILE = arm-none-eabi-
-
-CC = $(CROSS_COMPILE)gcc
-OBJCOPY = $(CROSS_COMPILE)objcopy
-SIZE = $(CROSS_COMPILE)size
 
 include ../make.mk
 
