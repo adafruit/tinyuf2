@@ -2,6 +2,10 @@
 # Common make definition for all
 # ---------------------------------------
 
+CC = $(CROSS_COMPILE)gcc
+OBJCOPY = $(CROSS_COMPILE)objcopy
+SIZE = $(CROSS_COMPILE)size
+
 ifneq ($(lastword a b),b)
 $(error This Makefile require make 3.81 or newer)
 endif

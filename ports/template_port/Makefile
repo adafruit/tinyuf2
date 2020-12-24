@@ -1,15 +1,11 @@
-UF2_FAMILY_ID = 0x57755a57
+UF2_FAMILY_ID = 0x00000000
 CROSS_COMPILE = arm-none-eabi-
-
-ST_HAL_DRIVER = lib/st/stm32f4xx_hal_driver
-ST_CMSIS = lib/st/cmsis_device_f4
-CMSIS_5 = lib/CMSIS_5
 
 include ../make.mk
 
 # Version
 GIT_VERSION := $(shell git describe --dirty --always --tags)
-GIT_SUBMODULE_VERSIONS := $(shell git submodule status $(addprefix ../../lib/,CMSIS_5 st tinyusb) | cut -d" " -f3,4 | paste -s -d" " -)
+GIT_SUBMODULE_VERSIONS := $(shell git submodule status $(addprefix ../../lib/, tinyusb) | cut -d" " -f3,4 | paste -s -d" " -)
 GIT_SUBMODULE_VERSIONS := $(subst ../../lib/,,$(GIT_SUBMODULE_VERSIONS))
 
 # Port Compiler Flags
@@ -17,46 +13,28 @@ CFLAGS += \
   -flto \
   -mthumb \
   -mabi=aapcs \
-  -mcpu=cortex-m4 \
-  -mfloat-abi=hard \
-  -mfpu=fpv4-sp-d16 \
-  -nostdlib -nostartfiles \
-  -DCFG_TUSB_MCU=OPT_MCU_STM32F4 \
+  -mcpu=cortex-m3 \
+  -DCFG_TUSB_MCU=OPT_MCU_NONE \
   -DBOARD_UF2_FAMILY_ID=$(UF2_FAMILY_ID) \
   -DUF2_VERSION='"$(GIT_VERSION) - $(GIT_SUBMODULE_VERSIONS)"'
 
 # suppress warning caused by vendor mcu driver
 CFLAGS += -Wno-error=cast-align -Wno-error=unused-parameter
 
-LD_FILES ?= $(PORT_DIR)/linker/stm32f4.ld
+LD_FILES ?=
 
 # Port source
 PORT_SRC_C += \
-	$(addprefix $(CURRENT_PATH)/, $(wildcard *.c)) \
-	$(ST_CMSIS)/Source/Templates/system_stm32f4xx.c \
-	$(ST_HAL_DRIVER)/Src/stm32f4xx_hal.c \
-	$(ST_HAL_DRIVER)/Src/stm32f4xx_hal_cortex.c \
-	$(ST_HAL_DRIVER)/Src/stm32f4xx_hal_rcc.c \
-	$(ST_HAL_DRIVER)/Src/stm32f4xx_hal_gpio.c \
-	$(ST_HAL_DRIVER)/Src/stm32f4xx_hal_flash.c \
-	$(ST_HAL_DRIVER)/Src/stm32f4xx_hal_flash_ex.c \
-	$(ST_HAL_DRIVER)/Src/stm32f4xx_hal_uart.c
+	$(addprefix $(CURRENT_PATH)/, $(wildcard *.c))
 
 SRC_C += \
 	$(PORT_SRC_C) \
-	lib/tinyusb/src/portable/st/synopsys/dcd_synopsys.c \
+	lib/tinyusb/src/portable/template/dcd_template.c \
 	
 # Port include
-INC += \
-	$(TOP)/$(CMSIS_5)/CMSIS/Core/Include \
-	$(TOP)/$(ST_CMSIS)/Include \
-	$(TOP)/$(ST_HAL_DRIVER)/Inc
+INC +=
 
 include ../rules.mk
-
-# flash target ROM bootloader
-flash-dfu-util: $(BUILD)/$(OUTNAME).bin
-	dfu-util -R -a 0 --dfuse-address 0x08000000 -D $<
 
 #-------------- Self-update  --------------
 SELF_CFLAGS  = $(CFLAGS) -DTINYUF2_SELF_UPDATE
