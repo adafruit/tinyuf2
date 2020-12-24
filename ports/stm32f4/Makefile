@@ -1,4 +1,3 @@
-PORT = stm32f4
 UF2_FAMILY_ID = 0x57755a57
 
 #-------------- Cross Compiler  ------------
@@ -35,7 +34,7 @@ CFLAGS += \
 # suppress warning caused by vendor mcu driver
 CFLAGS += -Wno-error=cast-align -Wno-error=unused-parameter
 
-LD_FILES ?= ports/$(PORT)/linker/stm32f4.ld
+LD_FILES ?= $(PORT_DIR)/linker/stm32f4.ld
 
 # Port source
 PORT_SRC_C += \

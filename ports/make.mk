@@ -39,6 +39,8 @@ BIN = _bin/$(BOARD)
 
 #-------------- Source files and compiler flags --------------
 
+# PORT is directory name containing the Makefile
+PORT := $(notdir $(shell pwd))
 PORT_DIR = ports/$(PORT)
 BOARD_DIR = $(PORT_DIR)/boards/$(BOARD)
 TINYUSB_DIR = lib/tinyusb/src

@@ -1,4 +1,3 @@
-PORT = mimxrt10xx
 UF2_FAMILY_ID = 0x4fb2d5bd
 
 #-------------- Cross Compiler  ------------
