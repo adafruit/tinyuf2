@@ -1,7 +1,10 @@
-UF2_FAMILY_ID = 0x00000000
+UF2_FAMILY_ID = 0x2abc77ec
 CROSS_COMPILE = arm-none-eabi-
 
 include ../make.mk
+
+MCU_DIR = lib/nxp/sdk/devices/$(MCU)
+LD_FILES ?= $(MCU_DIR)/gcc/$(MCU)_cm33_core0_flash.ld
 
 # Version
 GIT_VERSION := $(shell git describe --dirty --always --tags)
@@ -13,28 +16,39 @@ CFLAGS += \
   -flto \
   -mthumb \
   -mabi=aapcs \
-  -mcpu=cortex-m3 \
-  -DCFG_TUSB_MCU=OPT_MCU_NONE \
+  -mcpu=cortex-m33 \
+  -mfloat-abi=hard \
+  -mfpu=fpv5-sp-d16 \
+  -DCFG_TUSB_MCU=OPT_MCU_LPC55XX \
   -DBOARD_UF2_FAMILY_ID=$(UF2_FAMILY_ID) \
   -DUF2_VERSION='"$(GIT_VERSION) - $(GIT_SUBMODULE_VERSIONS)"'
 
 # suppress warning caused by vendor mcu driver
-CFLAGS += -Wno-error=cast-align -Wno-error=unused-parameter
+CFLAGS += -Wno-error=unused-parameter -Wno-error=float-equal
 
-LD_FILES ?=
 
 # Port source
 PORT_SRC_C += \
-	$(addprefix $(CURRENT_PATH)/, $(wildcard *.c))
+	$(addprefix $(CURRENT_PATH)/, $(wildcard *.c)) \
+	$(MCU_DIR)/system_$(MCU)_cm33_core0.c \
+	$(MCU_DIR)/drivers/fsl_clock.c \
+	$(MCU_DIR)/drivers/fsl_gpio.c \
+	$(MCU_DIR)/drivers/fsl_power.c \
+	$(MCU_DIR)/drivers/fsl_reset.c	
 
 SRC_C += \
 	$(PORT_SRC_C) \
-	lib/tinyusb/src/portable/template/dcd_template.c \
+	lib/tinyusb/src/portable/nxp/lpc_ip3511/dcd_lpc_ip3511.c \
 
-SRC_S +=
+SRC_S += $(MCU_DIR)/gcc/startup_$(MCU)_cm33_core0.S
+
+LIBS += $(TOP)/$(MCU_DIR)/gcc/libpower_hardabi.a
 
 # Port include
-INC +=
+INC += \
+	$(TOP)/$(MCU_DIR)/../../CMSIS/Include \
+	$(TOP)/$(MCU_DIR) \
+	$(TOP)/$(MCU_DIR)/drivers
 
 include ../rules.mk
 

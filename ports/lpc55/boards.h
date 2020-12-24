@@ -1,7 +1,7 @@
-/*
+/* 
  * The MIT License (MIT)
  *
- * Copyright (c) 2018 Ha Thach for Adafruit Industries
+ * Copyright (c) 2020 Ha Thach (tinyusb.org) for Adafruit Industries
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,41 +22,19 @@
  * THE SOFTWARE.
  */
 
-#include "board_api.h"
-#include "tusb.h" // for logging
+#ifndef BOARDS_H_
+#define BOARDS_H_
 
-//--------------------------------------------------------------------+
-//
-//--------------------------------------------------------------------+
-void board_flash_init(void)
-{
-
-}
-
-uint32_t board_flash_size(void)
-{
-  return 0;
-}
-
-void board_flash_read(uint32_t addr, void* buffer, uint32_t len)
-{
-  (void) addr; (void) buffer; (void) len;
-}
-
-void board_flash_flush(void)
-{
-}
-
-void board_flash_write (uint32_t addr, void const *data, uint32_t len)
-{
-  (void) addr; (void) data; (void) len;
-}
-
-
-#ifdef TINYUF2_SELF_UPDATE
-void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
-{
-  (void) bootloader_bin;
-  (void) bootloader_len;
-}
+#ifdef __cplusplus
+ extern "C" {
 #endif
+
+#include "board.h"
+
+#define USE_DFU_DOUBLE_TAP     1
+
+#ifdef __cplusplus
+ }
+#endif
+
+#endif /* BOARDS_H_ */

@@ -22,85 +22,53 @@
  * THE SOFTWARE.
  */
 
-#include "board_api.h"
-#include "tusb.h"
+#ifndef BOARD_H_
+#define BOARD_H_
 
 //--------------------------------------------------------------------+
-// MACRO TYPEDEF CONSTANT ENUM DECLARATION
-//--------------------------------------------------------------------+
-void board_init(void)
-{
-}
-
-void board_dfu_init(void)
-{
-}
-
-void board_dfu_complete(void)
-{
-}
-
-bool board_app_valid(void)
-{
-  return true;
-}
-
-void board_app_jump(void)
-{
-}
-
-uint8_t board_usb_get_serial(uint8_t serial_id[16])
-{
-  (void) serial_id;
-  return 0;
-}
-
-//--------------------------------------------------------------------+
-// LED pattern
+// Button
 //--------------------------------------------------------------------+
 
-void board_led_write(uint32_t state)
-{
-  (void) state;
-}
-
-void board_rgb_write(uint8_t const rgb[])
-{
-  (void) rgb;
-}
-
 //--------------------------------------------------------------------+
-// Timer
+// LED
 //--------------------------------------------------------------------+
 
-void board_timer_start(uint32_t ms)
-{
-  (void) ms;
-}
+#define LED_PORT              GPIOC
+#define LED_PIN               GPIO_PIN_1
+#define LED_STATE_ON          1
 
-void board_timer_stop(void)
-{
+//--------------------------------------------------------------------+
+// Neopixel
+//--------------------------------------------------------------------+
 
-}
+// Number of neopixels
+#define NEOPIXEL_NUMBER       1
+#define NEOPIXEL_PORT         GPIOC
+#define NEOPIXEL_PIN          GPIO_PIN_0
 
-void SysTick_Handler (void)
-{
+//--------------------------------------------------------------------+
+// USB UF2
+//--------------------------------------------------------------------+
 
-}
+#define USB_VID           0x0000
+#define USB_PID           0x0000
+#define USB_MANUFACTURER  "Adafruit"
+#define USB_PRODUCT       "Dummy"
 
+#define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
+#define UF2_BOARD_ID      "Dummy"
+#define UF2_VOLUME_LABEL  "DUMMYBOOT"
+#define UF2_INDEX_URL     "https://www.adafruit.com"
 
-int board_uart_write(void const * buf, int len)
-{
-  (void) buf; (void) len;
-  return 0;
-}
+//--------------------------------------------------------------------+
+// UART
+//--------------------------------------------------------------------+
 
-#ifndef TINYUF2_SELF_UPDATE
-
-// Forward USB interrupt events to TinyUSB IRQ Handler
-void OTG_FS_IRQHandler(void)
-{
-  tud_int_handler(0);
-}
+#define UART_DEV              USART3
+#define UART_CLOCK_ENABLE     __HAL_RCC_USART3_CLK_ENABLE
+#define UART_GPIO_PORT        GPIOB
+#define UART_GPIO_AF          GPIO_AF7_USART3
+#define UART_TX_PIN           GPIO_PIN_10
+#define UART_RX_PIN           GPIO_PIN_11
 
 #endif

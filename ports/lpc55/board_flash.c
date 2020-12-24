@@ -23,84 +23,38 @@
  */
 
 #include "board_api.h"
-#include "tusb.h"
+#include "tusb.h" // for logging
 
 //--------------------------------------------------------------------+
-// MACRO TYPEDEF CONSTANT ENUM DECLARATION
+//
 //--------------------------------------------------------------------+
-void board_init(void)
+void board_flash_init(void)
 {
+
 }
 
-void board_dfu_init(void)
+uint32_t board_flash_size(void)
 {
-}
-
-void board_dfu_complete(void)
-{
-}
-
-bool board_app_valid(void)
-{
-  return true;
-}
-
-void board_app_jump(void)
-{
-}
-
-uint8_t board_usb_get_serial(uint8_t serial_id[16])
-{
-  (void) serial_id;
   return 0;
 }
 
-//--------------------------------------------------------------------+
-// LED pattern
-//--------------------------------------------------------------------+
-
-void board_led_write(uint32_t state)
+void board_flash_read(uint32_t addr, void* buffer, uint32_t len)
 {
-  (void) state;
 }
 
-void board_rgb_write(uint8_t const rgb[])
+void board_flash_flush(void)
 {
-  (void) rgb;
 }
 
-//--------------------------------------------------------------------+
-// Timer
-//--------------------------------------------------------------------+
-
-void board_timer_start(uint32_t ms)
+void board_flash_write (uint32_t addr, void const *data, uint32_t len)
 {
-  (void) ms;
-}
-
-void board_timer_stop(void)
-{
-
-}
-
-void SysTick_Handler (void)
-{
-
 }
 
 
-int board_uart_write(void const * buf, int len)
+#ifdef TINYUF2_SELF_UPDATE
+void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
 {
-  (void) buf; (void) len;
-  return 0;
+  (void) bootloader_bin;
+  (void) bootloader_len;
 }
-
-#ifndef TINYUF2_SELF_UPDATE
-
-// Forward USB interrupt events to TinyUSB IRQ Handler
-void OTG_FS_IRQHandler(void)
-{
-  tud_int_handler(0);
-}
-
 #endif
