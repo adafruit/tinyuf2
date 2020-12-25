@@ -4,7 +4,7 @@ CROSS_COMPILE = arm-none-eabi-
 include ../make.mk
 
 MCU_DIR = lib/nxp/sdk/devices/$(MCU)
-LD_FILES ?= $(MCU_DIR)/gcc/$(MCU)_cm33_core0_flash.ld
+LD_FILES ?= $(MCU_DIR)/gcc/$(MCU_CORE)_flash.ld
 
 # Version
 GIT_VERSION := $(shell git describe --dirty --always --tags)
@@ -30,7 +30,7 @@ CFLAGS += -Wno-error=unused-parameter -Wno-error=float-equal
 # Port source
 PORT_SRC_C += \
 	$(addprefix $(CURRENT_PATH)/, $(wildcard *.c)) \
-	$(MCU_DIR)/system_$(MCU)_cm33_core0.c \
+	$(MCU_DIR)/system_$(MCU_CORE).c \
 	$(MCU_DIR)/project_template/clock_config.c \
 	$(MCU_DIR)/drivers/fsl_clock.c \
 	$(MCU_DIR)/drivers/fsl_gpio.c \
@@ -41,7 +41,7 @@ SRC_C += \
 	$(PORT_SRC_C) \
 	lib/tinyusb/src/portable/nxp/lpc_ip3511/dcd_lpc_ip3511.c \
 
-SRC_S += $(MCU_DIR)/gcc/startup_$(MCU)_cm33_core0.S
+SRC_S += $(MCU_DIR)/gcc/startup_$(MCU_CORE).S
 
 LIBS += $(TOP)/$(MCU_DIR)/gcc/libpower_hardabi.a
 
