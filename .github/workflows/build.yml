@@ -100,6 +100,9 @@ jobs:
       matrix:
         board:
         # Alphabetical order
+        # lpc55
+        - 'lpcxpresso55s28'
+        - 'lpcxpresso55s69'
         # mimxrt10xx
         - 'imxrt1010_evk'
         - 'imxrt1020_evk'

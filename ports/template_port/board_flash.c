@@ -40,6 +40,7 @@ uint32_t board_flash_size(void)
 
 void board_flash_read(uint32_t addr, void* buffer, uint32_t len)
 {
+  (void) addr; (void) buffer; (void) len;
 }
 
 void board_flash_flush(void)
@@ -48,6 +49,7 @@ void board_flash_flush(void)
 
 void board_flash_write (uint32_t addr, void const *data, uint32_t len)
 {
+  (void) addr; (void) data; (void) len;
 }
 
 

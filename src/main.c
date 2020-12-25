@@ -238,7 +238,7 @@ void board_timer_handler(void)
     case STATE_USB_UNPLUGGED:
     case STATE_USB_PLUGGED:
     {
-      // Fading with LED
+      // Fading with LED TODO option to skip for unsupported MCUs
       uint8_t duty = _timer_count & 0xff;
       if ( _timer_count & 0x100 ) duty = 255 - duty;
       board_led_write(duty);

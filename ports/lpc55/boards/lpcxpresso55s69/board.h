@@ -22,89 +22,54 @@
  * THE SOFTWARE.
  */
 
-#include "board_api.h"
-#include "tusb.h"
+#ifndef BOARD_H_
+#define BOARD_H_
 
 //--------------------------------------------------------------------+
-// MACRO TYPEDEF CONSTANT ENUM DECLARATION
-//--------------------------------------------------------------------+
-void board_init(void)
-{
-}
-
-void board_dfu_init(void)
-{
-  // Init USB for DFU
-}
-
-void board_dfu_complete(void)
-{
-  // Mostly reset
-  NVIC_SystemReset();
-}
-
-bool board_app_valid(void)
-{
-  return false;
-}
-
-void board_app_jump(void)
-{
-  // Jump to application code
-}
-
-uint8_t board_usb_get_serial(uint8_t serial_id[16])
-{
-  (void) serial_id;
-  return 0;
-}
-
-//--------------------------------------------------------------------+
-// LED pattern
+// Button
 //--------------------------------------------------------------------+
 
-void board_led_write(uint32_t state)
-{
-  (void) state;
-}
-
-void board_rgb_write(uint8_t const rgb[])
-{
-  (void) rgb;
-}
-
 //--------------------------------------------------------------------+
-// Timer
+// LED
 //--------------------------------------------------------------------+
 
-void board_timer_start(uint32_t ms)
-{
-  SysTick_Config( (SystemCoreClock/1000) * ms );
-}
+// RGB pins are P1_6, P1_7, P1_4
+#define LED_PORT              1
+#define LED_PIN               6
+#define LED_STATE_ON          0
 
-void board_timer_stop(void)
-{
-  SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk;
-}
+//--------------------------------------------------------------------+
+// Neopixel
+//--------------------------------------------------------------------+
 
-void SysTick_Handler (void)
-{
-  board_timer_handler();
-}
+// Number of neopixels
+#define NEOPIXEL_NUMBER       1
+#define NEOPIXEL_PORT         GPIOC
+#define NEOPIXEL_PIN          GPIO_PIN_0
 
+//--------------------------------------------------------------------+
+// USB UF2
+//--------------------------------------------------------------------+
 
-int board_uart_write(void const * buf, int len)
-{
-  (void) buf; (void) len;
-  return 0;
-}
+#define USB_VID           0x1fc9
+#define USB_PID           0x0094
+#define USB_MANUFACTURER  "NXP"
+#define USB_PRODUCT       "LPCXpresso 55s69"
 
-#ifndef TINYUF2_SELF_UPDATE
+#define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
+#define UF2_BOARD_ID      "LPC55S69-Xpresso-revA"
+#define UF2_VOLUME_LABEL  "LPC5569BOOT"
+#define UF2_INDEX_URL     "https://www.nxp.com/design/development-boards/lpcxpresso-boards/lpcxpresso55s69-development-board:LPC55S69-EVK"
 
-// Forward USB interrupt events to TinyUSB IRQ Handler
-void OTG_FS_IRQHandler(void)
-{
-  tud_int_handler(0);
-}
+//--------------------------------------------------------------------+
+// UART
+//--------------------------------------------------------------------+
+
+#define UART_DEV              USART3
+#define UART_CLOCK_ENABLE     __HAL_RCC_USART3_CLK_ENABLE
+#define UART_GPIO_PORT        GPIOB
+#define UART_GPIO_AF          GPIO_AF7_USART3
+#define UART_TX_PIN           GPIO_PIN_10
+#define UART_RX_PIN           GPIO_PIN_11
 
 #endif
