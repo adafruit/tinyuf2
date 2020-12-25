@@ -34,19 +34,23 @@ void board_init(void)
 
 void board_dfu_init(void)
 {
+  // Init USB for DFU
 }
 
 void board_dfu_complete(void)
 {
+  // Mostly reset
+  NVIC_SystemReset();
 }
 
 bool board_app_valid(void)
 {
-  return true;
+  return false;
 }
 
 void board_app_jump(void)
 {
+  // Jump to application code
 }
 
 uint8_t board_usb_get_serial(uint8_t serial_id[16])
@@ -75,17 +79,17 @@ void board_rgb_write(uint8_t const rgb[])
 
 void board_timer_start(uint32_t ms)
 {
-  (void) ms;
+  SysTick_Config( (SystemCoreClock/1000) * ms );
 }
 
 void board_timer_stop(void)
 {
-
+  SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk;
 }
 
 void SysTick_Handler (void)
 {
-
+  board_timer_handler();
 }
 
 

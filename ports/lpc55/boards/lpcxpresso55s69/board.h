@@ -33,9 +33,10 @@
 // LED
 //--------------------------------------------------------------------+
 
-#define LED_PORT              GPIOC
-#define LED_PIN               GPIO_PIN_1
-#define LED_STATE_ON          1
+// RGB pins are P1_6, P1_7, P1_4
+#define LED_PORT              1
+#define LED_PIN               6
+#define LED_STATE_ON          0
 
 //--------------------------------------------------------------------+
 // Neopixel
@@ -50,15 +51,15 @@
 // USB UF2
 //--------------------------------------------------------------------+
 
-#define USB_VID           0x0000
-#define USB_PID           0x0000
-#define USB_MANUFACTURER  "Adafruit"
-#define USB_PRODUCT       "Dummy"
+#define USB_VID           0x1fc9
+#define USB_PID           0x0094
+#define USB_MANUFACTURER  "NXP"
+#define USB_PRODUCT       "LPCXpresso 55s69"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "Dummy"
-#define UF2_VOLUME_LABEL  "DUMMYBOOT"
-#define UF2_INDEX_URL     "https://www.adafruit.com"
+#define UF2_BOARD_ID      "LPC55S69-Xpresso-revA"
+#define UF2_VOLUME_LABEL  "LPC5569BOOT"
+#define UF2_INDEX_URL     "https://www.nxp.com/design/development-boards/lpcxpresso-boards/lpcxpresso55s69-development-board:LPC55S69-EVK"
 
 //--------------------------------------------------------------------+
 // UART

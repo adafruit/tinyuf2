@@ -31,7 +31,7 @@
 
 #include "board.h"
 
-#define USE_DFU_DOUBLE_TAP     1
+#define USE_DFU_DOUBLE_TAP     0
 
 #ifdef __cplusplus
  }

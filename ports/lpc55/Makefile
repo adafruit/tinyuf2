@@ -31,6 +31,7 @@ CFLAGS += -Wno-error=unused-parameter -Wno-error=float-equal
 PORT_SRC_C += \
 	$(addprefix $(CURRENT_PATH)/, $(wildcard *.c)) \
 	$(MCU_DIR)/system_$(MCU)_cm33_core0.c \
+	$(MCU_DIR)/project_template/clock_config.c \
 	$(MCU_DIR)/drivers/fsl_clock.c \
 	$(MCU_DIR)/drivers/fsl_gpio.c \
 	$(MCU_DIR)/drivers/fsl_power.c \
@@ -48,7 +49,8 @@ LIBS += $(TOP)/$(MCU_DIR)/gcc/libpower_hardabi.a
 INC += \
 	$(TOP)/$(MCU_DIR)/../../CMSIS/Include \
 	$(TOP)/$(MCU_DIR) \
-	$(TOP)/$(MCU_DIR)/drivers
+	$(TOP)/$(MCU_DIR)/drivers \
+	$(TOP)/$(MCU_DIR)/project_template
 
 include ../rules.mk
 
