@@ -37,6 +37,7 @@ PORT_SRC_C += \
 	$(MCU_DIR)/drivers/fsl_iap.c \
 	$(MCU_DIR)/drivers/fsl_gpio.c \
 	$(MCU_DIR)/drivers/fsl_usart.c \
+	$(MCU_DIR)/drivers/fsl_flexcomm.c \
 	$(MCU_DIR)/drivers/fsl_power.c \
 	$(MCU_DIR)/drivers/fsl_reset.c	
 

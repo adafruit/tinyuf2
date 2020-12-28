@@ -52,7 +52,18 @@ void board_init(void)
 
   // Initialize Pins
   board_pin_init();
- 
+
+#if defined(UART_DEV) && CFG_TUSB_DEBUG
+  // Enable UART when debug log is on
+  CLOCK_AttachClk(kFRO12M_to_FLEXCOMM0);
+  usart_config_t uart_config;
+  USART_GetDefaultConfig(&uart_config);
+  uart_config.baudRate_Bps = BOARD_UART_BAUDRATE;
+  uart_config.enableTx     = true;
+  uart_config.enableRx     = true;
+  USART_Init(UART_DEV, &uart_config, 12000000);
+#endif
+
 }
 
 void board_dfu_init(void)
@@ -74,7 +85,7 @@ void board_dfu_init(void)
   RESET_PeripheralReset(kUSB1_RST_SHIFT_RSTn);
   RESET_PeripheralReset(kUSB1RAM_RST_SHIFT_RSTn);
 
-#if (defined USB_DEVICE_CONFIG_LPCIP3511HS) && (USB_DEVICE_CONFIG_LPCIP3511HS)
+#if 1 || (defined USB_DEVICE_CONFIG_LPCIP3511HS) && (USB_DEVICE_CONFIG_LPCIP3511HS)
   CLOCK_EnableClock(kCLOCK_Usbh1);
   /* Put PHY powerdown under software control */
   *((uint32_t *)(USBHSH_BASE + 0x50)) = USBHSH_PORTMODE_SW_PDCOM_MASK;

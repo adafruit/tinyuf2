@@ -39,6 +39,8 @@
 #endif
 
 #define CFG_TUSB_RHPORT0_MODE      OPT_MODE_DEVICE
+//#define CFG_TUSB_RHPORT0_MODE      OPT_MODE_NONE
+//#define CFG_TUSB_RHPORT1_MODE      (OPT_MODE_DEVICE | OPT_MODE_HIGH_SPEED)
 #define CFG_TUSB_OS                OPT_OS_NONE
 
 // can be defined by compiler in DEBUG build
