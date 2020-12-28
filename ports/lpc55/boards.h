@@ -31,6 +31,9 @@
 
 #include "board.h"
 
+// Flash Start Address of Application
+#define BOARD_FLASH_APP_START  0x10000 
+
 #define USE_DFU_DOUBLE_TAP     0
 
 #ifdef __cplusplus

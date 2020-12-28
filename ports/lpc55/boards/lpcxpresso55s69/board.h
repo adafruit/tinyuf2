@@ -29,11 +29,24 @@
 // Button
 //--------------------------------------------------------------------+
 
+// ISP button
+#define BUTTON_PORT           0
+#define BUTTON_PIN            5
+#define BUTTON_STATE_ACTIVE   0
+
 //--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
 
 // RGB pins are P1_6, P1_7, P1_4
+#define BOARD_LED_RED_GPIO_PORT 1U
+#define BOARD_LED_RED_GPIO_PIN 6U
+#define BOARD_LED_BLUE_GPIO_PORT 1U
+#define BOARD_LED_BLUE_GPIO_PIN 4U
+#define BOARD_LED_GREEN_GPIO_PORT 1U
+#define BOARD_LED_GREEN_GPIO_PIN 7U
+
+
 #define LED_PORT              1
 #define LED_PIN               6
 #define LED_STATE_ON          0
@@ -62,14 +75,18 @@
 #define UF2_INDEX_URL     "https://www.nxp.com/design/development-boards/lpcxpresso-boards/lpcxpresso55s69-development-board:LPC55S69-EVK"
 
 //--------------------------------------------------------------------+
+// Flash
+//--------------------------------------------------------------------+
+
+#define BOARD_FLASH_SIZE     (0x98000U)
+
+//--------------------------------------------------------------------+
 // UART
 //--------------------------------------------------------------------+
 
-#define UART_DEV              USART3
-#define UART_CLOCK_ENABLE     __HAL_RCC_USART3_CLK_ENABLE
-#define UART_GPIO_PORT        GPIOB
-#define UART_GPIO_AF          GPIO_AF7_USART3
-#define UART_TX_PIN           GPIO_PIN_10
-#define UART_RX_PIN           GPIO_PIN_11
+#define UART_DEV              USART0
+
+// Pin initialization function
+void board_pin_init(void);
 
 #endif

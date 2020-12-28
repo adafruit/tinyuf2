@@ -27,6 +27,7 @@
 
 #include "fsl_device_registers.h"
 #include "fsl_gpio.h"
+#include "fsl_usart.h"
 #include "fsl_power.h"
 #include "fsl_iocon.h"
 
@@ -36,17 +37,7 @@
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
 //--------------------------------------------------------------------+
 
-#define IOCON_PIO_ASW_DIS_EN     0x00u   /*!<@brief Analog switch is closed (enabled), only for A0 version */
-#define IOCON_PIO_ASW_EN         0x0400u /*!<@brief Analog switch is closed (enabled) */
-#define IOCON_PIO_DIGITAL_EN     0x0100u /*!<@brief Enables digital function */
-#define IOCON_PIO_FUNC0          0x00u   /*!<@brief Selects pin function 0 */
-#define IOCON_PIO_FUNC1          0x01u   /*!<@brief Selects pin function 1 */
-#define IOCON_PIO_FUNC7          0x07u   /*!<@brief Selects pin function 7 */
-#define IOCON_PIO_INV_DI         0x00u   /*!<@brief Input function is not inverted */
-#define IOCON_PIO_MODE_INACT     0x00u   /*!<@brief No addition pin function */
-#define IOCON_PIO_MODE_PULLUP    0x20u   /*!<@brief Selects pull-up function */
-#define IOCON_PIO_OPENDRAIN_DI   0x00u   /*!<@brief Open drain is disabled */
-#define IOCON_PIO_SLEW_STANDARD  0x00u   /*!<@brief Standard mode, output slew rate control is enabled */
+#define IOCON_VBUS_CONFIG        0x0107u /*!<@brief Digital pin function 7 enabled */
 
 void board_init(void)
 {
@@ -59,28 +50,16 @@ void board_init(void)
   // disable systick
   board_timer_stop();
 
-//  GPIO_PortInit(GPIO, BUTTON_PORT);
-
-  // LED
-  GPIO_PortInit(GPIO, LED_PORT);
-  gpio_pin_config_t const led_config = { kGPIO_DigitalOutput, 0};
-  GPIO_PinInit(GPIO, LED_PORT, LED_PIN, &led_config);
-  board_led_write(true);
+  // Initialize Pins
+  board_pin_init();
+ 
 }
 
 void board_dfu_init(void)
 {
   // USB VBUS
-  const uint32_t port0_pin22_config = (
-      IOCON_PIO_FUNC7         | /* Pin is configured as USB0_VBUS */
-      IOCON_PIO_MODE_INACT    | /* No addition pin function */
-      IOCON_PIO_SLEW_STANDARD | /* Standard mode, output slew rate control is enabled */
-      IOCON_PIO_INV_DI        | /* Input function is not inverted */
-      IOCON_PIO_DIGITAL_EN    | /* Enables digital function */
-      IOCON_PIO_OPENDRAIN_DI    /* Open drain is disabled */
-  );
   /* PORT0 PIN22 (coords: 78) is configured as USB0_VBUS */
-  IOCON_PinMuxSet(IOCON, 0U, 22U, port0_pin22_config);
+  IOCON_PinMuxSet(IOCON, 0U, 22U, IOCON_VBUS_CONFIG);
 
   // USB Controller
   POWER_DisablePD(kPDRUNCFG_PD_USB0_PHY); /*Turn on USB0 Phy */
@@ -123,34 +102,44 @@ void board_dfu_complete(void)
   NVIC_SystemReset();
 }
 
+/* Defined in board_flash.c 
 bool board_app_valid(void)
 {
   return false;
-}
+} */
 
 void board_app_jump(void)
 {
-}
+    uint32_t *vectorTable = (uint32_t*)BOARD_FLASH_APP_START;
+    uint32_t sp = vectorTable[0];
+    uint32_t pc = vectorTable[1];
 
-uint8_t board_usb_get_serial(uint8_t serial_id[16])
-{
-  (void) serial_id;
-  return 0;
-}
+    typedef void(*app_entry_t)(void);
 
-//--------------------------------------------------------------------+
-// LED pattern
-//--------------------------------------------------------------------+
+    uint32_t s_stackPointer = 0;
+    uint32_t s_applicationEntry = 0;
+    app_entry_t s_application = 0;
 
-void board_led_write(uint32_t state)
-{
-  // TODO PWM for fading
-  GPIO_PinWrite(GPIO, LED_PORT, LED_PIN, state ? LED_STATE_ON : (1-LED_STATE_ON));
-}
+    s_stackPointer = sp;
+    s_applicationEntry = pc;
+    s_application = (app_entry_t)s_applicationEntry;
 
-void board_rgb_write(uint8_t const rgb[])
-{
-  (void) rgb;
+    // Disable UART interrupt
+//    USART_DisableInterrupts(USART0, kUSART_RxLevelInterruptEnable | kUSART_RxErrorInterruptEnable);
+    // Disable Interrupts
+    NVIC->ICER[0] = 0xFFFFFFFF;
+    NVIC->ICER[1] = 0xFFFFFFFF;
+    // Change MSP and PSP
+    __set_MSP(s_stackPointer);
+    __set_PSP(s_stackPointer);
+
+    SCB->VTOR = BOARD_FLASH_APP_START;
+
+    // Jump to application
+    s_application();
+
+    // Should never reach here.
+    __NOP();
 }
 
 //--------------------------------------------------------------------+
@@ -175,8 +164,8 @@ void SysTick_Handler (void)
 
 int board_uart_write(void const * buf, int len)
 {
-  (void) buf; (void) len;
-  return 0;
+    USART_WriteBlocking(UART_DEV, (uint8_t*)buf, len);
+    return len;
 }
 
 // Forward USB interrupt events to TinyUSB IRQ Handler
