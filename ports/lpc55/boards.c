@@ -37,7 +37,7 @@
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
 //--------------------------------------------------------------------+
 
-#define IOCON_VBUS_CONFIG        0x0107u /*!<@brief Digital pin function 7 enabled */
+#define IOCON_VBUS_CONFIG        IOCON_PIO_DIG_FUNC7_EN /*!<@brief Digital pin function 7 enabled */
 
 void board_init(void)
 {
@@ -85,7 +85,7 @@ void board_dfu_init(void)
   RESET_PeripheralReset(kUSB1_RST_SHIFT_RSTn);
   RESET_PeripheralReset(kUSB1RAM_RST_SHIFT_RSTn);
 
-#if 1 || (defined USB_DEVICE_CONFIG_LPCIP3511HS) && (USB_DEVICE_CONFIG_LPCIP3511HS)
+#if (defined USB_DEVICE_CONFIG_LPCIP3511HS) && (USB_DEVICE_CONFIG_LPCIP3511HS)
   CLOCK_EnableClock(kCLOCK_Usbh1);
   /* Put PHY powerdown under software control */
   *((uint32_t *)(USBHSH_BASE + 0x50)) = USBHSH_PORTMODE_SW_PDCOM_MASK;
@@ -113,44 +113,38 @@ void board_dfu_complete(void)
   NVIC_SystemReset();
 }
 
-/* Defined in board_flash.c 
-bool board_app_valid(void)
-{
-  return false;
-} */
-
 void board_app_jump(void)
 {
-    uint32_t *vectorTable = (uint32_t*)BOARD_FLASH_APP_START;
-    uint32_t sp = vectorTable[0];
-    uint32_t pc = vectorTable[1];
+  uint32_t *vectorTable = (uint32_t*)BOARD_FLASH_APP_START;
+  uint32_t sp = vectorTable[0];
+  uint32_t pc = vectorTable[1];
 
-    typedef void(*app_entry_t)(void);
+  typedef void (*app_entry_t)(void);
 
-    uint32_t s_stackPointer = 0;
-    uint32_t s_applicationEntry = 0;
-    app_entry_t s_application = 0;
+  uint32_t s_stackPointer = 0;
+  uint32_t s_applicationEntry = 0;
+  app_entry_t s_application = 0;
 
-    s_stackPointer = sp;
-    s_applicationEntry = pc;
-    s_application = (app_entry_t)s_applicationEntry;
+  s_stackPointer = sp;
+  s_applicationEntry = pc;
+  s_application = (app_entry_t)s_applicationEntry;
 
-    // Disable UART interrupt
-//    USART_DisableInterrupts(USART0, kUSART_RxLevelInterruptEnable | kUSART_RxErrorInterruptEnable);
-    // Disable Interrupts
-    NVIC->ICER[0] = 0xFFFFFFFF;
-    NVIC->ICER[1] = 0xFFFFFFFF;
-    // Change MSP and PSP
-    __set_MSP(s_stackPointer);
-    __set_PSP(s_stackPointer);
+  // Disable UART interrupt
+  //    USART_DisableInterrupts(USART0, kUSART_RxLevelInterruptEnable | kUSART_RxErrorInterruptEnable);
+  // Disable Interrupts
+  NVIC->ICER[0] = 0xFFFFFFFF;
+  NVIC->ICER[1] = 0xFFFFFFFF;
+  // Change MSP and PSP
+  __set_MSP(s_stackPointer);
+  __set_PSP(s_stackPointer);
 
-    SCB->VTOR = BOARD_FLASH_APP_START;
+  SCB->VTOR = BOARD_FLASH_APP_START;
 
-    // Jump to application
-    s_application();
+  // Jump to application
+  s_application();
 
-    // Should never reach here.
-    __NOP();
+  // Should never reach here.
+  __NOP();
 }
 
 //--------------------------------------------------------------------+
@@ -175,8 +169,8 @@ void SysTick_Handler (void)
 
 int board_uart_write(void const * buf, int len)
 {
-    USART_WriteBlocking(UART_DEV, (uint8_t*)buf, len);
-    return len;
+  USART_WriteBlocking(UART_DEV, (uint8_t *)buf, len);
+  return len;
 }
 
 // Forward USB interrupt events to TinyUSB IRQ Handler

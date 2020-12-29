@@ -32,26 +32,6 @@
 
 #include "clock_config.h"
 
-//--------------------------------------------------------------------+
-// MACRO TYPEDEF CONSTANT ENUM DECLARATION
-//--------------------------------------------------------------------+
-
-#define IOCON_PIO_ASW_DIS_EN     0x00u   /*!<@brief Analog switch is closed (enabled), only for A0 version */
-#define IOCON_PIO_ASW_EN         0x0400u /*!<@brief Analog switch is closed (enabled) */
-#define IOCON_PIO_DIGITAL_EN     0x0100u /*!<@brief Enables digital function */
-#define IOCON_PIO_FUNC0          0x00u   /*!<@brief Selects pin function 0 */
-#define IOCON_PIO_FUNC1          0x01u   /*!<@brief Selects pin function 1 */
-#define IOCON_PIO_FUNC7          0x07u   /*!<@brief Selects pin function 7 */
-#define IOCON_PIO_INV_DI         0x00u   /*!<@brief Input function is not inverted */
-#define IOCON_PIO_MODE_INACT     0x00u   /*!<@brief No addition pin function */
-#define IOCON_PIO_MODE_PULLUP    0x20u   /*!<@brief Selects pull-up function */
-#define IOCON_PIO_OPENDRAIN_DI   0x00u   /*!<@brief Open drain is disabled */
-#define IOCON_PIO_SLEW_STANDARD  0x00u   /*!<@brief Standard mode, output slew rate control is enabled */
-
-#define IOCON_PIO_DIG_FUNC0_EN   0x0100u /*!<@brief Digital pin function 0 enabled */
-#define IOCON_PIO_DIG_FUNC1_EN   0x0101u /*!<@brief Digital pin function 1 enabled */
-#define IOCON_PIO_DIG_FUNC2_EN   0x0102u /*!<@brief Digital pin function 2 enabled */
-
 
 
 void board_pin_init(void)
@@ -91,21 +71,21 @@ void board_led_write(uint32_t value)
 
 // Write color to rgb strip
 void board_rgb_write(uint8_t const rgb[]) { 
-    if (rgb[0]) {
-      GPIO_PortClear(GPIO, BOARD_LED_RED_GPIO_PORT, 1U << BOARD_LED_RED_GPIO_PIN);
-    } else {
-      GPIO_PortSet(GPIO, BOARD_LED_RED_GPIO_PORT, 1U << BOARD_LED_RED_GPIO_PIN);
-    }
-    if (rgb[1]) {
-      GPIO_PortClear(GPIO, BOARD_LED_GREEN_GPIO_PORT, 1U << BOARD_LED_GREEN_GPIO_PIN);
-    } else {
-      GPIO_PortSet(GPIO, BOARD_LED_GREEN_GPIO_PORT, 1U << BOARD_LED_GREEN_GPIO_PIN);
-    }
-    if (rgb[2]) {
-      GPIO_PortClear(GPIO, BOARD_LED_BLUE_GPIO_PORT, 1U << BOARD_LED_BLUE_GPIO_PIN);
-    } else {
-      GPIO_PortSet(GPIO, BOARD_LED_BLUE_GPIO_PORT, 1U << BOARD_LED_BLUE_GPIO_PIN);
-    }
+  if (rgb[0]) {
+    GPIO_PortClear(GPIO, BOARD_LED_RED_GPIO_PORT, 1U << BOARD_LED_RED_GPIO_PIN);
+  } else {
+    GPIO_PortSet(GPIO, BOARD_LED_RED_GPIO_PORT, 1U << BOARD_LED_RED_GPIO_PIN);
+  }
+  if (rgb[1]) {
+    GPIO_PortClear(GPIO, BOARD_LED_GREEN_GPIO_PORT, 1U << BOARD_LED_GREEN_GPIO_PIN);
+  } else {
+    GPIO_PortSet(GPIO, BOARD_LED_GREEN_GPIO_PORT, 1U << BOARD_LED_GREEN_GPIO_PIN);
+  }
+  if (rgb[2]) {
+    GPIO_PortClear(GPIO, BOARD_LED_BLUE_GPIO_PORT, 1U << BOARD_LED_BLUE_GPIO_PIN);
+  } else {
+    GPIO_PortSet(GPIO, BOARD_LED_BLUE_GPIO_PORT, 1U << BOARD_LED_BLUE_GPIO_PIN);
+  }
 }
 
 uint32_t board_button_read(void)
