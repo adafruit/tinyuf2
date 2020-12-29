@@ -58,22 +58,19 @@ INC += \
 
 include ../rules.mk
 
-#-------------- Self-update  --------------
-SELF_CFLAGS  = $(CFLAGS) -DTINYUF2_SELF_UPDATE
-SELF_LDFLAGS = $(LDFLAGS)
-SELF_LD_FILES ?= $(PORT_DIR)/linker/$(MCU)_nor.ld $(PORT_DIR)/linker/self_update_memory.ld $(PORT_DIR)/linker/common.ld
-SELF_ASFLAGS = $(ASFLAGS)
+# Flash binary to correct bootloader address
+flash-pyocd-imxrt: $(BUILD)/$(OUTNAME).bin
+	pyocd flash -t $(PYOCD_TARGET) -a 0x60000400 $<
+	pyocd reset -t $(PYOCD_TARGET)
 
+#-------------- Self-update  --------------
+# RT10xx run entire bootloader from SRAM and
+# can directly flash the bootloader region
+# without using self-update app as other port
+#--------------------------------------------
 include ../self_update.mk
 
-# required for uf2 conversion
-$(SELF_BUILD_OBJ)/$(SELF_OUTNAME).hex: $(SELF_BUILD_OBJ)/$(SELF_OUTNAME).elf
+# self-update uf2 file
+$(SELF_BUILD_OBJ)/$(SELF_OUTNAME).uf2: $(BUILD)/$(OUTNAME).bin $(SELF_OBJ_DIRS)
 	@echo CREATE $@
-	@$(OBJCOPY) -O ihex -R .flash_config -R .ivt $^ $@
-
-# required for self-update elf compile
-$(SELF_BUILD_OBJ)/self_update/$(OUTNAME).c: $(SELF_BUILD_OBJ)/self_update/$(OUTNAME)-textonly.bin
-	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py --carray $^ -o $@
-
-$(SELF_BUILD_OBJ)/self_update/$(OUTNAME)-textonly.bin: $(BUILD)/$(OUTNAME).elf
-	@$(OBJCOPY) -O binary -R .flash_config -R .ivt $^ $@
+	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py -f $(UF2_FAMILY_ID) -b 0x60000400 -c -o $@ $<

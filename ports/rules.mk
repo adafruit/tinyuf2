@@ -2,8 +2,6 @@
 # Common make rules for all
 # ---------------------------------------
 
-OUTNAME = tinyuf2-$(BOARD)
-
 PYTHON3 ?= python3
 MKDIR = mkdir
 SED = sed

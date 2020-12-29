@@ -8,7 +8,7 @@ JLINK_DEVICE = MIMXRT1021DAG5A
 PYOCD_TARGET = mimxrt1020
 
 # flash using pyocd
-flash: flash-pyocd
+flash: flash-pyocd-imxrt
 erase: erase-pyocd
 
 # flash: flash-jlink
