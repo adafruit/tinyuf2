@@ -41,6 +41,8 @@ endif
 BUILD = _build/$(BOARD)
 BIN = _bin/$(BOARD)
 
+OUTNAME = tinyuf2-$(BOARD)
+
 #-------------- Source files and compiler flags --------------
 
 # PORT is directory name containing the Makefile
