@@ -17,6 +17,8 @@ CFLAGS += \
   -mfloat-abi=hard \
   -mfpu=fpv5-d16 \
   -D__ARMVFP__=0 -D__ARMFPV5__=0 \
+  -DXIP_EXTERNAL_FLASH=1 \
+  -DXIP_BOOT_HEADER_ENABLE=1 \
   -DCFG_TUSB_MCU=OPT_MCU_MIMXRT10XX
 
 # mcu driver cause following warnings
