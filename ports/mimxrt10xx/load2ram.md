@@ -6,40 +6,24 @@ The serial download protocol (SDP) implemented in the RT10xx ROM does not have t
 
 1. Power down RT1011 and switch to Serial Downloader Boot Type (BOOT_MODE[1:0]=01)
 2. Power up RT1011 and connect USB cable
-3. Copy flashloader into RAM using sdphost
+3. Load flashloader into RAM using sdphost and run with `flash-sdp` target. For example
 
-    MIMXRT1011
+  ```
+  make BOARD=imxrt1010_evk flash-sdp
+  ```
 
-        sdphost.exe -u 0x1fc9,0x0145 -V -- write-file 0x20206400 "tinyuf2-imxrt1010_evk.bin"
-
-    MIMXRT1062
-
-        sdphost.exe -u 0x1fc9,0x0135 -V -- write-file 0x400 "tinyuf2-imxrt1060_evk.bin"
-
-4. Launch flashloader
-
-    MIMXRT1011
-
-        sdphost.exe -u 0x1fc9,0x0145 -V -- jump-address 0x20207000
-
-    MIMXRT1062
-
-        sdphost.exe -u 0x1fc9,0x0135 -V -- jump-address 0x1000
+Note: flash-sdp target use `sdphost` tool which is included as pre-built binaries in the mimxrt10xx/sdphost, you may need to give it execution permission first.
 
 ## Copy Image to flash with UF2
 
-1. Generate UF2 file from binary image using `uf2conv.py`
-
-    MIMXRT1011
-
-        uf2conv.py -b 0x60000400 -o imxrt1010_evk-bl.uf2 -f MIMXRT10XX tinyuf2-imxrt1010_evk.bin
-
-    MIMXRT1062
-
-        uf2conv.py -b 0x60000400 -o imxrt1060_evk-bl.uf2 -f MIMXRT10XX tinyuf2-imxrt1060_evk.bin
-
+1. Generate update UF2 file using `self-update` target
+  
+  ```
+  make BOARD=imxrt1010_evk self-update
+  ```
+  
 2. Get board into UF2 mode by loading the image through SDP or double pressing the reset button if it is already present in flash
-3. Drag-N-Drop `imxrt1010_evk-bl.uf2` onto `RT1010BOOT` drive.
+3. Drag-N-Drop generated uf2 e.g `_build/imxrt1010_evk/self_obj/update-tinyuf2-imxrt1010_evk.uf2` onto `RT1010BOOT` drive.
 
 ## To Be Developed
 
