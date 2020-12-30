@@ -33,9 +33,6 @@
 #define BOARD_BOOT_START     (0x20206000U)
 #define BOARD_BOOT_LENGTH    (0x8800)
 
-#define BOARD_FLEXSPI_INSTANCE (uint32_t)0x0
-#define BOARD_FLEXSPI_PARALLEL 0 
-
 //--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
