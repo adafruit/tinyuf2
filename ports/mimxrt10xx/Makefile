@@ -7,7 +7,7 @@ GIT_SUBMODULES = nxp tinyusb
 include ../make.mk
 
 MCU_DIR = lib/nxp/sdk/devices/$(MCU)
-LD_FILES ?= $(PORT_DIR)/linker/$(MCU)_nor.ld $(PORT_DIR)/linker/memory.ld $(PORT_DIR)/linker/common.ld
+LD_FILES ?= $(PORT_DIR)/linker/$(MCU)_ram.ld $(PORT_DIR)/linker/memory.ld $(PORT_DIR)/linker/common.ld
 
 # Port Compiler Flags
 CFLAGS += \
