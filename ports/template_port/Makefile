@@ -1,12 +1,10 @@
 UF2_FAMILY_ID = 0x00000000
 CROSS_COMPILE = arm-none-eabi-
 
-include ../make.mk
+# List of git submodules that is included as part of the UF2 version
+GIT_SUBMODULES = tinyusb
 
-# Version
-GIT_VERSION := $(shell git describe --dirty --always --tags)
-GIT_SUBMODULE_VERSIONS := $(shell git submodule status $(addprefix ../../lib/, tinyusb) | cut -d" " -f3,4 | paste -s -d" " -)
-GIT_SUBMODULE_VERSIONS := $(subst ../../lib/,,$(GIT_SUBMODULE_VERSIONS))
+include ../make.mk
 
 # Port Compiler Flags
 CFLAGS += \
@@ -14,9 +12,7 @@ CFLAGS += \
   -mthumb \
   -mabi=aapcs \
   -mcpu=cortex-m3 \
-  -DCFG_TUSB_MCU=OPT_MCU_NONE \
-  -DBOARD_UF2_FAMILY_ID=$(UF2_FAMILY_ID) \
-  -DUF2_VERSION='"$(GIT_VERSION) - $(GIT_SUBMODULE_VERSIONS)"'
+  -DCFG_TUSB_MCU=OPT_MCU_NONE
 
 # suppress warning caused by vendor mcu driver
 CFLAGS += -Wno-error=cast-align -Wno-error=unused-parameter

@@ -1,15 +1,13 @@
 UF2_FAMILY_ID = 0x4fb2d5bd
 CROSS_COMPILE = arm-none-eabi-
 
+# List of git submodules that is included as part of the UF2 version
+GIT_SUBMODULES = nxp tinyusb
+
 include ../make.mk
 
 MCU_DIR = lib/nxp/sdk/devices/$(MCU)
 LD_FILES ?= $(PORT_DIR)/linker/$(MCU)_nor.ld $(PORT_DIR)/linker/memory.ld $(PORT_DIR)/linker/common.ld
-
-# Version
-GIT_VERSION := $(shell git describe --dirty --always --tags)
-GIT_SUBMODULE_VERSIONS := $(shell git submodule status $(addprefix ../../lib/,nxp tinyusb) | cut -d" " -f3,4 | paste -s -d" " -)
-GIT_SUBMODULE_VERSIONS := $(subst ../../lib/,,$(GIT_SUBMODULE_VERSIONS))
 
 # Port Compiler Flags
 CFLAGS += \
@@ -19,9 +17,7 @@ CFLAGS += \
   -mfloat-abi=hard \
   -mfpu=fpv5-d16 \
   -D__ARMVFP__=0 -D__ARMFPV5__=0 \
-  -DCFG_TUSB_MCU=OPT_MCU_MIMXRT10XX \
-  -DBOARD_UF2_FAMILY_ID=$(UF2_FAMILY_ID) \
-  -DUF2_VERSION='"$(GIT_VERSION) - $(GIT_SUBMODULE_VERSIONS)"'
+  -DCFG_TUSB_MCU=OPT_MCU_MIMXRT10XX
 
 # mcu driver cause following warnings
 CFLAGS += -Wno-error=unused-parameter
