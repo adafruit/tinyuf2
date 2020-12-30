@@ -1,11 +1,14 @@
 fcb_length = 0x0C00;
 
+/* offset 0x1000 */
 ivt_origin = fcb_origin + fcb_length;
 ivt_length = 0x0400;
 
+/* offset 0x1400 */
 interrupts_origin = ivt_origin + ivt_length;
 interrupts_length = 0x0400;
 
+/* offset 0x1800 */
 text_origin = interrupts_origin + interrupts_length;
 text_length =  0x8800;
 

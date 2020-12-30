@@ -36,6 +36,8 @@
 #include "fsl_device_registers.h"
 #include "board.h"
 
+#define BOARD_BOOT_LENGTH       (0x8800)
+
 // Flash Start Address of Application, typically 0x6000C000
 #define BOARD_FLASH_APP_START   (FlexSPI_AMBA_BASE + 0xC000)
 

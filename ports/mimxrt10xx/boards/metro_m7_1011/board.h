@@ -30,9 +30,7 @@
 
 // required since iMX RT10xx SDK include this file for board size
 #define BOARD_FLASH_SIZE     (2*1024*1024)
-#define BOARD_BOOT_START     (0x0U)
-#define BOARD_BOOT_LENGTH    (0x8000U)
-
+#define BOARD_BOOT_START     (0x20206000U)
 
 //--------------------------------------------------------------------+
 // LED
