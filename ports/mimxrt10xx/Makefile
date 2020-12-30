@@ -93,7 +93,7 @@ else
 	endif
 endif
 
-load-sdp: $(BUILD)/$(OUTNAME).bin
+flash-sdp: $(BUILD)/$(OUTNAME).bin
 	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- write-file $(SDP_$(MCU)_WRITE_ADDR) $<
 	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- jump-address $(SDP_$(MCU)_JUMP_ADDR)
 
