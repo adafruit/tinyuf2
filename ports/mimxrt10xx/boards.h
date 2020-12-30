@@ -36,6 +36,10 @@
 #include "fsl_device_registers.h"
 #include "board.h"
 
+// _fcb_origin is defined in linker script
+extern uint32_t _fcb_origin[];
+#define BOARD_BOOT_START        (((uint32_t) _fcb_origin) - 0x400)
+
 #define BOARD_BOOT_LENGTH       (0x8800)
 
 // Flash Start Address of Application, typically 0x6000C000
