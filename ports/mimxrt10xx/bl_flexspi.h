@@ -124,9 +124,9 @@ enum
 //!@brief FlexSPI Read Sample Clock Source definition
 typedef enum _FlashReadSampleClkSource
 {
-    kFlexSPIReadSampleClk_LoopbackInternally = 0,
-    kFlexSPIReadSampleClk_LoopbackFromDqsPad = 1,
-    kFlexSPIReadSampleClk_LoopbackFromSckPad = 2,
+    kFlexSPIReadSampleClk_LoopbackInternally      = 0,
+    kFlexSPIReadSampleClk_LoopbackFromDqsPad      = 1,
+    kFlexSPIReadSampleClk_LoopbackFromSckPad      = 2,
     kFlexSPIReadSampleClk_ExternalInputFromDqsPad = 3,
 } flexspi_read_sample_clk_t;
 
@@ -156,32 +156,32 @@ enum _flexspi_status
 //!@brief Misc feature bit definitions
 enum
 {
-    kFlexSpiMiscOffset_DiffClkEnable = 0,            //!< Bit for Differential clock enable
-    kFlexSpiMiscOffset_Ck2Enable = 1,                //!< Bit for CK2 enable
-    kFlexSpiMiscOffset_ParallelEnable = 2,           //!< Bit for Parallel mode enable
-    kFlexSpiMiscOffset_WordAddressableEnable = 3,    //!< Bit for Word Addressable enable
-    kFlexSpiMiscOffset_SafeConfigFreqEnable = 4,     //!< Bit for Safe Configuration Frequency enable
+    kFlexSpiMiscOffset_DiffClkEnable            = 0, //!< Bit for Differential clock enable
+    kFlexSpiMiscOffset_Ck2Enable                = 1, //!< Bit for CK2 enable
+    kFlexSpiMiscOffset_ParallelEnable           = 2, //!< Bit for Parallel mode enable
+    kFlexSpiMiscOffset_WordAddressableEnable    = 3, //!< Bit for Word Addressable enable
+    kFlexSpiMiscOffset_SafeConfigFreqEnable     = 4, //!< Bit for Safe Configuration Frequency enable
     kFlexSpiMiscOffset_PadSettingOverrideEnable = 5, //!< Bit for Pad setting override enable
-    kFlexSpiMiscOffset_DdrModeEnable = 6,            //!< Bit for DDR clock confiuration indication.
-    kFlexSpiMiscOffset_UseValidTimeForAllFreq = 7,   //!< Bit for DLLCR settings under all modes
-    kFlexSpiMiscOffset_SecondPinMux = 8,             //!< Bit for Second Pinmux group
-    kFlexSpiMiscOffset_SecondDqsPinMux = 9,          //!< Bit for Second DQS Pinmux
+    kFlexSpiMiscOffset_DdrModeEnable            = 6, //!< Bit for DDR clock confiuration indication.
+    kFlexSpiMiscOffset_UseValidTimeForAllFreq   = 7, //!< Bit for DLLCR settings under all modes
+    kFlexSpiMiscOffset_SecondPinMux             = 8, //!< Bit for Second Pinmux group
+    kFlexSpiMiscOffset_SecondDqsPinMux          = 9, //!< Bit for Second DQS Pinmux
 };
 
 //!@brief Flash Type Definition
 enum
 {
-    kFlexSpiDeviceType_SerialNOR = 1,       //!< Flash devices are Serial NOR
-    kFlexSpiDeviceType_SerialNAND = 2,      //!< Flash devices are Serial NAND
-    kFlexSpiDeviceType_SerialRAM = 3,       //!< Flash devices are Serial RAM/HyperFLASH
+    kFlexSpiDeviceType_SerialNOR    = 1,    //!< Flash devices are Serial NOR
+    kFlexSpiDeviceType_SerialNAND   = 2,    //!< Flash devices are Serial NAND
+    kFlexSpiDeviceType_SerialRAM    = 3,    //!< Flash devices are Serial RAM/HyperFLASH
     kFlexSpiDeviceType_MCP_NOR_NAND = 0x12, //!< Flash device is MCP device, A1 is Serial NOR, A2 is Serial NAND
-    kFlexSpiDeviceType_MCP_NOR_RAM = 0x13,  //!< Flash deivce is MCP device, A1 is Serial NOR, A2 is Serial RAMs
+    kFlexSpiDeviceType_MCP_NOR_RAM  = 0x13, //!< Flash deivce is MCP device, A1 is Serial NOR, A2 is Serial RAMs
 };
 
 //!@brief Flash Pad Definitions
 enum
 {
-    kSerialFlash_1Pad = 1,
+    kSerialFlash_1Pad  = 1,
     kSerialFlash_2Pads = 2,
     kSerialFlash_4Pads = 4,
     kSerialFlash_8Pads = 8,
