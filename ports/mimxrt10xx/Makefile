@@ -57,6 +57,46 @@ flash-pyocd-imxrt: $(BUILD)/$(OUTNAME).bin
 	pyocd flash -t $(PYOCD_TARGET) -a 0x60000400 $<
 	pyocd reset -t $(PYOCD_TARGET)
 
+#------------- Load to SRAM using sdphost -------------
+# Note: you may need to give the sdphost binary executable permission first.
+#---------------------------------------------------------
+SDP_MIMXRT1011_PID = 0x0145
+SDP_MIMXRT1011_WRITE_ADDR = 0x20206400
+SDP_MIMXRT1011_JUMP_ADDR  = 0x20207000
+
+SDP_MIMXRT1021_PID = 0x0130
+SDP_MIMXRT1021_WRITE_ADDR = 0x0400
+SDP_MIMXRT1021_JUMP_ADDR  = 0x1000
+
+SDP_MIMXRT1062_PID = 0x0135
+SDP_MIMXRT1062_WRITE_ADDR = 0x0400
+SDP_MIMXRT1062_JUMP_ADDR  = 0x1000
+
+ifeq ($(OS),Windows_NT)
+	SDPHOST = sdphost/win/sdphost.exe
+else
+	UNAME_S := $(shell uname -s)
+	UNAME_I := $(shell uname -i)
+
+	ifeq ($(UNAME_S),Darwin)
+		SDPHOST = sdphost/mac/sdphost
+	endif
+
+	ifeq ($(UNAME_S),Linux)
+		ifeq ($(UNAME_I),x86_64)
+			SDPHOST = sdphost/linux/amd64/sdphost
+	  endif
+
+	  ifeq ($(UNAME_I),i386)
+			SDPHOST = sdphost/linux/i386/sdphost
+	  endif
+	endif
+endif
+
+load-sdp: $(BUILD)/$(OUTNAME).bin
+	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- write-file $(SDP_$(MCU)_WRITE_ADDR) $<
+	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- jump-address $(SDP_$(MCU)_JUMP_ADDR)
+
 #-------------- Self-update  --------------
 # RT10xx run entire bootloader from SRAM and
 # can directly flash the bootloader region
