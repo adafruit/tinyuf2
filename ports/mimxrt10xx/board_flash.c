@@ -41,6 +41,8 @@
 
 #define FLEXSPI_INSTANCE 0
 
+#define FCFB_START_ADDRESS    (FlexSPI_AMBA_BASE + 0x400U)
+
 // Flash Configuration Structure 
 extern flexspi_nor_config_t qspiflash_config;
 
@@ -50,7 +52,23 @@ static uint8_t  _flash_cache[SECTOR_SIZE] __attribute__((aligned(4)));
 
 void board_flash_init(void)
 {
+  uint8_t *image_data = (uint8_t *)&qspiflash_config;
+  uint32_t flash_addr = FCFB_START_ADDRESS;
   flexspi_nor_flash_init(FLEXSPI_INSTANCE, &qspiflash_config);
+  board_flash_flush();
+
+  // Check for FCFB and copy bootloader to flash if not present
+  if (*(uint32_t *)FCFB_START_ADDRESS != FLEXSPI_CFG_BLK_TAG) {
+    TU_LOG1("FCFB not present.  Copying image to flash.\r\n");
+    while (flash_addr < (FlexSPI_AMBA_BASE + BOARD_BOOT_LENGTH)) {
+      board_flash_write(flash_addr, image_data, FLASH_PAGE_SIZE);
+      flash_addr += FLASH_PAGE_SIZE;
+      image_data += FLASH_PAGE_SIZE;  
+    }
+    board_flash_flush();
+    TU_LOG1("TinyUF2 copied to flash.\r\n");
+  } 
+  
 }
 
 uint32_t board_flash_size(void)
