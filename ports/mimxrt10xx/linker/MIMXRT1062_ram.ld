@@ -7,4 +7,4 @@ _dtcm_size  = 128K;
 _ocram_base = 0x20200000;
 _ocram_size = 256K;
 
-_fcb_origin = 0x00000400;
+_fcfb_origin = 0x00000400;
