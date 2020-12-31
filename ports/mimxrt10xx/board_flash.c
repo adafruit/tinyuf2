@@ -149,39 +149,3 @@ void board_flash_write (uint32_t addr, void const *src, uint32_t len)
   // Overwrite part or all of the page cache with the src data.
   memcpy(_flash_cache + (addr & (SECTOR_SIZE - 1)), src, len);
 }
-
-
-#ifdef TINYUF2_SELF_UPDATE
-
-#define SELF_UPDATE_ADDRESS   (FlexSPI_AMBA_BASE + 0x2000)
-
-void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
-{
-  board_flash_init();
-
-  //------------- Flash new bootloader -------------//
-  uint32_t addr = SELF_UPDATE_ADDRESS;
-  while (bootloader_len)
-  {
-    uint32_t const count = (bootloader_len < SECTOR_SIZE) ? bootloader_len : SECTOR_SIZE;
-
-    board_flash_write(addr, bootloader_bin, count);
-
-    addr += count;
-    bootloader_len -= count;
-    bootloader_bin += count;
-  }
-
-  board_flash_flush();
-
-  //------------- Self destruct -------------//
-  extern uint32_t __VECTOR_TABLE[]; // defined by linker
-  uint32_t const isr_addr = ((uint32_t) __VECTOR_TABLE) - FlexSPI_AMBA_BASE;
-
-  __disable_irq();
-  flexspi_nor_flash_erase_sector(FLEXSPI, isr_addr);
-  SCB_InvalidateDCache_by_Addr((uint32_t *)isr_addr, SECTOR_SIZE);
-
-  NVIC_SystemReset();
-}
-#endif
