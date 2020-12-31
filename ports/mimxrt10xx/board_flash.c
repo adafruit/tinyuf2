@@ -44,7 +44,7 @@
 #define FCFB_START_ADDRESS    (FlexSPI_AMBA_BASE + 0x400U)
 
 // Flash Configuration Structure 
-extern flexspi_nor_config_t qspiflash_config;
+extern flexspi_nor_config_t const qspiflash_config;
 
 static uint32_t _flash_page_addr = NO_CACHE;
 static uint8_t  _flash_cache[SECTOR_SIZE] __attribute__((aligned(4)));
@@ -52,23 +52,24 @@ static uint8_t  _flash_cache[SECTOR_SIZE] __attribute__((aligned(4)));
 
 void board_flash_init(void)
 {
-  uint8_t *image_data = (uint8_t *)&qspiflash_config;
-  uint32_t flash_addr = FCFB_START_ADDRESS;
-  flexspi_nor_flash_init(FLEXSPI_INSTANCE, &qspiflash_config);
-  board_flash_flush();
+  flexspi_nor_flash_init(FLEXSPI_INSTANCE, (flexspi_nor_config_t*) &qspiflash_config);
 
   // Check for FCFB and copy bootloader to flash if not present
-  if (*(uint32_t *)FCFB_START_ADDRESS != FLEXSPI_CFG_BLK_TAG) {
+  if ( *(uint32_t*) FCFB_START_ADDRESS != FLEXSPI_CFG_BLK_TAG )
+  {
+    uint8_t const* image_data = (uint8_t const *) &qspiflash_config;
+    uint32_t flash_addr = FCFB_START_ADDRESS;
+
     TU_LOG1("FCFB not present.  Copying image to flash.\r\n");
-    while (flash_addr < (FlexSPI_AMBA_BASE + BOARD_BOOT_LENGTH)) {
+    while ( flash_addr < (FlexSPI_AMBA_BASE + BOARD_BOOT_LENGTH) )
+    {
       board_flash_write(flash_addr, image_data, FLASH_PAGE_SIZE);
       flash_addr += FLASH_PAGE_SIZE;
-      image_data += FLASH_PAGE_SIZE;  
+      image_data += FLASH_PAGE_SIZE;
     }
     board_flash_flush();
     TU_LOG1("TinyUF2 copied to flash.\r\n");
   } 
-  
 }
 
 uint32_t board_flash_size(void)
@@ -98,7 +99,7 @@ void board_flash_flush(void)
     uint32_t const sector_addr = (_flash_page_addr - FlexSPI_AMBA_BASE);
 
     __disable_irq();
-    status = flexspi_nor_flash_erase(FLEXSPI_INSTANCE, &qspiflash_config, sector_addr, SECTOR_SIZE);
+    status = flexspi_nor_flash_erase(FLEXSPI_INSTANCE, (flexspi_nor_config_t*) &qspiflash_config, sector_addr, SECTOR_SIZE);
     __enable_irq();
 
     SCB_InvalidateDCache_by_Addr((uint32_t *)sector_addr, SECTOR_SIZE);
@@ -115,7 +116,7 @@ void board_flash_flush(void)
       void* page_data =  _flash_cache + i * FLASH_PAGE_SIZE;
 
       __disable_irq();
-      status = flexspi_nor_flash_page_program(FLEXSPI_INSTANCE, &qspiflash_config, page_addr, (uint32_t*) page_data);
+      status = flexspi_nor_flash_page_program(FLEXSPI_INSTANCE, (flexspi_nor_config_t*) &qspiflash_config, page_addr, (uint32_t*) page_data);
       __enable_irq();
 
       if ( status != kStatus_Success )
