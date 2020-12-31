@@ -1,15 +1,16 @@
 UF2_FAMILY_ID = 0x4fb2d5bd
 CROSS_COMPILE = arm-none-eabi-
 
+# List of git submodules that is included as part of the UF2 version
+GIT_SUBMODULES = nxp tinyusb
+
+# For flash-pyocd-bin target
+FLASH_BIN_ADDR = 0x60000400
+
 include ../make.mk
 
 MCU_DIR = lib/nxp/sdk/devices/$(MCU)
-LD_FILES ?= $(PORT_DIR)/linker/$(MCU)_nor.ld $(PORT_DIR)/linker/memory.ld $(PORT_DIR)/linker/common.ld
-
-# Version
-GIT_VERSION := $(shell git describe --dirty --always --tags)
-GIT_SUBMODULE_VERSIONS := $(shell git submodule status $(addprefix ../../lib/,nxp tinyusb) | cut -d" " -f3,4 | paste -s -d" " -)
-GIT_SUBMODULE_VERSIONS := $(subst ../../lib/,,$(GIT_SUBMODULE_VERSIONS))
+LD_FILES ?= $(PORT_DIR)/linker/$(MCU)_ram.ld $(PORT_DIR)/linker/memory.ld $(PORT_DIR)/linker/common.ld
 
 # Port Compiler Flags
 CFLAGS += \
@@ -21,9 +22,7 @@ CFLAGS += \
   -D__ARMVFP__=0 -D__ARMFPV5__=0 \
   -DXIP_EXTERNAL_FLASH=1 \
   -DXIP_BOOT_HEADER_ENABLE=1 \
-  -DCFG_TUSB_MCU=OPT_MCU_MIMXRT10XX \
-  -DBOARD_UF2_FAMILY_ID=$(UF2_FAMILY_ID) \
-  -DUF2_VERSION='"$(GIT_VERSION) - $(GIT_SUBMODULE_VERSIONS)"'
+  -DCFG_TUSB_MCU=OPT_MCU_MIMXRT10XX
 
 # mcu driver cause following warnings
 CFLAGS += -Wno-error=unused-parameter
@@ -58,22 +57,54 @@ INC += \
 
 include ../rules.mk
 
-#-------------- Self-update  --------------
-SELF_CFLAGS  = $(CFLAGS) -DTINYUF2_SELF_UPDATE
-SELF_LDFLAGS = $(LDFLAGS)
-SELF_LD_FILES ?= $(PORT_DIR)/linker/$(MCU)_nor.ld $(PORT_DIR)/linker/self_update_memory.ld $(PORT_DIR)/linker/common.ld
-SELF_ASFLAGS = $(ASFLAGS)
+#------------- Load to SRAM using sdphost -------------
+# Note: you may need to give the sdphost binary executable permission first.
+#---------------------------------------------------------
+SDP_MIMXRT1011_PID = 0x0145
+SDP_MIMXRT1011_WRITE_ADDR = 0x20206400
+SDP_MIMXRT1011_JUMP_ADDR  = 0x20207000
 
+SDP_MIMXRT1021_PID = 0x0130
+SDP_MIMXRT1021_WRITE_ADDR = 0x0400
+SDP_MIMXRT1021_JUMP_ADDR  = 0x1000
+
+SDP_MIMXRT1062_PID = 0x0135
+SDP_MIMXRT1062_WRITE_ADDR = 0x0400
+SDP_MIMXRT1062_JUMP_ADDR  = 0x1000
+
+ifeq ($(OS),Windows_NT)
+	SDPHOST = sdphost/win/sdphost.exe
+else
+	UNAME_S := $(shell uname -s)
+	UNAME_I := $(shell uname -i)
+
+	ifeq ($(UNAME_S),Darwin)
+		SDPHOST = sdphost/mac/sdphost
+	endif
+
+	ifeq ($(UNAME_S),Linux)
+		ifeq ($(UNAME_I),x86_64)
+			SDPHOST = sdphost/linux/amd64/sdphost
+	  endif
+
+	  ifeq ($(UNAME_I),i386)
+			SDPHOST = sdphost/linux/i386/sdphost
+	  endif
+	endif
+endif
+
+flash-sdp: $(BUILD)/$(OUTNAME).bin
+	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- write-file $(SDP_$(MCU)_WRITE_ADDR) $<
+	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- jump-address $(SDP_$(MCU)_JUMP_ADDR)
+
+#-------------- Self-update  --------------
+# RT10xx run entire bootloader from SRAM and
+# can directly flash the bootloader region
+# without using self-update app as other port
+#--------------------------------------------
 include ../self_update.mk
 
-# required for uf2 conversion
-$(SELF_BUILD_OBJ)/$(SELF_OUTNAME).hex: $(SELF_BUILD_OBJ)/$(SELF_OUTNAME).elf
+# self-update uf2 file
+$(SELF_BUILD_OBJ)/$(SELF_OUTNAME).uf2: $(BUILD)/$(OUTNAME).bin $(SELF_OBJ_DIRS)
 	@echo CREATE $@
-	@$(OBJCOPY) -O ihex -R .flash_config -R .ivt $^ $@
-
-# required for self-update elf compile
-$(SELF_BUILD_OBJ)/self_update/$(OUTNAME).c: $(SELF_BUILD_OBJ)/self_update/$(OUTNAME)-textonly.bin
-	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py --carray $^ -o $@
-
-$(SELF_BUILD_OBJ)/self_update/$(OUTNAME)-textonly.bin: $(BUILD)/$(OUTNAME).elf
-	@$(OBJCOPY) -O binary -R .flash_config -R .ivt $^ $@
+	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py -f $(UF2_FAMILY_ID) -b 0x60000400 -c -o $@ $<

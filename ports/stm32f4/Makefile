@@ -5,12 +5,10 @@ ST_HAL_DRIVER = lib/st/stm32f4xx_hal_driver
 ST_CMSIS = lib/st/cmsis_device_f4
 CMSIS_5 = lib/CMSIS_5
 
-include ../make.mk
+# List of git submodules that is included as part of the UF2 version
+GIT_SUBMODULES = CMSIS_5 st tinyusb
 
-# Version
-GIT_VERSION := $(shell git describe --dirty --always --tags)
-GIT_SUBMODULE_VERSIONS := $(shell git submodule status $(addprefix ../../lib/,CMSIS_5 st tinyusb) | cut -d" " -f3,4 | paste -s -d" " -)
-GIT_SUBMODULE_VERSIONS := $(subst ../../lib/,,$(GIT_SUBMODULE_VERSIONS))
+include ../make.mk
 
 # Port Compiler Flags
 CFLAGS += \
@@ -21,9 +19,7 @@ CFLAGS += \
   -mfloat-abi=hard \
   -mfpu=fpv4-sp-d16 \
   -nostdlib -nostartfiles \
-  -DCFG_TUSB_MCU=OPT_MCU_STM32F4 \
-  -DBOARD_UF2_FAMILY_ID=$(UF2_FAMILY_ID) \
-  -DUF2_VERSION='"$(GIT_VERSION) - $(GIT_SUBMODULE_VERSIONS)"'
+  -DCFG_TUSB_MCU=OPT_MCU_STM32F4
 
 # suppress warning caused by vendor mcu driver
 CFLAGS += -Wno-error=cast-align -Wno-error=unused-parameter
@@ -66,7 +62,11 @@ SELF_ASFLAGS = $(ASFLAGS)
 
 include ../self_update.mk
 
-# required for uf2 conversion
+# self-update uf2 file
+$(SELF_BUILD_OBJ)/$(SELF_OUTNAME).uf2: $(SELF_BUILD_OBJ)/$(SELF_OUTNAME).hex
+	@echo CREATE $@
+	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py -f $(UF2_FAMILY_ID) -c -o $@ $^
+
 $(SELF_BUILD_OBJ)/$(SELF_OUTNAME).hex: $(SELF_BUILD_OBJ)/$(SELF_OUTNAME).elf
 	@echo CREATE $@
 	@$(OBJCOPY) -O ihex $^ $@

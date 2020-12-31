@@ -41,6 +41,13 @@ endif
 BUILD = _build/$(BOARD)
 BIN = _bin/$(BOARD)
 
+OUTNAME = tinyuf2-$(BOARD)
+
+# UF2 version with git tag and submodules
+GIT_VERSION := $(shell git describe --dirty --always --tags)
+GIT_SUBMODULE_VERSIONS := $(shell git submodule status $(addprefix ../../lib/,$(GIT_SUBMODULES)) | cut -d" " -f3,4 | paste -s -d" " -)
+GIT_SUBMODULE_VERSIONS := $(subst ../../lib/,,$(GIT_SUBMODULE_VERSIONS))
+
 #-------------- Source files and compiler flags --------------
 
 # PORT is directory name containing the Makefile
@@ -94,7 +101,9 @@ CFLAGS += \
   -Wsign-compare \
   -Wmissing-format-attribute \
   -Wunreachable-code \
-  -Wcast-align
+  -Wcast-align \
+  -DBOARD_UF2_FAMILY_ID=$(UF2_FAMILY_ID) \
+  -DUF2_VERSION='"$(GIT_VERSION) - $(GIT_SUBMODULE_VERSIONS)"'
 
 # Debugging/Optimization
 ifeq ($(DEBUG), 1)

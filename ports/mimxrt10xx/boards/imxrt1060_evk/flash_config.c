@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "flexspi_nor_config.h"
+#include "flexspi_nor_flash.h"
 #include "fsl_flexspi_nor_boot.h"
 #include "boards.h"
 
@@ -20,7 +20,7 @@ const ivt image_vector_table = {
   IVT_RSVD,                           /* Reserved = 0 */
   (uint32_t)DCD_ADDRESS,              /* Address where DCD information is stored */
   (uint32_t)BOOT_DATA_ADDRESS,        /* Address where BOOT Data Structure is stored */
-  (uint32_t)&image_vector_table,      /* Pointer to IVT Self (absolute address */
+  (uint32_t)&image_vector_table,      /* Pointer to IVT Self (absolute address) */
   (uint32_t)CSF_ADDRESS,              /* Address where CSF file is stored */
   IVT_RSVD                            /* Reserved = 0 */
 };

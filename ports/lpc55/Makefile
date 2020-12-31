@@ -1,15 +1,13 @@
 UF2_FAMILY_ID = 0x2abc77ec
 CROSS_COMPILE = arm-none-eabi-
 
+# List of git submodules that is included as part of the UF2 version
+GIT_SUBMODULES = nxp tinyusb
+
 include ../make.mk
 
 MCU_DIR = lib/nxp/sdk/devices/$(MCU)
 LD_FILES ?= $(MCU_DIR)/gcc/$(MCU_CORE)_flash.ld
-
-# Version
-GIT_VERSION := $(shell git describe --dirty --always --tags)
-GIT_SUBMODULE_VERSIONS := $(shell git submodule status $(addprefix ../../lib/, tinyusb) | cut -d" " -f3,4 | paste -s -d" " -)
-GIT_SUBMODULE_VERSIONS := $(subst ../../lib/,,$(GIT_SUBMODULE_VERSIONS))
 
 # Port Compiler Flags
 CFLAGS += \
@@ -19,9 +17,7 @@ CFLAGS += \
   -mcpu=cortex-m33 \
   -mfloat-abi=hard \
   -mfpu=fpv5-sp-d16 \
-  -DCFG_TUSB_MCU=OPT_MCU_LPC55XX \
-  -DBOARD_UF2_FAMILY_ID=$(UF2_FAMILY_ID) \
-  -DUF2_VERSION='"$(GIT_VERSION) - $(GIT_SUBMODULE_VERSIONS)"'
+  -DCFG_TUSB_MCU=OPT_MCU_LPC55XX
 
 # suppress warning caused by vendor mcu driver
 CFLAGS += -Wno-error=unused-parameter -Wno-error=float-equal
@@ -62,7 +58,11 @@ SELF_ASFLAGS = $(ASFLAGS)
 
 include ../self_update.mk
 
-# required for uf2 conversion
+# self-update uf2 file
+$(SELF_BUILD_OBJ)/$(SELF_OUTNAME).uf2: $(SELF_BUILD_OBJ)/$(SELF_OUTNAME).hex
+	@echo CREATE $@
+	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py -f $(UF2_FAMILY_ID) -c -o $@ $^
+
 $(SELF_BUILD_OBJ)/$(SELF_OUTNAME).hex: $(SELF_BUILD_OBJ)/$(SELF_OUTNAME).elf
 	@echo CREATE $@
 	@$(OBJCOPY) -O ihex $^ $@
