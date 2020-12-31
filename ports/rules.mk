@@ -142,5 +142,9 @@ flash-pyocd: $(BUILD)/$(OUTNAME).hex
 	pyocd flash -t $(PYOCD_TARGET) $<
 	pyocd reset -t $(PYOCD_TARGET)
 
+flash-pyocd-bin: $(BUILD)/$(OUTNAME).hex
+	pyocd flash -t $(PYOCD_TARGET) -a $(PYOCD_BIN_ADDR) $<
+	pyocd reset -t $(PYOCD_TARGET)
+
 erase-pyocd:
 	pyocd erase -t $(PYOCD_TARGET) -c

@@ -4,6 +4,9 @@ CROSS_COMPILE = arm-none-eabi-
 # List of git submodules that is included as part of the UF2 version
 GIT_SUBMODULES = nxp tinyusb
 
+# For flash-pyocd-bin target
+PYOCD_BIN_ADDR = 0x60000400
+
 include ../make.mk
 
 MCU_DIR = lib/nxp/sdk/devices/$(MCU)
@@ -53,11 +56,6 @@ INC += \
 	$(TOP)/$(MCU_DIR)/project_template
 
 include ../rules.mk
-
-# Flash binary to correct bootloader address
-flash-pyocd-imxrt: $(BUILD)/$(OUTNAME).bin
-	pyocd flash -t $(PYOCD_TARGET) -a 0x60000400 $<
-	pyocd reset -t $(PYOCD_TARGET)
 
 #------------- Load to SRAM using sdphost -------------
 # Note: you may need to give the sdphost binary executable permission first.
