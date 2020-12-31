@@ -161,7 +161,7 @@ char const* string_desc_arr [] =
   "HF2 WebUSB"
 };
 
-static uint16_t _desc_str[32];
+static uint16_t _desc_str[32+1];
 
 // Invoked when received GET STRING DESCRIPTOR request
 // Application return pointer to descriptor, whose contents must exist long enough for transfer to complete
@@ -180,7 +180,7 @@ uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid)
 
     case STRID_SERIAL:
     {
-      uint8_t serial_id[16];
+      uint8_t serial_id[16] = {0};
       uint8_t serial_len;
 
       serial_len = board_usb_get_serial(serial_id);

@@ -85,7 +85,7 @@ void board_dfu_init(void)
   RESET_PeripheralReset(kUSB1_RST_SHIFT_RSTn);
   RESET_PeripheralReset(kUSB1RAM_RST_SHIFT_RSTn);
 
-#if (defined USB_DEVICE_CONFIG_LPCIP3511HS) && (USB_DEVICE_CONFIG_LPCIP3511HS)
+#if (defined CFG_TUSB_RHPORT1_MODE) && (CFG_TUSB_RHPORT1_MODE & OPT_MODE_DEVICE)
   CLOCK_EnableClock(kCLOCK_Usbh1);
   /* Put PHY powerdown under software control */
   *((uint32_t *)(USBHSH_BASE + 0x50)) = USBHSH_PORTMODE_SW_PDCOM_MASK;
@@ -95,7 +95,7 @@ void board_dfu_init(void)
   CLOCK_DisableClock(kCLOCK_Usbh1);
 #endif
 
-#if 1 || (defined USB_DEVICE_CONFIG_LPCIP3511FS) && (USB_DEVICE_CONFIG_LPCIP3511FS)
+#if (defined CFG_TUSB_RHPORT0_MODE) && (CFG_TUSB_RHPORT0_MODE & OPT_MODE_DEVICE)
   CLOCK_SetClkDiv(kCLOCK_DivUsb0Clk, 1, false);
   CLOCK_AttachClk(kFRO_HF_to_USB0_CLK);
   /* enable usb0 host clock */
