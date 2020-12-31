@@ -102,17 +102,25 @@ uint8_t board_usb_get_serial(uint8_t serial_id[16])
 }
 
 // Check if application is valid
-bool board_app_valid(void) { 
-  uint32_t resetVector[1];
+bool board_app_valid(void)
+{
+  uint32_t readData[2];
+  status_t readStatus;
   // 2nd word is App entry point (reset)
-  FLASH_Read(&_flash_config, (BOARD_FLASH_APP_START +4), (uint8_t *)resetVector, 4);
-  if ( (resetVector[0] >= BOARD_FLASH_APP_START) && (resetVector[0] < BOARD_FLASH_SIZE) ) {
-    return true;
-  } else {
+  readStatus = FLASH_Read(&_flash_config, BOARD_FLASH_APP_START, (uint8_t *)readData, 8);
+  if (readStatus) {
+    TU_LOG1("Flash read failed status: %ld, \r\n", readStatus);
     return false;
+  } else {
+    if ((readData[1] >= BOARD_FLASH_APP_START) && (readData[1] < BOARD_FLASH_SIZE)) {
+      TU_LOG2("Valid reset vector:  0x%08lX\r\n", readData[1]);
+      return true;
+    } else {
+      TU_LOG1("No app present\r\n");
+      return false;
+    }
   }
 }
-
 
 #ifdef TINYUF2_SELF_UPDATE
 void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)

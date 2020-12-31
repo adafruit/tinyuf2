@@ -57,8 +57,11 @@ uint8_t const RGB_OFF[]           = { 0x00, 0x00, 0x00 };
 //
 //--------------------------------------------------------------------+
 
+#ifndef DBL_TAP_REG 
 // defined by linker script
 extern uint32_t _board_dfu_dbl_tap[];
+#define DBL_TAP_REG   _board_dfu_dbl_tap[0]
+#endif
 static volatile uint32_t _timer_count = 0;
 
 // return true if start DFU mode, else App mode
@@ -69,24 +72,24 @@ static bool check_dfu_mode(void)
 
 #if USE_DFU_DOUBLE_TAP
 //  TU_LOG1_HEX(_board_dfu_dbl_tap);
-//  TU_LOG1_HEX(_board_dfu_dbl_tap[0]);
+//  TU_LOG1_HEX(DBL_TAP_REG);
 
   // App want to reboot quickly
-  if (_board_dfu_dbl_tap[0] == DBL_TAP_MAGIC_QUICK_BOOT)
+  if (DBL_TAP_REG == DBL_TAP_MAGIC_QUICK_BOOT)
   {
-    _board_dfu_dbl_tap[0] = 0;
+    DBL_TAP_REG = 0;
     return false;
   }
 
-  if (_board_dfu_dbl_tap[0] == DBL_TAP_MAGIC)
+  if (DBL_TAP_REG == DBL_TAP_MAGIC)
   {
     // Double tap occurred
-    _board_dfu_dbl_tap[0] = 0;
+    DBL_TAP_REG = 0;
     return true;
   }
 
   // Register our first reset for double reset detection
-  _board_dfu_dbl_tap[0] = DBL_TAP_MAGIC;
+  DBL_TAP_REG = DBL_TAP_MAGIC;
 
   _timer_count = 0;
   board_timer_start(1);
@@ -106,7 +109,7 @@ static bool check_dfu_mode(void)
   board_rgb_write(RGB_OFF);
   board_led_write(0x00);
 
-  _board_dfu_dbl_tap[0] = 0;
+  DBL_TAP_REG = 0;
 #endif
 
   return false;
@@ -115,8 +118,11 @@ static bool check_dfu_mode(void)
 int main(void)
 {
   board_init();
-
   TU_LOG1("TinyUF2\r\n");
+
+  // Flash needs to be initialized to check for a valid image
+  TU_LOG2("Flash init...\r\n");
+  board_flash_init();
 
   // if not DFU mode, jump to App
   if ( !check_dfu_mode() )
@@ -128,8 +134,6 @@ int main(void)
 
   TU_LOG2("DFU init...\r\n");
   board_dfu_init();
-  TU_LOG2("Flash init...\r\n");
-  board_flash_init();
   TU_LOG2("UF2 init...\r\n");
   uf2_init();
 

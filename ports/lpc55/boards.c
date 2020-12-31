@@ -23,9 +23,12 @@
  */
 
 #include "board_api.h"
+#include "boards.h"
+#include "board.h"
 #include "tusb.h"
 
 #include "fsl_device_registers.h"
+#include "fsl_rtc.h"
 #include "fsl_gpio.h"
 #include "fsl_usart.h"
 #include "fsl_power.h"
@@ -46,6 +49,9 @@ void board_init(void)
 
   // Init 96 MHz clock
   BOARD_BootClockFROHF96M();
+
+  // Init RTC for access to DBL_TAP_REG
+  RTC_Init(RTC);
 
   // disable systick
   board_timer_stop();
