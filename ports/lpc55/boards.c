@@ -94,24 +94,28 @@ void board_dfu_init(void)
 #if (defined CFG_TUSB_RHPORT1_MODE) && (CFG_TUSB_RHPORT1_MODE & OPT_MODE_DEVICE)
   CLOCK_EnableClock(kCLOCK_Usbh1);
   /* Put PHY powerdown under software control */
-  *((uint32_t *)(USBHSH_BASE + 0x50)) = USBHSH_PORTMODE_SW_PDCOM_MASK;
+  USBHSH->PORTMODE = USBHSH_PORTMODE_SW_PDCOM_MASK;
   /* According to reference mannual, device mode setting has to be set by access usb host register */
-  *((uint32_t *)(USBHSH_BASE + 0x50)) |= USBHSH_PORTMODE_DEV_ENABLE_MASK;
+  USBHSH->PORTMODE |= USBHSH_PORTMODE_DEV_ENABLE_MASK;
   /* enable usb1 host clock */
   CLOCK_DisableClock(kCLOCK_Usbh1);
 #endif
 
 #if (defined CFG_TUSB_RHPORT0_MODE) && (CFG_TUSB_RHPORT0_MODE & OPT_MODE_DEVICE)
+  // Enable USB Clock Adjustments to trim the FRO for the full speed controller
+  ANACTRL->FRO192M_CTRL |= ANACTRL_FRO192M_CTRL_USBCLKADJ_MASK;
   CLOCK_SetClkDiv(kCLOCK_DivUsb0Clk, 1, false);
   CLOCK_AttachClk(kFRO_HF_to_USB0_CLK);
   /* enable usb0 host clock */
   CLOCK_EnableClock(kCLOCK_Usbhsl0);
   /*According to reference mannual, device mode setting has to be set by access usb host register */
-  *((uint32_t *)(USBFSH_BASE + 0x5C)) |= USBFSH_PORTMODE_DEV_ENABLE_MASK;
+  USBFSH->PORTMODE |= USBFSH_PORTMODE_DEV_ENABLE_MASK;
   /* disable usb0 host clock */
   CLOCK_DisableClock(kCLOCK_Usbhsl0);
   CLOCK_EnableUsbfs0DeviceClock(kCLOCK_UsbfsSrcFro, CLOCK_GetFreq(kCLOCK_FroHf)); /* enable USB Device clock */
 #endif
+
+  TU_LOG2("FRO192M_CTRL:  0x%08lX\r\n", ANACTRL->FRO192M_CTRL);
 }
 
 void board_dfu_complete(void)
