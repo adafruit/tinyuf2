@@ -109,14 +109,18 @@ bool board_app_valid(void)
   // 2nd word is App entry point (reset)
   readStatus = FLASH_Read(&_flash_config, BOARD_FLASH_APP_START, (uint8_t *)readData, 8);
   if (readStatus) {
-    TU_LOG1("Flash read failed status: %ld, \r\n", readStatus);
+    if (readStatus == kStatus_FLASH_EccError){
+      TU_LOG1("No app present (erased)\r\n");  // Erased flash causes ECC errors
+    } else {
+      TU_LOG1("Flash read failed status: %ld, \r\n", readStatus);
+    }
     return false;
   } else {
     if ((readData[1] >= BOARD_FLASH_APP_START) && (readData[1] < BOARD_FLASH_SIZE)) {
       TU_LOG2("Valid reset vector:  0x%08lX\r\n", readData[1]);
       return true;
     } else {
-      TU_LOG1("No app present\r\n");
+      TU_LOG1("No app present (invalid vector)\r\n");
       return false;
     }
   }
