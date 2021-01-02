@@ -47,9 +47,9 @@
 #define BOARD_LED_GREEN_GPIO_PIN 7U
 
 
-#define LED_PORT              1
-#define LED_PIN               6
-#define LED_STATE_ON          0
+#define LED_PORT              0
+#define LED_PIN               1
+#define LED_STATE_ON          1
 
 //--------------------------------------------------------------------+
 // Neopixel
