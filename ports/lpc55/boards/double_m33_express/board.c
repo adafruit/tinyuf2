@@ -172,7 +172,10 @@ void board_led_write(uint32_t value)
 
 // Write color to rgb strip
 void board_rgb_write(uint8_t const rgb[]) { 
-  uint32_t color = (rgb[1]<<16) | (rgb[0]<<8) | (rgb[2]);  // Neopixel is GRB
+  uint32_t color = 0;    // Neopixel is GRB
+  if (rgb[0]) { color += (NEOPIXEL_BRIGHTNESS <<16); }
+  if (rgb[1]) { color += (NEOPIXEL_BRIGHTNESS <<8); }
+  if (rgb[2]) { color += (NEOPIXEL_BRIGHTNESS); }
   neopixel_set(0, color);
   neopixel_set(1, color);
   neopixel_update();
