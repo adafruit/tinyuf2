@@ -56,10 +56,7 @@
 //--------------------------------------------------------------------+
 
 // Number of neopixels
-#define NEOPIXEL_NUMBER       1
-#define NEOPIXEL_PORT         GPIOC
-#define NEOPIXEL_PIN          GPIO_PIN_0
-
+#define NEOPIXEL_NUMBER       0
 //--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
