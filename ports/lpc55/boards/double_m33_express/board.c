@@ -75,11 +75,9 @@ void neopixel_set(uint32_t pixel, uint32_t color){
 }
 
 void neopixel_update(void){
-  while (_neopixel_count < NEOPIXEL_NUMBER) { 
-    _neopixel_count = 0;
-    NEO_SCT->EV[NEO_EVENT_FALL_0].STATE = 0xFFFFFF & (~_neopixel_array[0]);
-    NEO_SCT->CTRL &= ~(SCT_CTRL_HALT_L_MASK);
-  }
+  _neopixel_count = 0;
+  NEO_SCT->EV[NEO_EVENT_FALL_0].STATE = 0xFFFFFF & (~_neopixel_array[0]);
+  NEO_SCT->CTRL &= ~(SCT_CTRL_HALT_L_MASK);
 }
 
 void neopixel_init(void) {
