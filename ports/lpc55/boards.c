@@ -23,8 +23,6 @@
  */
 
 #include "board_api.h"
-#include "boards.h"
-#include "board.h"
 #include "tusb.h"
 
 #include "fsl_device_registers.h"

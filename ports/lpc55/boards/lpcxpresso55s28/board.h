@@ -59,7 +59,7 @@
 #define USB_VID           0x1fc9
 #define USB_PID           0x0094
 #define USB_MANUFACTURER  "NXP"
-#define USB_PRODUCT       "LPCXpresso 55s69"
+#define USB_PRODUCT       "LPCXpresso 55s28"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID      "LPC55S28-Xpresso-revA"
