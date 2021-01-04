@@ -29,23 +29,28 @@
 // Button
 //--------------------------------------------------------------------+
 
+// ISP button
+#define BUTTON_PORT           0
+#define BUTTON_PIN            5
+#define BUTTON_STATE_ACTIVE   0
+
 //--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
 
 // RGB pins are P1_6, P1_7, P1_4
-#define LED_PORT              1
-#define LED_PIN               6
-#define LED_STATE_ON          0
+#define BOARD_LED_RED_GPIO_PORT 1U
+#define BOARD_LED_RED_GPIO_PIN 6U
+#define BOARD_LED_BLUE_GPIO_PORT 1U
+#define BOARD_LED_BLUE_GPIO_PIN 4U
+#define BOARD_LED_GREEN_GPIO_PORT 1U
+#define BOARD_LED_GREEN_GPIO_PIN 7U
 
-//--------------------------------------------------------------------+
-// Neopixel
-//--------------------------------------------------------------------+
+#define LED_PORT              0
+#define LED_PIN               1
+#define LED_STATE_ON          1
 
-// Number of neopixels
-#define NEOPIXEL_NUMBER       1
-#define NEOPIXEL_PORT         GPIOC
-#define NEOPIXEL_PIN          GPIO_PIN_0
+#define USE_RGB               1
 
 //--------------------------------------------------------------------+
 // USB UF2
@@ -54,22 +59,26 @@
 #define USB_VID           0x1fc9
 #define USB_PID           0x0094
 #define USB_MANUFACTURER  "NXP"
-#define USB_PRODUCT       "LPCXpresso 55s28"
+#define USB_PRODUCT       "LPCXpresso 55s69"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID      "LPC55S28-Xpresso-revA"
 #define UF2_VOLUME_LABEL  "LPC5528BOOT"
-#define UF2_INDEX_URL     "https://www.nxp.com/design/software/development-software/lpcxpresso55s28-development-board:LPC55S28-EVK"
+#define UF2_INDEX_URL     "https://www.nxp.com/LPC55S28-EVK"
+
+//--------------------------------------------------------------------+
+// Flash
+//--------------------------------------------------------------------+
+
+#define BOARD_FLASH_SIZE     (0x80000U)
 
 //--------------------------------------------------------------------+
 // UART
 //--------------------------------------------------------------------+
 
-#define UART_DEV              USART3
-#define UART_CLOCK_ENABLE     __HAL_RCC_USART3_CLK_ENABLE
-#define UART_GPIO_PORT        GPIOB
-#define UART_GPIO_AF          GPIO_AF7_USART3
-#define UART_TX_PIN           GPIO_PIN_10
-#define UART_RX_PIN           GPIO_PIN_11
+#define UART_DEV              USART0
+
+// Pin initialization function
+void board_pin_init(void);
 
 #endif
