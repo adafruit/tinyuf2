@@ -101,6 +101,9 @@ void board_init(void)
 
   LPUART_Init(UART_DEV, &uart_config, freq);
 #endif
+
+  // Flash needs to be initialized to check for a valid image
+  board_flash_init();
 }
 
 void board_dfu_init(void)

@@ -68,6 +68,8 @@ void board_init(void)
   USART_Init(UART_DEV, &uart_config, 12000000);
 #endif
 
+  // Flash needs to be initialized to check for a valid image
+  board_flash_init();
 }
 
 void board_dfu_init(void)

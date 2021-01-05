@@ -35,6 +35,9 @@
 // Flash Start Address of Application
 #define BOARD_FLASH_APP_START  0x10000 
 
+// Flash needs to be initialized to check for a valid image
+#define EARLY_FLASH_INIT
+
 #define USE_DFU_DOUBLE_TAP     1
 #define DBL_TAP_REG            RTC->GPREG[7]      
 

@@ -45,6 +45,9 @@ extern uint32_t _fcfb_origin[];
 // Flash Start Address of Application, typically 0x6000C000
 #define BOARD_FLASH_APP_START   (FlexSPI_AMBA_BASE + 0xC000)
 
+// Flash needs to be initialized to check for a valid image
+#define EARLY_FLASH_INIT
+
 // Double Reset tap to enter DFU
 #define USE_DFU_DOUBLE_TAP     1
 
