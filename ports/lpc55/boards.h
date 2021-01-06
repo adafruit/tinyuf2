@@ -38,17 +38,6 @@
 #define USE_DFU_DOUBLE_TAP     1
 #define DBL_TAP_REG            RTC->GPREG[7]      
 
-#define USE_RGB                NEOPIXEL_NUMBER
-
-// Brightness percentage from 1 to 255
-#ifndef NEOPIXEL_BRIGHTNESS
-#define NEOPIXEL_BRIGHTNESS   0x10
-#endif
-
-#ifdef LED_PIN
-#define USE_LED 1
-#endif
-
 //--------------------------------------------------------------------+
 // IOCON Defines
 //--------------------------------------------------------------------+

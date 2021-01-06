@@ -51,12 +51,8 @@
 #define LED_PIN               1
 #define LED_STATE_ON          1
 
-//--------------------------------------------------------------------+
-// Neopixel
-//--------------------------------------------------------------------+
+#define USE_RGB               1
 
-// Number of neopixels
-#define NEOPIXEL_NUMBER       0
 //--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
@@ -69,7 +65,7 @@
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID      "LPC55S69-Xpresso-revA"
 #define UF2_VOLUME_LABEL  "LPC5569BOOT"
-#define UF2_INDEX_URL     "https://www.nxp.com/design/development-boards/lpcxpresso-boards/lpcxpresso55s69-development-board:LPC55S69-EVK"
+#define UF2_INDEX_URL     "https://www.nxp.com/LPC55S69-EVK"
 
 //--------------------------------------------------------------------+
 // Flash

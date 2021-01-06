@@ -120,10 +120,6 @@ int main(void)
   board_init();
   TU_LOG1("TinyUF2\r\n");
 
-  // Flash needs to be initialized to check for a valid image
-  TU_LOG2("Flash init...\r\n");
-  board_flash_init();
-
   // if not DFU mode, jump to App
   if ( !check_dfu_mode() )
   {
@@ -134,6 +130,10 @@ int main(void)
 
   TU_LOG2("DFU init...\r\n");
   board_dfu_init();
+
+  TU_LOG2("Flash init...\r\n");
+  board_flash_init();
+
   TU_LOG2("UF2 init...\r\n");
   uf2_init();
 

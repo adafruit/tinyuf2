@@ -41,6 +41,7 @@
 #define LED_PORT              0
 #define LED_PIN               1
 #define LED_STATE_ON          1
+#define USE_LED 1
 
 //--------------------------------------------------------------------+
 // Neopixel
@@ -50,6 +51,11 @@
 #define NEOPIXEL_NUMBER       2
 #define NEOPIXEL_PORT         0
 #define NEOPIXEL_PIN          27
+
+#define USE_RGB                NEOPIXEL_NUMBER
+
+// Brightness percentage from 1 to 255
+#define NEOPIXEL_BRIGHTNESS   0x10
 
 //--------------------------------------------------------------------+
 // USB UF2
