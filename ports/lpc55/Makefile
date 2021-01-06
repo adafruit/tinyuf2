@@ -29,7 +29,12 @@ PORT_SRC_C += \
 	$(MCU_DIR)/system_$(MCU_CORE).c \
 	$(MCU_DIR)/project_template/clock_config.c \
 	$(MCU_DIR)/drivers/fsl_clock.c \
+	$(MCU_DIR)/drivers/fsl_common.c \
+	$(MCU_DIR)/drivers/fsl_iap.c \
+	$(MCU_DIR)/drivers/fsl_rtc.c \
 	$(MCU_DIR)/drivers/fsl_gpio.c \
+	$(MCU_DIR)/drivers/fsl_usart.c \
+	$(MCU_DIR)/drivers/fsl_flexcomm.c \
 	$(MCU_DIR)/drivers/fsl_power.c \
 	$(MCU_DIR)/drivers/fsl_reset.c	
 
@@ -55,6 +60,7 @@ SELF_CFLAGS  = $(CFLAGS) -DTINYUF2_SELF_UPDATE
 SELF_LDFLAGS = $(LDFLAGS)
 SELF_LD_FILES ?= $(LD_FILES)
 SELF_ASFLAGS = $(ASFLAGS)
+SELF_SRC_C += $(TOP)/$(BOARD_DIR)/board.c 
 
 include ../self_update.mk
 

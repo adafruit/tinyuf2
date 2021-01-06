@@ -161,7 +161,7 @@ char const* string_desc_arr [] =
   "HF2 WebUSB"
 };
 
-static uint16_t _desc_str[32];
+static uint16_t _desc_str[32+1];
 
 // Invoked when received GET STRING DESCRIPTOR request
 // Application return pointer to descriptor, whose contents must exist long enough for transfer to complete
