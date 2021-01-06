@@ -101,6 +101,7 @@ jobs:
         board:
         # Alphabetical order
         # lpc55
+        - 'double_m33_express'
         - 'lpcxpresso55s28'
         - 'lpcxpresso55s69'
         # mimxrt10xx
