@@ -27,11 +27,12 @@
 
 #include "fsl_device_registers.h"
 #include "fsl_rtc.h"
+#include "fsl_iap.h"
+#include "fsl_iap_ffr.h"
 #include "fsl_gpio.h"
 #include "fsl_usart.h"
 #include "fsl_power.h"
 #include "fsl_iocon.h"
-
 #include "clock_config.h"
 
 //--------------------------------------------------------------------+
@@ -39,6 +40,98 @@
 //--------------------------------------------------------------------+
 
 #define IOCON_VBUS_CONFIG        IOCON_PIO_DIG_FUNC7_EN /*!<@brief Digital pin function 7 enabled */
+
+// FLASH
+#define NO_CACHE        0xffffffff
+
+#define FLASH_PAGE_SIZE 512
+#define FILESYSTEM_BLOCK_SIZE 256
+
+static flash_config_t _flash_config;
+static uint32_t _flash_page_addr = NO_CACHE;
+static uint8_t  _flash_cache[FLASH_PAGE_SIZE] __attribute__((aligned(4)));
+
+//--------------------------------------------------------------------+
+//
+//--------------------------------------------------------------------+
+void board_flash_init(void)
+{
+}
+
+uint32_t board_flash_size(void)
+{
+  return BOARD_FLASH_SIZE;
+}
+
+void board_flash_read(uint32_t addr, void* buffer, uint32_t len)
+{
+  FLASH_Read(&_flash_config, addr, buffer, len);
+}
+
+void board_flash_flush(void)
+{
+  status_t status;
+  uint32_t failedAddress, failedData;
+
+  if ( _flash_page_addr == NO_CACHE ) return;
+
+  status = FLASH_VerifyProgram(&_flash_config, _flash_page_addr, FLASH_PAGE_SIZE, (const uint8_t *)_flash_cache, &failedAddress, &failedData);
+
+  if (status != kStatus_Success) {
+    TU_LOG1("Erase and Write at address = 0x%08lX\r\n",_flash_page_addr);
+    status = FLASH_Erase(&_flash_config, _flash_page_addr, FLASH_PAGE_SIZE, kFLASH_ApiEraseKey);
+    status = FLASH_Program(&_flash_config, _flash_page_addr, _flash_cache, FLASH_PAGE_SIZE);
+  }
+
+  _flash_page_addr = NO_CACHE;
+}
+
+void board_flash_write (uint32_t addr, void const *data, uint32_t len)
+{
+  uint32_t newAddr = addr & ~(FLASH_PAGE_SIZE - 1);
+  int32_t status;
+    
+  if (newAddr != _flash_page_addr) {
+    board_flash_flush();
+    _flash_page_addr = newAddr;
+    status = FLASH_Read(&_flash_config, newAddr, _flash_cache, FLASH_PAGE_SIZE);
+    if (status != kStatus_Success) {
+      TU_LOG1("Flash read error at address = 0x%08lX\r\n", _flash_page_addr);
+    }
+  }
+  memcpy(_flash_cache + (addr & (FLASH_PAGE_SIZE - 1)), data, len);
+}
+
+uint8_t board_usb_get_serial(uint8_t serial_id[16])
+{
+  FFR_GetUUID(&_flash_config, serial_id);
+  return 16;
+}
+
+// Check if application is valid
+bool board_app_valid(void)
+{
+  uint32_t readData[2];
+  status_t readStatus;
+  // 2nd word is App entry point (reset)
+  readStatus = FLASH_Read(&_flash_config, BOARD_FLASH_APP_START, (uint8_t *)readData, 8);
+  if (readStatus) {
+    if (readStatus == kStatus_FLASH_EccError){
+      TU_LOG1("No app present (erased)\r\n");  // Erased flash causes ECC errors
+    } else {
+      TU_LOG1("Flash read failed status: %ld, \r\n", readStatus);
+    }
+    return false;
+  } else {
+    if ((readData[1] >= BOARD_FLASH_APP_START) && (readData[1] < BOARD_FLASH_SIZE)) {
+      TU_LOG2("Valid reset vector:  0x%08lX\r\n", readData[1]);
+      return true;
+    } else {
+      TU_LOG1("No app present (invalid vector)\r\n");
+      return false;
+    }
+  }
+}
 
 void board_init(void)
 {
@@ -69,7 +162,11 @@ void board_init(void)
 #endif
 
   // Flash needs to be initialized to check for a valid image
-  board_flash_init();
+  if (FLASH_Init(&_flash_config) == kStatus_Success) {
+    TU_LOG2("Flash init successfull!!\r\n");
+  } else {
+    TU_LOG1("\r\n\r\n\t---- FLASH ERROR! ----\r\n");
+  }
 }
 
 void board_dfu_init(void)
@@ -185,7 +282,6 @@ int board_uart_write(void const * buf, int len)
 
 // Forward USB interrupt events to TinyUSB IRQ Handler
 #ifndef TINYUF2_SELF_UPDATE
-
 void USB0_IRQHandler(void)
 {
   tud_int_handler(0);
@@ -195,5 +291,12 @@ void USB1_IRQHandler(void)
 {
   tud_int_handler(1);
 }
+#endif
 
+#ifdef TINYUF2_SELF_UPDATE
+void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
+{
+  (void) bootloader_bin;
+  (void) bootloader_len;
+}
 #endif
