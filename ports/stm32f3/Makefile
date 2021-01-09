@@ -45,7 +45,7 @@ SRC_C += \
 # Port include
 INC += \
 	$(TOP)/$(CMSIS_5)/CMSIS/Core/Include \
-	$(TOP)/$(ST_CMSIS)/Include \
+	$(TOP)/lib/st/cmsis_device_f3/Include \
 	$(TOP)/$(ST_HAL_DRIVER)/Inc
 
 include ../rules.mk
