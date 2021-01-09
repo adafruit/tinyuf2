@@ -1,7 +1,7 @@
 UF2_FAMILY_ID = 0x57755a57
 CROSS_COMPILE = arm-none-eabi-
 
-ST_HAL_DRIVER = lib/st/stm32f4xx_hal_driver
+ST_HAL_DRIVER = lib/st/stm32f3xx_hal_driver
 ST_CMSIS = lib/st/cmsis_device_f3
 CMSIS_5 = lib/CMSIS_5
 
@@ -19,7 +19,7 @@ CFLAGS += \
   -mfloat-abi=hard \
   -mfpu=fpv4-sp-d16 \
   -nostdlib -nostartfiles \
-  -DCFG_TUSB_MCU=OPT_MCU_STM32F4
+  -DCFG_TUSB_MCU=OPT_MCU_STM32F3
 
 # suppress warning caused by vendor mcu driver
 CFLAGS += -Wno-error=cast-align -Wno-error=unused-parameter
@@ -29,7 +29,7 @@ LD_FILES ?= $(PORT_DIR)/linker/stm32f3.ld
 # Port source
 PORT_SRC_C += \
 	$(addprefix $(CURRENT_PATH)/, $(wildcard *.c)) \
-	$(ST_CMSIS)/Source/Templates/system_stm32f4xx.c \
+	$(ST_CMSIS)/Source/Templates/system_stm32f3xx.c \
 	$(ST_HAL_DRIVER)/Src/stm32f3xx_hal.c \
 	$(ST_HAL_DRIVER)/Src/stm32f3xx_hal_cortex.c \
 	$(ST_HAL_DRIVER)/Src/stm32f3xx_hal_rcc.c \
