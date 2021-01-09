@@ -139,7 +139,7 @@ void flash_write(uint32_t dst, const uint8_t *src, int len)
 	{
 	  TU_LOG1("Erase: %08lX size = %lu\n", addr, size);
 
-		static FLASH_EraseInitTypeDef EraseInit;
+		FLASH_EraseInitTypeDef EraseInit;
 		EraseInit.TypeErase = FLASH_TYPEERASE_PAGES;
 		EraseInit.PageAddress = addr;
 		EraseInit.NbPages = 1;
