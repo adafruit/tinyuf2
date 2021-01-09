@@ -29,7 +29,7 @@
  extern "C" {
 #endif
 
-#include "stm32f3xx.h"
+#include "stm32f4xx.h"
 #include "stm32f3xx_hal_conf.h"
 
 #include "board.h"
