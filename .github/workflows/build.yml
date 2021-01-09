@@ -16,6 +16,7 @@ jobs:
       matrix:
         board:
         # Alphabetical order
+        - 'adafruit_feather_esp32s2'
         - 'adafruit_magtag_29gray'
         - 'adafruit_metro_esp32s2'
         - 'espressif_kaluga_1'
