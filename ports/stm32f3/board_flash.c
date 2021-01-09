@@ -144,7 +144,7 @@ void flash_write(uint32_t dst, const uint8_t *src, int len)
 		EraseInit.PageAddress = addr;
 		EraseInit.NbPages = 1;
 
-		HAL_FLASHEx_Erase(EraseInit, SectorError);
+		HAL_FLASHEx_Erase(&EraseInit, &SectorError);
 		FLASH_WaitForLastOperation(HAL_MAX_DELAY);
 
 		if (SectorError != 0xFFFFFFFF)
