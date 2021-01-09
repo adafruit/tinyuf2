@@ -113,6 +113,7 @@ void flash_write(uint32_t dst, const uint8_t *src, int len)
 	uint32_t sector = 0;
 	int erased = false;
 	uint32_t size = 0;
+	uint32_t SectorError;
 
   for ( unsigned i = 0; i < BOARD_FLASH_SECTORS; i++ )
   {
@@ -138,10 +139,15 @@ void flash_write(uint32_t dst, const uint8_t *src, int len)
 	{
 	  TU_LOG1("Erase: %08lX size = %lu\n", addr, size);
 
-		FLASH_Erase_Sector(sector, FLASH_VOLTAGE_RANGE_3);
+		static FLASH_EraseInitTypeDef EraseInit;
+		EraseInit.TypeErase = FLASH_TYPEERASE_PAGES;
+		EraseInit.PageAddress = addr;
+		EraseInit.NbPages = 1;
+
+		HAL_FLASHEx_Erase(EraseInit, SectorError);
 		FLASH_WaitForLastOperation(HAL_MAX_DELAY);
 
-		if (!is_blank(addr, size))
+		if (SectorError != 0xFFFFFFFF)
 		{
 		  TU_LOG1("failed to erase!");
 		}
