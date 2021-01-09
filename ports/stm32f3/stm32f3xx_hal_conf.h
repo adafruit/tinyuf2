@@ -55,15 +55,15 @@
 /*#define HAL_LPTIM_MODULE_ENABLED   */
 /*#define HAL_RNG_MODULE_ENABLED   */
 /*#define HAL_RTC_MODULE_ENABLED   */
-#define HAL_SPI_MODULE_ENABLED
+//#define HAL_SPI_MODULE_ENABLED
 /*#define HAL_TIM_MODULE_ENABLED   */
-/*#define HAL_UART_MODULE_ENABLED   */
+#define HAL_UART_MODULE_ENABLED
 /*#define HAL_USART_MODULE_ENABLED   */
 /*#define HAL_IRDA_MODULE_ENABLED   */
 /*#define HAL_SMARTCARD_MODULE_ENABLED   */
 /*#define HAL_SMBUS_MODULE_ENABLED   */
 /*#define HAL_WWDG_MODULE_ENABLED   */
-/*#define HAL_PCD_MODULE_ENABLED   */
+#define HAL_PCD_MODULE_ENABLED
 #define HAL_GPIO_MODULE_ENABLED
 #define HAL_EXTI_MODULE_ENABLED
 /* #define HAL_CAN_LEGACY_MODULE_ENABLED */
@@ -72,7 +72,7 @@
 #define HAL_FLASH_MODULE_ENABLED
 #define HAL_PWR_MODULE_ENABLED
 #define HAL_CORTEX_MODULE_ENABLED
-#define HAL_I2C_MODULE_ENABLED
+//#define HAL_I2C_MODULE_ENABLED
 /* ########################## HSE/HSI Values adaptation ##################### */
 /**
   * @brief Adjust the value of External High Speed oscillator (HSE) used in your application.
@@ -153,8 +153,8 @@
 #define  TICK_INT_PRIORITY            ((uint32_t)0)    /*!< tick interrupt priority (lowest by default)  */
 #define  USE_RTOS                     0
 #define  PREFETCH_ENABLE              1
-#define  INSTRUCTION_CACHE_ENABLE     0
-#define  DATA_CACHE_ENABLE            0
+#define  INSTRUCTION_CACHE_ENABLE     1
+#define  DATA_CACHE_ENABLE            1
 #define USE_SPI_CRC                     0U
 
 #define  USE_HAL_ADC_REGISTER_CALLBACKS         0U /* ADC register callback disabled       */

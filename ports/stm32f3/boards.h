@@ -1,4 +1,4 @@
-/* 
+/*
  * The MIT License (MIT)
  *
  * Copyright (c) 2020 Ha Thach (tinyusb.org) for Adafruit Industries
@@ -29,8 +29,8 @@
  extern "C" {
 #endif
 
-#include "stm32f4xx.h"
-#include "stm32f4xx_hal_conf.h"
+#include "stm32f3xx.h"
+#include "stm32f3xx_hal_conf.h"
 
 #include "board.h"
 
@@ -40,7 +40,7 @@
 // Double Reset tap to enter DFU
 #define USE_DFU_DOUBLE_TAP      1
 
-#define USE_RGB                 NEOPIXEL_NUMBER
+//#define USE_RGB                 NEOPIXEL_NUMBER
 
 // Brightness percentage from 1 to 255
 #ifndef NEOPIXEL_BRIGHTNESS
