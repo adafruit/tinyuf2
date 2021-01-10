@@ -50,19 +50,21 @@ void board_init(void)
   GPIO_InitTypeDef  GPIO_InitStruct;
 
 #ifdef BUTTON_PIN
-  GPIO_InitStruct.Pin = BUTTON_PIN;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-  HAL_GPIO_Init(BUTTON_PORT, &GPIO_InitStruct);
+	__HAL_RCC_GPIOA_CLK_ENABLE();
+	GPIO_InitStruct.Pin = BUTTON_PIN;
+	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+	GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+	HAL_GPIO_Init(BUTTON_PORT, &GPIO_InitStruct);
 #endif
 
 #ifdef LED_PIN
-  GPIO_InitStruct.Pin = LED_PIN;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-  HAL_GPIO_Init(LED_PORT, &GPIO_InitStruct);
+	__HAL_RCC_GPIOE_CLK_ENABLE();
+	GPIO_InitStruct.Pin = LED_PIN;
+	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+	GPIO_InitStruct.Pull = GPIO_PULLUP;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+	HAL_GPIO_Init(LED_PORT, &GPIO_InitStruct);
 
   board_led_write(0);
 #endif
@@ -90,32 +92,18 @@ void board_init(void)
 void board_dfu_init(void)
 {
   GPIO_InitTypeDef  GPIO_InitStruct;
-
-  // USB Pin Init
-  // PA9- VUSB, PA10- ID, PA11- DM, PA12- DP
-
-  /* Configure DM DP Pins */
-  GPIO_InitStruct.Pin = GPIO_PIN_11 | GPIO_PIN_12;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+	__HAL_RCC_SYSCFG_CLK_ENABLE();
+	__HAL_REMAPINTERRUPT_USB_ENABLE();
+	__HAL_RCC_GPIOA_CLK_ENABLE();
+  GPIO_InitStruct.Pin = (GPIO_PIN_11 | GPIO_PIN_12);
   GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   GPIO_InitStruct.Alternate = GPIO_AF14_USB;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /* Configure VBUS Pin */
-  GPIO_InitStruct.Pin = GPIO_PIN_9;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /* This for ID line debug */
-
-
-  // Enable USB OTG clock
-   __HAL_RCC_USB_CLK_ENABLE();
-
-  // Enable VBUS sense (B device) via pin PA9
-
+  // Enable USB clock
+  __HAL_RCC_USB_CLK_ENABLE();
 }
 
 void board_dfu_complete(void)

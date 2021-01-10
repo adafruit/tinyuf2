@@ -25,7 +25,7 @@ CFLAGS += \
 # suppress warning caused by vendor mcu driver
 CFLAGS += -Wno-error=cast-align -Wno-error=unused-parameter
 
-LD_FILES ?= $(PORT_DIR)/linker/stm32f3.ld
+LD_FILES ?= $(PORT_DIR)/linker/STM32F303VCTx_FLASH.ld
 
 # Port source
 PORT_SRC_C += \
