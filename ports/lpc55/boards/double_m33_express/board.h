@@ -41,7 +41,7 @@
 #define LED_PORT              0
 #define LED_PIN               1
 #define LED_STATE_ON          1
-#define USE_LED 1
+#define TINYUF2_LED           1
 
 //--------------------------------------------------------------------+
 // Neopixel
@@ -54,7 +54,7 @@
 #define NEOPIXEL_CH           6
 #define NEOPIXEL_TYPE         0
 
-#define USE_RGB                NEOPIXEL_NUMBER
+#define TINYUF2_RGB           NEOPIXEL_NUMBER
 
 // Brightness percentage from 1 to 255
 #define NEOPIXEL_BRIGHTNESS   0x10

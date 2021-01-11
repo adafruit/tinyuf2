@@ -50,7 +50,7 @@
 #define LED_PIN               1
 #define LED_STATE_ON          1
 
-#define USE_RGB               1
+#define TINYUF2_RGB           1
 
 //--------------------------------------------------------------------+
 // USB UF2

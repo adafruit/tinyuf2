@@ -70,7 +70,7 @@ static bool check_dfu_mode(void)
   // Check if app is valid
   if ( !board_app_valid() ) return true;
 
-#if USE_DFU_DOUBLE_TAP
+#if TINYUF2_DFU_DOUBLE_TAP
 //  TU_LOG1_HEX(_board_dfu_dbl_tap);
 //  TU_LOG1_HEX(DBL_TAP_REG);
 

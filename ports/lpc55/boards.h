@@ -33,10 +33,10 @@
 #include "fsl_rtc.h"
 
 // Flash Start Address of Application
-#define BOARD_FLASH_APP_START  0x10000 
+#define BOARD_FLASH_APP_START    0x10000 
 
-#define USE_DFU_DOUBLE_TAP     1
-#define DBL_TAP_REG            RTC->GPREG[7]      
+#define TINYUF2_DFU_DOUBLE_TAP   1
+#define DBL_TAP_REG              RTC->GPREG[7]      
 
 //--------------------------------------------------------------------+
 // IOCON Defines
