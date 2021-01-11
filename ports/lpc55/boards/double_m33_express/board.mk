@@ -2,6 +2,10 @@ MCU = LPC55S69
 MCU_CORE = $(MCU)_cm33_core0
 CFLAGS += -DCPU_LPC55S69JBD100_cm33_core0
 
+SRC_C += $(TOP)/lib/sct_neopixel/sct_neopixel.c
+
+INC += $(TOP)/lib/sct_neopixel
+
 # For flash-pyocd
 PYOCD_TARGET = $(MCU)
 
