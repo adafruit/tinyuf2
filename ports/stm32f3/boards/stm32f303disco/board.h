@@ -90,7 +90,7 @@ static inline void clock_init(void)
 {
 	RCC_ClkInitTypeDef RCC_ClkInitStruct;
 	RCC_OscInitTypeDef RCC_OscInitStruct;
-
+	RCC_PeriphCLKInitTypeDef  RCC_PeriphClkInit;
 
 	/* Enable HSE Oscillator and activate PLL with HSE as source */
 	RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
@@ -101,6 +101,9 @@ static inline void clock_init(void)
 	RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;
 	HAL_RCC_OscConfig(&RCC_OscInitStruct);
 
+	HAL_RCCEx_GetPeriphCLKConfig(&RCC_PeriphClkInit);
+	RCC_PeriphClkInit.USBClockSelection = RCC_USBCLKSOURCE_PLL_DIV1_5;
+	HAL_RCCEx_PeriphCLKConfig(&RCC_PeriphClkInit);
 
 
 	/* Select PLL as system clock source and configure the HCLK, PCLK1 and PCLK2
@@ -114,6 +117,27 @@ static inline void clock_init(void)
 
 	/* Enable Power Clock */
 	__HAL_RCC_PWR_CLK_ENABLE();
+}
+
+
+void USB_HP_IRQHandler(void)
+{
+  tud_int_handler(0);
+}
+
+// USB low-priority interrupt (Channel 75): Triggered by all USB events
+// (Correct transfer, USB reset, etc.). The firmware has to check the
+// interrupt source before serving the interrupt.
+void USB_LP_IRQHandler(void)
+{
+  tud_int_handler(0);
+}
+
+// USB wakeup interrupt (Channel 76): Triggered by the wakeup event from the USB
+// Suspend mode.
+void USBWakeUp_RMP_IRQHandler(void)
+{
+  tud_int_handler(0);
 }
 
 #endif
