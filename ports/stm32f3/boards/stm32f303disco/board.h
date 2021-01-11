@@ -101,10 +101,7 @@ static inline void clock_init(void)
 	RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;
 	HAL_RCC_OscConfig(&RCC_OscInitStruct);
 
-	/* Configures the USB clock */
-	HAL_RCCEx_GetPeriphCLKConfig(&RCC_PeriphClkInit);
-	RCC_PeriphClkInit.USBClockSelection = RCC_USBCLKSOURCE_PLL_DIV1_5;
-	HAL_RCCEx_PeriphCLKConfig(&RCC_PeriphClkInit);
+
 
 	/* Select PLL as system clock source and configure the HCLK, PCLK1 and PCLK2
 	clocks dividers */
