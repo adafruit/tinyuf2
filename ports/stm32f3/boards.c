@@ -24,6 +24,7 @@
 
 #include "board_api.h"
 #include "tusb.h"
+#include "stm32f3xx_hal.h"
 
 //--------------------------------------------------------------------+
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
@@ -93,6 +94,7 @@ void board_dfu_init(void)
 {
   GPIO_InitTypeDef  GPIO_InitStruct;
 	__HAL_RCC_SYSCFG_CLK_ENABLE();
+	__HAL_REMAPINTERRUPT_USB_ENABLE();
 	__HAL_RCC_GPIOA_CLK_ENABLE();
   GPIO_InitStruct.Pin = (GPIO_PIN_11 | GPIO_PIN_12);
   GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
