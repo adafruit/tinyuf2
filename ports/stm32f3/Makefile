@@ -34,6 +34,7 @@ PORT_SRC_C += \
 	$(ST_HAL_DRIVER)/Src/stm32f3xx_hal.c \
 	$(ST_HAL_DRIVER)/Src/stm32f3xx_hal_cortex.c \
 	$(ST_HAL_DRIVER)/Src/stm32f3xx_hal_rcc.c \
+	$(ST_HAL_DRIVER)/Src/stm32f3xx_hal_rcc_ex.c \
 	$(ST_HAL_DRIVER)/Src/stm32f3xx_hal_gpio.c \
 	$(ST_HAL_DRIVER)/Src/stm32f3xx_hal_flash.c \
 	$(ST_HAL_DRIVER)/Src/stm32f3xx_hal_flash_ex.c \
