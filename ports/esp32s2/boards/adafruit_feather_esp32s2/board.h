@@ -64,13 +64,13 @@
 //--------------------------------------------------------------------+
 
 #define USB_VID           0x239A
-#define USB_PID           0x00DF // TODO not updated yet
+#define USB_PID           0x00EB
 #define USB_MANUFACTURER  "Adafruit"
 #define USB_PRODUCT       "Feather ESP32-S2"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID      "ESP32S2-Feather-revA"
 #define UF2_VOLUME_LABEL  "FTHRS2BOOT"
-#define UF2_INDEX_URL     "https://www.adafruit.com/product/pid"
+#define UF2_INDEX_URL     "https://www.adafruit.com/product/pid" // TODO update link
 
 #endif

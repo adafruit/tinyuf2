@@ -23,7 +23,7 @@
 #include "lcd.h"
 #include "board_api.h"
 
-#if USE_SCREEN
+#if TINYUF2_SCREEN
 
 static const char *TAG = "LCD";
 
@@ -165,7 +165,7 @@ static void lcd_data(spi_device_handle_t spi, const uint8_t *data, int len)
 void lcd_spi_pre_transfer_callback(spi_transaction_t *t)
 {
     int dc = (int)t->user;
-    gpio_set_level(PIN_DISPLAY_DC, dc);
+    gpio_set_level(DISPLAY_PIN_DC, dc);
 }
 
 /*!<  read lcd id number */
@@ -194,14 +194,14 @@ esp_err_t lcd_init(spi_device_handle_t spi)
     const lcd_init_cmd_t *lcd_init_cmds;
 
     /*!<  Initialize non-SPI GPIOs */
-    gpio_set_direction(PIN_DISPLAY_DC, GPIO_MODE_OUTPUT);
-    gpio_set_direction(PIN_DISPLAY_RST, GPIO_MODE_OUTPUT);
-    gpio_set_direction(PIN_DISPLAY_BL, GPIO_MODE_OUTPUT);
+    gpio_set_direction(DISPLAY_PIN_DC, GPIO_MODE_OUTPUT);
+    gpio_set_direction(DISPLAY_PIN_RST, GPIO_MODE_OUTPUT);
+    gpio_set_direction(DISPLAY_PIN_BL, GPIO_MODE_OUTPUT);
 
     /*!<  Reset the display */
-    gpio_set_level(PIN_DISPLAY_RST, 0);
+    gpio_set_level(DISPLAY_PIN_RST, 0);
     vTaskDelay(100 / portTICK_RATE_MS);
-    gpio_set_level(PIN_DISPLAY_RST, 1);
+    gpio_set_level(DISPLAY_PIN_RST, 1);
     vTaskDelay(100 / portTICK_RATE_MS);
 
     /*!<  detect LCD type */
@@ -252,7 +252,7 @@ esp_err_t lcd_init(spi_device_handle_t spi)
     }
 
     /*!< /Enable backlight */
-    gpio_set_level(PIN_DISPLAY_BL, DISPLAY_BL_STATE);
+    gpio_set_level(DISPLAY_PIN_BL, DISPLAY_BL_STATE);
 
     return ESP_OK;
 }

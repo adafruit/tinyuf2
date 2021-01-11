@@ -22,8 +22,8 @@
  * THE SOFTWARE.
  */
 
-#ifndef ESPRESSIF_KALUGA_1_H_
-#define ESPRESSIF_KALUGA_1_H_
+#ifndef ADAFRUIT_FEATHER_ESP32S2_TFT_H_
+#define ADAFRUIT_FEATHER_ESP32S2_TFT_H_
 
 //--------------------------------------------------------------------+
 // Button
@@ -36,16 +36,17 @@
 
 // GPIO that implement 1-bit memory with RC components which hold the
 // pin value long enough for double reset detection.
-// #define PIN_DOUBLE_RESET_RC   16
+#define PIN_DOUBLE_RESET_RC   38
 
 //--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
 
 // GPIO connected to Neopixel data
-// Note: Need to insert Jumper (default is Off) to control neopixel
-// On Kaluga this pin is also connected to Camera D3
-#define NEOPIXEL_PIN          45
+#define NEOPIXEL_PIN          33
+
+#define NEOPIXEL_POWER_PIN    34
+#define NEOPIXEL_POWER_STATE  1
 
 // Brightness percentage from 1 to 255
 #define NEOPIXEL_BRIGHTNESS   0x10
@@ -53,36 +54,27 @@
 // Number of neopixels
 #define NEOPIXEL_NUMBER       1
 
-//--------------------------------------------------------------------+
-// TFT Display
-//--------------------------------------------------------------------+
+// LED for indicator and writing flash
+// If not defined neopixel will be use for flash writing instead
+#define LED_PIN               13
+#define LED_STATE_ON          1
 
-#define DISPLAY_PIN_MISO      8
-#define DISPLAY_PIN_MOSI      9
-#define DISPLAY_PIN_SCK       15
-#define DISPLAY_PIN_CS        11
-#define DISPLAY_PIN_DC        13
-#define DISPLAY_PIN_RST       16
-#define DISPLAY_PIN_BL        6
-
-#define DISPLAY_BL_STATE      0  // GPIO state to enable back light
-#define DISPLAY_WIDTH         320
-#define DISPLAY_HEIGHT        240
-#define DISPLAY_MADCTL        0x08
+//--------------------------------------------------------------------+
+// TFT
+//--------------------------------------------------------------------+
 
 //--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
 
 #define USB_VID           0x239A
-#define USB_PID           0x00C7
-#define USB_MANUFACTURER  "Espressif"
-#define USB_PRODUCT       "Kaluga 1"
+#define USB_PID           0x00ED
+#define USB_MANUFACTURER  "Adafruit"
+#define USB_PRODUCT       "Feather ESP32-S2 TFT"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "ESP32S2-Kaluga-v1.2"
-#define UF2_VOLUME_LABEL  "KALUGA1BOOT"
-#define UF2_INDEX_URL     "https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-esp32-s2-kaluga-1-kit.html"
-
+#define UF2_BOARD_ID      "ESP32S2-FeatherTFT-revA"
+#define UF2_VOLUME_LABEL  "FTHRS2BOOT"
+#define UF2_INDEX_URL     "https://www.adafruit.com/product/pid" // TODO update link
 
 #endif

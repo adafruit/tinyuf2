@@ -96,14 +96,14 @@ void     board_flash_write(uint32_t addr, void const *data, uint32_t len);
 void     board_flash_flush(void);
 
 
-#ifdef PIN_DISPLAY_SCK
-  #define USE_SCREEN 1
+#ifdef DISPLAY_PIN_SCK
+  #define TINYUF2_SCREEN 1
 
   void screen_init(void);
   void screen_draw_drag(void);
   void screen_draw_hf2(void);
 #else
-  #define USE_SCREEN 0
+  #define TINYUF2_SCREEN 0
 #endif
 
 // perform self-update on bootloader
