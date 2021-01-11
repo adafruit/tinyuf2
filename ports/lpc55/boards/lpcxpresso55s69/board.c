@@ -52,7 +52,7 @@ void board_pin_init(void)
   IOCON_PinMuxSet(IOCON, 1U, 6U, IOCON_PIO_DIG_FUNC0_EN);
   IOCON_PinMuxSet(IOCON, 1U, 7U, IOCON_PIO_DIG_FUNC0_EN);
 
-  GPIO_PinInit(GPIO, BUTTON_PORT, BUTTON_PIN, &(gpio_pin_config_t){kGPIO_DigitalInput, 0});
+  // GPIO_PinInit(GPIO, BUTTON_PORT, BUTTON_PIN, &(gpio_pin_config_t){kGPIO_DigitalInput, 0});
 
   GPIO_PinInit(GPIO, LED_PORT, LED_PIN, &(gpio_pin_config_t){kGPIO_DigitalOutput, 1});
 
@@ -90,10 +90,3 @@ void board_rgb_write(uint8_t const rgb[]) {
     GPIO_PortSet(GPIO, BOARD_LED_BLUE_GPIO_PORT, 1U << BOARD_LED_BLUE_GPIO_PIN);
   }
 }
-
-uint32_t board_button_read(void)
-{
-  // active low
-  return (BUTTON_STATE_ACTIVE == GPIO_PinRead(GPIO, BUTTON_PORT, BUTTON_PIN));
-}
-

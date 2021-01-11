@@ -54,7 +54,7 @@ void board_pin_init(void)
   /* PORT0 PIN27 is configured as SCT0 OUT6 (NEOPIXEL) */
   IOCON_PinMuxSet(IOCON, NEOPIXEL_PORT, NEOPIXEL_PIN, IOCON_PIO_DIG_FUNC4_EN);
 
-  GPIO_PinInit(GPIO, BUTTON_PORT, BUTTON_PIN, &(gpio_pin_config_t){kGPIO_DigitalInput, 0});
+  // GPIO_PinInit(GPIO, BUTTON_PORT, BUTTON_PIN, &(gpio_pin_config_t){kGPIO_DigitalInput, 0});
 
   GPIO_PinInit(GPIO, LED_PORT, LED_PIN, &(gpio_pin_config_t){kGPIO_DigitalOutput, 1});
 
@@ -84,15 +84,5 @@ void board_rgb_write(uint8_t const rgb[]) {
   sctpix_setPixel(NEOPIXEL_CH, 0, color);
   sctpix_setPixel(NEOPIXEL_CH, 1, color);
   sctpix_show();
-}
-
-//--------------------------------------------------------------------+
-// Button API
-//--------------------------------------------------------------------+
-
-uint32_t board_button_read(void)
-{
-  // active low
-  return (BUTTON_STATE_ACTIVE == GPIO_PinRead(GPIO, BUTTON_PORT, BUTTON_PIN));
 }
 

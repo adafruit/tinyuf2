@@ -162,9 +162,7 @@ void board_init(void)
 #endif
 
   // Flash needs to be initialized to check for a valid image
-  if (FLASH_Init(&_flash_config) == kStatus_Success) {
-    TU_LOG2("Flash init successfull!!\r\n");
-  } else {
+  if (FLASH_Init(&_flash_config) != kStatus_Success) {
     TU_LOG1("\r\n\r\n\t---- FLASH ERROR! ----\r\n");
   }
 }
@@ -273,15 +271,24 @@ void SysTick_Handler (void)
   board_timer_handler();
 }
 
-
 int board_uart_write(void const * buf, int len)
 {
   USART_WriteBlocking(UART_DEV, (uint8_t *)buf, len);
   return len;
 }
 
+
+#ifdef TINYUF2_SELF_UPDATE
+
+void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
+{
+  (void) bootloader_bin;
+  (void) bootloader_len;
+}
+
+#else
+
 // Forward USB interrupt events to TinyUSB IRQ Handler
-#ifndef TINYUF2_SELF_UPDATE
 void USB0_IRQHandler(void)
 {
   tud_int_handler(0);
@@ -291,12 +298,5 @@ void USB1_IRQHandler(void)
 {
   tud_int_handler(1);
 }
-#endif
 
-#ifdef TINYUF2_SELF_UPDATE
-void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
-{
-  (void) bootloader_bin;
-  (void) bootloader_len;
-}
 #endif

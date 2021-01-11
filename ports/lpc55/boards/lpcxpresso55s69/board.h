@@ -39,12 +39,14 @@
 //--------------------------------------------------------------------+
 
 // RGB pins are P1_6, P1_7, P1_4
-#define BOARD_LED_RED_GPIO_PORT 1U
-#define BOARD_LED_RED_GPIO_PIN 6U
-#define BOARD_LED_BLUE_GPIO_PORT 1U
-#define BOARD_LED_BLUE_GPIO_PIN 4U
+#define BOARD_LED_RED_GPIO_PORT   1U
+#define BOARD_LED_RED_GPIO_PIN    6U
+
+#define BOARD_LED_BLUE_GPIO_PORT  1U
+#define BOARD_LED_BLUE_GPIO_PIN   4U
+
 #define BOARD_LED_GREEN_GPIO_PORT 1U
-#define BOARD_LED_GREEN_GPIO_PIN 7U
+#define BOARD_LED_GREEN_GPIO_PIN  7U
 
 
 #define LED_PORT              0
