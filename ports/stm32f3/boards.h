@@ -38,7 +38,7 @@
 #define BOARD_FLASH_APP_START   0x08010000
 
 // Double Reset tap to enter DFU
-#define USE_DFU_DOUBLE_TAP      1
+#define USE_DFU_DOUBLE_TAP      0
 
 //#define USE_RGB                 NEOPIXEL_NUMBER
 
