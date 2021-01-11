@@ -66,12 +66,6 @@ void board_pin_init(void)
 // LED pattern
 //--------------------------------------------------------------------+
 
-void board_led_write(uint32_t value)
-{
-  // TODO PWM for fading
-  GPIO_PinWrite(GPIO, LED_PORT, LED_PIN, (uint8_t)value);
-}
-
 // Write color to rgb strip
 void board_rgb_write(uint8_t const rgb[]) { 
   if (rgb[0]) {
