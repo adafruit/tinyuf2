@@ -38,20 +38,19 @@
 // LED
 //--------------------------------------------------------------------+
 
-// RGB pins are P1_6, P1_7, P1_4
-#define BOARD_LED_RED_GPIO_PORT   1U
-#define BOARD_LED_RED_GPIO_PIN    6U
-
-#define BOARD_LED_BLUE_GPIO_PORT  1U
-#define BOARD_LED_BLUE_GPIO_PIN   4U
-
-#define BOARD_LED_GREEN_GPIO_PORT 1U
-#define BOARD_LED_GREEN_GPIO_PIN  7U
-
-
 #define LED_PORT              0
 #define LED_PIN               1
 #define LED_STATE_ON          1
+
+//--------------------------------------------------------------------+
+// RGB
+//--------------------------------------------------------------------+
+
+#define NEOPIXEL_NUMBER       0
+
+// RGB pins are P1_6, P1_7, P1_4
+#define LED_TRICOLOR_GPIO     { {1, 6}, {1, 7}, {1, 4} }
+#define LED_TRICOLO_ON        0
 
 //--------------------------------------------------------------------+
 // USB UF2
@@ -78,8 +77,7 @@
 //--------------------------------------------------------------------+
 
 #define UART_DEV              USART0
-
-// Pin initialization function
-void board_pin_init(void);
+#define UART_RX_IOMUX         0, 29, IOCON_PIO_DIG_FUNC1_EN
+#define UART_TX_IOMUX         0, 30, IOCON_PIO_DIG_FUNC1_EN
 
 #endif

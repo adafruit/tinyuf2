@@ -51,6 +51,7 @@
 #define NEOPIXEL_NUMBER       2
 #define NEOPIXEL_PORT         0
 #define NEOPIXEL_PIN          27
+#define NEOPIXEL_IOMUX        IOCON_PIO_DIG_FUNC4_EN
 #define NEOPIXEL_CH           6
 #define NEOPIXEL_TYPE         0
 
@@ -82,8 +83,7 @@
 //--------------------------------------------------------------------+
 
 #define UART_DEV              USART0
-
-// Pin initialization function
-void board_pin_init(void);
+#define UART_RX_IOMUX         0U, 29U, IOCON_PIO_DIG_FUNC1_EN
+#define UART_TX_IOMUX         0U, 30U, IOCON_PIO_DIG_FUNC1_EN
 
 #endif
