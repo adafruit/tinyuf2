@@ -54,8 +54,6 @@
 #define NEOPIXEL_CH           6
 #define NEOPIXEL_TYPE         0
 
-#define TINYUF2_RGB           NEOPIXEL_NUMBER
-
 // Brightness percentage from 1 to 255
 #define NEOPIXEL_BRIGHTNESS   0x10
 

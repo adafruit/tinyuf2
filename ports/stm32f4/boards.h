@@ -40,8 +40,6 @@
 // Double Reset tap to enter DFU
 #define TINYUF2_DFU_DOUBLE_TAP  1
 
-#define TINYUF2_RGB             NEOPIXEL_NUMBER
-
 // Brightness percentage from 1 to 255
 #ifndef NEOPIXEL_BRIGHTNESS
 #define NEOPIXEL_BRIGHTNESS   0x10

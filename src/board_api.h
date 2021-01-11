@@ -44,13 +44,6 @@
 #define TINYUF2_LED 0
 #endif
 
-// Use RGB for part of indicator e.g neopixel, dotstar
-// 0 for not available, otherwise number of RGBs
-#ifndef TINYUF2_RGB
-#define TINYUF2_RGB 0
-#endif
-
-
 #ifndef TINYUF2_DFU_DOUBLE_TAP
 #define TINYUF2_DFU_DOUBLE_TAP      0
 #endif
