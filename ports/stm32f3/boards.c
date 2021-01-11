@@ -40,7 +40,7 @@ void board_init(void)
   SystemCoreClockUpdate();
 
   // disable systick
-  board_timer_stop();
+  SysTick_Config(SystemCoreClock / 1000);
 
   // TODO enable only used GPIO clock
   __HAL_RCC_GPIOA_CLK_ENABLE();
