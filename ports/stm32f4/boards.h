@@ -38,9 +38,7 @@
 #define BOARD_FLASH_APP_START   0x08010000
 
 // Double Reset tap to enter DFU
-#define USE_DFU_DOUBLE_TAP      1
-
-#define USE_RGB                 NEOPIXEL_NUMBER
+#define TINYUF2_DFU_DOUBLE_TAP  1
 
 // Brightness percentage from 1 to 255
 #ifndef NEOPIXEL_BRIGHTNESS
@@ -48,7 +46,7 @@
 #endif
 
 #ifdef LED_PIN
-#define USE_LED 1
+#define TINYUF2_LED             1
 #endif
 
 #ifdef __cplusplus

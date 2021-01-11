@@ -46,9 +46,7 @@ extern uint32_t _fcfb_origin[];
 #define BOARD_FLASH_APP_START   (FlexSPI_AMBA_BASE + 0xC000)
 
 // Double Reset tap to enter DFU
-#define USE_DFU_DOUBLE_TAP     1
-
-#define USE_RGB                 NEOPIXEL_NUMBER
+#define TINYUF2_DFU_DOUBLE_TAP  1
 
 // Brightness percentage from 1 to 255
 #ifndef NEOPIXEL_BRIGHTNESS
@@ -56,7 +54,7 @@ extern uint32_t _fcfb_origin[];
 #endif
 
 #ifdef LED_PIN
-#define USE_LED 1
+#define TINYUF2_LED           1
 #endif
 
 #ifdef __cplusplus

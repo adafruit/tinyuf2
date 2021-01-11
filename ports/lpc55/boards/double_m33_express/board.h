@@ -41,7 +41,7 @@
 #define LED_PORT              0
 #define LED_PIN               1
 #define LED_STATE_ON          1
-#define USE_LED 1
+#define TINYUF2_LED           1
 
 //--------------------------------------------------------------------+
 // Neopixel
@@ -51,10 +51,9 @@
 #define NEOPIXEL_NUMBER       2
 #define NEOPIXEL_PORT         0
 #define NEOPIXEL_PIN          27
+#define NEOPIXEL_IOMUX        IOCON_PIO_DIG_FUNC4_EN
 #define NEOPIXEL_CH           6
 #define NEOPIXEL_TYPE         0
-
-#define USE_RGB                NEOPIXEL_NUMBER
 
 // Brightness percentage from 1 to 255
 #define NEOPIXEL_BRIGHTNESS   0x10
@@ -84,8 +83,7 @@
 //--------------------------------------------------------------------+
 
 #define UART_DEV              USART0
-
-// Pin initialization function
-void board_pin_init(void);
+#define UART_RX_IOMUX         0U, 29U, IOCON_PIO_DIG_FUNC1_EN
+#define UART_TX_IOMUX         0U, 30U, IOCON_PIO_DIG_FUNC1_EN
 
 #endif

@@ -38,11 +38,7 @@
 #define BOARD_FLASH_APP_START   0
 
 // Double Reset tap to enter DFU
-#define USE_DFU_DOUBLE_TAP      0
-
-#if defined(NEOPIXEL_PIN) || defined(DOTSTAR_PIN_SCK)
-#define USE_RGB   1
-#endif
+#define TINYUF2_DFU_DOUBLE_TAP  0
 
 #ifdef __cplusplus
  }

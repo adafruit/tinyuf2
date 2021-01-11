@@ -24,7 +24,6 @@
 
 #include "board_api.h"
 #include "tusb.h"
-
 #include "fsl_device_registers.h"
 #include "fsl_rtc.h"
 #include "fsl_iap.h"
@@ -34,6 +33,46 @@
 #include "fsl_power.h"
 #include "fsl_iocon.h"
 #include "clock_config.h"
+
+#if NEOPIXEL_NUMBER
+#include "sct_neopixel.h"
+
+static uint32_t _pixelData[NEOPIXEL_NUMBER] = {0};
+#endif
+
+#ifdef LED_TRICOLOR_GPIO
+static uint8_t const _led_tricolor[3][2] = LED_TRICOLOR_GPIO;
+#endif
+
+//--------------------------------------------------------------------+
+// IOCON Defines
+//--------------------------------------------------------------------+
+
+#define IOCON_PIO_ASW_DIS_EN     0x00u   /*!<@brief Analog switch is closed (enabled), only for A0 version */
+#define IOCON_PIO_ASW_EN         0x0400u /*!<@brief Analog switch is closed (enabled) */
+#define IOCON_PIO_DIGITAL_EN     0x0100u /*!<@brief Enables digital function */
+#define IOCON_PIO_FUNC0          0x00u   /*!<@brief Selects pin function 0 */
+#define IOCON_PIO_FUNC1          0x01u   /*!<@brief Selects pin function 1 */
+#define IOCON_PIO_FUNC2          0x02u   /*!<@brief Selects pin function 7 */
+#define IOCON_PIO_FUNC3          0x03u   /*!<@brief Selects pin function 0 */
+#define IOCON_PIO_FUNC4          0x04u   /*!<@brief Selects pin function 1 */
+#define IOCON_PIO_FUNC5          0x05u   /*!<@brief Selects pin function 7 */
+#define IOCON_PIO_FUNC6          0x06u   /*!<@brief Selects pin function 7 */
+#define IOCON_PIO_FUNC7          0x07u   /*!<@brief Selects pin function 7 */
+#define IOCON_PIO_INV_DI         0x00u   /*!<@brief Input function is not inverted */
+#define IOCON_PIO_MODE_INACT     0x00u   /*!<@brief No addition pin function */
+#define IOCON_PIO_MODE_PULLUP    0x20u   /*!<@brief Selects pull-up function */
+#define IOCON_PIO_OPENDRAIN_DI   0x00u   /*!<@brief Open drain is disabled */
+#define IOCON_PIO_SLEW_STANDARD  0x00u   /*!<@brief Standard mode, output slew rate control is enabled */
+
+#define IOCON_PIO_DIG_FUNC0_EN   (IOCON_PIO_DIGITAL_EN | IOCON_PIO_FUNC0) /*!<@brief Digital pin function 0 enabled */
+#define IOCON_PIO_DIG_FUNC1_EN   (IOCON_PIO_DIGITAL_EN | IOCON_PIO_FUNC1) /*!<@brief Digital pin function 1 enabled */
+#define IOCON_PIO_DIG_FUNC2_EN   (IOCON_PIO_DIGITAL_EN | IOCON_PIO_FUNC2) /*!<@brief Digital pin function 2 enabled */
+#define IOCON_PIO_DIG_FUNC3_EN   (IOCON_PIO_DIGITAL_EN | IOCON_PIO_FUNC3) /*!<@brief Digital pin function 0 enabled */
+#define IOCON_PIO_DIG_FUNC4_EN   (IOCON_PIO_DIGITAL_EN | IOCON_PIO_FUNC4) /*!<@brief Digital pin function 1 enabled */
+#define IOCON_PIO_DIG_FUNC5_EN   (IOCON_PIO_DIGITAL_EN | IOCON_PIO_FUNC5) /*!<@brief Digital pin function 2 enabled */
+#define IOCON_PIO_DIG_FUNC6_EN   (IOCON_PIO_DIGITAL_EN | IOCON_PIO_FUNC6) /*!<@brief Digital pin function 2 enabled */
+#define IOCON_PIO_DIG_FUNC7_EN   (IOCON_PIO_DIGITAL_EN | IOCON_PIO_FUNC7) /*!<@brief Digital pin function 2 enabled */
 
 //--------------------------------------------------------------------+
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
@@ -148,9 +187,38 @@ void board_init(void)
   board_timer_stop();
 
   // Initialize Pins
-  board_pin_init();
+  GPIO_PortInit(GPIO, 0);
+  GPIO_PortInit(GPIO, 1);
+
+  // GPIO_PinInit(GPIO, BUTTON_PORT, BUTTON_PIN, &(gpio_pin_config_t){kGPIO_DigitalInput, 0});
+
+#ifdef LED_PIN
+  IOCON_PinMuxSet(IOCON, LED_PORT, LED_PIN, IOCON_PIO_DIG_FUNC0_EN);
+  GPIO_PinInit(GPIO, LED_PORT, LED_PIN, &(gpio_pin_config_t){kGPIO_DigitalOutput, 1-LED_STATE_ON});
+#endif
+
+#ifdef LED_TRICOLOR_GPIO
+  for(uint8_t i=0; i<3; i++)
+  {
+    IOCON_PinMuxSet(IOCON, _led_tricolor[i][0], _led_tricolor[i][1], IOCON_PIO_DIG_FUNC0_EN);
+    GPIO_PinInit(GPIO, _led_tricolor[i][0], _led_tricolor[i][1], &(gpio_pin_config_t){kGPIO_DigitalOutput, 1-LED_TRICOLO_ON});
+  }
+#endif
+
+#if NEOPIXEL_NUMBER
+  IOCON_PinMuxSet(IOCON, NEOPIXEL_PORT, NEOPIXEL_PIN, NEOPIXEL_IOMUX);
+
+  sctpix_init(NEOPIXEL_TYPE);
+  sctpix_addCh(NEOPIXEL_CH, _pixelData, NEOPIXEL_NUMBER);
+  sctpix_setPixel(NEOPIXEL_CH, 0, 0x101000);
+  sctpix_setPixel(NEOPIXEL_CH, 1, 0x101000);
+  sctpix_show();
+#endif
 
 #if defined(UART_DEV) && CFG_TUSB_DEBUG
+  IOCON_PinMuxSet(IOCON, UART_RX_IOMUX);
+  IOCON_PinMuxSet(IOCON, UART_TX_IOMUX);
+
   // Enable UART when debug log is on
   CLOCK_AttachClk(kFRO12M_to_FLEXCOMM0);
   usart_config_t uart_config;
@@ -162,9 +230,7 @@ void board_init(void)
 #endif
 
   // Flash needs to be initialized to check for a valid image
-  if (FLASH_Init(&_flash_config) == kStatus_Success) {
-    TU_LOG2("Flash init successfull!!\r\n");
-  } else {
+  if (FLASH_Init(&_flash_config) != kStatus_Success) {
     TU_LOG1("\r\n\r\n\t---- FLASH ERROR! ----\r\n");
   }
 }
@@ -255,6 +321,39 @@ void board_app_jump(void)
 }
 
 //--------------------------------------------------------------------+
+// LED / RGB
+//--------------------------------------------------------------------+
+
+void board_led_write(uint32_t value)
+{
+  // TODO PWM for fading
+  GPIO_PinWrite(GPIO, LED_PORT, LED_PIN, (uint8_t)value);
+}
+
+// Write color to rgb strip
+void board_rgb_write(uint8_t const rgb[])
+{
+
+#if NEOPIXEL_NUMBER
+  uint32_t color = 0;    // Neopixel is GRB
+  if (rgb[0]) { color += (NEOPIXEL_BRIGHTNESS <<16); }
+  if (rgb[1]) { color += (NEOPIXEL_BRIGHTNESS <<8); }
+  if (rgb[2]) { color += (NEOPIXEL_BRIGHTNESS); }
+
+  sctpix_setPixel(NEOPIXEL_CH, 0, color);
+  sctpix_setPixel(NEOPIXEL_CH, 1, color);
+  sctpix_show();
+#endif
+
+#ifdef LED_TRICOLOR_GPIO
+  for(uint8_t i=0; i<3; i++)
+  {
+    GPIO_PinWrite(GPIO, _led_tricolor[i][0], _led_tricolor[i][1], rgb[i] ? LED_TRICOLO_ON : (1-LED_TRICOLO_ON));
+  }
+#endif
+}
+
+//--------------------------------------------------------------------+
 // Timer
 //--------------------------------------------------------------------+
 
@@ -273,15 +372,24 @@ void SysTick_Handler (void)
   board_timer_handler();
 }
 
-
 int board_uart_write(void const * buf, int len)
 {
   USART_WriteBlocking(UART_DEV, (uint8_t *)buf, len);
   return len;
 }
 
+
+#ifdef TINYUF2_SELF_UPDATE
+
+void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
+{
+  (void) bootloader_bin;
+  (void) bootloader_len;
+}
+
+#else
+
 // Forward USB interrupt events to TinyUSB IRQ Handler
-#ifndef TINYUF2_SELF_UPDATE
 void USB0_IRQHandler(void)
 {
   tud_int_handler(0);
@@ -291,12 +399,5 @@ void USB1_IRQHandler(void)
 {
   tud_int_handler(1);
 }
-#endif
 
-#ifdef TINYUF2_SELF_UPDATE
-void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
-{
-  (void) bootloader_bin;
-  (void) bootloader_len;
-}
 #endif

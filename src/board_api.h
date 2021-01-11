@@ -40,15 +40,14 @@
 #endif
 
 // USE LED for part of indicator
-#ifndef USE_LED
-#define USE_LED 0
+#ifndef TINYUF2_LED
+#define TINYUF2_LED 0
 #endif
 
-// Use RGB for part of indicator e.g neopixel, dotstar
-// 0 for not available, otherwise number of RGBs
-#ifndef USE_RGB
-#define USE_RGB 0
+#ifndef TINYUF2_DFU_DOUBLE_TAP
+#define TINYUF2_DFU_DOUBLE_TAP      0
 #endif
+
 
 // Baudrate for UART if used
 #define BOARD_UART_BAUDRATE   115200
