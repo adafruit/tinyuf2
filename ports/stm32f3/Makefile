@@ -1,4 +1,4 @@
-UF2_FAMILY_ID = 0x57755a57
+UF2_FAMILY_ID = 0x6b846188
 CROSS_COMPILE = arm-none-eabi-
 
 ST_HAL_DRIVER = lib/st/stm32f3xx_hal_driver
@@ -19,11 +19,11 @@ CFLAGS += \
   -mfloat-abi=hard \
   -mfpu=fpv4-sp-d16 \
   -nostdlib -nostartfiles \
-  -DCFG_TUSB_MCU=OPT_MCU_STM32F3 \
-	-Wno-uninitialized
+  -DCFG_TUSB_MCU=OPT_MCU_STM32F3
+
 
 # suppress warning caused by vendor mcu driver
-CFLAGS += -Wno-error=cast-align -Wno-error=unused-parameter
+CFLAGS += -Wno-error=cast-align -Wno-error=unused-parameter -Wno-uninitialized
 
 LD_FILES ?= $(PORT_DIR)/linker/STM32F303VCTx_FLASH.ld
 
@@ -41,7 +41,7 @@ PORT_SRC_C += \
 
 SRC_C += \
 	$(PORT_SRC_C) \
-	lib/tinyusb/src/portable/st/synopsys/dcd_synopsys.c \
+	lib/tinyusb/src/portable/st/stm32_fsdev/dcd_stm32_fsdev.c \
 
 # Port include
 INC += \

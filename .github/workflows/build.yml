@@ -94,7 +94,7 @@ jobs:
         asset_path: tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip
         asset_name: tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip
         asset_content_type: application/zip
-  
+
   ARM:
     runs-on: ubuntu-latest
     strategy:
@@ -114,6 +114,8 @@ jobs:
         # stm32f4
         - 'feather_stm32f405_express'
         - 'stm32f411ve_discovery'
+        #stm32f3
+        - 'stm32f303disco'
 
     steps:
     - name: Setup Python

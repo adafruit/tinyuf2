@@ -65,12 +65,12 @@
 #define USB_VID           0x239A
 #define USB_PID           0x005D
 #define USB_MANUFACTURER  "ST"
-#define USB_PRODUCT       "STM32F411 Discovery"
+#define USB_PRODUCT       "STM32F303 Discovery"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID      "STM32F303 discovery"
 #define UF2_VOLUME_LABEL  "STM32F3"
-#define UF2_INDEX_URL     "https://www.st.com/en/evaluation-tools/32f411ediscovery.html"
+#define UF2_INDEX_URL     "https://www.st.com/en/evaluation-tools/stm32f3discovery.html"
 
 //--------------------------------------------------------------------+
 // UART
