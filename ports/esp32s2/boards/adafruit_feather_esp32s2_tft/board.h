@@ -63,6 +63,7 @@
 // TFT
 //--------------------------------------------------------------------+
 
+#if 0
 #define CONFIG_LCD_TYPE_ST7789V
 
 #define DISPLAY_PIN_MISO      -1 // required if use CONFIG_LCD_TYPE_AUTO
@@ -80,6 +81,7 @@
 
 
 #define DISPLAY_MADCTL        0x08 // not used by ST7789 driver, remove later
+#endif
 
 //--------------------------------------------------------------------+
 // USB UF2
