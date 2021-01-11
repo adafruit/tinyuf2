@@ -57,15 +57,18 @@
 // TFT Display
 //--------------------------------------------------------------------+
 
-#define DISPLAY_PIN_MISO      8
+#define CONFIG_LCD_TYPE_ILI9341
+
+#define DISPLAY_PIN_MISO      -1 // required if use CONFIG_LCD_TYPE_AUTO
 #define DISPLAY_PIN_MOSI      9
 #define DISPLAY_PIN_SCK       15
 #define DISPLAY_PIN_CS        11
 #define DISPLAY_PIN_DC        13
 #define DISPLAY_PIN_RST       16
-#define DISPLAY_PIN_BL        6
 
-#define DISPLAY_BL_STATE      0  // GPIO state to enable back light
+#define DISPLAY_PIN_BL        6
+#define DISPLAY_BL_ON         0  // GPIO state to enable back light
+
 #define DISPLAY_WIDTH         320
 #define DISPLAY_HEIGHT        240
 #define DISPLAY_MADCTL        0x08

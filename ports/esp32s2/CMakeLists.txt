@@ -38,6 +38,7 @@ execute_process(COMMAND bash "-c" "git submodule status ${TOP}/lib/esp-idf ${TOP
 string(REPLACE ../../../../lib/ "" GIT_SUBMODULE_VERSIONS ${GIT_SUBMODULE_VERSIONS})
 string(STRIP ${GIT_SUBMODULE_VERSIONS} GIT_SUBMODULE_VERSIONS)
 
+add_compile_definitions(UF2_VERSION_BASE="${GIT_VERSION}")
 add_compile_definitions(UF2_VERSION="${GIT_VERSION} - ${GIT_SUBMODULE_VERSIONS}")
 
 project(tinyuf2)

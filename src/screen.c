@@ -5,9 +5,6 @@
 #include <string.h>
 #include "lcd.h"
 
-// TODO fix later
-#define UF2_VERSION_BASE "0.0.0"
-
 // Overlap 4x chars by this much.
 #define CHAR4_KERNING 2
 // Width of a single 4x char, adjusted by kerning

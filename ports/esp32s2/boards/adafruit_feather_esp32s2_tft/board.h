@@ -63,6 +63,24 @@
 // TFT
 //--------------------------------------------------------------------+
 
+#define CONFIG_LCD_TYPE_ST7789V
+
+#define DISPLAY_PIN_MISO      -1 // required if use CONFIG_LCD_TYPE_AUTO
+#define DISPLAY_PIN_MOSI      31
+#define DISPLAY_PIN_SCK       36
+#define DISPLAY_PIN_CS        21
+#define DISPLAY_PIN_DC        39
+#define DISPLAY_PIN_RST       40
+
+#define DISPLAY_PIN_BL        45
+#define DISPLAY_BL_ON         0  // GPIO state to enable back light
+
+#define DISPLAY_WIDTH         240
+#define DISPLAY_HEIGHT        135
+
+
+#define DISPLAY_MADCTL        0x08 // not used by ST7789 driver, remove later
+
 //--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+

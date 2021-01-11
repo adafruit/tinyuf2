@@ -27,8 +27,6 @@
 
 static const char *TAG = "LCD";
 
-#define CONFIG_LCD_TYPE_AUTO
-
 /*!< Place data into DRAM. Constant data gets placed into DROM by default, which is not accessible by DMA. */
 DRAM_ATTR static const lcd_init_cmd_t st_init_cmds[] = {
     /* Memory Data Access Control, MX=MV=1, MY=ML=MH=0, RGB=0 */
@@ -168,6 +166,7 @@ void lcd_spi_pre_transfer_callback(spi_transaction_t *t)
     gpio_set_level(DISPLAY_PIN_DC, dc);
 }
 
+#ifdef CONFIG_LCD_TYPE_AUTO
 /*!<  read lcd id number */
 static uint32_t lcd_get_id(spi_device_handle_t spi)
 {
@@ -185,6 +184,7 @@ static uint32_t lcd_get_id(spi_device_handle_t spi)
 
     return *(uint32_t *)t.rx_data;
 }
+#endif
 
 /*!<  Initialize the display */
 esp_err_t lcd_init(spi_device_handle_t spi)
@@ -204,10 +204,12 @@ esp_err_t lcd_init(spi_device_handle_t spi)
     gpio_set_level(DISPLAY_PIN_RST, 1);
     vTaskDelay(100 / portTICK_RATE_MS);
 
+    int lcd_type;
+
+#ifdef CONFIG_LCD_TYPE_AUTO
     /*!<  detect LCD type */
     uint32_t lcd_id = lcd_get_id(spi);
     int lcd_detected_type = 0;
-    int lcd_type;
 
     ESP_LOGI(TAG, "LCD ID: %08X", lcd_id);
 
@@ -221,14 +223,16 @@ esp_err_t lcd_init(spi_device_handle_t spi)
         ESP_LOGI(TAG, "ST7789V detected.");
     }
 
-#ifdef CONFIG_LCD_TYPE_AUTO
     lcd_type = lcd_detected_type;
+
 #elif defined( CONFIG_LCD_TYPE_ST7789V )
     ESP_LOGI(TAG, "kconfig: force CONFIG_LCD_TYPE_ST7789V.");
     lcd_type = LCD_TYPE_ST;
+
 #elif defined( CONFIG_LCD_TYPE_ILI9341 )
     ESP_LOGI(TAG, "kconfig: force CONFIG_LCD_TYPE_ILI9341.");
     lcd_type = LCD_TYPE_ILI;
+
 #endif
 
     if (lcd_type == LCD_TYPE_ST) {
@@ -252,7 +256,7 @@ esp_err_t lcd_init(spi_device_handle_t spi)
     }
 
     /*!< /Enable backlight */
-    gpio_set_level(DISPLAY_PIN_BL, DISPLAY_BL_STATE);
+    gpio_set_level(DISPLAY_PIN_BL, DISPLAY_BL_ON);
 
     return ESP_OK;
 }
