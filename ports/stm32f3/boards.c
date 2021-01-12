@@ -49,6 +49,7 @@ void board_init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   GPIO_InitTypeDef  GPIO_InitStruct;
+	UART_HandleTypeDef UartHandle;
 
 #ifdef BUTTON_PIN
 	__HAL_RCC_GPIOA_CLK_ENABLE();
@@ -87,6 +88,14 @@ void board_init(void)
   GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_HIGH;
   GPIO_InitStruct.Alternate = GPIO_AF7_USART2;
   HAL_GPIO_Init(UART_GPIO_PORT, &GPIO_InitStruct);
+	UartHandle.Init.BaudRate = 9600;
+	UartHandle.Init.WordLength = UART_DATABITS_8;
+	UartHandle.Init.StopBits = UART_STOPBITS_1;
+	UartHandle.Init.Parity = UART_PARITY_NONE;
+	UartHandle.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+	UartHandle.Init.Mode = UART_MODE_TX_RX;
+	UartHandle.Init.Instance = USART2;
+	HAL_UART_Init(&UartHandle);
 #endif
 	__HAL_RCC_SYSCFG_CLK_ENABLE();
 	__HAL_REMAPINTERRUPT_USB_ENABLE();
