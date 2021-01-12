@@ -194,6 +194,24 @@ esp_err_t lcd_init(spi_device_handle_t spi)
     const lcd_init_cmd_t *lcd_init_cmds;
 
     /*!<  Initialize non-SPI GPIOs */
+    gpio_config_t cfg =
+    {
+      .pin_bit_mask = 0,
+      .mode = GPIO_MODE_OUTPUT,
+      .pull_up_en = GPIO_PULLUP_DISABLE,
+      .pull_down_en = GPIO_PULLDOWN_DISABLE,
+      .intr_type = GPIO_INTR_DISABLE
+    };
+
+    cfg.pin_bit_mask = (1ull << DISPLAY_PIN_DC);
+    gpio_config(&cfg);
+
+    cfg.pin_bit_mask = (1ull << DISPLAY_PIN_RST);
+    gpio_config(&cfg);
+
+    cfg.pin_bit_mask = (1ull << DISPLAY_PIN_BL);
+    gpio_config(&cfg);
+
     gpio_set_direction(DISPLAY_PIN_DC, GPIO_MODE_OUTPUT);
     gpio_set_direction(DISPLAY_PIN_RST, GPIO_MODE_OUTPUT);
     gpio_set_direction(DISPLAY_PIN_BL, GPIO_MODE_OUTPUT);

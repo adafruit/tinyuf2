@@ -42,11 +42,19 @@
 // LED
 //--------------------------------------------------------------------+
 
+#if 1
+
 // GPIO connected to Neopixel data
 #define NEOPIXEL_PIN          33
 
 #define NEOPIXEL_POWER_PIN    34
 #define NEOPIXEL_POWER_STATE  1
+
+#else
+
+#define NEOPIXEL_PIN          18
+
+#endif
 
 // Brightness percentage from 1 to 255
 #define NEOPIXEL_BRIGHTNESS   0x10
@@ -63,25 +71,23 @@
 // TFT
 //--------------------------------------------------------------------+
 
-#if 0
 #define CONFIG_LCD_TYPE_ST7789V
 
 #define DISPLAY_PIN_MISO      -1 // required if use CONFIG_LCD_TYPE_AUTO
-#define DISPLAY_PIN_MOSI      31
+#define DISPLAY_PIN_MOSI      35
 #define DISPLAY_PIN_SCK       36
+
 #define DISPLAY_PIN_CS        21
 #define DISPLAY_PIN_DC        39
 #define DISPLAY_PIN_RST       40
 
 #define DISPLAY_PIN_BL        45
-#define DISPLAY_BL_ON         0  // GPIO state to enable back light
+#define DISPLAY_BL_ON         1  // GPIO state to enable back light
 
-#define DISPLAY_WIDTH         240
-#define DISPLAY_HEIGHT        135
-
+#define DISPLAY_WIDTH         135
+#define DISPLAY_HEIGHT        240
 
 #define DISPLAY_MADCTL        0x08 // not used by ST7789 driver, remove later
-#endif
 
 //--------------------------------------------------------------------+
 // USB UF2

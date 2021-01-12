@@ -217,7 +217,7 @@ void screen_init(void)
   spi_device_interface_config_t devcfg = {
     .clock_speed_hz = 10 * 1000 * 1000,              /*!< Clock out at 10 MHz */
     .mode           = 0,                             /*!< SPI mode 0 */
-    .spics_io_num   = DISPLAY_PIN_CS,                    /*!< CS pin */
+    .spics_io_num   = DISPLAY_PIN_CS,                /*!< CS pin */
     .queue_size     = 7,                             /*!< We want to be able to queue 7 transactions at a time */
     .pre_cb         = lcd_spi_pre_transfer_callback, /*!< Specify pre-transfer callback to handle D/C line */
   };
