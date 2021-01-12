@@ -113,6 +113,20 @@ void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len);
 // not part of board API, move to its own file later
 //--------------------------------------------------------------------+
 
+#define ST77XX_MADCTL_MY  0x80
+#define ST77XX_MADCTL_MX  0x40
+#define ST77XX_MADCTL_MV  0x20
+#define ST77XX_MADCTL_ML  0x10
+#define ST77XX_MADCTL_RGB 0x00
+
+#define ILI9341_MADCTL_MY  0x80  ///< Bottom to top
+#define ILI9341_MADCTL_MX  0x40  ///< Right to left
+#define ILI9341_MADCTL_MV  0x20  ///< Reverse Mode
+#define ILI9341_MADCTL_ML  0x10  ///< LCD refresh Bottom to top
+#define ILI9341_MADCTL_RGB 0x00  ///< Red-Green-Blue pixel order
+#define ILI9341_MADCTL_BGR 0x08  ///< Blue-Green-Red pixel order
+#define ILI9341_MADCTL_MH  0x04  ///< LCD refresh right to left
+
 enum {
   STATE_BOOTLOADER_STARTED = 0,
   STATE_USB_PLUGGED,

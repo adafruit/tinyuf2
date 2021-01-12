@@ -30,7 +30,9 @@ static const char *TAG = "LCD";
 /*!< Place data into DRAM. Constant data gets placed into DROM by default, which is not accessible by DMA. */
 DRAM_ATTR static const lcd_init_cmd_t st_init_cmds[] = {
     /* Memory Data Access Control, MX=MV=1, MY=ML=MH=0, RGB=0 */
-    {0x36, {(1 << 5) | (1 << 6)}, 1},
+    // {0x36, {(1 << 5) | (1 << 6)}, 1},
+    {0x36, {DISPLAY_MADCTL}, 1},
+
     /* Interface Pixel Format, 16bits/pixel for RGB/MCU interface */
     {0x3A, {0x55}, 1},
     /* Porch Setting */
