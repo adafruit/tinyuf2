@@ -37,6 +37,10 @@
 #define BUTTON_PIN            GPIO_PIN_0
 #define BUTTON_STATE_ACTIVE   1
 
+#define UART_PORT           GPIOA
+#define UART_TX_PIN           GPIO_PIN_0
+#define UART_RX_PIN           GPIO_PIN_0
+#define UART_DEV 1
 //--------------------------------------------------------------------+
 // Neopixel
 //--------------------------------------------------------------------+
