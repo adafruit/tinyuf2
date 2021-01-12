@@ -36,7 +36,7 @@
 
 // GPIO that implement 1-bit memory with RC components which hold the
 // pin value long enough for double reset detection.
-#define PIN_DOUBLE_RESET_RC   38
+#define PIN_DOUBLE_RESET_RC   34
 
 //--------------------------------------------------------------------+
 // LED
@@ -45,7 +45,7 @@
 // GPIO connected to Neopixel data
 #define NEOPIXEL_PIN          33
 
-#define NEOPIXEL_POWER_PIN    34
+#define NEOPIXEL_POWER_PIN    21
 #define NEOPIXEL_POWER_STATE  1
 
 // Brightness percentage from 1 to 255
@@ -69,11 +69,11 @@
 #define DISPLAY_PIN_MOSI      35
 #define DISPLAY_PIN_SCK       36
 
-#define DISPLAY_PIN_CS        21
-#define DISPLAY_PIN_DC        39
-#define DISPLAY_PIN_RST       40
+#define DISPLAY_PIN_CS        42
+#define DISPLAY_PIN_DC        40
+#define DISPLAY_PIN_RST       41
 
-#define DISPLAY_PIN_BL        45
+#define DISPLAY_PIN_BL        7
 #define DISPLAY_BL_ON         1  // GPIO state to enable back light
 
 #define DISPLAY_WIDTH         240
