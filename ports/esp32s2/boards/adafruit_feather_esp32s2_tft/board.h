@@ -79,7 +79,12 @@
 #define DISPLAY_WIDTH         240
 #define DISPLAY_HEIGHT        135
 
+#define DISPLAY_COL_OFFSET    53
+#define DISPLAY_ROW_OFFSET    40
+
 #define DISPLAY_MADCTL        (ST77XX_MADCTL_MX | ST77XX_MADCTL_RGB)
+
+#define DISPLAY_TITLE         "Feather TFT"
 
 //--------------------------------------------------------------------+
 // USB UF2
@@ -88,7 +93,7 @@
 #define USB_VID           0x239A
 #define USB_PID           0x00ED
 #define USB_MANUFACTURER  "Adafruit"
-#define USB_PRODUCT       "Feather ESP32-S2 TFT"
+#define USB_PRODUCT       "Feather ESP32-S2 Reverse TFT"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID      "ESP32S2-FeatherTFT-revA"

@@ -1,3 +1,27 @@
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2020 Ha Thach (tinyusb.org) for Adafruit Industries
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ */
+
 #include "board_api.h"
 
 #if TINYUF2_SCREEN
@@ -6,7 +30,8 @@
 #include "lcd.h"
 
 // Overlap 4x chars by this much.
-#define CHAR4_KERNING 2
+#define CHAR4_KERNING 3
+
 // Width of a single 4x char, adjusted by kerning
 #define CHAR4_KERNED_WIDTH  (6 * 4 - CHAR4_KERNING)
 
@@ -179,27 +204,32 @@ void screen_draw_hf2(void) {
     draw_screen();
 }
 
-void screen_draw_drag(void) {
-    drawBar(0, 52, 7);
-    drawBar(52, 55, 8);
-    drawBar(107, 14, 4);
+void screen_draw_drag (void)
+{
+  drawBar(0, 52, 7);
+  drawBar(52, 55, 8);
+  drawBar(107, 14, 4);
 
-    // Center UF2_PRODUCT_NAME and UF2_VERSION_BASE.
-    int name_x = (DISPLAY_WIDTH - (6 * 4 - CHAR4_KERNING) * (int) strlen(USB_PRODUCT)) / 2;
-    print4(name_x >= 0 ? name_x : 0, 5, 1, USB_PRODUCT);
-    int version_x = (DISPLAY_WIDTH - 6 * (int) strlen(UF2_VERSION_BASE)) / 2;
-    print(version_x >= 0 ? version_x : 0, 40, 6, UF2_VERSION_BASE);
-    print(23, 110, 1, "arcade.makecode.com");
+  // Center UF2_PRODUCT_NAME and UF2_VERSION_BASE.
+  int name_x = (DISPLAY_WIDTH - CHAR4_KERNED_WIDTH * (int) strlen(DISPLAY_PRODUCT_NAME)) / 2;
+  print4(name_x >= 0 ? name_x : 0, 5, 1, DISPLAY_PRODUCT_NAME);
+
+  int version_x = (DISPLAY_WIDTH - 6 * (int) strlen(UF2_VERSION_BASE)) / 2;
+  print(version_x >= 0 ? version_x : 0, 40, 6, UF2_VERSION_BASE);
+
+  // TODO the reset should be center as well
+
+  print(23, 110, 1, "circuitpython.org");
 
 #define DRAG 70
 #define DRAGX 10
-    printicon(DRAGX + 20, DRAG + 5, 1, fileLogo);
-    printicon(DRAGX + 66, DRAG, 1, arrowLogo);
-    printicon(DRAGX + 108, DRAG, 1, pendriveLogo);
-    print(10, DRAG - 12, 1, "arcade.uf2");
-    print(90, DRAG - 12, 1, UF2_VOLUME_LABEL);
+  printicon(DRAGX + 20, DRAG + 5, 1, fileLogo);
+  printicon(DRAGX + 66, DRAG, 1, arrowLogo);
+  printicon(DRAGX + 108, DRAG, 1, pendriveLogo);
+  print(10, DRAG - 12, 1, "firmware.uf2");
+  print(90, DRAG - 12, 1, UF2_VOLUME_LABEL);
 
-    draw_screen();
+  draw_screen();
 }
 
 

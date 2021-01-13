@@ -328,9 +328,11 @@ void lcd_draw_lines(spi_device_handle_t spi, int ypos, uint16_t *linedata)
         trans[x].flags = SPI_TRANS_USE_TXDATA;
     }
 
+    ypos += DISPLAY_ROW_OFFSET;
+
     trans[0].tx_data[0] = 0x2A;         /*!< Column Address Set */
-    trans[1].tx_data[0] = 0;            /*!< Start Col High */
-    trans[1].tx_data[1] = 0;            /*!< Start Col Low */
+    trans[1].tx_data[0] = (DISPLAY_COL_OFFSET) >> 8;            /*!< Start Col High */
+    trans[1].tx_data[1] = (DISPLAY_COL_OFFSET) & 0xff;            /*!< Start Col Low */
     trans[1].tx_data[2] = (320) >> 8;   /*!< End Col High */
     trans[1].tx_data[3] = (320) & 0xff; /*!< End Col Low */
     trans[2].tx_data[0] = 0x2B;         /*!< Page address set */

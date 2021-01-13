@@ -71,7 +71,13 @@
 
 #define DISPLAY_WIDTH         320
 #define DISPLAY_HEIGHT        240
+
+#define DISPLAY_COL_OFFSET    0
+#define DISPLAY_ROW_OFFSET    0
+
 #define DISPLAY_MADCTL        0x08  // ILI9341_MADCTL_BGR
+
+#define DISPLAY_TITLE         USB_PRODUCT
 
 //--------------------------------------------------------------------+
 // USB UF2
