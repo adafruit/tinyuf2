@@ -211,8 +211,8 @@ void screen_draw_drag (void)
   drawBar(107, 14, 4);
 
   // Center UF2_PRODUCT_NAME and UF2_VERSION_BASE.
-  int name_x = (DISPLAY_WIDTH - CHAR4_KERNED_WIDTH * (int) strlen(DISPLAY_PRODUCT_NAME)) / 2;
-  print4(name_x >= 0 ? name_x : 0, 5, 1, DISPLAY_PRODUCT_NAME);
+  int name_x = (DISPLAY_WIDTH - CHAR4_KERNED_WIDTH * (int) strlen(DISPLAY_TITLE)) / 2;
+  print4(name_x >= 0 ? name_x : 0, 5, 1, DISPLAY_TITLE);
 
   int version_x = (DISPLAY_WIDTH - 6 * (int) strlen(UF2_VERSION_BASE)) / 2;
   print(version_x >= 0 ? version_x : 0, 40, 6, UF2_VERSION_BASE);
