@@ -39,81 +39,82 @@
 
 /* flash parameters that we should not really know */
 static struct {
-	uint32_t	sector_number;
-	uint32_t	size;
+  uint32_t	sector_number;
+  uint32_t	size;
 } flash_sectors[] = {
 
-	/* Physical FLASH sector 0 is reserved for bootloader and is not
-	 * the table below.
-	 * N sectors may aslo be reserved for the app fw in which case
-	 * the zero based define BOARD_FIRST_FLASH_SECTOR_TO_ERASE must
-	 * be defined to begin the erase above of the reserved sectors.
-	 * The default value of BOARD_FIRST_FLASH_SECTOR_TO_ERASE is 0
-	 * and begins flash erase operations at phsical sector 1 the 0th entry
-	 * in the table below.
-	 * A value of 1 for BOARD_FIRST_FLASH_SECTOR_TO_ERASE would reserve
-	 * the 0th entry and begin erasing a index 1 the third physical sector
-	 * on the device.
-	 *
-	 * When BOARD_FIRST_FLASH_SECTOR_TO_ERASE is defined APP_RESERVATION_SIZE
-	 * must also be defined to remove that additonal reserved FLASH space
-	 * from the BOARD_FLASH_SIZE. See APP_SIZE_MAX below.
-	 */
+  /* Physical FLASH sector 0 is reserved for bootloader and is not
+   * the table below.
+   * N sectors may aslo be reserved for the app fw in which case
+   * the zero based define BOARD_FIRST_FLASH_SECTOR_TO_ERASE must
+   * be defined to begin the erase above of the reserved sectors.
+   * The default value of BOARD_FIRST_FLASH_SECTOR_TO_ERASE is 0
+   * and begins flash erase operations at phsical sector 1 the 0th entry
+   * in the table below.
+   * A value of 1 for BOARD_FIRST_FLASH_SECTOR_TO_ERASE would reserve
+   * the 0th entry and begin erasing a index 1 the third physical sector
+   * on the device.
+   *
+   * When BOARD_FIRST_FLASH_SECTOR_TO_ERASE is defined APP_RESERVATION_SIZE
+   * must also be defined to remove that additonal reserved FLASH space
+   * from the BOARD_FLASH_SIZE. See APP_SIZE_MAX below.
+   */
 
-	{0x01, 16 * 1024},
-	{0x02, 16 * 1024},
-	{0x03, 16 * 1024},
-	{0x04, 64 * 1024},
-	{0x05, 128 * 1024},
-	{0x06, 128 * 1024},
-	{0x07, 128 * 1024},
-	{0x08, 128 * 1024},
-	{0x09, 128 * 1024},
-	{0x0a, 128 * 1024},
-	{0x0b, 128 * 1024},
-	/* flash sectors only in 2MiB devices */
-	{0x10, 16 * 1024},
-	{0x11, 16 * 1024},
-	{0x12, 16 * 1024},
-	{0x13, 16 * 1024},
-	{0x14, 64 * 1024},
-	{0x15, 128 * 1024},
-	{0x16, 128 * 1024},
-	{0x17, 128 * 1024},
-	{0x18, 128 * 1024},
-	{0x19, 128 * 1024},
-	{0x1a, 128 * 1024},
-	{0x1b, 128 * 1024},
+  {0x01, 16 * 1024},
+  {0x02, 16 * 1024},
+  {0x03, 16 * 1024},
+  {0x04, 64 * 1024},
+  {0x05, 128 * 1024},
+  {0x06, 128 * 1024},
+  {0x07, 128 * 1024},
+  {0x08, 128 * 1024},
+  {0x09, 128 * 1024},
+  {0x0a, 128 * 1024},
+  {0x0b, 128 * 1024},
+  /* flash sectors only in 2MiB devices */
+  {0x10, 16 * 1024},
+  {0x11, 16 * 1024},
+  {0x12, 16 * 1024},
+  {0x13, 16 * 1024},
+  {0x14, 64 * 1024},
+  {0x15, 128 * 1024},
+  {0x16, 128 * 1024},
+  {0x17, 128 * 1024},
+  {0x18, 128 * 1024},
+  {0x19, 128 * 1024},
+  {0x1a, 128 * 1024},
+  {0x1b, 128 * 1024},
 };
 
 static uint8_t erasedSectors[BOARD_FLASH_SECTORS];
 
 uint32_t flash_func_sector_size(unsigned sector)
 {
-	if (sector < BOARD_FLASH_SECTORS) {
-		return flash_sectors[sector].size;
-	}
+  if (sector < BOARD_FLASH_SECTORS) {
+    return flash_sectors[sector].size;
+  }
 
-	return 0;
+  return 0;
 }
 
-static bool is_blank(uint32_t addr, uint32_t size) {
-		for (uint32_t i = 0; i < size; i += sizeof(uint32_t)) {
-			if (*(uint32_t*)(addr + i) != 0xffffffff) {
-				return false;
-			}
-		}
-		return true;
+static bool is_blank(uint32_t addr, uint32_t size)
+{
+  for (uint32_t i = 0; i < size; i += sizeof(uint32_t)) {
+    if (*(uint32_t*)(addr + i) != 0xffffffff) {
+      return false;
+    }
+  }
+  return true;
 }
 
 void flash_write(uint32_t dst, const uint8_t *src, int len)
 {
-	// assume sector 0 (bootloader) is same size as sector 1
-	uint32_t addr = flash_func_sector_size(0) + (APP_LOAD_ADDRESS & 0xfff00000);
-	uint32_t sector = 0;
-	int erased = false;
-	uint32_t size = 0;
-	uint32_t SectorError;
+   // assume sector 0 (bootloader) is same size as sector 1
+  uint32_t addr = flash_func_sector_size(0) + (APP_LOAD_ADDRESS & 0xfff00000);
+  uint32_t sector = 0;
+  int erased = false;
+  uint32_t size = 0;
+  uint32_t SectorError;
 
   for ( unsigned i = 0; i < BOARD_FLASH_SECTORS; i++ )
   {
@@ -128,40 +129,40 @@ void flash_write(uint32_t dst, const uint8_t *src, int len)
     addr += size;
   }
 
-	if (sector == 0)
-	{
-	  TU_LOG1("invalid sector");
-	}
+  if (sector == 0)
+  {
+    TU_LOG1("invalid sector");
+  }
 
-	HAL_FLASH_Unlock();
+  HAL_FLASH_Unlock();
 
-	if (!erased && !is_blank(addr, size))
-	{
-	  TU_LOG1("Erase: %08lX size = %lu\n", addr, size);
+  if (!erased && !is_blank(addr, size))
+  {
+    TU_LOG1("Erase: %08lX size = %lu\n", addr, size);
 
-		FLASH_EraseInitTypeDef EraseInit;
-		EraseInit.TypeErase = FLASH_TYPEERASE_PAGES;
-		EraseInit.PageAddress = addr;
-		EraseInit.NbPages = 1;
+    FLASH_EraseInitTypeDef EraseInit;
+    EraseInit.TypeErase = FLASH_TYPEERASE_PAGES;
+    EraseInit.PageAddress = addr;
+    EraseInit.NbPages = 1;
 
-		HAL_FLASHEx_Erase(&EraseInit, &SectorError);
-		FLASH_WaitForLastOperation(HAL_MAX_DELAY);
+    HAL_FLASHEx_Erase(&EraseInit, &SectorError);
+    FLASH_WaitForLastOperation(HAL_MAX_DELAY);
 
-		if (SectorError != 0xFFFFFFFF)
-		{
-		  TU_LOG1("failed to erase!");
-		}
-	}
+    if (SectorError != 0xFFFFFFFF)
+    {
+      TU_LOG1("failed to erase!");
+    }
+  }
 
-	for (int i = 0; i < len; i += 4)
-	{
-	  HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, dst + i, (uint64_t) (*(uint32_t*)(src + i)) );
-	}
+  for (int i = 0; i < len; i += 4)
+  {
+    HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, dst + i, (uint64_t) (*(uint32_t*)(src + i)) );
+  }
 
-	if (memcmp((void*)dst, src, len) != 0)
-	{
-	  TU_LOG1("failed to write");
-	}
+  if (memcmp((void*)dst, src, len) != 0)
+  {
+    TU_LOG1("failed to write");
+  }
 }
 
 //--------------------------------------------------------------------+

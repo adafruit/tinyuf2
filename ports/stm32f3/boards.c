@@ -52,21 +52,21 @@ void board_init(void)
 
 
 #ifdef BUTTON_PIN
-	__HAL_RCC_GPIOA_CLK_ENABLE();
-	GPIO_InitStruct.Pin = BUTTON_PIN;
-	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-	GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-	HAL_GPIO_Init(BUTTON_PORT, &GPIO_InitStruct);
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  GPIO_InitStruct.Pin = BUTTON_PIN;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  HAL_GPIO_Init(BUTTON_PORT, &GPIO_InitStruct);
 #endif
 
 #ifdef LED_PIN
-	__HAL_RCC_GPIOE_CLK_ENABLE();
-	GPIO_InitStruct.Pin = LED_PIN;
-	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-	GPIO_InitStruct.Pull = GPIO_PULLUP;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-	HAL_GPIO_Init(LED_PORT, &GPIO_InitStruct);
+  __HAL_RCC_GPIOE_CLK_ENABLE();
+  GPIO_InitStruct.Pin = LED_PIN;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  HAL_GPIO_Init(LED_PORT, &GPIO_InitStruct);
 
   board_led_write(0);
 #endif
@@ -90,18 +90,18 @@ void board_init(void)
   HAL_GPIO_Init(UART_GPIO_PORT, &GPIO_InitStruct);
 
 #endif
-	__HAL_RCC_SYSCFG_CLK_ENABLE();
-	__HAL_REMAPINTERRUPT_USB_ENABLE();
-	__HAL_RCC_GPIOA_CLK_ENABLE();
-	GPIO_InitStruct.Pin = (GPIO_PIN_11 | GPIO_PIN_12);
-	GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-	GPIO_InitStruct.Pull = GPIO_NOPULL;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-	GPIO_InitStruct.Alternate = GPIO_AF14_USB;
-	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  __HAL_RCC_SYSCFG_CLK_ENABLE();
+  __HAL_REMAPINTERRUPT_USB_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  GPIO_InitStruct.Pin = (GPIO_PIN_11 | GPIO_PIN_12);
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  GPIO_InitStruct.Alternate = GPIO_AF14_USB;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-	// Enable USB clock
-	__HAL_RCC_USB_CLK_ENABLE();
+  // Enable USB clock
+  __HAL_RCC_USB_CLK_ENABLE();
 }
 
 void board_dfu_init(void)
@@ -260,7 +260,22 @@ int board_uart_write(void const * buf, int len)
 #ifndef TINYUF2_SELF_UPDATE
 
 // Forward USB interrupt events to TinyUSB IRQ Handler
-void OTG_FS_IRQHandler(void)
+void USB_HP_IRQHandler(void)
+{
+  tud_int_handler(0);
+}
+
+// USB low-priority interrupt (Channel 75): Triggered by all USB events
+// (Correct transfer, USB reset, etc.). The firmware has to check the
+// interrupt source before serving the interrupt.
+void USB_LP_IRQHandler(void)
+{
+  tud_int_handler(0);
+}
+
+// USB wakeup interrupt (Channel 76): Triggered by the wakeup event from the USB
+// Suspend mode.
+void USBWakeUp_RMP_IRQHandler(void)
 {
   tud_int_handler(0);
 }
