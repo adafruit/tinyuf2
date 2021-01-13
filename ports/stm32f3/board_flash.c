@@ -35,7 +35,7 @@
 #define BOARD_FLASH_SECTORS 64
 #define BOARD_FIRST_FLASH_SECTOR_TO_ERASE 8
 
-#define APP_LOAD_ADDRESS 0x08004000
+#define APP_LOAD_ADDRESS 0x08010000
 
 /* flash parameters */
 #define SIZE 2048
@@ -64,7 +64,7 @@ static bool is_blank(uint32_t addr, uint32_t size)
 void flash_write(uint32_t dst, const uint8_t *src, int len)
 {
    // assume sector 0-7 (bootloader) is same size as sector 1
-  uint32_t addr = 0x08004000;
+  uint32_t addr = APP_LOAD_ADDRESS;
   uint32_t sector = 0;
   int erased = false;
   uint32_t size = 0;
