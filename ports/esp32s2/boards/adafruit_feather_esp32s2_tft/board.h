@@ -79,10 +79,10 @@
 #define DISPLAY_WIDTH         240
 #define DISPLAY_HEIGHT        135
 
-#define DISPLAY_COL_OFFSET    53
+#define DISPLAY_COL_OFFSET    52
 #define DISPLAY_ROW_OFFSET    40
 
-#define DISPLAY_MADCTL        (ST77XX_MADCTL_MX | ST77XX_MADCTL_RGB)
+#define DISPLAY_MADCTL        (TFT_MADCTL_MX)
 
 #define DISPLAY_TITLE         "Feather TFT"
 

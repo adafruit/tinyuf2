@@ -137,6 +137,7 @@ void printicon(int x, int y, int col, const uint8_t *icon) {
     }
 }
 
+// col = color
 void print(int x, int y, int col, const char *text) {
     int x0 = x;
     while (*text) {

@@ -75,7 +75,7 @@
 #define DISPLAY_COL_OFFSET    0
 #define DISPLAY_ROW_OFFSET    0
 
-#define DISPLAY_MADCTL        0x08  // ILI9341_MADCTL_BGR
+#define DISPLAY_MADCTL        TFT_MADCTL_BGR
 
 #define DISPLAY_TITLE         USB_PRODUCT
 

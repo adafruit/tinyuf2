@@ -30,11 +30,34 @@ static const char *TAG = "LCD";
 /*!< Place data into DRAM. Constant data gets placed into DROM by default, which is not accessible by DMA. */
 DRAM_ATTR static const lcd_init_cmd_t st_init_cmds[] = {
     /* Memory Data Access Control, MX=MV=1, MY=ML=MH=0, RGB=0 */
-    // {0x36, {(1 << 5) | (1 << 6)}, 1},
     {0x36, {DISPLAY_MADCTL}, 1},
-
     /* Interface Pixel Format, 16bits/pixel for RGB/MCU interface */
     {0x3A, {0x55}, 1},
+#if 0 // another init sequence
+    /* Porch Setting */
+    {0xB2, {0x0c, 0x0c, 0x00, 0x33, 0x33}, 5},
+    /* Gate Control, Vgh=13.65V, Vgl=-10.43V */
+    {0xB7, {0x35}, 1},
+    /* VCOM Setting, VCOM=1.175V */
+    {0xBB, {0x19}, 1},
+    /* LCM Control, XOR: BGR, MX, MH */
+    {0xC0, {0x2C}, 1},
+    /* VDV and VRH Command Enable, enable=1 */
+    //{0xC2, {0x01, 0xff}, 2},
+    {0xC2, {0x01}, 1},
+    /* VRH Set, Vap=4.4+... */
+    {0xC3, {0x12}, 1},
+    /* VDV Set, VDV=0 */
+    {0xC4, {0x20}, 1},
+    /* Frame Rate Control, 60Hz, inversion=0 */
+    {0xC6, {0x0f}, 1},
+    /* Power Control 1, AVDD=6.8V, AVCL=-4.8V, VDDS=2.3V */
+    {0xD0, {0xA4, 0xA1}, 1},
+    /* Positive Voltage Gamma Control */
+    {0xE0, {0xD0, 0x04, 0x0D, 0x11, 0x13, 0x2b, 0x3f, 0x54, 0x4c, 0x18, 0x0D, 0x0B, 0x1f, 0x23}, 14},
+    /* Negative Voltage Gamma Control */
+    {0xE1, {0xD0, 0x04, 0x0c, 0x11, 0x13, 0x2c, 0x3f, 0x44, 0x51, 0x2f, 0x1f, 0x1f, 0x20, 0x23}, 14},
+#else
     /* Porch Setting */
     {0xB2, {0x0c, 0x0c, 0x00, 0x33, 0x33}, 5},
     /* Gate Control, Vgh=13.65V, Vgl=-10.43V */
@@ -57,6 +80,9 @@ DRAM_ATTR static const lcd_init_cmd_t st_init_cmds[] = {
     {0xE0, {0xD0, 0x00, 0x05, 0x0E, 0x15, 0x0D, 0x37, 0x43, 0x47, 0x09, 0x15, 0x12, 0x16, 0x19}, 14},
     /* Negative Voltage Gamma Control */
     {0xE1, {0xD0, 0x00, 0x05, 0x0D, 0x0C, 0x06, 0x2D, 0x44, 0x40, 0x0E, 0x1C, 0x18, 0x16, 0x19}, 14},
+#endif
+    // Inversion ON
+    {0x21, {0}, 0x00},
     /* Sleep Out */
     {0x11, {0}, 0x80},
     /* Display On */
@@ -335,14 +361,16 @@ void lcd_draw_lines(spi_device_handle_t spi, int ypos, uint16_t *linedata)
     trans[1].tx_data[1] = (DISPLAY_COL_OFFSET) & 0xff;            /*!< Start Col Low */
     trans[1].tx_data[2] = (320) >> 8;   /*!< End Col High */
     trans[1].tx_data[3] = (320) & 0xff; /*!< End Col Low */
+
     trans[2].tx_data[0] = 0x2B;         /*!< Page address set */
     trans[3].tx_data[0] = ypos >> 8;    /*!< Start page high */
     trans[3].tx_data[1] = ypos & 0xff;  /*!< start page low */
     trans[3].tx_data[2] = (ypos + PARALLEL_LINES) >> 8; /*!< end page high */
     trans[3].tx_data[3] = (ypos + PARALLEL_LINES) & 0xff; /*!< end page low */
+
     trans[4].tx_data[0] = 0x2C;         /*!< memory write */
     trans[5].tx_buffer = linedata;      /*!< finally send the line data */
-    trans[5].length = 320 * 2 * 8 * PARALLEL_LINES;  /*!< Data length, in bits */
+    trans[5].length = DISPLAY_HEIGHT * 2 * 8 * PARALLEL_LINES;  /*!< Data length, in bits */
     trans[5].flags = 0; /*!< undo SPI_TRANS_USE_TXDATA flag */
 
     /*!< Queue all transactions. */
