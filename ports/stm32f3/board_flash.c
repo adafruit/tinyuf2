@@ -61,6 +61,7 @@ static bool is_blank(uint32_t addr, uint32_t size)
   return true;
 }
 
+                    //ADDR            data
 void flash_write(uint32_t dst, const uint8_t *src, int len)
 {
    // assume sector 0-7 (bootloader) is same size as sector 1
@@ -97,7 +98,7 @@ void flash_write(uint32_t dst, const uint8_t *src, int len)
     FLASH_EraseInitTypeDef EraseInit;
     EraseInit.TypeErase = FLASH_TYPEERASE_PAGES;
     EraseInit.PageAddress = addr;
-    EraseInit.NbPages = 1;
+    EraseInit.NbPages = ((0x08080000 - addr)/size);
 
     HAL_FLASHEx_Erase(&EraseInit, &SectorError);
     FLASH_WaitForLastOperation(HAL_MAX_DELAY);
