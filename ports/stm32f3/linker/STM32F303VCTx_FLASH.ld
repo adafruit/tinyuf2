@@ -40,6 +40,9 @@ _Min_Heap_Size = 0x800;;      /* required amount of heap  */
 _Min_Stack_Size = 0x800;; /* required amount of stack */
 
 /* Specify the memory areas */
+FLASH_OFFSET = DEFINED(FLASH_OFFSET)? FLASH_OFFSET : 0;
+FLASH_ORIGIN = 0x08000000 + FLASH_OFFSET;
+FLASH_LENGTH = 256k - FLASH_OFFSET;
 MEMORY
 {
 FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 256K

@@ -35,7 +35,7 @@
 #define BOARD_FLASH_SECTORS 64
 #define BOARD_FIRST_FLASH_SECTOR_TO_ERASE 8
 
-#define APP_LOAD_ADDRESS 0x08010000
+#define APP_LOAD_ADDRESS 0x08004000
 
 /* flash parameters */
 #define SIZE 2048
