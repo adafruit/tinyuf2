@@ -23,7 +23,7 @@
 #include "lcd.h"
 #include "board_api.h"
 
-#if TINYUF2_SCREEN
+#if TINYUF2_DISPLAY
 
 static const char *TAG = "LCD";
 

@@ -24,18 +24,15 @@
 
 #include "board_api.h"
 
-#if TINYUF2_SCREEN
+#if TINYUF2_DISPLAY
 
 #include <string.h>
-#include "lcd.h"
 
 // Overlap 4x chars by this much.
 #define CHAR4_KERNING 3
 
 // Width of a single 4x char, adjusted by kerning
 #define CHAR4_KERNED_WIDTH  (6 * 4 - CHAR4_KERNING)
-
-spi_device_handle_t _spi;
 
 #define COL0(r, g, b) ((((r) >> 3) << 11) | (((g) >> 2) << 5) | ((b) >> 3))
 #define COL(c) COL0((c >> 16) & 0xff, (c >> 8) & 0xff, c & 0xff)
@@ -119,7 +116,9 @@ void printicon(int x, int y, int col, const uint8_t *icon) {
                     c = 1;
                 runlen--;
             } else {
-                if (sz-- <= 0) ESP_LOGE("screen", "Panic code = 10");
+                if (sz-- <= 0) {
+                  //TU_LOG1("Screen Panic code = 10");
+                }
                 lastb = *icon++;
                 if (lastb & 0x80) {
                     runlen = lastb & 63;
@@ -189,7 +188,7 @@ static void draw_screen(void) {
             cc[dst++] = color & 0xff;
         }
 
-        lcd_draw_lines(_spi, i, (uint16_t*) cc);
+        board_display_draw_line(i, (uint16_t*) cc, DISPLAY_HEIGHT);
     }
 }
 
@@ -207,6 +206,8 @@ void screen_draw_hf2(void) {
 
 void screen_draw_drag (void)
 {
+  memset(fb, 0, sizeof(fb));
+
   drawBar(0, 52, 7);
   drawBar(52, 55, 8);
   drawBar(107, 14, 4);
@@ -231,38 +232,6 @@ void screen_draw_drag (void)
   print(90, DRAG - 12, 1, UF2_VOLUME_LABEL);
 
   draw_screen();
-}
-
-
-void screen_init(void)
-{
-  spi_bus_config_t bus_cfg = {
-    .miso_io_num     = DISPLAY_PIN_MISO,
-    .mosi_io_num     = DISPLAY_PIN_MOSI,
-    .sclk_io_num     = DISPLAY_PIN_SCK,
-    .quadwp_io_num   = -1,
-    .quadhd_io_num   = -1,
-    .max_transfer_sz = PARALLEL_LINES * 320 * 2 + 8
-  };
-
-  spi_device_interface_config_t devcfg = {
-    .clock_speed_hz = 10 * 1000 * 1000,              /*!< Clock out at 10 MHz */
-    .mode           = 0,                             /*!< SPI mode 0 */
-    .spics_io_num   = DISPLAY_PIN_CS,                /*!< CS pin */
-    .queue_size     = 7,                             /*!< We want to be able to queue 7 transactions at a time */
-    .pre_cb         = lcd_spi_pre_transfer_callback, /*!< Specify pre-transfer callback to handle D/C line */
-  };
-
-  /*!< Initialize the SPI bus */
-  ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &bus_cfg, DMA_CHAN));
-
-  /*!< Attach the LCD to the SPI bus */
-  ESP_ERROR_CHECK(spi_bus_add_device(LCD_HOST, &devcfg, &_spi));
-
-  /**< Initialize the LCD */
-  ESP_ERROR_CHECK(lcd_init(_spi));
-
-  memset(fb, 0, sizeof(fb));
 }
 
 #endif

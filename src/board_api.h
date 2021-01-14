@@ -39,15 +39,24 @@
 #define BOARD_FLASH_APP_START  0
 #endif
 
-// USE LED for part of indicator
+// Use LED for part of indicator
 #ifndef TINYUF2_LED
 #define TINYUF2_LED 0
 #endif
 
+// Use Double Tap method to enter DFU mode
 #ifndef TINYUF2_DFU_DOUBLE_TAP
 #define TINYUF2_DFU_DOUBLE_TAP      0
 #endif
 
+// Use Display to draw DFU image
+#ifndef TINYUF2_DISPLAY
+#define TINYUF2_DISPLAY 0
+#endif
+
+//--------------------------------------------------------------------+
+// Platform Dependent API
+//--------------------------------------------------------------------+
 
 // Baudrate for UART if used
 #define BOARD_UART_BAUDRATE   115200
@@ -95,15 +104,12 @@ void     board_flash_read (uint32_t addr, void* buffer, uint32_t len);
 void     board_flash_write(uint32_t addr, void const *data, uint32_t len);
 void     board_flash_flush(void);
 
+#if TINYUF2_DISPLAY
+  void board_display_init(void);
+  void board_display_draw_line(int y, uint16_t* pixel_color, uint32_t pixel_num);
 
-#ifdef DISPLAY_PIN_SCK
-  #define TINYUF2_SCREEN 1
-
-  void screen_init(void);
   void screen_draw_drag(void);
   void screen_draw_hf2(void);
-#else
-  #define TINYUF2_SCREEN 0
 #endif
 
 // perform self-update on bootloader

@@ -70,6 +70,10 @@ ledc_channel_config_t ledc_channel =
 };
 #endif
 
+#ifdef DISPLAY_PIN_SCK
+#include "lcd.h"
+spi_device_handle_t _display_spi;
+#endif
 
 extern int main(void);
 static void configure_pins(usb_hal_context_t *usb);
@@ -261,6 +265,49 @@ void board_timer_stop(void)
 {
   esp_timer_stop(timer_hdl);
 }
+
+//--------------------------------------------------------------------+
+// Display
+//--------------------------------------------------------------------+
+
+#ifdef DISPLAY_PIN_SCK
+
+void board_display_init(void)
+{
+  spi_bus_config_t bus_cfg = {
+    .miso_io_num     = DISPLAY_PIN_MISO,
+    .mosi_io_num     = DISPLAY_PIN_MOSI,
+    .sclk_io_num     = DISPLAY_PIN_SCK,
+    .quadwp_io_num   = -1,
+    .quadhd_io_num   = -1,
+    .max_transfer_sz = PARALLEL_LINES * 320 * 2 + 8
+  };
+
+  spi_device_interface_config_t devcfg = {
+    .clock_speed_hz = 10 * 1000 * 1000,              /*!< Clock out at 10 MHz */
+    .mode           = 0,                             /*!< SPI mode 0 */
+    .spics_io_num   = DISPLAY_PIN_CS,                /*!< CS pin */
+    .queue_size     = 7,                             /*!< We want to be able to queue 7 transactions at a time */
+    .pre_cb         = lcd_spi_pre_transfer_callback, /*!< Specify pre-transfer callback to handle D/C line */
+  };
+
+  /*!< Initialize the SPI bus */
+  ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &bus_cfg, DMA_CHAN));
+
+  /*!< Attach the LCD to the SPI bus */
+  ESP_ERROR_CHECK(spi_bus_add_device(LCD_HOST, &devcfg, &_display_spi));
+
+  /**< Initialize the LCD */
+  ESP_ERROR_CHECK(lcd_init(_display_spi));
+}
+
+void board_display_draw_line(int y, uint16_t* pixel_color, uint32_t pixel_num)
+{
+  (void) pixel_num; // same as DISPLAY_HEIGHT
+  lcd_draw_lines(_display_spi, y, (uint16_t*) pixel_color);
+}
+
+#endif
 
 //--------------------------------------------------------------------+
 // Helper

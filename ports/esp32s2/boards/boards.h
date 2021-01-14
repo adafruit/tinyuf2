@@ -40,6 +40,10 @@
 // Double Reset tap to enter DFU
 #define TINYUF2_DFU_DOUBLE_TAP  0
 
+#ifdef DISPLAY_PIN_SCK
+ #define TINYUF2_DISPLAY 1
+#endif
+
 #ifdef __cplusplus
  }
 #endif

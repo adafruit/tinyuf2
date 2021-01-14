@@ -134,8 +134,8 @@ int main(void)
 
   indicator_set(STATE_USB_UNPLUGGED);
 
-#if TINYUF2_SCREEN
-  screen_init();
+#if TINYUF2_DISPLAY
+  board_display_init();
   screen_draw_drag();
 #endif
 
