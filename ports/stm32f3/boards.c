@@ -41,7 +41,7 @@ void board_init(void)
   SystemCoreClockUpdate();
 
   // disable systick
-  SysTick_Config(SystemCoreClock / 1000);
+  board_timer_stop();
 
   // TODO enable only used GPIO clock
   __HAL_RCC_GPIOA_CLK_ENABLE();
@@ -92,6 +92,12 @@ void board_init(void)
 
 #endif
   __HAL_RCC_SYSCFG_CLK_ENABLE();
+
+}
+
+void board_dfu_init(void)
+{
+  GPIO_InitTypeDef  GPIO_InitStruct;
   __HAL_REMAPINTERRUPT_USB_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   GPIO_InitStruct.Pin = (GPIO_PIN_11 | GPIO_PIN_12);
@@ -105,11 +111,6 @@ void board_init(void)
   __HAL_RCC_USB_CLK_ENABLE();
 }
 
-void board_dfu_init(void)
-{
-
-}
-
 void board_dfu_complete(void)
 {
   NVIC_SystemReset();
@@ -117,7 +118,10 @@ void board_dfu_complete(void)
 
 bool board_app_valid(void)
 {
-  return (((*(uint32_t*)BOARD_FLASH_APP_START) - BOARD_RAM_START) <= BOARD_RAM_SIZE);
+  if((((*(uint32_t*)BOARD_FLASH_APP_START) - BOARD_RAM_START) <= BOARD_RAM_SIZE) && ((*(uint32_t*)BOARD_FLASH_APP_START + 4) > BOARD_FLASH_APP_START) && ((*(uint32_t*)BOARD_FLASH_APP_START + 4) < BOARD_FLASH_APP_START + BOARD_FLASH_SIZE))
+    return true;
+  else
+    return false;
 }
 
 void board_app_jump(void)
