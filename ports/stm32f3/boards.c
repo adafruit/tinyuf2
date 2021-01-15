@@ -95,7 +95,34 @@ void board_init(void)
 
 }
 
+void board_dfu_init(void)
+{
+  uint32_t _timer_count = 0;
+  __HAL_RCC_USB_FORCE_RESET();
+  GPIO_InitTypeDef  GPIO_InitStruct;
+  GPIO_InitStruct.Pin = (GPIO_PIN_12);
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, 0);
+  _timer_count = 0;
+  board_timer_start(1);
+  while(_timer_count < 500) {}
+  board_timer_stop();
 
+  __HAL_REMAPINTERRUPT_USB_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  GPIO_InitStruct.Pin = (GPIO_PIN_11 | GPIO_PIN_12);
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  GPIO_InitStruct.Alternate = GPIO_AF14_USB;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  // Enable USB clock
+  __HAL_RCC_USB_CLK_ENABLE();
+}
 
 void board_dfu_complete(void)
 {
@@ -239,34 +266,7 @@ void SysTick_Handler (void)
   board_timer_handler();
 }
 
-void board_dfu_init(void)
-{
-  uint32_t _timer_count = 0;
-  __HAL_RCC_USB_FORCE_RESET();
-  GPIO_InitTypeDef  GPIO_InitStruct;
-  GPIO_InitStruct.Pin = (GPIO_PIN_12);
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, 0);
-  _timer_count = 0;
-  board_timer_start(1);
-  while(_timer_count < 500) {}
-  board_timer_stop();
 
-  __HAL_REMAPINTERRUPT_USB_ENABLE();
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  GPIO_InitStruct.Pin = (GPIO_PIN_11 | GPIO_PIN_12);
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-  GPIO_InitStruct.Alternate = GPIO_AF14_USB;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  // Enable USB clock
-  __HAL_RCC_USB_CLK_ENABLE();
-}
 
 int board_uart_write(void const * buf, int len)
 {
