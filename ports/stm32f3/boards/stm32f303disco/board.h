@@ -33,9 +33,9 @@
 #define LED_PIN               GPIO_PIN_10
 #define LED_STATE_ON          1
 
-#define BUTTON_PORT           GPIOA
-#define BUTTON_PIN            GPIO_PIN_0
-#define BUTTON_STATE_ACTIVE   1
+//#define BUTTON_PORT           GPIOA
+//#define BUTTON_PIN            GPIO_PIN_0
+//#define BUTTON_STATE_ACTIVE   1
 
 
 //--------------------------------------------------------------------+
