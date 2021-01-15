@@ -62,6 +62,7 @@ extern const uint8_t fileLogo[];
 extern const uint8_t pendriveLogo[];
 extern const uint8_t arrowLogo[];
 
+// print character with font size = 1
 static void printch(int x, int y, int col, const uint8_t *fnt) {
     for (int i = 0; i < 6; ++i) {
         uint8_t *p = fb + (x + i) * DISPLAY_HEIGHT + y;
@@ -76,6 +77,7 @@ static void printch(int x, int y, int col, const uint8_t *fnt) {
     }
 }
 
+// print character with font size = 4
 static void printch4(int x, int y, int col, const uint8_t *fnt) {
     for (int i = 0; i < 6 * 4; ++i) {
         uint8_t *p = fb + (x + i) * DISPLAY_HEIGHT + y;
@@ -93,6 +95,7 @@ static void printch4(int x, int y, int col, const uint8_t *fnt) {
     }
 }
 
+// print icon
 void printicon(int x, int y, int col, const uint8_t *icon) {
     int w = *icon++;
     int h = *icon++;
@@ -136,7 +139,7 @@ void printicon(int x, int y, int col, const uint8_t *icon) {
     }
 }
 
-// col = color
+// print text with font size = 1
 void print(int x, int y, int col, const char *text) {
     int x0 = x;
     while (*text) {
@@ -164,6 +167,7 @@ void print(int x, int y, int col, const char *text) {
     }
 }
 
+// Print text with font size = 4
 void print4(int x, int y, int col, const char *text) {
     while (*text) {
         char c = *text++;
@@ -177,6 +181,7 @@ void print4(int x, int y, int col, const char *text) {
     }
 }
 
+// Send the whole buffer data to display controller
 static void draw_screen(void) {
     uint8_t *p = fb;
     for (int i = 0; i < DISPLAY_WIDTH; ++i) {
@@ -192,6 +197,7 @@ static void draw_screen(void) {
     }
 }
 
+// draw color bar
 void drawBar(int y, int h, int c) {
     for (int x = 0; x < DISPLAY_WIDTH; ++x) {
         memset(fb + x * DISPLAY_HEIGHT + y, c, h);
@@ -204,6 +210,7 @@ void screen_draw_hf2(void) {
     draw_screen();
 }
 
+// draw drag & drop screen
 void screen_draw_drag (void)
 {
   memset(fb, 0, sizeof(fb));
