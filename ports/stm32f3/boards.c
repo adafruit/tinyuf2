@@ -40,6 +40,7 @@ void board_init(void)
 {
   clock_init();
   SystemCoreClockUpdate();
+  tud_disconnect();
 
   // disable systick
   board_timer_stop();
@@ -92,7 +93,7 @@ void board_init(void)
   HAL_GPIO_Init(UART_GPIO_PORT, &GPIO_InitStruct);
 
 #endif
-  tud_disconnect();
+
   __HAL_RCC_SYSCFG_CLK_ENABLE();
 
 }
