@@ -92,6 +92,7 @@ void board_init(void)
   HAL_GPIO_Init(UART_GPIO_PORT, &GPIO_InitStruct);
 
 #endif
+  tud_disconnect();
   __HAL_RCC_SYSCFG_CLK_ENABLE();
 
 }
@@ -114,6 +115,7 @@ void board_dfu_init(void)
 
 void board_dfu_complete(void)
 {
+  tud_disconnect();
   NVIC_SystemReset();
 }
 
@@ -130,7 +132,7 @@ void board_app_jump(void)
   uint32_t  JumpAddress = *(__IO uint32_t*)(BOARD_FLASH_APP_START + 4);
   pFunction Jump        = (pFunction)JumpAddress;
 
-
+  tud_disconnect();
   HAL_RCC_DeInit();
   HAL_DeInit();
 
