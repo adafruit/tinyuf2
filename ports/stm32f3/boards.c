@@ -252,7 +252,7 @@ void board_dfu_init(void)
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, 0);
   _timer_count = 0;
   board_timer_start(1);
-  while(_timer_count < DBL_TAP_DELAY) {}
+  while(_timer_count < 500) {}
   board_timer_stop();
 
   __HAL_REMAPINTERRUPT_USB_ENABLE();
