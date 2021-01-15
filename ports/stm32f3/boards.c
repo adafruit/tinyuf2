@@ -97,7 +97,7 @@ void board_init(void)
 
 void board_dfu_init(void)
 {
-  uint32_t _timer_count = 0;
+
   __HAL_RCC_USB_FORCE_RESET();
   GPIO_InitTypeDef  GPIO_InitStruct1;
   GPIO_InitStruct1.Pin = (GPIO_PIN_12);
@@ -106,10 +106,7 @@ void board_dfu_init(void)
   GPIO_InitStruct1.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct1);
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, 0);
-  _timer_count = 0;
-  SysTick_Config(SystemCoreClock/1000);
-  while(_timer_count < 500) {}
-  SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk;
+
 
   GPIO_InitTypeDef  GPIO_InitStruct;
   __HAL_REMAPINTERRUPT_USB_ENABLE();
