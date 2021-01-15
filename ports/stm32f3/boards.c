@@ -99,6 +99,7 @@ void board_dfu_init(void)
 {
 
 
+  GPIO_InitTypeDef  GPIO_InitStruct;
   __HAL_REMAPINTERRUPT_USB_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   GPIO_InitStruct.Pin = (GPIO_PIN_11 | GPIO_PIN_12);
