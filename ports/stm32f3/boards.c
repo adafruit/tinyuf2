@@ -134,7 +134,7 @@ void board_app_jump(void)
   SCB->VTOR = (uint32_t) BOARD_FLASH_APP_START;
 
   // Set stack pointer
-  __set_MSP(*(__IO uint32_t*)APP_ADDRESS);
+  __set_MSP(*(__IO uint32_t*)BOARD_FLASH_APP_START);
 
   // Jump to Application Entry
   Jump();
