@@ -33,7 +33,7 @@
 ENTRY(Reset_Handler)
 
 /* Highest address of the user mode stack */
-_estack = 0x2000a000;    /* end of RAM */
+_estack = ORIGIN(RAM) + LENGTH(RAM);     /* end of RAM */
 _board_dfu_dbl_tap = _estack;
 /* Generate a link error if heap and stack don't fit into RAM */
 _Min_Heap_Size = 0x800;;      /* required amount of heap  */
