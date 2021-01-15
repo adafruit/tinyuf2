@@ -97,17 +97,6 @@ void board_init(void)
 
 void board_dfu_init(void)
 {
-
-  __HAL_RCC_USB_FORCE_RESET();
-  GPIO_InitTypeDef  GPIO_InitStruct1;
-  GPIO_InitStruct1.Pin = (GPIO_PIN_12);
-  GPIO_InitStruct1.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct1.Pull = GPIO_NOPULL;
-  GPIO_InitStruct1.Speed = GPIO_SPEED_FREQ_HIGH;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct1);
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, 0);
-
-
   GPIO_InitTypeDef  GPIO_InitStruct;
   __HAL_REMAPINTERRUPT_USB_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
