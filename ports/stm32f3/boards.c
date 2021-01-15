@@ -24,6 +24,7 @@
 
 #include "board_api.h"
 #include "tusb.h"
+#include "usbd.h"
 #include "stm32f3xx_hal.h"
 
 //--------------------------------------------------------------------+
