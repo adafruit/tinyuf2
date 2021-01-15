@@ -33,6 +33,7 @@
 #define STM32_UUID ((uint32_t *)0x1FFF7A10)
 
 UART_HandleTypeDef UartHandle;
+typedef void (*pFunction)(void);
 
 void board_init(void)
 {
@@ -116,21 +117,16 @@ void board_dfu_complete(void)
 
 bool board_app_valid(void)
 {
-  volatile uint32_t const * app_vector = (volatile uint32_t const*) BOARD_FLASH_APP_START;
-
-  // 1st word is stack pointer (should be in SRAM region)
-
-  // 2nd word is App entry point (reset)
-  if (app_vector[1] < BOARD_FLASH_APP_START || app_vector[1] > BOARD_FLASH_APP_START + BOARD_FLASH_SIZE) {
-    return false;
-  }
-
-  return true;
+  return (((*(uint32_t*)BOARD_FLASH_APP_START) - BOARD_RAM_START) <= BOARD_RAM_SIZE);
 }
 
 void board_app_jump(void)
 {
-  volatile uint32_t const * app_vector = (volatile uint32_t const*) BOARD_FLASH_APP_START;
+  uint32_t  JumpAddress = *(__IO uint32_t*)(BOARD_FLASH_APP_START + 4);
+  pFunction Jump        = (pFunction)JumpAddress;
+
+  HAL_RCC_DeInit();
+  HAL_DeInit();
 
   // TODO protect bootloader region
 
@@ -138,10 +134,10 @@ void board_app_jump(void)
   SCB->VTOR = (uint32_t) BOARD_FLASH_APP_START;
 
   // Set stack pointer
-  __set_MSP(app_vector[0]);
+  __set_MSP(*(__IO uint32_t*)APP_ADDRESS);
 
   // Jump to Application Entry
-  asm("bx %0" ::"r"(app_vector[1]));
+  Jump();
 }
 
 uint8_t board_usb_get_serial(uint8_t serial_id[16])
