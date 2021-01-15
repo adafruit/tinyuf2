@@ -97,6 +97,7 @@ void board_init(void)
 
 void board_dfu_init(void)
 {
+  __HAL_RCC_USB_FORCE_RESET();
   GPIO_InitTypeDef  GPIO_InitStruct;
   __HAL_REMAPINTERRUPT_USB_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
@@ -131,6 +132,7 @@ void board_app_jump(void)
 
   HAL_RCC_DeInit();
   HAL_DeInit();
+  __HAL_RCC_USB_FORCE_RESET();
 
   // TODO protect bootloader region
 
