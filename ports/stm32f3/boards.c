@@ -241,6 +241,7 @@ void SysTick_Handler (void)
 
 void board_dfu_init(void)
 {
+  uint32_t _timer_count = 0;
   __HAL_RCC_USB_FORCE_RESET();
   GPIO_InitTypeDef  GPIO_InitStruct;
   GPIO_InitStruct.Pin = (GPIO_PIN_12);
