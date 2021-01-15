@@ -117,8 +117,7 @@ void board_dfu_complete(void)
 
 bool board_app_valid(void)
 {
-  //return (((*(uint32_t*)BOARD_FLASH_APP_START) - BOARD_RAM_START) <= BOARD_RAM_SIZE);
-  return false;
+  return (((*(uint32_t*)BOARD_FLASH_APP_START) - BOARD_RAM_START) <= BOARD_RAM_SIZE);
 }
 
 void board_app_jump(void)
