@@ -52,17 +52,6 @@ void board_init(void)
 
   GPIO_InitTypeDef  GPIO_InitStruct;
 
-  GPIO_InitStruct.Pin = (GPIO_PIN_12);
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, 0);
-
-  _timer_count = 0;
-  board_timer_start(1);
-  while(_timer_count < 500) {}
-  board_timer_stop();
 
 #ifdef BUTTON_PIN
   __HAL_RCC_GPIOA_CLK_ENABLE();
@@ -142,11 +131,8 @@ void board_app_jump(void)
   pFunction Jump        = (pFunction)JumpAddress;
 
 
-
-
   HAL_RCC_DeInit();
   HAL_DeInit();
-  __HAL_RCC_USB_FORCE_RESET();
 
   // TODO protect bootloader region
 
