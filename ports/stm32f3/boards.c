@@ -116,7 +116,6 @@ void board_dfu_init(void)
 
 void board_dfu_complete(void)
 {
-  tud_disconnect();
   NVIC_SystemReset();
 }
 
@@ -132,7 +131,7 @@ void board_app_jump(void)
 {
   uint32_t  JumpAddress = *(__IO uint32_t*)(BOARD_FLASH_APP_START + 4);
   pFunction Jump        = (pFunction)JumpAddress;
-
+  usbd_reset(TUD_OPT_RHPORT);
   tud_disconnect();
   HAL_RCC_DeInit();
   HAL_DeInit();
