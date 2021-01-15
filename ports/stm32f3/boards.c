@@ -118,7 +118,7 @@ void board_dfu_complete(void)
 
 bool board_app_valid(void)
 {
-  if((((*(uint32_t*)BOARD_FLASH_APP_START) - BOARD_RAM_START) <= BOARD_RAM_SIZE) && ((*(uint32_t*)BOARD_FLASH_APP_START + 4) > BOARD_FLASH_APP_START) && ((*(uint32_t*)BOARD_FLASH_APP_START + 4) < BOARD_FLASH_APP_START + BOARD_FLASH_SIZE))
+  if((((*(uint32_t*)BOARD_FLASH_APP_START) - BOARD_RAM_START) <= BOARD_RAM_SIZE)) // && ((*(uint32_t*)BOARD_FLASH_APP_START + 4) > BOARD_FLASH_APP_START) && ((*(uint32_t*)BOARD_FLASH_APP_START + 4) < BOARD_FLASH_APP_START + BOARD_FLASH_SIZE)
     return true;
   else
     return false;
