@@ -106,6 +106,7 @@ void board_init(void)
 
 void board_dfu_init(void)
 {
+
   board_timer_start(1);
   GPIO_InitTypeDef  GPIO_InitStruct;
   GPIO_InitStruct.Pin = GPIO_PIN_12;
@@ -114,7 +115,8 @@ void board_dfu_init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET);
-  HAL_Delay(5);
+  uint8_t i = HAL_GetTick();
+  while(i+5 < HAL_GetTick());
   board_timer_stop();
 
   __HAL_REMAPINTERRUPT_USB_ENABLE();
