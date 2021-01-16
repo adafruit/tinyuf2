@@ -108,7 +108,7 @@ void board_init(void)
     // COUNTFLAG returns 1 if timer counted to 0 since the last flag read
     milliseconds -= (SysTick->CTRL & SysTick_CTRL_COUNTFLAG_Msk) >> SysTick_CTRL_COUNTFLAG_Pos;
   }
-  board_timer_stop(); */
+  board_timer_stop(); 
 
 }
 
