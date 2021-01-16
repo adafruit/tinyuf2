@@ -95,7 +95,7 @@ void board_init(void)
 #endif
 
   __HAL_RCC_SYSCFG_CLK_ENABLE();
-  /*
+
   board_timer_start(1);
   GPIO_InitStruct.Pin = GPIO_PIN_12;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -148,6 +148,7 @@ void board_app_jump(void)
   uint32_t  JumpAddress = *(__IO uint32_t*)(BOARD_FLASH_APP_START + 4);
   pFunction Jump        = (pFunction)JumpAddress;
 
+  board_timer_start(1);
   GPIO_InitTypeDef  GPIO_InitStruct;
   GPIO_InitStruct.Pin = GPIO_PIN_12;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
