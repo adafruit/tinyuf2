@@ -95,6 +95,7 @@ void board_init(void)
 #endif
 
   __HAL_RCC_SYSCFG_CLK_ENABLE();
+  /*
   board_timer_start(1);
   GPIO_InitStruct.Pin = GPIO_PIN_12;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -104,10 +105,10 @@ void board_init(void)
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET);
   uint8_t milliseconds = 5;
   while (milliseconds != 0) {
-    /* COUNTFLAG returns 1 if timer counted to 0 since the last flag read */
+    // COUNTFLAG returns 1 if timer counted to 0 since the last flag read 
     milliseconds -= (SysTick->CTRL & SysTick_CTRL_COUNTFLAG_Msk) >> SysTick_CTRL_COUNTFLAG_Pos;
   }
-  board_timer_stop();
+  board_timer_stop(); */
 
 }
 
