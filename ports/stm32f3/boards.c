@@ -45,14 +45,15 @@ void board_init(void)
   board_timer_stop();
   GPIO_InitTypeDef  GPIO_InitStruct;
   __HAL_RCC_SYSCFG_CLK_ENABLE();
-  board_timer_start(1);
+
   GPIO_InitStruct.Pin = GPIO_PIN_12;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET);
-  uint8_t milliseconds = 255;
+  board_timer_start(1);
+  uint8_t milliseconds = 5;
   while (milliseconds != 0) {
     // COUNTFLAG returns 1 if timer counted to 0 since the last flag read
     milliseconds -= (SysTick->CTRL & SysTick_CTRL_COUNTFLAG_Msk) >> SysTick_CTRL_COUNTFLAG_Pos;
@@ -144,6 +145,13 @@ void board_app_jump(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET);
+  board_timer_start(1);
+  uint8_t milliseconds = 5;
+  while (milliseconds != 0) {
+    // COUNTFLAG returns 1 if timer counted to 0 since the last flag read
+    milliseconds -= (SysTick->CTRL & SysTick_CTRL_COUNTFLAG_Msk) >> SysTick_CTRL_COUNTFLAG_Pos;
+  }
+  board_timer_stop();
 
   HAL_RCC_DeInit();
   HAL_DeInit();
