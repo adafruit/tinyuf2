@@ -38,64 +38,13 @@ static volatile uint32_t _timer_count = 0;
 
 void board_init(void)
 {
-  HAL_Init();
   clock_init();
   SystemCoreClockUpdate();
 
   // disable systick
   board_timer_stop();
-
-  // TODO enable only used GPIO clock
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-  __HAL_RCC_GPIOC_CLK_ENABLE();
-  __HAL_RCC_GPIOD_CLK_ENABLE();
-
   GPIO_InitTypeDef  GPIO_InitStruct;
 
-
-#ifdef BUTTON_PIN
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  GPIO_InitStruct.Pin = BUTTON_PIN;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-  HAL_GPIO_Init(BUTTON_PORT, &GPIO_InitStruct);
-#endif
-
-#ifdef LED_PIN
-  __HAL_RCC_GPIOE_CLK_ENABLE();
-  GPIO_InitStruct.Pin = LED_PIN;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-  HAL_GPIO_Init(LED_PORT, &GPIO_InitStruct);
-
-  board_led_write(0);
-#endif
-
-#if NEOPIXEL_NUMBER
-  GPIO_InitStruct.Pin = NEOPIXEL_PIN;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-  HAL_GPIO_Init(NEOPIXEL_PORT, &GPIO_InitStruct);
-#endif
-
-#if defined(UART_DEV) && CFG_TUSB_DEBUG
-  UART_CLOCK_ENABLE();
-
-  GPIO_InitStruct.Pin       = UART_TX_PIN | UART_RX_PIN;
-  GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull      = GPIO_PULLUP;
-  GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_HIGH;
-  GPIO_InitStruct.Alternate = GPIO_AF7_USART2;
-  HAL_GPIO_Init(UART_GPIO_PORT, &GPIO_InitStruct);
-
-#endif
-
-  __HAL_RCC_SYSCFG_CLK_ENABLE();
-  /*
   board_timer_start(1);
   GPIO_InitStruct.Pin = GPIO_PIN_12;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -108,13 +57,52 @@ void board_init(void)
     // COUNTFLAG returns 1 if timer counted to 0 since the last flag read
     milliseconds -= (SysTick->CTRL & SysTick_CTRL_COUNTFLAG_Msk) >> SysTick_CTRL_COUNTFLAG_Pos;
   }
-  board_timer_stop(); */
+  board_timer_stop();
 
 }
 
 void board_dfu_init(void)
 {
-    GPIO_InitTypeDef  GPIO_InitStruct;
+  GPIO_InitTypeDef  GPIO_InitStruct;
+  #ifdef BUTTON_PIN
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+    GPIO_InitStruct.Pin = BUTTON_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(BUTTON_PORT, &GPIO_InitStruct);
+  #endif
+
+  #ifdef LED_PIN
+    __HAL_RCC_GPIOE_CLK_ENABLE();
+    GPIO_InitStruct.Pin = LED_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(LED_PORT, &GPIO_InitStruct);
+
+    board_led_write(0);
+  #endif
+
+  #if NEOPIXEL_NUMBER
+    GPIO_InitStruct.Pin = NEOPIXEL_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(NEOPIXEL_PORT, &GPIO_InitStruct);
+  #endif
+
+  #if defined(UART_DEV) && CFG_TUSB_DEBUG
+    UART_CLOCK_ENABLE();
+
+    GPIO_InitStruct.Pin       = UART_TX_PIN | UART_RX_PIN;
+    GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull      = GPIO_PULLUP;
+    GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF7_USART2;
+    HAL_GPIO_Init(UART_GPIO_PORT, &GPIO_InitStruct);
+
+  #endif
   __HAL_REMAPINTERRUPT_USB_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   GPIO_InitStruct.Pin = (GPIO_PIN_11 | GPIO_PIN_12);
@@ -125,6 +113,7 @@ void board_dfu_init(void)
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   // Enable USB clock
+  __HAL_RCC_SYSCFG_CLK_ENABLE();
   __HAL_RCC_USB_CLK_ENABLE();
   HAL_NVIC_SetPriority(USB_LP_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(USB_LP_IRQn);
