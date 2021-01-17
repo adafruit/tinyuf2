@@ -44,7 +44,7 @@ void board_init(void)
   // disable systick
   board_timer_stop();
   GPIO_InitTypeDef  GPIO_InitStruct;
-
+  __HAL_RCC_SYSCFG_CLK_ENABLE();
   board_timer_start(1);
   GPIO_InitStruct.Pin = GPIO_PIN_12;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -113,7 +113,7 @@ void board_dfu_init(void)
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   // Enable USB clock
-  __HAL_RCC_SYSCFG_CLK_ENABLE();
+
   __HAL_RCC_USB_CLK_ENABLE();
   HAL_NVIC_SetPriority(USB_LP_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(USB_LP_IRQn);
