@@ -22,8 +22,8 @@
  * THE SOFTWARE.
  */
 
-#ifndef ADAFRUIT_FEATHER_ESP32S2_H_
-#define ADAFRUIT_FEATHER_ESP32S2_H_
+#ifndef ADAFRUIT_FEATHER_ESP32S2_TFT_H_
+#define ADAFRUIT_FEATHER_ESP32S2_TFT_H_
 
 //--------------------------------------------------------------------+
 // Button
@@ -60,16 +60,43 @@
 #define LED_STATE_ON          1
 
 //--------------------------------------------------------------------+
+// TFT
+//--------------------------------------------------------------------+
+
+#define CONFIG_LCD_TYPE_ST7789V
+
+#define DISPLAY_PIN_MISO      -1 // required if use CONFIG_LCD_TYPE_AUTO
+#define DISPLAY_PIN_MOSI      35
+#define DISPLAY_PIN_SCK       36
+
+#define DISPLAY_PIN_CS        42
+#define DISPLAY_PIN_DC        40
+#define DISPLAY_PIN_RST       41
+
+#define DISPLAY_PIN_BL        7
+#define DISPLAY_BL_ON         1  // GPIO state to enable back light
+
+#define DISPLAY_WIDTH         240
+#define DISPLAY_HEIGHT        135
+
+#define DISPLAY_COL_OFFSET    53
+#define DISPLAY_ROW_OFFSET    40
+
+#define DISPLAY_MADCTL        (TFT_MADCTL_MX)
+
+#define DISPLAY_TITLE         "Feather TFT"
+
+//--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
 
 #define USB_VID           0x239A
-#define USB_PID           0x00EB
+#define USB_PID           0x00ED
 #define USB_MANUFACTURER  "Adafruit"
-#define USB_PRODUCT       "Feather ESP32-S2"
+#define USB_PRODUCT       "Feather ESP32-S2 Reverse TFT"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "ESP32S2-Feather-revA"
+#define UF2_BOARD_ID      "ESP32S2-FeatherTFT-revA"
 #define UF2_VOLUME_LABEL  "FTHRS2BOOT"
 #define UF2_INDEX_URL     "https://www.adafruit.com/product/pid" // TODO update link
 

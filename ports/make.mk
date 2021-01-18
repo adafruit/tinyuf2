@@ -103,6 +103,7 @@ CFLAGS += \
   -Wunreachable-code \
   -Wcast-align \
   -DBOARD_UF2_FAMILY_ID=$(UF2_FAMILY_ID) \
+  -DUF2_VERSION_BASE='"$(GIT_VERSION)"'\
   -DUF2_VERSION='"$(GIT_VERSION) - $(GIT_SUBMODULE_VERSIONS)"'
 
 # Debugging/Optimization
