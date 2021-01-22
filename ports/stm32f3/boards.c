@@ -44,6 +44,7 @@ void board_init(void)
 
   // disable systick
   board_timer_stop();
+
   GPIO_InitTypeDef  GPIO_InitStruct;
   __HAL_RCC_SYSCFG_CLK_ENABLE();
 
@@ -53,13 +54,6 @@ void board_init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET);
-  board_timer_start(1);
-  uint8_t milliseconds = 255;
-  while (milliseconds != 0) {
-    // COUNTFLAG returns 1 if timer counted to 0 since the last flag read
-    milliseconds -= (SysTick->CTRL & SysTick_CTRL_COUNTFLAG_Msk) >> SysTick_CTRL_COUNTFLAG_Pos;
-  }
-  board_timer_stop();
 
 }
 
@@ -111,8 +105,8 @@ void board_dfu_init(void)
     UartHandle.Init.HwFlowCtl  = UART_HWCONTROL_NONE;
     UartHandle.Init.Mode       = UART_MODE_TX_RX;
     HAL_UART_Init(&UartHandle);
-
   #endif
+
   __HAL_REMAPINTERRUPT_USB_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   GPIO_InitStruct.Pin = (GPIO_PIN_11 | GPIO_PIN_12);
@@ -154,13 +148,6 @@ void board_app_jump(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET);
-  board_timer_start(1);
-  uint8_t milliseconds = 5;
-  while (milliseconds != 0) {
-    // COUNTFLAG returns 1 if timer counted to 0 since the last flag read
-    milliseconds -= (SysTick->CTRL & SysTick_CTRL_COUNTFLAG_Msk) >> SysTick_CTRL_COUNTFLAG_Pos;
-  }
-  board_timer_stop();
 
   #ifdef BUTTON_PIN
   HAL_GPIO_DeInit(BUTTON_PORT, BUTTON_PIN);
@@ -179,6 +166,7 @@ void board_app_jump(void)
     HAL_GPIO_DeInit(UART_GPIO_PORT, UART_TX_PIN | UART_RX_PIN);
   #endif
 
+  HAL_GPIO_DeInit(GPIOA, GPIO_PIN_12 | GPIO_PIN_11);
 
   __HAL_RCC_GPIOA_CLK_DISABLE();
   __HAL_RCC_GPIOB_CLK_DISABLE();
