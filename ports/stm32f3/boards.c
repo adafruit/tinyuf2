@@ -54,7 +54,7 @@ void board_init(void)
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET);
   board_timer_start(1);
-  uint8_t milliseconds = 5;
+  uint8_t milliseconds = 255;
   while (milliseconds != 0) {
     // COUNTFLAG returns 1 if timer counted to 0 since the last flag read
     milliseconds -= (SysTick->CTRL & SysTick_CTRL_COUNTFLAG_Msk) >> SysTick_CTRL_COUNTFLAG_Pos;
