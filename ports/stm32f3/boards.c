@@ -177,7 +177,6 @@ void board_app_jump(void)
   #if defined(UART_DEV) && CFG_TUSB_DEBUG
     HAL_UART_DeInit(&UartHandle);
     HAL_GPIO_DeInit(UART_GPIO_PORT, UART_TX_PIN | UART_RX_PIN);
-    UART_CLOCK_DISABLE();
   #endif
 
 
