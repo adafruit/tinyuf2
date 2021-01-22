@@ -84,6 +84,15 @@ void board_init(void)
   GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_HIGH;
   GPIO_InitStruct.Alternate = UART_GPIO_AF;
   HAL_GPIO_Init(UART_GPIO_PORT, &GPIO_InitStruct);
+
+  UartHandle.Instance        = UART_DEV;
+  UartHandle.Init.BaudRate   = 115200;
+  UartHandle.Init.WordLength = UART_WORDLENGTH_8B;
+  UartHandle.Init.StopBits   = UART_STOPBITS_1;
+  UartHandle.Init.Parity     = UART_PARITY_NONE;
+  UartHandle.Init.HwFlowCtl  = UART_HWCONTROL_NONE;
+  UartHandle.Init.Mode       = UART_MODE_TX_RX;
+  HAL_UART_Init(&UartHandle);
 #endif
 }
 
