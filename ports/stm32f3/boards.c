@@ -35,6 +35,7 @@
 UART_HandleTypeDef UartHandle;
 typedef void (*pFunction)(void);
 static volatile uint32_t _timer_count = 0;
+UART_HandleTypeDef UartHandle;
 
 void board_init(void)
 {
@@ -102,6 +103,14 @@ void board_dfu_init(void)
     GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF7_USART2;
     HAL_GPIO_Init(UART_GPIO_PORT, &GPIO_InitStruct);
+    UartHandle.Instance        = UART_DEV;
+    UartHandle.Init.BaudRate   = 115200;
+    UartHandle.Init.WordLength = UART_WORDLENGTH_8B;
+    UartHandle.Init.StopBits   = UART_STOPBITS_1;
+    UartHandle.Init.Parity     = UART_PARITY_NONE;
+    UartHandle.Init.HwFlowCtl  = UART_HWCONTROL_NONE;
+    UartHandle.Init.Mode       = UART_MODE_TX_RX;
+    HAL_UART_Init(&UartHandle);
 
   #endif
   __HAL_REMAPINTERRUPT_USB_ENABLE();
@@ -153,7 +162,34 @@ void board_app_jump(void)
   }
   board_timer_stop();
 
+  #ifdef BUTTON_PIN
+  HAL_GPIO_DeInit(BUTTON_PORT, BUTTON_PIN);
+  #endif
+
+  #ifdef LED_PIN
+    HAL_GPIO_DeInit(LED_PORT, LED_PIN);
+  #endif
+
+  #if NEOPIXEL_NUMBER
+    HAL_GPIO_DeInit(NEOPIXEL_PORT, NEOPIXEL_PIN);
+  #endif
+
+  #if defined(UART_DEV) && CFG_TUSB_DEBUG
+    HAL_UART_DeInit(&UartHandle);
+    HAL_GPIO_DeInit(UART_GPIO_PORT, UART_TX_PIN | UART_RX_PIN);
+    UART_CLOCK_DISABLE();
+  #endif
+
+
+  __HAL_RCC_GPIOA_CLK_DISABLE();
+  __HAL_RCC_GPIOB_CLK_DISABLE();
+  __HAL_RCC_GPIOC_CLK_DISABLE();
+  __HAL_RCC_GPIOD_CLK_DISABLE();
+
   HAL_RCC_DeInit();
+
+  __disable_irq();
+  __set_PRIMASK(1);
   HAL_DeInit();
 
   // TODO protect bootloader region
