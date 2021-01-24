@@ -2,8 +2,6 @@
 # Common make rules for all
 # ---------------------------------------
 
-OUTNAME = tinyuf2-$(BOARD)
-
 PYTHON3 ?= python3
 MKDIR = mkdir
 SED = sed
@@ -109,6 +107,7 @@ endif
 
 JLINK_IF ?= swd
 
+# Flash hex file using jlink
 $(BUILD)/$(BOARD).jlink: $(BUILD)/$(OUTNAME).hex
 	@echo halt > $@
 	@echo r >> $@
@@ -117,8 +116,19 @@ $(BUILD)/$(BOARD).jlink: $(BUILD)/$(OUTNAME).hex
 	@echo go >> $@
 	@echo exit >> $@
 
-# Flash using jlink
 flash-jlink: $(BUILD)/$(BOARD).jlink
+	$(JLINKEXE) -device $(JLINK_DEVICE) -if $(JLINK_IF) -JTAGConf -1,-1 -speed auto -CommandFile $<
+
+# Flash bin file with jlink
+$(BUILD)/$(BOARD)-bin.jlink: $(BUILD)/$(OUTNAME).bin
+	@echo halt > $@
+	@echo r >> $@
+	@echo loadfile $< $(FLASH_BIN_ADDR) >> $@
+	@echo r >> $@
+	@echo go >> $@
+	@echo exit >> $@
+
+flash-jlink-bin: $(BUILD)/$(BOARD)-bin.jlink
 	$(JLINKEXE) -device $(JLINK_DEVICE) -if $(JLINK_IF) -JTAGConf -1,-1 -speed auto -CommandFile $<
 
 # Erase with jlink
@@ -140,8 +150,15 @@ erase-stlink:
 	STM32_Programmer_CLI --connect port=swd --erase all
 
 #-------------------- Flash with pyocd --------------------
+
+# Flash hex file using pyocd
 flash-pyocd: $(BUILD)/$(OUTNAME).hex
 	pyocd flash -t $(PYOCD_TARGET) $<
+	pyocd reset -t $(PYOCD_TARGET)
+
+# Flash bin file using pyocd
+flash-pyocd-bin: $(BUILD)/$(OUTNAME).hex
+	pyocd flash -t $(PYOCD_TARGET) -a $(FLASH_BIN_ADDR) $<
 	pyocd reset -t $(PYOCD_TARGET)
 
 erase-pyocd:

@@ -1,10 +1,25 @@
+_fcfb_length = 0x0C00;
+
+/* offset 0x1000 */
+_ivt_origin = _fcfb_origin + _fcfb_length;
+_ivt_length = 0x0400;
+
+/* offset 0x1400 */
+_interrupts_origin = _ivt_origin + _ivt_length;
+_interrupts_length = 0x0400;
+
+/* offset 0x1800 */
+_text_origin = _interrupts_origin + _interrupts_length;
+_text_length =  0x8800;
+
 /* Specify the memory areas */
 MEMORY
 {
-  m_flash_config        (RX)  : ORIGIN = m_flash_config_origin, LENGTH = 0x00000C00
-  m_ivt                 (RX)  : ORIGIN = m_flash_base + 0x1000, LENGTH = 0x00001000
-  m_interrupts          (RX)  : ORIGIN = m_flash_base + 0x2000, LENGTH = 0x00000400
-  m_text                (RX)  : ORIGIN = m_flash_base + 0x2400, LENGTH = 0xC000 - 0x2400
-  m_data                (RW)  : ORIGIN = 0x20000000, LENGTH = m_data_length - 4 /* double tap */
-  m_data2               (RW)  : ORIGIN = 0x20200000, LENGTH = 0x00010000
+  m_flash_config        (RX)  : ORIGIN = _fcfb_origin       , LENGTH = _fcfb_length
+  m_ivt                 (RX)  : ORIGIN = _ivt_origin        , LENGTH = _ivt_length
+  m_interrupts          (RX)  : ORIGIN = _interrupts_origin , LENGTH = _interrupts_length
+  m_text                (RX)  : ORIGIN = _text_origin       , LENGTH = _text_length
+
+  m_data                (RW)  : ORIGIN = _dtcm_base         , LENGTH = _dtcm_size - 4 /* 4 bytes for double tap */
+  m_data2               (RW)  : ORIGIN = _ocram_base        , LENGTH = _ocram_size
 }

@@ -1,7 +1,7 @@
 /ports/*/_build/
 /ports/esp32s2/self_update/_build/
 /ports/*/_bin/
-sdkconfig
+/sdkconfig
 .settings/
 *.o
 *.d

@@ -13,12 +13,10 @@ $(SELF_OBJ): | $(SELF_OBJ_DIRS)
 $(SELF_OBJ_DIRS):
 	@$(MKDIR) -p $@
 
+# self-update uf2 target is defined by port Makefile
 self-update: $(SELF_BUILD_OBJ)/$(SELF_OUTNAME).uf2
 
-$(SELF_BUILD_OBJ)/$(SELF_OUTNAME).uf2: $(SELF_BUILD_OBJ)/$(SELF_OUTNAME).hex
-	@echo CREATE $@
-	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py -f $(UF2_FAMILY_ID) -c -o $@ $^
-
+# self-update elf require self_update/$(OUTPNAME0.c which is defined by port Makefile
 $(SELF_BUILD_OBJ)/$(SELF_OUTNAME).elf: $(SELF_OBJ)
 	@echo LINK $@
 	@$(CC) -o $@ $(SELF_LDFLAGS) $(addprefix $(LD_SCRIPT_FLAG), $(SELF_LD_FILES)) $^ -Wl,--start-group $(LIBS) -Wl,--end-group

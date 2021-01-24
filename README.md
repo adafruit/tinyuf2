@@ -1,6 +1,6 @@
-# UF2 Bootloader
+# TinyUF2 Bootloader
 
-[![Build Status](https://github.com/adafruit/uf2-esp32s/workflows/Build/badge.svg)](https://github.com/adafruit/uf2-esp32s/actions)[![License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
+[![Build Status](https://github.com/adafruit/tinyuf2/workflows/Build/badge.svg)](https://github.com/adafruit/tinyuf2/actions)[![License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
 
 This repo is cross-platform UF2 Bootloader projects for MCUs based on [TinyUSB](https://github.com/hathach/tinyusb)
 
@@ -19,7 +19,7 @@ This repo is cross-platform UF2 Bootloader projects for MCUs based on [TinyUSB](
 
 TODO more docs later
 
-- Support ESP32-S2, iMXRT10xx, STM32F4
+- Support ESP32-S2, iMXRT10xx, LPC55xx, STM32F4
 - Self update with update file in uf2 format
 - Indicator: LED, RGB
 - Debug log with uart/swd
@@ -36,7 +36,7 @@ TODO more docs later
 Firstly clone this repo and its submodules with 
 
 ``` 
-$ git clone --recurse-submodules https://github.com/adafruit/uf2-esp32s
+$ git clone --recurse-submodules https://github.com/adafruit/tinyuf2
 ```
 
 To build this for a specific board, we need to change current directory to its port folder

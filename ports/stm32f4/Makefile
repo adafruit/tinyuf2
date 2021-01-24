@@ -1,16 +1,12 @@
-PORT = stm32f4
 UF2_FAMILY_ID = 0x57755a57
-
-#-------------- Cross Compiler  ------------
 CROSS_COMPILE = arm-none-eabi-
-
-CC = $(CROSS_COMPILE)gcc
-OBJCOPY = $(CROSS_COMPILE)objcopy
-SIZE = $(CROSS_COMPILE)size
 
 ST_HAL_DRIVER = lib/st/stm32f4xx_hal_driver
 ST_CMSIS = lib/st/cmsis_device_f4
 CMSIS_5 = lib/CMSIS_5
+
+# List of git submodules that is included as part of the UF2 version
+GIT_SUBMODULES = CMSIS_5 st tinyusb
 
 include ../make.mk
 
@@ -23,13 +19,12 @@ CFLAGS += \
   -mfloat-abi=hard \
   -mfpu=fpv4-sp-d16 \
   -nostdlib -nostartfiles \
-  -DCFG_TUSB_MCU=OPT_MCU_STM32F4 \
-  -DBOARD_UF2_FAMILY_ID=$(UF2_FAMILY_ID)
+  -DCFG_TUSB_MCU=OPT_MCU_STM32F4
 
 # suppress warning caused by vendor mcu driver
 CFLAGS += -Wno-error=cast-align -Wno-error=unused-parameter
 
-LD_FILES ?= ports/$(PORT)/linker/stm32f4.ld
+LD_FILES ?= $(PORT_DIR)/linker/stm32f4.ld
 
 # Port source
 PORT_SRC_C += \
@@ -67,7 +62,11 @@ SELF_ASFLAGS = $(ASFLAGS)
 
 include ../self_update.mk
 
-# required for uf2 conversion
+# self-update uf2 file
+$(SELF_BUILD_OBJ)/$(SELF_OUTNAME).uf2: $(SELF_BUILD_OBJ)/$(SELF_OUTNAME).hex
+	@echo CREATE $@
+	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py -f $(UF2_FAMILY_ID) -c -o $@ $^
+
 $(SELF_BUILD_OBJ)/$(SELF_OUTNAME).hex: $(SELF_BUILD_OBJ)/$(SELF_OUTNAME).elf
 	@echo CREATE $@
 	@$(OBJCOPY) -O ihex $^ $@

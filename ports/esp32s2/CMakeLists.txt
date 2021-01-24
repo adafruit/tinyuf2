@@ -27,4 +27,18 @@ set(SDKCONFIG ${CMAKE_BINARY_DIR}/sdkconfig)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 set(SUPPORTED_TARGETS esp32s2)
 
+execute_process(COMMAND git describe --dirty --always --tags
+                OUTPUT_VARIABLE GIT_VERSION
+                ERROR_QUIET)
+string(STRIP ${GIT_VERSION} GIT_VERSION)
+
+execute_process(COMMAND bash "-c" "git submodule status ${TOP}/lib/esp-idf ${TOP}/lib/tinyusb | cut -d\" \" -f3,4 | paste -s -d\" \" -"
+                OUTPUT_VARIABLE GIT_SUBMODULE_VERSIONS
+                ERROR_QUIET)
+string(REPLACE ../../../../lib/ "" GIT_SUBMODULE_VERSIONS ${GIT_SUBMODULE_VERSIONS})
+string(STRIP ${GIT_SUBMODULE_VERSIONS} GIT_SUBMODULE_VERSIONS)
+
+add_compile_definitions(UF2_VERSION_BASE="${GIT_VERSION}")
+add_compile_definitions(UF2_VERSION="${GIT_VERSION} - ${GIT_SUBMODULE_VERSIONS}")
+
 project(tinyuf2)

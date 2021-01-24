@@ -28,7 +28,7 @@
 #ifndef BOARD_H_
 #define BOARD_H_
 
-// required since iMX RT10xx SDK include this file for board size
+// Size of on-board external flash
 #define BOARD_FLASH_SIZE     (0x1000000U)
 
 //--------------------------------------------------------------------+

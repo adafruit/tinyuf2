@@ -16,6 +16,8 @@ jobs:
       matrix:
         board:
         # Alphabetical order
+        - 'adafruit_feather_esp32s2'
+        - 'adafruit_feather_esp32s2_tft'
         - 'adafruit_magtag_29gray'
         - 'adafruit_metro_esp32s2'
         - 'espressif_kaluga_1'
@@ -35,12 +37,12 @@ jobs:
         submodules: 'true'
         fetch-depth: 0
 
-    - uses: actions/cache@v1
+    - uses: actions/cache@v2
       name: Fetch IDF tool cache
       id: idf-cache
       with:
         path: ${{ github.workspace }}/.idf_tools
-        key: ${{ runner.os }}-idf-tools-${{ hashFiles('.git/modules/lib/esp-idf/HEAD') }}-20200801
+        key: ${{ runner.os }}-idf-tools-${{ hashFiles('.git/modules/lib/esp-idf/HEAD') }}-20201222
 
     - name: Clone IDF submodules
       run: |
@@ -49,6 +51,7 @@ jobs:
         IDF_PATH: ${{ github.workspace }}/lib/esp-idf
 
     - name: Install IDF tools
+      if: steps.idf-cache.outputs.cache-hit != 'true'
       run: |
         $IDF_PATH/tools/idf_tools.py --non-interactive install required
         $IDF_PATH/tools/idf_tools.py --non-interactive install cmake
@@ -74,21 +77,23 @@ jobs:
         name: ${{ matrix.board }}
         path: ports/esp32s2/_bin/${{ matrix.board }}/
 
-    - name: Rename release artifact
-      run: cp build/uf2-esp32s.bin uf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.bin
+    - name: Create Release Asset
       if: ${{ github.event_name == 'release' }}
+      run: |
+        #for f in ports/esp32s2/_bin/${{ matrix.board }}/*; do mv $f ${f%.*}-${{ github.event.release.tag_name }}."${f#*.}"; done
+        zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ports/esp32s2/_bin/${{ matrix.board }}
 
     - name: Upload Release Asset
       id: upload-release-asset
       uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      if: ${{ github.event_name == 'release' }}
       with:
         upload_url: ${{ github.event.release.upload_url }}
-        asset_path: ./uf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.bin
-        asset_name: uf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.bin
-        asset_content_type: application/octet-stream
-      if: ${{ github.event_name == 'release' }}
+        asset_path: tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip
+        asset_name: tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip
+        asset_content_type: application/zip
   
   ARM:
     runs-on: ubuntu-latest
@@ -97,6 +102,10 @@ jobs:
       matrix:
         board:
         # Alphabetical order
+        # lpc55
+        - 'double_m33_express'
+        - 'lpcxpresso55s28'
+        - 'lpcxpresso55s69'
         # mimxrt10xx
         - 'imxrt1010_evk'
         - 'imxrt1020_evk'
@@ -143,3 +152,21 @@ jobs:
       with:
         name: ${{ matrix.board }}
         path: ${{ env.PORT }}/_bin/${{ matrix.board }}
+
+    - name: Create Release Asset
+      if: ${{ github.event_name == 'release' }}
+      run: |
+        for f in ${{ env.PORT }}/_bin/${{ matrix.board }}/*; do mv $f ${f%.*}-${{ github.event.release.tag_name }}."${f#*.}"; done
+        zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ${{ env.PORT }}/_bin/${{ matrix.board }}
+
+    - name: Upload Release Asset
+      id: upload-release-asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      if: ${{ github.event_name == 'release' }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip
+        asset_name: tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip
+        asset_content_type: application/zip

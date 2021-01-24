@@ -57,8 +57,11 @@ uint8_t const RGB_OFF[]           = { 0x00, 0x00, 0x00 };
 //
 //--------------------------------------------------------------------+
 
+#ifndef DBL_TAP_REG 
 // defined by linker script
 extern uint32_t _board_dfu_dbl_tap[];
+#define DBL_TAP_REG   _board_dfu_dbl_tap[0]
+#endif
 static volatile uint32_t _timer_count = 0;
 
 // return true if start DFU mode, else App mode
@@ -67,26 +70,26 @@ static bool check_dfu_mode(void)
   // Check if app is valid
   if ( !board_app_valid() ) return true;
 
-#if USE_DFU_DOUBLE_TAP
+#if TINYUF2_DFU_DOUBLE_TAP
 //  TU_LOG1_HEX(_board_dfu_dbl_tap);
-//  TU_LOG1_HEX(_board_dfu_dbl_tap[0]);
+//  TU_LOG1_HEX(DBL_TAP_REG);
 
   // App want to reboot quickly
-  if (_board_dfu_dbl_tap[0] == DBL_TAP_MAGIC_QUICK_BOOT)
+  if (DBL_TAP_REG == DBL_TAP_MAGIC_QUICK_BOOT)
   {
-    _board_dfu_dbl_tap[0] = 0;
+    DBL_TAP_REG = 0;
     return false;
   }
 
-  if (_board_dfu_dbl_tap[0] == DBL_TAP_MAGIC)
+  if (DBL_TAP_REG == DBL_TAP_MAGIC)
   {
     // Double tap occurred
-    _board_dfu_dbl_tap[0] = 0;
+    DBL_TAP_REG = 0;
     return true;
   }
 
   // Register our first reset for double reset detection
-  _board_dfu_dbl_tap[0] = DBL_TAP_MAGIC;
+  DBL_TAP_REG = DBL_TAP_MAGIC;
 
   _timer_count = 0;
   board_timer_start(1);
@@ -106,7 +109,7 @@ static bool check_dfu_mode(void)
   board_rgb_write(RGB_OFF);
   board_led_write(0x00);
 
-  _board_dfu_dbl_tap[0] = 0;
+  DBL_TAP_REG = 0;
 #endif
 
   return false;
@@ -115,7 +118,6 @@ static bool check_dfu_mode(void)
 int main(void)
 {
   board_init();
-
   TU_LOG1("TinyUF2\r\n");
 
   // if not DFU mode, jump to App
@@ -128,13 +130,12 @@ int main(void)
   board_dfu_init();
   board_flash_init();
   uf2_init();
-
   tusb_init();
 
   indicator_set(STATE_USB_UNPLUGGED);
 
-#if USE_SCREEN
-  screen_init();
+#if TINYUF2_DISPLAY
+  board_display_init();
   screen_draw_drag();
 #endif
 
@@ -238,7 +239,7 @@ void board_timer_handler(void)
     case STATE_USB_UNPLUGGED:
     case STATE_USB_PLUGGED:
     {
-      // Fading with LED
+      // Fading with LED TODO option to skip for unsupported MCUs
       uint8_t duty = _timer_count & 0xff;
       if ( _timer_count & 0x100 ) duty = 255 - duty;
       board_led_write(duty);

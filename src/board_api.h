@@ -39,16 +39,24 @@
 #define BOARD_FLASH_APP_START  0
 #endif
 
-// USE LED for part of indicator
-#ifndef USE_LED
-#define USE_LED 0
+// Use LED for part of indicator
+#ifndef TINYUF2_LED
+#define TINYUF2_LED 0
 #endif
 
-// Use RGB for part of indicator e.g neopixel, dotstar
-// 0 for not available, otherwise number of RGBs
-#ifndef USE_RGB
-#define USE_RGB 0
+// Use Double Tap method to enter DFU mode
+#ifndef TINYUF2_DFU_DOUBLE_TAP
+#define TINYUF2_DFU_DOUBLE_TAP      0
 #endif
+
+// Use Display to draw DFU image
+#ifndef TINYUF2_DISPLAY
+#define TINYUF2_DISPLAY 0
+#endif
+
+//--------------------------------------------------------------------+
+// Platform Dependent API
+//--------------------------------------------------------------------+
 
 // Baudrate for UART if used
 #define BOARD_UART_BAUDRATE   115200
@@ -96,15 +104,12 @@ void     board_flash_read (uint32_t addr, void* buffer, uint32_t len);
 void     board_flash_write(uint32_t addr, void const *data, uint32_t len);
 void     board_flash_flush(void);
 
+#if TINYUF2_DISPLAY
+  void board_display_init(void);
+  void board_display_draw_line(int y, uint16_t* pixel_color, uint32_t pixel_num);
 
-#ifdef PIN_DISPLAY_SCK
-  #define USE_SCREEN 1
-
-  void screen_init(void);
   void screen_draw_drag(void);
   void screen_draw_hf2(void);
-#else
-  #define USE_SCREEN 0
 #endif
 
 // perform self-update on bootloader
@@ -115,11 +120,11 @@ void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len);
 //--------------------------------------------------------------------+
 
 enum {
-  STATE_BOOTLOADER_STARTED = 0,
-  STATE_USB_PLUGGED,
-  STATE_USB_UNPLUGGED,
-  STATE_WRITING_STARTED,
-  STATE_WRITING_FINISHED,
+  STATE_BOOTLOADER_STARTED = 0,///< STATE_BOOTLOADER_STARTED
+  STATE_USB_PLUGGED,           ///< STATE_USB_PLUGGED
+  STATE_USB_UNPLUGGED,         ///< STATE_USB_UNPLUGGED
+  STATE_WRITING_STARTED,       ///< STATE_WRITING_STARTED
+  STATE_WRITING_FINISHED,      ///< STATE_WRITING_FINISHED
 };
 
 void indicator_set(uint32_t state);
@@ -131,5 +136,48 @@ static inline void rgb_brightness(uint8_t out[3], uint8_t const in[3], uint8_t b
     out[i] = (in[i]*brightness) >> 8;
   }
 }
+
+//--------------------------------------------------------------------+
+//
+//--------------------------------------------------------------------+
+#define ST_CMD_DELAY 0x80 // special signifier for command lists
+
+#define ST77XX_NOP 0x00
+#define ST77XX_SWRESET 0x01
+#define ST77XX_RDDID 0x04
+#define ST77XX_RDDST 0x09
+
+#define ST77XX_SLPIN 0x10
+#define ST77XX_SLPOUT 0x11
+#define ST77XX_PTLON 0x12
+#define ST77XX_NORON 0x13
+
+#define ST77XX_INVOFF 0x20
+#define ST77XX_INVON 0x21
+#define ST77XX_DISPOFF 0x28
+#define ST77XX_DISPON 0x29
+#define ST77XX_CASET 0x2A
+#define ST77XX_RASET 0x2B
+#define ST77XX_RAMWR 0x2C
+#define ST77XX_RAMRD 0x2E
+
+#define ST77XX_PTLAR 0x30
+#define ST77XX_TEOFF 0x34
+#define ST77XX_TEON 0x35
+#define ST77XX_MADCTL 0x36
+#define ST77XX_COLMOD 0x3A
+
+#define ST77XX_RDID1 0xDA
+#define ST77XX_RDID2 0xDB
+#define ST77XX_RDID3 0xDC
+#define ST77XX_RDID4 0xDD
+
+#define TFT_MADCTL_MY  0x80  ///< Bottom to top
+#define TFT_MADCTL_MX  0x40  ///< Right to left
+#define TFT_MADCTL_MV  0x20  ///< Reverse Mode ( X <-> Y )
+#define TFT_MADCTL_ML  0x10  ///< LCD refresh Bottom to top
+#define TFT_MADCTL_RGB 0x00  ///< Red-Green-Blue pixel order
+#define TFT_MADCTL_BGR 0x08  ///< Blue-Green-Red pixel order
+#define TFT_MADCTL_MH  0x04  ///< LCD refresh right to left
 
 #endif

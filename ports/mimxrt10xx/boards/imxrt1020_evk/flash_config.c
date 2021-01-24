@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "flexspi_nor_config.h"
+#include "flexspi_nor_flash.h"
 #include "fsl_flexspi_nor_boot.h"
 #include "boards.h"
 
@@ -30,8 +30,8 @@ __attribute__((section(".boot_hdr.boot_data")))
  *  Boot Data
  *************************************/
 const BOOT_DATA_T boot_data = {
-  FLASH_BASE,                 /* boot start location */
-  FLASH_SIZE,                 /* size */
+  BOARD_BOOT_START,           /* boot start location */
+  BOARD_BOOT_LENGTH,          /* bootloader size 48K */
   PLUGIN_FLAG,                /* Plugin flag*/
   0xFFFFFFFF                  /* empty - extra data word */
 };
