@@ -74,6 +74,7 @@
 
 #define UART_DEV              USART3
 #define UART_CLOCK_ENABLE     __HAL_RCC_USART3_CLK_ENABLE
+#define UART_CLOCK_DISABLE    __HAL_RCC_USART3_CLK_DISABLE
 #define UART_GPIO_PORT        GPIOB
 #define UART_GPIO_AF          GPIO_AF7_USART3
 #define UART_TX_PIN           GPIO_PIN_10
