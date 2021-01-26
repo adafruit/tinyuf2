@@ -74,6 +74,7 @@
 
 #define UART_DEV              USART2
 #define UART_CLOCK_ENABLE     __HAL_RCC_USART2_CLK_ENABLE
+#define UART_CLOCK_DISABLE    __HAL_RCC_USART2_CLK_DISABLE
 #define UART_GPIO_PORT        GPIOA
 #define UART_GPIO_AF          GPIO_AF7_USART2
 #define UART_TX_PIN           GPIO_PIN_2

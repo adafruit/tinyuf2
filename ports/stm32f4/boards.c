@@ -112,10 +112,12 @@ void board_dfu_init(void)
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /* Configure VBUS Pin */
+#ifndef USB_NO_VBUS_PIN
   GPIO_InitStruct.Pin = GPIO_PIN_9;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+#endif
 
   /* This for ID line debug */
   GPIO_InitStruct.Pin = GPIO_PIN_10;
@@ -128,9 +130,14 @@ void board_dfu_init(void)
   // Enable USB OTG clock
   __HAL_RCC_USB_OTG_FS_CLK_ENABLE();
 
+#ifdef USB_NO_VBUS_PIN
+  // Disable VBUS sense
+  USB_OTG_FS->GCCFG |= USB_OTG_GCCFG_NOVBUSSENS;
+#else
   // Enable VBUS sense (B device) via pin PA9
   USB_OTG_FS->GCCFG &= ~USB_OTG_GCCFG_NOVBUSSENS;
   USB_OTG_FS->GCCFG |= USB_OTG_GCCFG_VBUSBSEN;
+#endif
 }
 
 void board_dfu_complete(void)
@@ -155,6 +162,35 @@ bool board_app_valid(void)
 void board_app_jump(void)
 {
   volatile uint32_t const * app_vector = (volatile uint32_t const*) BOARD_FLASH_APP_START;
+
+#ifdef BUTTON_PIN
+  HAL_GPIO_DeInit(BUTTON_PORT, BUTTON_PIN);
+#endif
+
+#ifdef LED_PIN
+  HAL_GPIO_DeInit(LED_PORT, LED_PIN);
+#endif
+
+#if NEOPIXEL_NUMBER
+  HAL_GPIO_DeInit(NEOPIXEL_PORT, NEOPIXEL_PIN);
+#endif
+
+#if defined(UART_DEV) && CFG_TUSB_DEBUG
+  HAL_UART_DeInit(&UartHandle);
+  HAL_GPIO_DeInit(UART_GPIO_PORT, UART_TX_PIN | UART_RX_PIN);
+  UART_CLOCK_DISABLE();
+#endif
+
+  __HAL_RCC_GPIOA_CLK_DISABLE();
+  __HAL_RCC_GPIOB_CLK_DISABLE();
+  __HAL_RCC_GPIOC_CLK_DISABLE();
+  __HAL_RCC_GPIOD_CLK_DISABLE();
+
+  HAL_RCC_DeInit();
+
+  SysTick->CTRL = 0;
+  SysTick->LOAD = 0;
+  SysTick->VAL = 0;
 
   // TODO protect bootloader region
 

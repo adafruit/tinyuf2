@@ -26,59 +26,62 @@
 #define BOARD_H_
 
 //--------------------------------------------------------------------+
-// Button
-//--------------------------------------------------------------------+
-
-//--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
 
 #define LED_PORT              GPIOC
-#define LED_PIN               GPIO_PIN_1
+#define LED_PIN               GPIO_PIN_13
 #define LED_STATE_ON          1
 
 //--------------------------------------------------------------------+
 // Neopixel
 //--------------------------------------------------------------------+
 
-// Number of neopixels
-#define NEOPIXEL_NUMBER       1
+//// Number of neopixels
+#define NEOPIXEL_NUMBER       0
 
-#define NEOPIXEL_PORT         GPIOC
-#define NEOPIXEL_PIN          GPIO_PIN_0
+//#define NEOPIXEL_PORT         GPIOC
+//#define NEOPIXEL_PIN          GPIO_PIN_0
+//
+//// Brightness percentage from 1 to 255
+//#define NEOPIXEL_BRIGHTNESS   0x10
+
 
 //--------------------------------------------------------------------+
 // Flash
 //--------------------------------------------------------------------+
 
 // Flash size of the board
-#define BOARD_FLASH_SIZE  (1024 * 1024)
+#define BOARD_FLASH_SIZE  (256 * 1024)
+#define BOARD_FLASH_SECTORS 6
 
 //--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
 
 #define USB_VID           0x239A
-#define USB_PID           0x0059
-#define USB_MANUFACTURER  "Adafruit"
-#define USB_PRODUCT       "Feather STM32F405 Express"
+#define USB_PID           0x005D
+#define USB_MANUFACTURER  "STM32"
+#define USB_PRODUCT       "STM32F401CxUx"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "STM32F405-Feather-revB"
-#define UF2_VOLUME_LABEL  "FTHR405BOOT"
-#define UF2_INDEX_URL     "https://www.adafruit.com/product/4382"
+#define UF2_BOARD_ID      "BlackPill"
+#define UF2_VOLUME_LABEL  "BlackPill"
+#define UF2_INDEX_URL     "https://stm32-base.org/boards/STM32F411CEU6-WeAct-Black-Pill-V2.0.html"
+
+#define USB_NO_VBUS_PIN   1
 
 //--------------------------------------------------------------------+
 // UART
 //--------------------------------------------------------------------+
 
-#define UART_DEV              USART3
-#define UART_CLOCK_ENABLE     __HAL_RCC_USART3_CLK_ENABLE
-#define UART_CLOCK_DISABLE    __HAL_RCC_USART3_CLK_DISABLE
-#define UART_GPIO_PORT        GPIOB
-#define UART_GPIO_AF          GPIO_AF7_USART3
-#define UART_TX_PIN           GPIO_PIN_10
-#define UART_RX_PIN           GPIO_PIN_11
+#define UART_DEV              USART2
+#define UART_CLOCK_ENABLE     __HAL_RCC_USART2_CLK_ENABLE
+#define UART_CLOCK_DISABLE    __HAL_RCC_USART2_CLK_DISABLE
+#define UART_GPIO_PORT        GPIOA
+#define UART_GPIO_AF          GPIO_AF7_USART2
+#define UART_TX_PIN           GPIO_PIN_2
+#define UART_RX_PIN           GPIO_PIN_3
 
 //--------------------------------------------------------------------+
 // RCC Clock
@@ -94,7 +97,7 @@ static inline void clock_init(void)
   /* The voltage scaling allows optimizing the power consumption when the device is
      clocked below the maximum system frequency, to update the voltage scaling value
      regarding system frequency refer to product datasheet.  */
-  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE2);
 
   /* Enable HSE Oscillator and activate PLL with HSE as source */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
@@ -103,7 +106,7 @@ static inline void clock_init(void)
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = HSE_VALUE/1000000;
   RCC_OscInitStruct.PLL.PLLN = 336;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV4;
   RCC_OscInitStruct.PLL.PLLQ = 7;
   HAL_RCC_OscConfig(&RCC_OscInitStruct);
 
@@ -112,9 +115,9 @@ static inline void clock_init(void)
   RCC_ClkInitStruct.ClockType = (RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2);
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
-  HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5);
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+  HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2);
 }
 
 #endif
