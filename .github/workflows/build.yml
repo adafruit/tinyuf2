@@ -35,7 +35,6 @@ jobs:
       uses: actions/checkout@v2
       with:
         submodules: 'true'
-        fetch-depth: 0
 
     - uses: actions/cache@v2
       name: Fetch IDF tool cache
@@ -153,6 +152,11 @@ jobs:
       with:
         name: ${{ matrix.board }}
         path: ${{ env.PORT }}/_bin/${{ matrix.board }}
+
+    - uses: actions/upload-artifact@v2
+      with:
+        name: update-tinyuf2-${{ matrix.board }}.uf2
+        path: ${{ env.PORT }}/_bin/${{ matrix.board }}/update-tinyuf2-${{ matrix.board }}.uf2
 
     - name: Create Release Asset
       if: ${{ github.event_name == 'release' }}
