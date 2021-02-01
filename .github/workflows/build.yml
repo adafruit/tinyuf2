@@ -68,9 +68,6 @@ jobs:
         IDF_PATH: ${{ github.workspace }}/lib/esp-idf
         IDF_TOOLS_PATH: ${{ github.workspace }}/.idf_tools
 
-    #- name: Rename artifact
-    #  run: cp ports/esp32s2/_bin/uf2-esp32s.bin uf2-${{ matrix.board }}-$(git describe --always).bin
-
     - uses: actions/upload-artifact@v2
       with:
         name: ${{ matrix.board }}
@@ -83,7 +80,6 @@ jobs:
         zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ports/esp32s2/_bin/${{ matrix.board }}
 
     - name: Upload Release Asset
-      id: upload-release-asset
       uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -93,6 +89,17 @@ jobs:
         asset_path: tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip
         asset_name: tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip
         asset_content_type: application/zip
+
+    - name: Upload Release Asset for Self-Update
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      if: ${{ github.event_name == 'release' }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: ports/esp32s2/_bin/${{ matrix.board }}/update-tinyuf2.uf2
+        asset_name: update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
+        asset_content_type: application/x-binary
   
   ARM:
     runs-on: ubuntu-latest
@@ -145,18 +152,10 @@ jobs:
     - name: Build
       run: make -C $PORT BOARD=${{ matrix.board }} all copy-artifact
 
-    #- name: Rename artifact
-    #  run: cp ports/esp32s2/build/uf2-esp32s.bin uf2-${{ matrix.board }}-$(git describe --always).bin
-
     - uses: actions/upload-artifact@v2
       with:
         name: ${{ matrix.board }}
         path: ${{ env.PORT }}/_bin/${{ matrix.board }}
-
-    - uses: actions/upload-artifact@v2
-      with:
-        name: update-tinyuf2-${{ matrix.board }}.uf2
-        path: ${{ env.PORT }}/_bin/${{ matrix.board }}/update-tinyuf2-${{ matrix.board }}.uf2
 
     - name: Create Release Asset
       if: ${{ github.event_name == 'release' }}
@@ -165,7 +164,6 @@ jobs:
         zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ${{ env.PORT }}/_bin/${{ matrix.board }}
 
     - name: Upload Release Asset
-      id: upload-release-asset
       uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -176,7 +174,7 @@ jobs:
         asset_name: tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip
         asset_content_type: application/zip
 
-    - name: Upload Release Asset
+    - name: Upload Release Asset for Self-Update
       uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
