@@ -1,4 +1,4 @@
-# TinyUF for iMXRT
+# TinyUF2 for iMXRT
 
 TinyUF2 port of iMXRT runs entirely on SRAM which is not only super fast but also easy to perform self-update. After powering on, if TinyUF2 already exists on external flash, it will be loaded to internal SRAM and start executing from there.
 
