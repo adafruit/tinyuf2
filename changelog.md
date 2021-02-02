@@ -1,5 +1,7 @@
 # TinyUF2 Changelog
 
+## 0.2.1 - 2021.01.19
+
 ## 0.2.0 - 2021.01.19
 
 - Add new port for NXP LPC55xx.
