@@ -138,10 +138,8 @@ jobs:
     - name: Install Toolchains
       run: |
         npm install --global xpm
-        # 9.3.1-1.1.1 is official ARM 9-2020-q2-update.
-        # Skip 1.2.1, 1.3.1 since they are xpack modified one
-        xpm install --global @xpack-dev-tools/arm-none-eabi-gcc@9.3.1-1.1.1
-        echo `echo $HOME/opt/xPacks/@xpack-dev-tools/arm-none-eabi-gcc/*/.content/bin` >> $GITHUB_PATH
+        xpm install --global @xpack-dev-tools/arm-none-eabi-gcc@latest
+        echo `echo $HOME/.local/xPacks/@xpack-dev-tools/arm-none-eabi-gcc/*/.content/bin` >> $GITHUB_PATH
 
     - name: Find Port
       run: |
