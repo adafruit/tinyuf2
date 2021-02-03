@@ -48,15 +48,12 @@
 #define DISPLAY_BL_ON       14
 #define PIN_POWER           14
 
-#define DISPLAY_BL_STATE        1  // GPIO state to enable back light
-#define DISPLAY_WIDTH           240
-#define DISPLAY_HEIGHT          135
-#define DISPLAY_MADCTL   (TFT_MADCTL_MX | TFT_MADCTL_RGB)
-// #define DISPLAY_MADCTL          (0x36)     //Display Memory Access Control ST7789
-// #define DISPLAY_MADCTL          (TFT_MADCTL_MX)     //Display Memory Access Control ST7789
-#define DISPLAY_ROTATION        1
-#define DISPLAY_COL_OFFSET    53
-#define DISPLAY_ROW_OFFSET    40
+#define DISPLAY_BL_STATE    1  // GPIO state to enable back light
+#define DISPLAY_WIDTH       240
+#define DISPLAY_HEIGHT      135
+#define DISPLAY_MADCTL      (TFT_MADCTL_MX | TFT_MADCTL_RGB)
+#define DISPLAY_COL_OFFSET  53
+#define DISPLAY_ROW_OFFSET  40
 
 #define DISPLAY_TITLE        "TTGO S2DISP"
 //--------------------------------------------------------------------+
@@ -69,6 +66,6 @@
 #define USB_PRODUCT       "TTGO_T8_S2_Display"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "LilyGO-TTGO-T8-S2-DISPLAY"
+#define UF2_BOARD_ID      "ESP32S2-TTGOS2DISPLAY-v1.1"
 #define UF2_VOLUME_LABEL  "TTGOS2BOOT"
 #define UF2_INDEX_URL     "http://www.lilygo.cn/prod_view.aspx?TypeId=50033&Id=1321&FId=t3:50033:3"
