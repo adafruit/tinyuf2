@@ -69,7 +69,6 @@ void flash_write(uint32_t dst, const uint8_t *src, int len)
   uint32_t sector = 0;
   int erased = false;
   uint32_t size = 0;
-  uint32_t SectorError;
 
   for ( unsigned i = 0; i < BOARD_FLASH_SECTORS; i++ )
   {
@@ -93,6 +92,8 @@ void flash_write(uint32_t dst, const uint8_t *src, int len)
 
   if (!erased && !is_blank(addr, size))
   {
+    uint32_t SectorError = 0;
+
     TU_LOG1("Erase: %08lX size = %lu\n", addr, size);
 
     FLASH_EraseInitTypeDef EraseInit;

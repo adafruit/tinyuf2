@@ -21,9 +21,8 @@ CFLAGS += \
   -nostdlib -nostartfiles \
   -DCFG_TUSB_MCU=OPT_MCU_STM32F3
 
-
 # suppress warning caused by vendor mcu driver
-CFLAGS += -Wno-error=cast-align -Wno-error=unused-parameter -Wno-uninitialized
+CFLAGS += -Wno-error=cast-align -Wno-error=unused-parameter
 
 LD_FILES ?= $(PORT_DIR)/linker/STM32F303VCTx_FLASH.ld
 

@@ -64,25 +64,25 @@
 //--------------------------------------------------------------------+
 
 #define USB_VID           0x239A
-#define USB_PID           0x005D
+#define USB_PID           0x005D // TODO re-use STM32F411 Discovery, need its own PID
 #define USB_MANUFACTURER  "ST"
 #define USB_PRODUCT       "STM32F303 Discovery"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID      "STM32F303 discovery"
-#define UF2_VOLUME_LABEL  "STM32F3"
+#define UF2_VOLUME_LABEL  "F303BOOT"
 #define UF2_INDEX_URL     "https://www.st.com/en/evaluation-tools/stm32f3discovery.html"
 
 //--------------------------------------------------------------------+
 // UART
 //--------------------------------------------------------------------+
 
-#define UART_DEV              USART2
-#define UART_CLOCK_ENABLE     __HAL_RCC_USART2_CLK_ENABLE
-#define UART_GPIO_PORT        GPIOA
-#define UART_GPIO_AF          GPIO_AF7_USART2
-#define UART_TX_PIN           GPIO_PIN_2
-#define UART_RX_PIN           GPIO_PIN_3
+#define UART_DEV              USART1
+#define UART_CLOCK_ENABLE     __HAL_RCC_USART1_CLK_ENABLE
+#define UART_GPIO_PORT        GPIOC
+#define UART_GPIO_AF          GPIO_AF7_USART1
+#define UART_TX_PIN           GPIO_PIN_4
+#define UART_RX_PIN           GPIO_PIN_5
 
 //--------------------------------------------------------------------+
 // RCC Clock
@@ -106,7 +106,6 @@ static inline void clock_init(void)
   RCC_PeriphClkInit.USBClockSelection = RCC_USBCLKSOURCE_PLL_DIV1_5;
   HAL_RCCEx_PeriphCLKConfig(&RCC_PeriphClkInit);
 
-
   /* Select PLL as system clock source and configure the HCLK, PCLK1 and PCLK2
   clocks dividers */
   RCC_ClkInitStruct.ClockType = (RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2);
@@ -116,11 +115,8 @@ static inline void clock_init(void)
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
   HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2);
 
-
   /* Enable Power Clock */
   __HAL_RCC_PWR_CLK_ENABLE();
 }
-
-
 
 #endif
