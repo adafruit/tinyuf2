@@ -99,7 +99,7 @@ void flash_write(uint32_t dst, const uint8_t *src, int len)
     FLASH_EraseInitTypeDef EraseInit;
     EraseInit.TypeErase = FLASH_TYPEERASE_PAGES;
     EraseInit.PageAddress = addr;
-    EraseInit.NbPages = ((0x08080000 - addr)/size);
+    EraseInit.NbPages = ((0x08040000 - addr)/size);
 
     HAL_FLASHEx_Erase(&EraseInit, &SectorError);
     FLASH_WaitForLastOperation(HAL_MAX_DELAY);
