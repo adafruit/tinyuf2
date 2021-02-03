@@ -23,6 +23,7 @@ jobs:
         - 'espressif_kaluga_1'
         - 'espressif_saola_1_wroom'
         - 'espressif_saola_1_wrover'
+        - 'lilygo_ttgo_t8_s2_st7789'
         - 'microdev_micro_s2'
         - 'targett_mcb_wroom'
         - 'targett_mcb_wrover'
@@ -100,7 +101,7 @@ jobs:
         asset_path: ports/esp32s2/_bin/${{ matrix.board }}/update-tinyuf2.uf2
         asset_name: update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
         asset_content_type: application/x-binary
-  
+
   ARM:
     runs-on: ubuntu-latest
     strategy:
