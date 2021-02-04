@@ -63,8 +63,9 @@
 // USB UF2
 //--------------------------------------------------------------------+
 
-#define USB_VID           0x239A
-#define USB_PID           0x005D // TODO re-use STM32F411 Discovery, need its own PID
+// TODO VID/PID aren't assigned for this board
+#define USB_VID           0xcafe
+#define USB_PID           0xffff
 #define USB_MANUFACTURER  "ST"
 #define USB_PRODUCT       "STM32F303 Discovery"
 
