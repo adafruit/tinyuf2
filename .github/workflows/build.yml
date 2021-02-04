@@ -175,3 +175,14 @@ jobs:
         asset_path: tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip
         asset_name: tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip
         asset_content_type: application/zip
+
+    - name: Upload Release Asset for Self-Update
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      if: ${{ github.event_name == 'release' }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: ${{ env.PORT }}/_bin/${{ matrix.board }}/update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
+        asset_name: update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
+        asset_content_type: application/x-binary
