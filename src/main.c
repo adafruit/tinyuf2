@@ -71,7 +71,6 @@ static bool check_dfu_mode(void)
   if ( !board_app_valid() ) return true;
 
 #if TINYUF2_DFU_DOUBLE_TAP
-//  TU_LOG1_HEX(_board_dfu_dbl_tap);
 //  TU_LOG1_HEX(DBL_TAP_REG);
 
   // App want to reboot quickly

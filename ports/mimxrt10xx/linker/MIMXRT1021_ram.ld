@@ -8,3 +8,4 @@ _ocram_base = 0x20200000;
 _ocram_size = 128K;
 
 _fcfb_origin = 0x00000400;
+_fcfb_length = 0x0C00;

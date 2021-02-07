@@ -36,9 +36,10 @@
 #include "fsl_device_registers.h"
 #include "board.h"
 
-// _fcfb_origin is defined in linker script
-extern uint32_t _fcfb_origin[];
-#define BOARD_BOOT_START        (((uint32_t) _fcfb_origin) - 0x400)
+// _ivt_origin is defined in linker script
+// The FCFB has different offsets, but the IVT is consistent within the family
+extern uint32_t _ivt_origin[];
+#define BOARD_BOOT_START        (((uint32_t) _ivt_origin) - 0x1000)
 
 #define BOARD_BOOT_LENGTH       (0x8800)
 
@@ -47,6 +48,7 @@ extern uint32_t _fcfb_origin[];
 
 // Double Reset tap to enter DFU
 #define TINYUF2_DFU_DOUBLE_TAP  1
+#define DBL_TAP_REG              SNVS->LPGPR[3]
 
 // Brightness percentage from 1 to 255
 #ifndef NEOPIXEL_BRIGHTNESS

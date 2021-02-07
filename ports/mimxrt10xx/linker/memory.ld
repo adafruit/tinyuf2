@@ -1,5 +1,3 @@
-_fcfb_length = 0x0C00;
-
 /* offset 0x1000 */
 _ivt_origin = _fcfb_origin + _fcfb_length;
 _ivt_length = 0x0400;
@@ -20,6 +18,6 @@ MEMORY
   m_interrupts          (RX)  : ORIGIN = _interrupts_origin , LENGTH = _interrupts_length
   m_text                (RX)  : ORIGIN = _text_origin       , LENGTH = _text_length
 
-  m_data                (RW)  : ORIGIN = _dtcm_base         , LENGTH = _dtcm_size - 4 /* 4 bytes for double tap */
+  m_data                (RW)  : ORIGIN = _dtcm_base         , LENGTH = _dtcm_size 
   m_data2               (RW)  : ORIGIN = _ocram_base        , LENGTH = _ocram_size
 }

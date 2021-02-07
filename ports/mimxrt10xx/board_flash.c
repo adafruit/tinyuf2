@@ -41,7 +41,8 @@
 
 #define FLEXSPI_INSTANCE 0
 
-#define FCFB_START_ADDRESS    (FlexSPI_AMBA_BASE + 0x400U)
+// Mask off lower 12 bits to get FCFB offset
+#define FCFB_START_ADDRESS    (FlexSPI_AMBA_BASE + (((uint32_t) &qspiflash_config) & 0xFFF))
 
 // Flash Configuration Structure 
 extern flexspi_nor_config_t const qspiflash_config;
