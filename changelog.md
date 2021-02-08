@@ -1,5 +1,11 @@
 # TinyUF2 Changelog
 
+## 0.2.1 - 2021.02.02
+
+- Added stm32f401 blackpill
+- Fix stm32f4 uart logging
+- `update-*.uf2` is uploaded separately in release assests.
+
 ## 0.2.0 - 2021.01.19
 
 - Add new port for NXP LPC55xx.

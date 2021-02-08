@@ -23,15 +23,16 @@
  */
 
 #include "board_api.h"
+#include "stm32f3xx_hal.h"
 #include "tusb.h"
 
 //--------------------------------------------------------------------+
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
 //--------------------------------------------------------------------+
 
-#define STM32_UUID ((uint32_t *)0x1FFF7A10)
+#define STM32_UUID ((uint32_t *)0x1FFFF7AC)
 
-UART_HandleTypeDef UartHandle;
+static UART_HandleTypeDef UartHandle;
 
 void board_init(void)
 {
@@ -41,48 +42,48 @@ void board_init(void)
   // disable systick
   board_timer_stop();
 
-  // TODO enable only used GPIO clock
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
+  __HAL_RCC_GPIOE_CLK_ENABLE();
 
   GPIO_InitTypeDef  GPIO_InitStruct;
 
-#ifdef BUTTON_PIN
+  #ifdef BUTTON_PIN
   GPIO_InitStruct.Pin = BUTTON_PIN;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FAST;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(BUTTON_PORT, &GPIO_InitStruct);
-#endif
+  #endif
 
-#ifdef LED_PIN
+  #ifdef LED_PIN
   GPIO_InitStruct.Pin = LED_PIN;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FAST;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(LED_PORT, &GPIO_InitStruct);
 
   board_led_write(0);
-#endif
+  #endif
 
-#if NEOPIXEL_NUMBER
+  #if NEOPIXEL_NUMBER
   GPIO_InitStruct.Pin = NEOPIXEL_PIN;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FAST;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(NEOPIXEL_PORT, &GPIO_InitStruct);
-#endif
+  #endif
 
-#if defined(UART_DEV) && CFG_TUSB_DEBUG
+  #if defined(UART_DEV) && CFG_TUSB_DEBUG
   UART_CLOCK_ENABLE();
 
   GPIO_InitStruct.Pin       = UART_TX_PIN | UART_RX_PIN;
   GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
   GPIO_InitStruct.Pull      = GPIO_PULLUP;
   GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_HIGH;
-  GPIO_InitStruct.Alternate = UART_GPIO_AF;
+  GPIO_InitStruct.Alternate = GPIO_AF7_USART2;
   HAL_GPIO_Init(UART_GPIO_PORT, &GPIO_InitStruct);
 
   UartHandle.Instance        = UART_DEV;
@@ -93,51 +94,24 @@ void board_init(void)
   UartHandle.Init.HwFlowCtl  = UART_HWCONTROL_NONE;
   UartHandle.Init.Mode       = UART_MODE_TX_RX;
   HAL_UART_Init(&UartHandle);
-#endif
+  #endif
 }
 
 void board_dfu_init(void)
 {
+  __HAL_RCC_SYSCFG_CLK_ENABLE();
+  __HAL_REMAPINTERRUPT_USB_ENABLE();
+
   GPIO_InitTypeDef  GPIO_InitStruct;
-
-  // USB Pin Init
-  // PA9- VUSB, PA10- ID, PA11- DM, PA12- DP
-
-  /* Configure DM DP Pins */
-  GPIO_InitStruct.Pin = GPIO_PIN_11 | GPIO_PIN_12;
-  GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
+  GPIO_InitStruct.Pin = (GPIO_PIN_11 | GPIO_PIN_12);
   GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Alternate = GPIO_AF10_OTG_FS;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  GPIO_InitStruct.Alternate = GPIO_AF14_USB;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /* Configure VBUS Pin */
-#ifndef USB_NO_VBUS_PIN
-  GPIO_InitStruct.Pin = GPIO_PIN_9;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-#endif
-
-  /* This for ID line debug */
-  GPIO_InitStruct.Pin = GPIO_PIN_10;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_OD;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
-  GPIO_InitStruct.Alternate = GPIO_AF10_OTG_FS;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  // Enable USB OTG clock
-  __HAL_RCC_USB_OTG_FS_CLK_ENABLE();
-
-#ifdef USB_NO_VBUS_PIN
-  // Disable VBUS sense
-  USB_OTG_FS->GCCFG |= USB_OTG_GCCFG_NOVBUSSENS;
-#else
-  // Enable VBUS sense (B device) via pin PA9
-  USB_OTG_FS->GCCFG &= ~USB_OTG_GCCFG_NOVBUSSENS;
-  USB_OTG_FS->GCCFG |= USB_OTG_GCCFG_VBUSBSEN;
-#endif
+  // Enable USB clock
+  __HAL_RCC_USB_CLK_ENABLE();
 }
 
 void board_dfu_complete(void)
@@ -147,52 +121,56 @@ void board_dfu_complete(void)
 
 bool board_app_valid(void)
 {
-  volatile uint32_t const * app_vector = (volatile uint32_t const*) BOARD_FLASH_APP_START;
-
-  // 1st word is stack pointer (should be in SRAM region)
-
-  // 2nd word is App entry point (reset)
-  if (app_vector[1] < BOARD_FLASH_APP_START || app_vector[1] > BOARD_FLASH_APP_START + BOARD_FLASH_SIZE) {
+  if((((*(uint32_t*)BOARD_FLASH_APP_START) - BOARD_RAM_START) <= BOARD_RAM_SIZE)) // && ((*(uint32_t*)BOARD_FLASH_APP_START + 4) > BOARD_FLASH_APP_START) && ((*(uint32_t*)BOARD_FLASH_APP_START + 4) < BOARD_FLASH_APP_START + BOARD_FLASH_SIZE)
+  {
+    return true;
+  } else
+  {
     return false;
   }
-
-  return true;
 }
 
 void board_app_jump(void)
 {
-  volatile uint32_t const * app_vector = (volatile uint32_t const*) BOARD_FLASH_APP_START;
+  GPIO_InitTypeDef  GPIO_InitStruct;
+  GPIO_InitStruct.Pin = GPIO_PIN_12;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET);
 
-#ifdef BUTTON_PIN
+  #ifdef BUTTON_PIN
   HAL_GPIO_DeInit(BUTTON_PORT, BUTTON_PIN);
-#endif
+  #endif
 
-#ifdef LED_PIN
+  #ifdef LED_PIN
   HAL_GPIO_DeInit(LED_PORT, LED_PIN);
-#endif
+  #endif
 
-#if NEOPIXEL_NUMBER
+  #if NEOPIXEL_NUMBER
   HAL_GPIO_DeInit(NEOPIXEL_PORT, NEOPIXEL_PIN);
-#endif
+  #endif
 
-#if defined(UART_DEV) && CFG_TUSB_DEBUG
+  #if defined(UART_DEV) && CFG_TUSB_DEBUG
   HAL_UART_DeInit(&UartHandle);
   HAL_GPIO_DeInit(UART_GPIO_PORT, UART_TX_PIN | UART_RX_PIN);
-  UART_CLOCK_DISABLE();
-#endif
+  #endif
+
+  HAL_GPIO_DeInit(GPIOA, GPIO_PIN_12 | GPIO_PIN_11);
 
   __HAL_RCC_GPIOA_CLK_DISABLE();
   __HAL_RCC_GPIOB_CLK_DISABLE();
   __HAL_RCC_GPIOC_CLK_DISABLE();
   __HAL_RCC_GPIOD_CLK_DISABLE();
+  __HAL_RCC_GPIOE_CLK_DISABLE();
 
   HAL_RCC_DeInit();
-
-  SysTick->CTRL = 0;
-  SysTick->LOAD = 0;
-  SysTick->VAL = 0;
+  HAL_DeInit();
 
   // TODO protect bootloader region
+
+  volatile uint32_t const * app_vector = (volatile uint32_t const*) BOARD_FLASH_APP_START;
 
   /* switch exception handlers to the application */
   SCB->VTOR = (uint32_t) BOARD_FLASH_APP_START;
@@ -304,7 +282,6 @@ void SysTick_Handler (void)
   board_timer_handler();
 }
 
-
 int board_uart_write(void const * buf, int len)
 {
 #if defined(UART_DEV) && CFG_TUSB_DEBUG
@@ -320,7 +297,22 @@ int board_uart_write(void const * buf, int len)
 #ifndef TINYUF2_SELF_UPDATE
 
 // Forward USB interrupt events to TinyUSB IRQ Handler
-void OTG_FS_IRQHandler(void)
+void USB_HP_IRQHandler(void)
+{
+  tud_int_handler(0);
+}
+
+// USB low-priority interrupt (Channel 75): Triggered by all USB events
+// (Correct transfer, USB reset, etc.). The firmware has to check the
+// interrupt source before serving the interrupt.
+void USB_LP_IRQHandler(void)
+{
+  tud_int_handler(0);
+}
+
+// USB wakeup interrupt (Channel 76): Triggered by the wakeup event from the USB
+// Suspend mode.
+void USBWakeUp_RMP_IRQHandler(void)
 {
   tud_int_handler(0);
 }
