@@ -26,6 +26,7 @@ jobs:
         - 'gravitech_cucumberRIS_v1.1'
         - 'lilygo_ttgo_t8_s2_st7789'
         - 'microdev_micro_s2'
+        - 'olimex_esp32s2_devkit_lipo_vB1'
         - 'targett_mcb_wroom'
         - 'targett_mcb_wrover'
         - 'unexpectedmaker_feathers2'
