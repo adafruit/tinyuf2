@@ -11,6 +11,7 @@ Following boards are supported:
 - [Gravitech Cucumber RIS ESP32-S2 w/Sensors ](https://www.gravitech.us/curisdebowis.html)
 - [LILYGO® TTGO T8 ESP32-S2 V1.1 ST7789 ](http://www.lilygo.cn/prod_view.aspx?TypeId=50033&Id=1321&FId=t3:50033:3)
 - [microDev microS2](https://circuitpython.org/board/microdev_micro_s2)
+- [Olimex ESP32S2 DevKit Lipo vB1 (WROVER and WROOM)](https://www.olimex.com/Products/IoT/ESP32-S2/ESP32-S2-DevKit-Lipo/open-source-hardware)
 - [Unexpected Maker FeatherS2](https://feathers2.io)
 
 ## Build & Flash
