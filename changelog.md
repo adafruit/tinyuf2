@@ -1,5 +1,32 @@
 # TinyUF2 Changelog
 
+## 0.3.0 - 2021.02.17
+
+- Add compiled date to INFO_UF2.TXT
+- Add new port STM32F3
+
+### ESP32-S2
+
+- Add new boards: gravitech_cucumberRIS_v1.1, lilygo_ttgo_t8_s2_st7789, olimex_esp32s2_devkit_lipo_vB1
+
+### iMXRT
+
+- Fix FCFB address on RT1060
+- Use LPGPR for double tap detection instead of generic sram.
+- Fix flash-pyocd for imxrt evk board.
+
+### LPC55
+
+- No major changes
+
+### STM32F3
+
+- new port with stm32f303 discovery board
+
+### STM32F4
+
+- No major changes
+
 ## 0.2.1 - 2021.02.02
 
 - Added stm32f401 blackpill
