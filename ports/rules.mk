@@ -157,7 +157,7 @@ flash-pyocd: $(BUILD)/$(OUTNAME).hex
 	pyocd reset -t $(PYOCD_TARGET)
 
 # Flash bin file using pyocd
-flash-pyocd-bin: $(BUILD)/$(OUTNAME).hex
+flash-pyocd-bin: $(BUILD)/$(OUTNAME).bin
 	pyocd flash -t $(PYOCD_TARGET) -a $(FLASH_BIN_ADDR) $<
 	pyocd reset -t $(PYOCD_TARGET)
 
