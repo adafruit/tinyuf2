@@ -7,4 +7,7 @@ _dtcm_size  = 128K;
 _ocram_base = 0x20200000;
 _ocram_size = 256K;
 
-_fcfb_origin = 0x00000400;
+/* Reference Manual suggests avoiding addresses 0x0 through 0x3 */ 
+/* in section 9.6.1.2, so start at 0x1000 */
+_fcfb_origin = 0x1000;
+_fcfb_length = 0x1000;

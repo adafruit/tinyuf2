@@ -53,6 +53,8 @@ void board_init(void)
 
   // Enable IOCON clock
   CLOCK_EnableClock(kCLOCK_Iomuxc);
+  // Prevent clearing of SNVS General Purpose Register
+  SNVS->LPCR |= SNVS_LPCR_GPR_Z_DIS_MASK;
 
 #ifdef LED_PINMUX
   IOMUXC_SetPinMux(LED_PINMUX, 0U);
