@@ -5,7 +5,7 @@ CROSS_COMPILE = arm-none-eabi-
 GIT_SUBMODULES = nxp tinyusb
 
 # For flash-pyocd-bin target
-FLASH_BIN_ADDR = 0x60000400
+FLASH_BIN_ADDR = $(UF2_$(MCU)_WRITE_ADDR)
 
 include ../make.mk
 

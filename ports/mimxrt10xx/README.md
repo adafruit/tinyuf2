@@ -8,7 +8,7 @@ To initially flash TinyUF2 on your blank board or board that is shipped with oth
 
 ### External Debugger
 
-jlink or pyocd can be used to program .bin file to appropriate address on external flash which is typically **0x60000400**. This  can be done with `flash-jlink-bin` or `flash-pyocd-bin` make target.
+jlink or pyocd can be used to program .bin file to appropriate address on external flash which is typically **0x60000000** (RT1062) or **0x60000400** (RT1011). This  can be done with `flash-jlink-bin` or `flash-pyocd-bin` make target.
 
 ```
 make BOARD=metro_m7_1011 flash-jlink-bin
