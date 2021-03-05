@@ -53,7 +53,7 @@ static esp_timer_handle_t timer_hdl;
 static led_strip_t *strip;
 #endif
 
-#ifdef DOTSTAR_PIN_SCK
+#ifdef DOTSTAR_PIN_DATA
 #include "led_strip_spi_apa102.h"
 #endif
 
@@ -161,14 +161,12 @@ void board_init(void)
   strip->set_brightness(strip, NEOPIXEL_BRIGHTNESS);
 #endif
 
-#ifdef DOTSTAR_PIN_SCK
-  // Setup the IO for the APA DATA and CLK
-  gpio_pad_select_gpio(DOTSTAR_PIN_DATA);
-  gpio_pad_select_gpio(DOTSTAR_PIN_SCK);
-  gpio_ll_input_disable(&GPIO, DOTSTAR_PIN_DATA);
-  gpio_ll_input_disable(&GPIO, DOTSTAR_PIN_SCK);
-  gpio_ll_output_enable(&GPIO, DOTSTAR_PIN_DATA);
-  gpio_ll_output_enable(&GPIO, DOTSTAR_PIN_SCK);
+#ifdef DOTSTAR_PIN_DATA
+  #ifdef DOTSTAR_PIN_PWR
+  gpio_reset_pin(DOTSTAR_PIN_PWR);
+  gpio_set_direction(DOTSTAR_PIN_PWR, GPIO_MODE_OUTPUT);
+  gpio_set_level(DOTSTAR_PIN_PWR, DOTSTAR_POWER_STATE);
+  #endif
 
   // Initialise SPI
   setupSPI(DOTSTAR_PIN_DATA, DOTSTAR_PIN_SCK);
@@ -240,7 +238,7 @@ void board_rgb_write(uint8_t const rgb[])
   strip->refresh(strip, 100);
 #endif
 
-#ifdef DOTSTAR_PIN_SCK
+#ifdef DOTSTAR_PIN_DATA
     setAPA(rgb[0], rgb[1], rgb[2]);
 #endif
 }
