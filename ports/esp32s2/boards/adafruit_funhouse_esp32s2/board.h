@@ -43,16 +43,15 @@
 //--------------------------------------------------------------------+
 
 // GPIO connected to Neopixel data
-#define NEOPIXEL_PIN          14
-
-#define NEOPIXEL_POWER_PIN    41
-#define NEOPIXEL_POWER_STATE  0
+#define DOTSTAR_PIN_DATA       14
+#define DOTSTAR_PIN_SCK        15
+#define DOTSTAR_PIN_PWR        41
 
 // Brightness percentage from 1 to 255
-#define NEOPIXEL_BRIGHTNESS   0x10
+#define DOTSTAR_BRIGHTNESS   0x10
 
 // Number of neopixels
-#define NEOPIXEL_NUMBER       4
+#define DOTSTAR_NUMBER       5
 
 
 // LED for indicator
