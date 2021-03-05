@@ -322,6 +322,9 @@ static void SPI_write(int32_t pin_data,uint32_t pin_sck,uint8_t c)
 
 static void board_dotstar_set(uint32_t pin_data, uint32_t pin_sck, uint8_t const rgb[])
 {
+  // convert from 0-255 (8 bit) to 0-31 (5 bit)
+  uint8_t const ds_brightness = (DOTSTAR_BRIGHTNESS * 32) / 256;
+
   // Start frame
   SPI_write(pin_data, pin_sck, 0x00);
   SPI_write(pin_data, pin_sck, 0x00);
@@ -330,7 +333,7 @@ static void board_dotstar_set(uint32_t pin_data, uint32_t pin_sck, uint8_t const
 
   for(uint32_t i=0; i<DOTSTAR_NUMBER; i++)
   {
-    SPI_write(pin_data, pin_sck, 0xE0 | DOTSTAR_BRIGHTNESS);
+    SPI_write(pin_data, pin_sck, 0xE0 | ds_brightness);
 
     // DotStar APA102 color order is BGR
     SPI_write(pin_data, pin_sck, rgb[2]);

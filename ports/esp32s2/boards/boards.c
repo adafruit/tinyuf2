@@ -349,6 +349,9 @@ void dotstar_init(void)
 
 void dotstar_write(uint8_t const rgb[])
 {
+  // convert from 0-255 (8 bit) to 0-31 (5 bit)
+  uint8_t const ds_brightness = (DOTSTAR_BRIGHTNESS * 32) / 256;
+
   // start frame
   _dotstar_data[0] = _dotstar_data[1] = _dotstar_data[2] = _dotstar_data[3] = 0;
 
@@ -356,7 +359,7 @@ void dotstar_write(uint8_t const rgb[])
 
   for(uint8_t i=0; i<DOTSTAR_NUMBER; i++)
   {
-    *color++ = 0xE0 | DOTSTAR_BRIGHTNESS;
+    *color++ = 0xE0 | ds_brightness;
     *color++ = rgb[2];
     *color++ = rgb[1];
     *color++ = rgb[0];
