@@ -79,8 +79,8 @@
 #define DISPLAY_WIDTH         240
 #define DISPLAY_HEIGHT        240
 
-#define DISPLAY_COL_OFFSET    53
-#define DISPLAY_ROW_OFFSET    40
+#define DISPLAY_COL_OFFSET    0 // 53
+#define DISPLAY_ROW_OFFSET    0 // 40
 
 #define DISPLAY_MADCTL        (TFT_MADCTL_MX)
 
