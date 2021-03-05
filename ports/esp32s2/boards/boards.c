@@ -311,7 +311,7 @@ void board_display_draw_line(int y, uint16_t* pixel_color, uint32_t pixel_num)
 #define DOTSTAR_SPI   SPI3_HOST
 
 spi_device_handle_t _dotstar_spi;
-uint32_t _dotstar_data[1+DOTSTAR_NUMBER+1];
+uint8_t _dotstar_data[ (1+DOTSTAR_NUMBER+1) * 4];
 
 void dotstar_init(void)
 {
@@ -334,7 +334,7 @@ void dotstar_init(void)
 
   spi_device_interface_config_t devcfg =
   {
-    .clock_speed_hz = 4 * 1000000,
+    .clock_speed_hz = 10 * 1000000, // 10 Mhz
     .mode           = 0,
     .spics_io_num   = -1,
     .queue_size     = 8,
@@ -350,11 +350,16 @@ void dotstar_init(void)
 void dotstar_write(uint8_t const rgb[])
 {
   // start frame
-  _dotstar_data[0] = 0;
+  _dotstar_data[0] = _dotstar_data[1] = _dotstar_data[2] = _dotstar_data[3] = 0;
+
+  uint8_t* color = _dotstar_data+4;
 
   for(uint8_t i=0; i<DOTSTAR_NUMBER; i++)
   {
-    _dotstar_data[1+i] = ((0xE0 | DOTSTAR_BRIGHTNESS) << 24) | (rgb[2] << 16) | (rgb[1] << 8) | rgb[0];
+    *color++ = 0xE0 | DOTSTAR_BRIGHTNESS;
+    *color++ = rgb[2];
+    *color++ = rgb[1];
+    *color++ = rgb[0];
   }
 
   // end frame
@@ -365,9 +370,10 @@ void dotstar_write(uint8_t const rgb[])
   // before start-frame marker). i.e. let's not remove this. But after
   // testing a bit more the suggestion is to use at least (numLeds+1)/2
   // high values (1) or (numLeds+15)/16 full bytes as EndFrame. For details
-  // see also:
-  // https://cpldcpu.wordpress.com/2014/11/30/understanding-the-apa102-superled/
-  _dotstar_data[1+DOTSTAR_NUMBER] = UINT32_MAX;
+  *color++ = 0xff;
+  *color++ = 0xff;
+  *color++ = 0xff;
+  *color++ = 0xff;
 
   static spi_transaction_t xact =
   {
