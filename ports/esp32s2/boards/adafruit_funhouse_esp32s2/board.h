@@ -46,6 +46,7 @@
 #define DOTSTAR_PIN_DATA       14
 #define DOTSTAR_PIN_SCK        15
 #define DOTSTAR_PIN_PWR        41
+#define DOTSTAR_POWER_STATE     0
 
 // Brightness percentage from 1 to 255
 #define DOTSTAR_BRIGHTNESS   0x10
