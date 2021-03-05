@@ -54,7 +54,7 @@ static led_strip_t *strip;
 #endif
 
 #ifdef DOTSTAR_PIN_DATA
-#include "led_strip_spi_apa102.h"
+#include "driver/spi_master.h"
 
 void dotstar_init(void);
 void dotstar_write(uint8_t const rgb[]);
@@ -262,6 +262,8 @@ void board_timer_stop(void)
 
 #ifdef DISPLAY_PIN_SCK
 
+#define LCD_SPI   SPI2_HOST
+
 spi_device_handle_t _display_spi;
 
 void board_display_init(void)
@@ -284,10 +286,10 @@ void board_display_init(void)
   };
 
   /*!< Initialize the SPI bus */
-  ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &bus_cfg, DMA_CHAN));
+  ESP_ERROR_CHECK(spi_bus_initialize(LCD_SPI, &bus_cfg, LCD_SPI));
 
   /*!< Attach the LCD to the SPI bus */
-  ESP_ERROR_CHECK(spi_bus_add_device(LCD_HOST, &devcfg, &_display_spi));
+  ESP_ERROR_CHECK(spi_bus_add_device(LCD_SPI, &devcfg, &_display_spi));
 
   /**< Initialize the LCD */
   ESP_ERROR_CHECK(lcd_init(_display_spi));
@@ -306,6 +308,8 @@ void board_display_draw_line(int y, uint16_t* pixel_color, uint32_t pixel_num)
 //--------------------------------------------------------------------+
 #ifdef DOTSTAR_PIN_DATA
 
+#define DOTSTAR_SPI   SPI3_HOST
+
 spi_device_handle_t _dotstar_spi;
 uint32_t _dotstar_data[1+DOTSTAR_NUMBER+1];
 
@@ -317,7 +321,6 @@ void dotstar_init(void)
   gpio_set_level(DOTSTAR_PIN_PWR, DOTSTAR_POWER_STATE);
   #endif
 
-  #define DOTSTAR_SPI   SPI3_HOST
 
   spi_bus_config_t bus_cfg =
   {
