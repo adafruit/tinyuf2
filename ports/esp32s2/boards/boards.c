@@ -55,6 +55,9 @@ static led_strip_t *strip;
 
 #ifdef DOTSTAR_PIN_DATA
 #include "led_strip_spi_apa102.h"
+
+void dotstar_init(void);
+void dotstar_write(uint8_t const rgb[]);
 #endif
 
 #ifdef LED_PIN
@@ -72,7 +75,6 @@ ledc_channel_config_t ledc_channel =
 
 #ifdef DISPLAY_PIN_SCK
 #include "lcd.h"
-spi_device_handle_t _display_spi;
 #endif
 
 extern int main(void);
@@ -162,17 +164,7 @@ void board_init(void)
 #endif
 
 #ifdef DOTSTAR_PIN_DATA
-  #ifdef DOTSTAR_PIN_PWR
-  gpio_reset_pin(DOTSTAR_PIN_PWR);
-  gpio_set_direction(DOTSTAR_PIN_PWR, GPIO_MODE_OUTPUT);
-  gpio_set_level(DOTSTAR_PIN_PWR, DOTSTAR_POWER_STATE);
-  #endif
-
-  // Initialise SPI
-  setupSPI(DOTSTAR_PIN_DATA, DOTSTAR_PIN_SCK);
-
-  // Initialise the APA
-  initAPA(DOTSTAR_BRIGHTNESS);
+  dotstar_init();
 #endif
 
   // Set up timer
@@ -239,7 +231,7 @@ void board_rgb_write(uint8_t const rgb[])
 #endif
 
 #ifdef DOTSTAR_PIN_DATA
-    setAPA(rgb[0], rgb[1], rgb[2]);
+  dotstar_write(rgb);
 #endif
 }
 
@@ -269,6 +261,8 @@ void board_timer_stop(void)
 //--------------------------------------------------------------------+
 
 #ifdef DISPLAY_PIN_SCK
+
+spi_device_handle_t _display_spi;
 
 void board_display_init(void)
 {
@@ -303,6 +297,84 @@ void board_display_draw_line(int y, uint16_t* pixel_color, uint32_t pixel_num)
 {
   (void) pixel_num; // same as DISPLAY_HEIGHT
   lcd_draw_lines(_display_spi, y, (uint16_t*) pixel_color);
+}
+
+#endif
+
+//--------------------------------------------------------------------+
+// DotStar
+//--------------------------------------------------------------------+
+#ifdef DOTSTAR_PIN_DATA
+
+spi_device_handle_t _dotstar_spi;
+uint32_t _dotstar_data[1+DOTSTAR_NUMBER+1];
+
+void dotstar_init(void)
+{
+  #ifdef DOTSTAR_PIN_PWR
+  gpio_reset_pin(DOTSTAR_PIN_PWR);
+  gpio_set_direction(DOTSTAR_PIN_PWR, GPIO_MODE_OUTPUT);
+  gpio_set_level(DOTSTAR_PIN_PWR, DOTSTAR_POWER_STATE);
+  #endif
+
+  #define DOTSTAR_SPI   SPI3_HOST
+
+  spi_bus_config_t bus_cfg =
+  {
+    .miso_io_num     = -1,
+    .mosi_io_num     = DOTSTAR_PIN_DATA,
+    .sclk_io_num     = DOTSTAR_PIN_SCK,
+    .quadwp_io_num   = -1,
+    .quadhd_io_num   = -1,
+    .max_transfer_sz = sizeof(_dotstar_data)
+  };
+
+  spi_device_interface_config_t devcfg =
+  {
+    .clock_speed_hz = 4 * 1000000,
+    .mode           = 0,
+    .spics_io_num   = -1,
+    .queue_size     = 1,
+  };
+
+  /*!< Initialize the SPI bus */
+  ESP_ERROR_CHECK(spi_bus_initialize(DOTSTAR_SPI, &bus_cfg, DOTSTAR_SPI));
+
+  /*!< Attach the LCD to the SPI bus */
+  ESP_ERROR_CHECK(spi_bus_add_device(DOTSTAR_SPI, &devcfg, &_dotstar_spi));
+}
+
+void dotstar_write(uint8_t const rgb[])
+{
+
+  // start frame
+  _dotstar_data[0] = 0;
+
+  for(uint8_t i=0; i<DOTSTAR_NUMBER; i++)
+  {
+    _dotstar_data[1+i] = ((0xE0 | 0x10) << 24) | (rgb[2] << 16) | (rgb[1] << 8) | rgb[0];
+  }
+
+  // end frame
+  // Four end-frame bytes are seemingly indistinguishable from a white
+  // pixel, and empirical testing suggests it can be left out...but it's
+  // always a good idea to follow the datasheet, in case future hardware
+  // revisions are more strict (e.g. might mandate use of end-frame
+  // before start-frame marker). i.e. let's not remove this. But after
+  // testing a bit more the suggestion is to use at least (numLeds+1)/2
+  // high values (1) or (numLeds+15)/16 full bytes as EndFrame. For details
+  // see also:
+  // https://cpldcpu.wordpress.com/2014/11/30/understanding-the-apa102-superled/
+  _dotstar_data[1+DOTSTAR_NUMBER] = UINT32_MAX;
+
+  static spi_transaction_t xact =
+  {
+    .length    = (sizeof(_dotstar_data) - 4 + (DOTSTAR_NUMBER+15)/16 )*8, // length in bits, see end frame not above
+    .tx_buffer = _dotstar_data
+  };
+
+  spi_device_queue_trans(_dotstar_spi, &xact, portMAX_DELAY);
+  //spi_device_transmit(_dotstar_spi, &xact);
 }
 
 #endif

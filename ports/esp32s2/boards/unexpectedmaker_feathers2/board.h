@@ -38,6 +38,10 @@
 // LED
 //--------------------------------------------------------------------+
 
+// Number of Dotstar
+#define DOTSTAR_NUMBER         1
+
+// GPIO connected to Dotstar
 #define DOTSTAR_PIN_DATA       40
 #define DOTSTAR_PIN_SCK        45
 #define DOTSTAR_PIN_PWR        21
@@ -45,9 +49,6 @@
 
 // Brightness percentage from 1 to 255
 #define DOTSTAR_BRIGHTNESS     175
-
-// Number of Dotstar
-#define DOTSTAR_NUMBER         1
 
 // LED for indicator and writing flash
 // If not defined neopixel will be use for flash writing instead
