@@ -60,6 +60,34 @@
 #define LED_STATE_ON          1
 
 //--------------------------------------------------------------------+
+// TFT
+//--------------------------------------------------------------------+
+
+#define CONFIG_LCD_TYPE_ST7789V
+
+#define DISPLAY_PIN_MISO      -1 // required if use CONFIG_LCD_TYPE_AUTO
+#define DISPLAY_PIN_MOSI      35
+#define DISPLAY_PIN_SCK       36
+
+#define DISPLAY_PIN_CS        39
+#define DISPLAY_PIN_DC        38
+#define DISPLAY_PIN_RST       40
+
+#define DISPLAY_PIN_BL        21
+#define DISPLAY_BL_ON         1  // GPIO state to enable back light
+
+#define DISPLAY_WIDTH         240
+#define DISPLAY_HEIGHT        240
+
+#define DISPLAY_COL_OFFSET    53
+#define DISPLAY_ROW_OFFSET    40
+
+#define DISPLAY_MADCTL        (TFT_MADCTL_MX)
+
+#define DISPLAY_TITLE         "Fun House"
+
+
+//--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
 

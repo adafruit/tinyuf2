@@ -376,7 +376,6 @@ void dotstar_write(uint8_t const rgb[])
   };
 
   spi_device_queue_trans(_dotstar_spi, &xact, portMAX_DELAY);
-  //spi_device_transmit(_dotstar_spi, &xact);
 }
 
 #endif
