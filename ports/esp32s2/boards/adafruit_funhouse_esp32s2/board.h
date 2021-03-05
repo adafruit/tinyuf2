@@ -51,8 +51,8 @@
 #define DOTSTAR_PIN_PWR       41
 #define DOTSTAR_POWER_STATE   0
 
-// Brightness percentage from 1 to 255
-#define DOTSTAR_BRIGHTNESS    0x10
+// DotStar Brightness is from 0-32 (5 bit)
+#define DOTSTAR_BRIGHTNESS    0x08
 
 // LED for indicator
 // If not defined neopixel will be use for flash writing instead

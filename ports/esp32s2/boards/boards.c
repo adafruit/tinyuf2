@@ -334,7 +334,7 @@ void dotstar_init(void)
     .clock_speed_hz = 4 * 1000000,
     .mode           = 0,
     .spics_io_num   = -1,
-    .queue_size     = 1,
+    .queue_size     = 8,
   };
 
   /*!< Initialize the SPI bus */
@@ -346,13 +346,12 @@ void dotstar_init(void)
 
 void dotstar_write(uint8_t const rgb[])
 {
-
   // start frame
   _dotstar_data[0] = 0;
 
   for(uint8_t i=0; i<DOTSTAR_NUMBER; i++)
   {
-    _dotstar_data[1+i] = ((0xE0 | 0x10) << 24) | (rgb[2] << 16) | (rgb[1] << 8) | rgb[0];
+    _dotstar_data[1+i] = ((0xE0 | DOTSTAR_BRIGHTNESS) << 24) | (rgb[2] << 16) | (rgb[1] << 8) | rgb[0];
   }
 
   // end frame
