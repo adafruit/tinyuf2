@@ -138,7 +138,7 @@ int main(void)
   screen_draw_drag();
 #endif
 
-#if CFG_TUSB_OS == OPT_OS_NONE
+#if (CFG_TUSB_OS == OPT_OS_NONE || CFG_TUSB_OS == OPT_OS_PICO)
   while(1)
   {
     tud_task();
@@ -272,7 +272,7 @@ void board_timer_handler(void)
 //--------------------------------------------------------------------+
 
 // Enable only with LOG is enabled (Note: ESP32-S2 has built-in support already)
-#if CFG_TUSB_DEBUG && (CFG_TUSB_MCU != OPT_MCU_ESP32S2)
+#if CFG_TUSB_DEBUG && (CFG_TUSB_MCU != OPT_MCU_ESP32S2 && CFG_TUSB_MCU != OPT_MCU_RP2040)
 
 #if defined(LOGGER_RTT)
 #include "SEGGER_RTT.h"
