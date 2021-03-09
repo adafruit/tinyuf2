@@ -53,8 +53,11 @@ static esp_timer_handle_t timer_hdl;
 static led_strip_t *strip;
 #endif
 
-#ifdef DOTSTAR_PIN_SCK
-#include "led_strip_spi_apa102.h"
+#ifdef DOTSTAR_PIN_DATA
+#include "driver/spi_master.h"
+
+void dotstar_init(void);
+void dotstar_write(uint8_t const rgb[]);
 #endif
 
 #ifdef LED_PIN
@@ -72,7 +75,6 @@ ledc_channel_config_t ledc_channel =
 
 #ifdef DISPLAY_PIN_SCK
 #include "lcd.h"
-spi_device_handle_t _display_spi;
 #endif
 
 extern int main(void);
@@ -161,20 +163,8 @@ void board_init(void)
   strip->set_brightness(strip, NEOPIXEL_BRIGHTNESS);
 #endif
 
-#ifdef DOTSTAR_PIN_SCK
-  // Setup the IO for the APA DATA and CLK
-  gpio_pad_select_gpio(DOTSTAR_PIN_DATA);
-  gpio_pad_select_gpio(DOTSTAR_PIN_SCK);
-  gpio_ll_input_disable(&GPIO, DOTSTAR_PIN_DATA);
-  gpio_ll_input_disable(&GPIO, DOTSTAR_PIN_SCK);
-  gpio_ll_output_enable(&GPIO, DOTSTAR_PIN_DATA);
-  gpio_ll_output_enable(&GPIO, DOTSTAR_PIN_SCK);
-
-  // Initialise SPI
-  setupSPI(DOTSTAR_PIN_DATA, DOTSTAR_PIN_SCK);
-
-  // Initialise the APA
-  initAPA(DOTSTAR_BRIGHTNESS);
+#ifdef DOTSTAR_PIN_DATA
+  dotstar_init();
 #endif
 
   // Set up timer
@@ -240,8 +230,8 @@ void board_rgb_write(uint8_t const rgb[])
   strip->refresh(strip, 100);
 #endif
 
-#ifdef DOTSTAR_PIN_SCK
-    setAPA(rgb[0], rgb[1], rgb[2]);
+#ifdef DOTSTAR_PIN_DATA
+  dotstar_write(rgb);
 #endif
 }
 
@@ -272,6 +262,10 @@ void board_timer_stop(void)
 
 #ifdef DISPLAY_PIN_SCK
 
+#define LCD_SPI   SPI2_HOST
+
+spi_device_handle_t _display_spi;
+
 void board_display_init(void)
 {
   spi_bus_config_t bus_cfg = {
@@ -292,10 +286,10 @@ void board_display_init(void)
   };
 
   /*!< Initialize the SPI bus */
-  ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &bus_cfg, DMA_CHAN));
+  ESP_ERROR_CHECK(spi_bus_initialize(LCD_SPI, &bus_cfg, LCD_SPI));
 
   /*!< Attach the LCD to the SPI bus */
-  ESP_ERROR_CHECK(spi_bus_add_device(LCD_HOST, &devcfg, &_display_spi));
+  ESP_ERROR_CHECK(spi_bus_add_device(LCD_SPI, &devcfg, &_display_spi));
 
   /**< Initialize the LCD */
   ESP_ERROR_CHECK(lcd_init(_display_spi));
@@ -305,6 +299,92 @@ void board_display_draw_line(int y, uint16_t* pixel_color, uint32_t pixel_num)
 {
   (void) pixel_num; // same as DISPLAY_HEIGHT
   lcd_draw_lines(_display_spi, y, (uint16_t*) pixel_color);
+}
+
+#endif
+
+//--------------------------------------------------------------------+
+// DotStar
+//--------------------------------------------------------------------+
+#ifdef DOTSTAR_PIN_DATA
+
+#define DOTSTAR_SPI   SPI3_HOST
+
+spi_device_handle_t _dotstar_spi;
+uint8_t _dotstar_data[ (1+DOTSTAR_NUMBER+1) * 4];
+
+void dotstar_init(void)
+{
+  #ifdef DOTSTAR_PIN_PWR
+  gpio_reset_pin(DOTSTAR_PIN_PWR);
+  gpio_set_direction(DOTSTAR_PIN_PWR, GPIO_MODE_OUTPUT);
+  gpio_set_level(DOTSTAR_PIN_PWR, DOTSTAR_POWER_STATE);
+  #endif
+
+
+  spi_bus_config_t bus_cfg =
+  {
+    .miso_io_num     = -1,
+    .mosi_io_num     = DOTSTAR_PIN_DATA,
+    .sclk_io_num     = DOTSTAR_PIN_SCK,
+    .quadwp_io_num   = -1,
+    .quadhd_io_num   = -1,
+    .max_transfer_sz = sizeof(_dotstar_data)
+  };
+
+  spi_device_interface_config_t devcfg =
+  {
+    .clock_speed_hz = 10 * 1000000, // 10 Mhz
+    .mode           = 0,
+    .spics_io_num   = -1,
+    .queue_size     = 8,
+  };
+
+  /*!< Initialize the SPI bus */
+  ESP_ERROR_CHECK(spi_bus_initialize(DOTSTAR_SPI, &bus_cfg, DOTSTAR_SPI));
+
+  /*!< Attach the LCD to the SPI bus */
+  ESP_ERROR_CHECK(spi_bus_add_device(DOTSTAR_SPI, &devcfg, &_dotstar_spi));
+}
+
+void dotstar_write(uint8_t const rgb[])
+{
+  // convert from 0-255 (8 bit) to 0-31 (5 bit)
+  uint8_t const ds_brightness = (DOTSTAR_BRIGHTNESS * 32) / 256;
+
+  // start frame
+  _dotstar_data[0] = _dotstar_data[1] = _dotstar_data[2] = _dotstar_data[3] = 0;
+
+  uint8_t* color = _dotstar_data+4;
+
+  for(uint8_t i=0; i<DOTSTAR_NUMBER; i++)
+  {
+    *color++ = 0xE0 | ds_brightness;
+    *color++ = rgb[2];
+    *color++ = rgb[1];
+    *color++ = rgb[0];
+  }
+
+  // end frame
+  // Four end-frame bytes are seemingly indistinguishable from a white
+  // pixel, and empirical testing suggests it can be left out...but it's
+  // always a good idea to follow the datasheet, in case future hardware
+  // revisions are more strict (e.g. might mandate use of end-frame
+  // before start-frame marker). i.e. let's not remove this. But after
+  // testing a bit more the suggestion is to use at least (numLeds+1)/2
+  // high values (1) or (numLeds+15)/16 full bytes as EndFrame. For details
+  *color++ = 0xff;
+  *color++ = 0xff;
+  *color++ = 0xff;
+  *color++ = 0xff;
+
+  static spi_transaction_t xact =
+  {
+    .length    = (sizeof(_dotstar_data) - 4 + (DOTSTAR_NUMBER+15)/16 )*8, // length in bits, see end frame not above
+    .tx_buffer = _dotstar_data
+  };
+
+  spi_device_queue_trans(_dotstar_spi, &xact, portMAX_DELAY);
 }
 
 #endif

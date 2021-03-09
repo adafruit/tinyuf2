@@ -37,23 +37,40 @@
 #define COL0(r, g, b) ((((r) >> 3) << 11) | (((g) >> 2) << 5) | ((b) >> 3))
 #define COL(c) COL0((c >> 16) & 0xff, (c >> 8) & 0xff, c & 0xff)
 
+enum
+{
+  COLOR_BLACK  = 0,
+  COLOR_WHITE  = 1,
+  COLOR_RED    = 2,
+  COLOR_PINK   = 3,
+  COLOR_ORANGE = 4,
+  COLOR_YELLOW = 5,
+  COLOR_CYAN   = 6,
+  COLOR_GREEN  = 7,
+  COLOR_BLUE   = 8,
+  COLOR_AQUA   = 9,
+  COLOR_PURPLE = 10,
+};
+
+// 16-bit 565 color from 24-bit 888 format
 const uint16_t palette[] = {
-    COL(0x000000), // 0
-    COL(0xffffff), // 1
-    COL(0xff2121), // 2
-    COL(0xff93c4), // 3
-    COL(0xff8135), // 4
-    COL(0xfff609), // 5
-    COL(0x249ca3), // 6
-    COL(0x78dc52), // 7
-    COL(0x003fad), // 8
-    COL(0x87f2ff), // 9
-    COL(0x8e2ec4), // 10
-    COL(0xa4839f), // 11
-    COL(0x5c406c), // 12
-    COL(0xe5cdc4), // 13
-    COL(0x91463d), // 14
-    COL(0x000000), // 15
+  COL(0x000000), // 0
+  COL(0xffffff), // 1
+  COL(0xff2121), // 2
+  COL(0xff93c4), // 3
+  COL(0xff8135), // 4
+  COL(0xfff609), // 5
+  COL(0x249ca3), // 6
+  COL(0x78dc52), // 7
+  COL(0x003fad), // 8
+  COL(0x87f2ff), // 9
+  COL(0x8e2ec4), // 10
+
+  COL(0xa4839f), // 11
+  COL(0x5c406c), // 12
+  COL(0xe5cdc4), // 13
+  COL(0x91463d), // 14
+  COL(0x000000), // 15
 };
 
 uint8_t fb[DISPLAY_WIDTH * DISPLAY_HEIGHT];
@@ -63,13 +80,13 @@ extern const uint8_t pendriveLogo[];
 extern const uint8_t arrowLogo[];
 
 // print character with font size = 1
-static void printch(int x, int y, int col, const uint8_t *fnt) {
+static void printch(int x, int y, int color, const uint8_t *fnt) {
     for (int i = 0; i < 6; ++i) {
         uint8_t *p = fb + (x + i) * DISPLAY_HEIGHT + y;
         uint8_t mask = 0x01;
         for (int j = 0; j < 8; ++j) {
             if (*fnt & mask)
-                *p = col;
+                *p = color;
             p++;
             mask <<= 1;
         }
@@ -78,14 +95,14 @@ static void printch(int x, int y, int col, const uint8_t *fnt) {
 }
 
 // print character with font size = 4
-static void printch4(int x, int y, int col, const uint8_t *fnt) {
+static void printch4(int x, int y, int color, const uint8_t *fnt) {
     for (int i = 0; i < 6 * 4; ++i) {
         uint8_t *p = fb + (x + i) * DISPLAY_HEIGHT + y;
         uint8_t mask = 0x01;
         for (int j = 0; j < 8; ++j) {
             for (int k = 0; k < 4; ++k) {
                 if (*fnt & mask)
-                    *p = col;
+                    *p = color;
                 p++;
             }
             mask <<= 1;
@@ -96,7 +113,7 @@ static void printch4(int x, int y, int col, const uint8_t *fnt) {
 }
 
 // print icon
-void printicon(int x, int y, int col, const uint8_t *icon) {
+void printicon(int x, int y, int color, const uint8_t *icon) {
     int w = *icon++;
     int h = *icon++;
     int sz = *icon++;
@@ -133,7 +150,7 @@ void printicon(int x, int y, int col, const uint8_t *icon) {
                 continue; // restart
             }
             if (c)
-                *p = col;
+                *p = color;
             p++;
         }
     }
@@ -168,46 +185,54 @@ void print(int x, int y, int col, const char *text) {
 }
 
 // Print text with font size = 4
-void print4(int x, int y, int col, const char *text) {
-    while (*text) {
-        char c = *text++;
-        c -= ' ';
-        printch4(x, y, col, &font8[c * 6]);
-        x += CHAR4_KERNED_WIDTH;
-        if (x + CHAR4_KERNED_WIDTH > DISPLAY_WIDTH) {
-            // Next char won't fit.
-            return;
-        }
+void print4 (int x, int y, int color, const char *text)
+{
+  while ( *text )
+  {
+    char c = *text++;
+    c -= ' ';
+    printch4(x, y, color, &font8[c * 6]);
+    x += CHAR4_KERNED_WIDTH;
+    if ( x + CHAR4_KERNED_WIDTH > DISPLAY_WIDTH )
+    {
+      // Next char won't fit.
+      return;
     }
+  }
 }
 
 // Send the whole buffer data to display controller
-static void draw_screen(void) {
-    uint8_t *p = fb;
-    for (int i = 0; i < DISPLAY_WIDTH; ++i) {
-        uint8_t cc[DISPLAY_HEIGHT * 2];
-        uint32_t dst = 0;
-        for (int j = 0; j < DISPLAY_HEIGHT; ++j) {
-            uint16_t color = palette[*p++ & 0xf];
-            cc[dst++] = color >> 8;
-            cc[dst++] = color & 0xff;
-        }
-
-        board_display_draw_line(i, (uint16_t*) cc, DISPLAY_HEIGHT);
+static void draw_screen (void)
+{
+  uint8_t *p = fb;
+  for ( int i = 0; i < DISPLAY_WIDTH; ++i )
+  {
+    uint8_t cc[DISPLAY_HEIGHT * 2];
+    uint32_t dst = 0;
+    for ( int j = 0; j < DISPLAY_HEIGHT; ++j )
+    {
+      uint16_t color = palette[*p++ & 0xf];
+      cc[dst++] = color >> 8;
+      cc[dst++] = color & 0xff;
     }
+
+    board_display_draw_line(i, (uint16_t*) cc, DISPLAY_HEIGHT);
+  }
 }
 
 // draw color bar
-void drawBar(int y, int h, int c) {
-    for (int x = 0; x < DISPLAY_WIDTH; ++x) {
-        memset(fb + x * DISPLAY_HEIGHT + y, c, h);
-    }
+void drawBar (int y, int h, int color)
+{
+  for ( int x = 0; x < DISPLAY_WIDTH; ++x )
+  {
+    memset(fb + x * DISPLAY_HEIGHT + y, color, h);
+  }
 }
 
 void screen_draw_hf2(void) {
-    print4(20, 22, 5, "<-->");
-    print(40, 110, 7, "flashing...");
-    draw_screen();
+  print4(20, 22, 5, "<-->");
+  print(40, 110, 7, "flashing...");
+  draw_screen();
 }
 
 // draw drag & drop screen
@@ -215,28 +240,27 @@ void screen_draw_drag (void)
 {
   memset(fb, 0, sizeof(fb));
 
-  drawBar(0, 52, 7);
-  drawBar(52, 55, 8);
-  drawBar(107, 14, 4);
+  drawBar(0, 52, COLOR_GREEN);
+  drawBar(52, 55, COLOR_BLUE);
+  drawBar(107, 14, COLOR_ORANGE);
 
   // Center UF2_PRODUCT_NAME and UF2_VERSION_BASE.
   int name_x = (DISPLAY_WIDTH - CHAR4_KERNED_WIDTH * (int) strlen(DISPLAY_TITLE)) / 2;
-  print4(name_x >= 0 ? name_x : 0, 5, 1, DISPLAY_TITLE);
+  print4(name_x >= 0 ? name_x : 0, 5, COLOR_WHITE, DISPLAY_TITLE);
 
   int version_x = (DISPLAY_WIDTH - 6 * (int) strlen(UF2_VERSION_BASE)) / 2;
-  print(version_x >= 0 ? version_x : 0, 40, 6, UF2_VERSION_BASE);
+  print(version_x >= 0 ? version_x : 0, 40, COLOR_PURPLE, UF2_VERSION_BASE);
 
   // TODO the reset should be center as well
-
   print(23, 110, 1, "circuitpython.org");
 
 #define DRAG 70
 #define DRAGX 10
-  printicon(DRAGX + 20, DRAG + 5, 1, fileLogo);
-  printicon(DRAGX + 66, DRAG, 1, arrowLogo);
-  printicon(DRAGX + 108, DRAG, 1, pendriveLogo);
-  print(10, DRAG - 12, 1, "firmware.uf2");
-  print(90, DRAG - 12, 1, UF2_VOLUME_LABEL);
+  printicon(DRAGX + 20, DRAG + 5, COLOR_WHITE, fileLogo);
+  printicon(DRAGX + 66, DRAG, COLOR_WHITE, arrowLogo);
+  printicon(DRAGX + 108, DRAG, COLOR_WHITE, pendriveLogo);
+  print(10, DRAG - 12, COLOR_WHITE, "firmware.uf2");
+  print(90, DRAG - 12, COLOR_WHITE, UF2_VOLUME_LABEL);
 
   draw_screen();
 }

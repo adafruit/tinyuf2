@@ -22,8 +22,8 @@
  * THE SOFTWARE.
  */
 
-#ifndef ADAFRUIT_FEATHER_ESP32S2_TFT_H_
-#define ADAFRUIT_FEATHER_ESP32S2_TFT_H_
+#ifndef ADAFRUIT_FUNHOUSE_ESP32S2_H_
+#define ADAFRUIT_FUNHOUSE_ESP32S2_H_
 
 //--------------------------------------------------------------------+
 // Button
@@ -36,27 +36,27 @@
 
 // GPIO that implement 1-bit memory with RC components which hold the
 // pin value long enough for double reset detection.
-#define PIN_DOUBLE_RESET_RC   34
+#define PIN_DOUBLE_RESET_RC   42
 
 //--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
 
-// GPIO connected to Neopixel data
-#define NEOPIXEL_PIN          33
+// Number of Dotstar
+#define DOTSTAR_NUMBER        5
 
-#define NEOPIXEL_POWER_PIN    21
-#define NEOPIXEL_POWER_STATE  1
+// GPIO connected to Dotstar
+#define DOTSTAR_PIN_DATA      14
+#define DOTSTAR_PIN_SCK       15
+#define DOTSTAR_PIN_PWR       41
+#define DOTSTAR_POWER_STATE   0
 
 // Brightness percentage from 1 to 255
-#define NEOPIXEL_BRIGHTNESS   0x10
+#define DOTSTAR_BRIGHTNESS    0x08
 
-// Number of neopixels
-#define NEOPIXEL_NUMBER       1
-
-// LED for indicator and writing flash
+// LED for indicator
 // If not defined neopixel will be use for flash writing instead
-#define LED_PIN               13
+#define LED_PIN               37
 #define LED_STATE_ON          1
 
 //--------------------------------------------------------------------+
@@ -69,37 +69,38 @@
 #define DISPLAY_PIN_MOSI      35
 #define DISPLAY_PIN_SCK       36
 
-#define DISPLAY_PIN_CS        42
-#define DISPLAY_PIN_DC        40
-#define DISPLAY_PIN_RST       41
+#define DISPLAY_PIN_CS        39
+#define DISPLAY_PIN_DC        38
+#define DISPLAY_PIN_RST       40
 
-#define DISPLAY_PIN_BL        7
+#define DISPLAY_PIN_BL        21
 #define DISPLAY_BL_ON         1  // GPIO state to enable back light
 
 #define DISPLAY_WIDTH         240
-#define DISPLAY_HEIGHT        135
+#define DISPLAY_HEIGHT        240
 
-#define DISPLAY_COL_OFFSET    53
-#define DISPLAY_ROW_OFFSET    40
+#define DISPLAY_COL_OFFSET    0 // 53
+#define DISPLAY_ROW_OFFSET    0 // 40
 
 // Memory Data Access Control & // Vertical Scroll Start Address
-#define DISPLAY_MADCTL        (TFT_MADCTL_MX)
-#define DISPLAY_VSCSAD        0
+#define DISPLAY_MADCTL        (TFT_MADCTL_MX | TFT_MADCTL_MY | TFT_MADCTL_MV)
+#define DISPLAY_VSCSAD        80
 
-#define DISPLAY_TITLE         "Feather TFT"
+#define DISPLAY_TITLE         "Fun House"
+
 
 //--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
 
 #define USB_VID           0x239A
-#define USB_PID           0x00ED
+#define USB_PID           0x00E5
 #define USB_MANUFACTURER  "Adafruit"
-#define USB_PRODUCT       "Feather ESP32-S2 Reverse TFT"
+#define USB_PRODUCT       "Metro FunHouse"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "ESP32S2-FeatherTFT-revA"
-#define UF2_VOLUME_LABEL  "FTHRS2BOOT"
-#define UF2_INDEX_URL     "https://www.adafruit.com/product/pid" // TODO update link
+#define UF2_BOARD_ID      "MagTag-FunHouse-revA"
+#define UF2_VOLUME_LABEL  "HOUSEBOOT"
+#define UF2_INDEX_URL     "https://www.adafruit.com/"
 
 #endif

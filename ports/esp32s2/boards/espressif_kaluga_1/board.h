@@ -75,7 +75,9 @@
 #define DISPLAY_COL_OFFSET    0
 #define DISPLAY_ROW_OFFSET    0
 
+// Memory Data Access Control & // Vertical Scroll Start Address
 #define DISPLAY_MADCTL        TFT_MADCTL_BGR
+#define DISPLAY_VSCSAD        0
 
 #define DISPLAY_TITLE         USB_PRODUCT
 

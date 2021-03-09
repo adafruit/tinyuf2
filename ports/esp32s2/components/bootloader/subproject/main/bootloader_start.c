@@ -300,40 +300,51 @@ static void board_neopixel_set(uint32_t num_pin, uint8_t const rgb[])
 
 #ifdef DOTSTAR_PIN_DATA
 //Bit bang out 8 bits
-static void SPI_write(int32_t num_pin_data,uint32_t num_pin_sck,uint8_t c) {
-
+static void SPI_write(int32_t pin_data,uint32_t pin_sck,uint8_t c)
+{
   uint8_t i;
   for (i=0; i<8 ;i++)
   {
     if (!(c&0x80)) {
-      gpio_ll_set_level(&GPIO, num_pin_data, 0);
+      gpio_ll_set_level(&GPIO, pin_data, 0);
     }
     else {
-      gpio_ll_set_level(&GPIO, num_pin_data, 1);
+      gpio_ll_set_level(&GPIO, pin_data, 1);
     }
     delay_cycle( ns2cycle(200000) ) ;
-    gpio_ll_set_level(&GPIO, num_pin_sck, 1);
+    gpio_ll_set_level(&GPIO, pin_sck, 1);
     c<<=1;
     delay_cycle( ns2cycle(200000) ) ;
-    gpio_ll_set_level(&GPIO, num_pin_sck, 0);
+    gpio_ll_set_level(&GPIO, pin_sck, 0);
     delay_cycle( ns2cycle(200000) );
   }
+}
 
- }
-static void board_apa102_set(uint32_t num_pin_data,uint32_t num_pin_sck, uint8_t const rgb[])
+static void board_dotstar_set(uint32_t pin_data, uint32_t pin_sck, uint8_t const rgb[])
 {
-  SPI_write(num_pin_data,num_pin_sck,0x00);
-  SPI_write(num_pin_data,num_pin_sck,0x00);
-  SPI_write(num_pin_data,num_pin_sck,0x00);
-  SPI_write(num_pin_data,num_pin_sck,0x00);
+  // convert from 0-255 (8 bit) to 0-31 (5 bit)
+  uint8_t const ds_brightness = (DOTSTAR_BRIGHTNESS * 32) / 256;
 
-  SPI_write(num_pin_data,num_pin_sck,0xe0 | DOTSTAR_BRIGHTNESS);
+  // Start frame
+  SPI_write(pin_data, pin_sck, 0x00);
+  SPI_write(pin_data, pin_sck, 0x00);
+  SPI_write(pin_data, pin_sck, 0x00);
+  SPI_write(pin_data, pin_sck, 0x00);
 
-  // DotStar APA102 color order is BGR
-  uint8_t const pixels[3] = { rgb[2], rgb[1], rgb[0] };
+  for(uint32_t i=0; i<DOTSTAR_NUMBER; i++)
+  {
+    SPI_write(pin_data, pin_sck, 0xE0 | ds_brightness);
 
-  for(uint16_t n=0; n<sizeof(pixels); n++) {
-    SPI_write(num_pin_data, num_pin_sck, pixels[n]);
+    // DotStar APA102 color order is BGR
+    SPI_write(pin_data, pin_sck, rgb[2]);
+    SPI_write(pin_data, pin_sck, rgb[1]);
+    SPI_write(pin_data, pin_sck, rgb[0]);
+  }
+
+  // End frame
+  for(uint32_t i=0; i < (DOTSTAR_NUMBER+15)/16; i++)
+  {
+    SPI_write(pin_data, pin_sck, 0xff);
   }
 }
 #endif
@@ -369,7 +380,7 @@ static void board_led_on(void)
   gpio_pad_select_gpio(DOTSTAR_PIN_PWR);
   gpio_ll_input_disable(&GPIO, DOTSTAR_PIN_PWR);
   gpio_ll_output_enable(&GPIO, DOTSTAR_PIN_PWR);
-  gpio_ll_set_level(&GPIO, DOTSTAR_PIN_PWR, 0);
+  gpio_ll_set_level(&GPIO, DOTSTAR_PIN_PWR, DOTSTAR_POWER_STATE);
 #endif
 
 #ifdef LED_PIN
@@ -390,11 +401,8 @@ static void board_led_on(void)
   gpio_ll_set_level(&GPIO, LED_PIN, 1);
 #endif
 
-  // APA102 colour order is BGR
 #ifdef DOTSTAR_PIN_DATA
-  uint8_t pixels[3] = { 0xb3, 0x00, 0x86 };
-  gpio_ll_set_level(&GPIO, DOTSTAR_PIN_PWR, 1);
-  board_apa102_set(DOTSTAR_PIN_DATA, DOTSTAR_PIN_SCK, RGB_DOUBLE_TAP);
+  board_dotstar_set(DOTSTAR_PIN_DATA, DOTSTAR_PIN_SCK, RGB_DOUBLE_TAP);
 #endif
 }
 
@@ -416,11 +424,11 @@ static void board_led_off(void)
 #endif
 
 #ifdef DOTSTAR_PIN_DATA
-  board_apa102_set(DOTSTAR_PIN_DATA, DOTSTAR_PIN_SCK, RGB_OFF);
+  board_dotstar_set(DOTSTAR_PIN_DATA, DOTSTAR_PIN_SCK, RGB_OFF);
 
   gpio_ll_output_disable(&GPIO, DOTSTAR_PIN_DATA);
   gpio_ll_output_disable(&GPIO, DOTSTAR_PIN_SCK);
-  gpio_ll_set_level(&GPIO, DOTSTAR_PIN_PWR, 0);
+  gpio_ll_set_level(&GPIO, DOTSTAR_PIN_PWR, 1-DOTSTAR_POWER_STATE);
   gpio_ll_output_disable(&GPIO, DOTSTAR_PIN_PWR);
 #endif
 
