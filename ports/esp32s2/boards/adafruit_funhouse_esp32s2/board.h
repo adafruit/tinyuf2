@@ -82,7 +82,9 @@
 #define DISPLAY_COL_OFFSET    0 // 53
 #define DISPLAY_ROW_OFFSET    0 // 40
 
-#define DISPLAY_MADCTL        TFT_MADCTL_MX
+// Memory Data Access Control & // Vertical Scroll Start Address
+#define DISPLAY_MADCTL        (TFT_MADCTL_MX | TFT_MADCTL_MY | TFT_MADCTL_MV)
+#define DISPLAY_VSCSAD        80
 
 #define DISPLAY_TITLE         "Fun House"
 

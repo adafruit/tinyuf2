@@ -82,7 +82,9 @@
 #define DISPLAY_COL_OFFSET    53
 #define DISPLAY_ROW_OFFSET    40
 
+// Memory Data Access Control & // Vertical Scroll Start Address
 #define DISPLAY_MADCTL        (TFT_MADCTL_MX)
+#define DISPLAY_VSCSAD        0
 
 #define DISPLAY_TITLE         "Feather TFT"
 

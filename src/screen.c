@@ -52,6 +52,7 @@ enum
   COLOR_PURPLE = 10,
 };
 
+// 16-bit 565 color from 24-bit 888 format
 const uint16_t palette[] = {
   COL(0x000000), // 0
   COL(0xffffff), // 1
