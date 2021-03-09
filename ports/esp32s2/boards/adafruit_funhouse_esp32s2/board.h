@@ -52,7 +52,7 @@
 #define DOTSTAR_POWER_STATE   0
 
 // Brightness percentage from 1 to 255
-#define DOTSTAR_BRIGHTNESS    0x10
+#define DOTSTAR_BRIGHTNESS    0x08
 
 // LED for indicator
 // If not defined neopixel will be use for flash writing instead
@@ -82,7 +82,7 @@
 #define DISPLAY_COL_OFFSET    0 // 53
 #define DISPLAY_ROW_OFFSET    0 // 40
 
-#define DISPLAY_MADCTL        (TFT_MADCTL_MX)
+#define DISPLAY_MADCTL        TFT_MADCTL_MX
 
 #define DISPLAY_TITLE         "Fun House"
 
