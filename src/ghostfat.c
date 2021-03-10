@@ -169,7 +169,7 @@ STATIC_ASSERT( CLUSTER_COUNT >= 0x1015 && CLUSTER_COUNT < 0xFFD5 );
 #define UF2_SECTORS        (_flash_size / UF2_FIRMWARE_BYTES_PER_SECTOR)
 #define UF2_SIZE           (UF2_SECTORS * BPB_SECTOR_SIZE)
 
-#define UF2_FIRST_SECTOR   ((NUM_FILES + 1) * BPB_SECTORS_PER_CLUSTER) // WARNING -- code presumes each non-UF2 file content fits in single sector
+#define UF2_FIRST_SECTOR   ((NUM_FILES + 1) * BPB_SECTORS_PER_CLUSTER) // WARNING -- code presumes each non-UF2 file content fits in single cluster
 #define UF2_LAST_SECTOR    (UF2_FIRST_SECTOR + UF2_SECTORS - 1)
 
 #define FS_START_FAT0_SECTOR      BPB_RESERVED_SECTORS
