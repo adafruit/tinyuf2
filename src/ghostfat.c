@@ -167,7 +167,9 @@ STATIC_ASSERT( CLUSTER_COUNT >= 0x1015 && CLUSTER_COUNT < 0xFFD5 );
 
 #define UF2_FIRMWARE_BYTES_PER_SECTOR 256
 #define UF2_SECTOR_COUNT   (_flash_size / UF2_FIRMWARE_BYTES_PER_SECTOR)
-#define UF2_SIZE           (UF2_SECTOR_COUNT * BPB_SECTOR_SIZE)
+#define UF2_CLUSTER_COUNT  ( (UF2_SECTOR_COUNT / BPB_SECTORS_PER_CLUSTER) + \
+                            ((UF2_SECTOR_COUNT % BPB_SECTORS_PER_CLUSTER) ? 1 : 0))
+#define UF2_BYTE_COUNT     (UF2_SECTOR_COUNT * BPB_SECTOR_SIZE) // always a multiple of sector size, per UF2 spec
 
 #define UF2_FIRST_SECTOR   ((NUM_FILES + 1) * BPB_SECTORS_PER_CLUSTER) // WARNING -- code presumes each non-UF2 file content fits in single cluster
 #define UF2_LAST_SECTOR    (UF2_FIRST_SECTOR + UF2_SECTOR_COUNT - 1)
@@ -316,7 +318,7 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
       d->updateTime = __DOSTIME__;
       d->updateDate = __DOSDATE__;
       d->startCluster = startCluster & 0xFFFF;
-      d->size = (inf->content ? strlen(inf->content) : UF2_SIZE);
+      d->size = (inf->content ? strlen(inf->content) : UF2_BYTE_COUNT);
     }
   }
   else if ( block_no < BPB_TOTAL_SECTORS )
