@@ -244,7 +244,7 @@ void padded_memcpy (char *dst, char const *src, int len)
 void uf2_read_block (uint32_t block_no, uint8_t *data)
 {
   memset(data, 0, BPB_SECTOR_SIZE);
-  uint32_t sectionIdx = block_no;
+  uint32_t sectionRelativeSector = block_no;
 
   if ( block_no == 0 )
   {
@@ -256,12 +256,12 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
   else if ( block_no < FS_START_ROOTDIR_SECTOR )
   {
     // Requested FAT table sector
-    sectionIdx -= FS_START_FAT0_SECTOR;
+    sectionRelativeSector -= FS_START_FAT0_SECTOR;
 
     // second FAT is same as the first...
-    if ( sectionIdx >= BPB_SECTORS_PER_FAT ) sectionIdx -= BPB_SECTORS_PER_FAT;
+    if ( sectionRelativeSector >= BPB_SECTORS_PER_FAT ) sectionRelativeSector -= BPB_SECTORS_PER_FAT;
 
-    if ( sectionIdx == 0 )
+    if ( sectionRelativeSector == 0 )
     {
       // first FAT entry must match BPB MediaDescriptor
       data[0] = BPB_MEDIA_DESCRIPTOR_BYTE;
@@ -275,7 +275,7 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
     for ( uint32_t i = 0; i < FAT_ENTRIES_PER_SECTOR; ++i )
     {
       // Generate the FAT chain for the firmware "file"
-      uint32_t v = (sectionIdx * FAT_ENTRIES_PER_SECTOR * BPB_SECTORS_PER_CLUSTER) + (i * BPB_SECTORS_PER_CLUSTER);
+      uint32_t v = (sectionRelativeSector * FAT_ENTRIES_PER_SECTOR * BPB_SECTORS_PER_CLUSTER) + (i * BPB_SECTORS_PER_CLUSTER);
 
       if ( UF2_FIRST_CLUSTER_NUMBER <= v && v < UF2_LAST_CLUSTER_NUMBER )
       {
@@ -291,11 +291,12 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
   {
     // Requested root directory sector
 
-    sectionIdx -= FS_START_ROOTDIR_SECTOR;
+    sectionRelativeSector -= FS_START_ROOTDIR_SECTOR;
 
-    DirEntry *d = (void*) data;
-    int remainingEntries = DIRENTRIES_PER_SECTOR;
-    if ( sectionIdx == 0 )
+    DirEntry *d = (void*) data;                   // pointer to next free DirEntry this sector
+    int remainingEntries = DIRENTRIES_PER_SECTOR; // remaining count of DirEntries this sector
+
+    if ( sectionRelativeSector == 0 )
     {
       // volume label first
       // volume label is first directory entry
@@ -305,11 +306,15 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
       remainingEntries--;
     }
 
-    for ( uint32_t i = DIRENTRIES_PER_SECTOR * sectionIdx;
-        remainingEntries > 0 && i < NUM_FILES;
-        i++, d++ )
+    for ( uint32_t i = DIRENTRIES_PER_SECTOR * sectionRelativeSector;
+          remainingEntries > 0 && i < NUM_FILES;
+          i++, d++ )
     {
+      // WARNING -- code presumes all files take exactly one directory entry (no long file names!)
       // WARNING -- code presumes all but last file take exactly one sector
+      // Using the above two presumptions, can convert from file index to starting cluster number
+      // by simply adding two (because first data cluster has cluster number of 2 in FAT)
+      // BUGBUG -- use of uint16_t means highStartCluster will always be zero
       uint16_t startCluster = i + 2;
 
       struct TextFile const *inf = &info[i];
@@ -327,23 +332,26 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
   }
   else if ( block_no < BPB_TOTAL_SECTORS )
   {
-    sectionIdx -= FS_START_CLUSTERS_SECTOR;
-    if ( sectionIdx < (NUM_FILES - 1) * BPB_SECTORS_PER_CLUSTER )
+    sectionRelativeSector -= FS_START_CLUSTERS_SECTOR;
+    if ( sectionRelativeSector < (NUM_FILES - 1) * BPB_SECTORS_PER_CLUSTER )
     {
-      memcpy(data, info[sectionIdx / BPB_SECTORS_PER_CLUSTER].content, strlen(info[sectionIdx / BPB_SECTORS_PER_CLUSTER].content));
+      // WARNING -- code presumes first data cluster == first file, second data cluster == second file, etc.
+      // BUGBUG -- Data and stack corruption when file size is larger than BPB_SECTOR_SIZE
+      // BUGBUG -- Data corruption copies the first sector data to all sectors of the cluster
+      memcpy(data, info[sectionRelativeSector / BPB_SECTORS_PER_CLUSTER].content, strlen(info[sectionIdx / BPB_SECTORS_PER_CLUSTER].content));
     }
     else
     {
       // generate the UF2 file data on-the-fly
-      sectionIdx -= (NUM_FILES - 1) * BPB_SECTORS_PER_CLUSTER;
-      uint32_t addr = BOARD_FLASH_APP_START + (sectionIdx * UF2_FIRMWARE_BYTES_PER_SECTOR);
+      sectionRelativeSector -= (NUM_FILES - 1) * BPB_SECTORS_PER_CLUSTER;
+      uint32_t addr = BOARD_FLASH_APP_START + (sectionRelativeSector * UF2_FIRMWARE_BYTES_PER_SECTOR);
       if ( addr < _flash_size ) // TODO abstract this out
       {
         UF2_Block *bl = (void*) data;
         bl->magicStart0 = UF2_MAGIC_START0;
         bl->magicStart1 = UF2_MAGIC_START1;
         bl->magicEnd = UF2_MAGIC_END;
-        bl->blockNo = sectionIdx;
+        bl->blockNo = sectionRelativeSector;
         bl->numBlocks = UF2_SECTOR_COUNT;
         bl->targetAddr = addr;
         bl->payloadSize = UF2_FIRMWARE_BYTES_PER_SECTOR;
