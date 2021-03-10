@@ -171,8 +171,8 @@ STATIC_ASSERT( CLUSTER_COUNT >= 0x1015 && CLUSTER_COUNT < 0xFFD5 );
                             ((UF2_SECTOR_COUNT % BPB_SECTORS_PER_CLUSTER) ? 1 : 0))
 #define UF2_BYTE_COUNT     (UF2_SECTOR_COUNT * BPB_SECTOR_SIZE) // always a multiple of sector size, per UF2 spec
 
-#define UF2_FIRST_SECTOR   ((NUM_FILES + 1) * BPB_SECTORS_PER_CLUSTER) // WARNING -- code presumes each non-UF2 file content fits in single cluster
-#define UF2_LAST_SECTOR    (UF2_FIRST_SECTOR + UF2_SECTOR_COUNT - 1)
+#define UF2_FIRST_CLUSTER_NUMBER ((NUM_FILES + 1 + 2))
+#define UF2_LAST_CLUSTER_NUMBER  (UF2_FIRST_CLUSTER_NUMBER + UF2_CLUSTER_COUNT - 1)
 
 #define FS_START_FAT0_SECTOR      BPB_RESERVED_SECTORS
 #define FS_START_FAT1_SECTOR      (FS_START_FAT0_SECTOR + BPB_SECTORS_PER_FAT)
@@ -277,9 +277,13 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
       // Generate the FAT chain for the firmware "file"
       uint32_t v = (sectionIdx * FAT_ENTRIES_PER_SECTOR * BPB_SECTORS_PER_CLUSTER) + (i * BPB_SECTORS_PER_CLUSTER);
 
-      if ( UF2_FIRST_SECTOR <= v && v <= UF2_LAST_SECTOR )
+      if ( UF2_FIRST_CLUSTER_NUMBER <= v && v < UF2_LAST_CLUSTER_NUMBER )
       {
-        ((uint16_t*) (void*) data)[i] = v == UF2_LAST_SECTOR ? 0xffff : (v / BPB_SECTORS_PER_CLUSTER) + 1;
+        ((uint16_t*) (void*) data)[i] = v + 1; // contiguous file, so point to next cluster number
+      }
+      else if ( v == UF2_LAST_CLUSTER_NUMBER)
+      {
+        ((uint16_t*) (void*) data)[i] = 0xffff; // end of file marker in FAT16
       }
     }
   }
