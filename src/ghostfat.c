@@ -166,11 +166,11 @@ STATIC_ASSERT( CLUSTER_COUNT >= 0x0FF5 && CLUSTER_COUNT < 0xFFF5 );
 STATIC_ASSERT( CLUSTER_COUNT >= 0x1015 && CLUSTER_COUNT < 0xFFD5 );
 
 #define UF2_FIRMWARE_BYTES_PER_SECTOR 256
-#define UF2_SECTORS        (_flash_size / UF2_FIRMWARE_BYTES_PER_SECTOR)
-#define UF2_SIZE           (UF2_SECTORS * BPB_SECTOR_SIZE)
+#define UF2_SECTOR_COUNT   (_flash_size / UF2_FIRMWARE_BYTES_PER_SECTOR)
+#define UF2_SIZE           (UF2_SECTOR_COUNT * BPB_SECTOR_SIZE)
 
 #define UF2_FIRST_SECTOR   ((NUM_FILES + 1) * BPB_SECTORS_PER_CLUSTER) // WARNING -- code presumes each non-UF2 file content fits in single cluster
-#define UF2_LAST_SECTOR    (UF2_FIRST_SECTOR + UF2_SECTORS - 1)
+#define UF2_LAST_SECTOR    (UF2_FIRST_SECTOR + UF2_SECTOR_COUNT - 1)
 
 #define FS_START_FAT0_SECTOR      BPB_RESERVED_SECTORS
 #define FS_START_FAT1_SECTOR      (FS_START_FAT0_SECTOR + BPB_SECTORS_PER_FAT)
@@ -338,7 +338,7 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
         bl->magicStart1 = UF2_MAGIC_START1;
         bl->magicEnd = UF2_MAGIC_END;
         bl->blockNo = sectionIdx;
-        bl->numBlocks = UF2_SECTORS;
+        bl->numBlocks = UF2_SECTOR_COUNT;
         bl->targetAddr = addr;
         bl->payloadSize = UF2_FIRMWARE_BYTES_PER_SECTOR;
         bl->flags = UF2_FLAG_FAMILYID;
