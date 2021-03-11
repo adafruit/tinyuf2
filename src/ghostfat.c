@@ -314,8 +314,7 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
       // WARNING -- code presumes all but last file take exactly one sector
       // Using the above two presumptions, can convert from file index to starting cluster number
       // by simply adding two (because first data cluster has cluster number of 2 in FAT)
-      // BUGBUG -- use of uint16_t means highStartCluster will always be zero
-      uint16_t startCluster = i + 2;
+      uint32_t startCluster = i + 2;
 
       struct TextFile const *inf = &info[i];
       padded_memcpy(d->name, inf->name, 11);
