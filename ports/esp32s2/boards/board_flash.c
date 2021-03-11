@@ -32,12 +32,12 @@
 #include "board_api.h"
 
 // Debug helper, remove later
-#define PRINTF(...)           ESP_LOGD("uf2", __VA_ARGS__)
-#define PRINT_LOCATION()      ESP_LOGD("uf2", "%s: %d", __PRETTY_FUNCTION__, __LINE__)
-#define PRINT_MESS(x)         ESP_LOGD("uf2", "%s", (char*)(x))
-#define PRINT_STR(x)          ESP_LOGD("uf2", #x " = %s"   , (char*)(x) )
-#define PRINT_INT(x)          ESP_LOGD("uf2", #x " = %d"  , (int32_t) (x) )
-#define PRINT_HEX(x)          ESP_LOGD("uf2", #x " = 0x%X", (uint32_t) (x) )
+#define PRINTF(...)           ESP_LOGI("uf2", __VA_ARGS__)
+#define PRINT_LOCATION()      ESP_LOGI("uf2", "%s: %d", __PRETTY_FUNCTION__, __LINE__)
+#define PRINT_MESS(x)         ESP_LOGI("uf2", "%s", (char*)(x))
+#define PRINT_STR(x)          ESP_LOGI("uf2", #x " = %s"   , (char*)(x) )
+#define PRINT_INT(x)          ESP_LOGI("uf2", #x " = %d"  , (int32_t) (x) )
+#define PRINT_HEX(x)          ESP_LOGI("uf2", #x " = 0x%X", (uint32_t) (x) )
 
 #define PRINT_BUFFER(buf, n) \
   do {\
@@ -47,7 +47,7 @@
     printf("\n");\
   }while(0)
 
-#define FLASH_CACHE_SIZE          4096
+#define FLASH_CACHE_SIZE          (4*1024)
 #define FLASH_CACHE_INVALID_ADDR  0xffffffff
 
 static uint32_t _fl_addr = FLASH_CACHE_INVALID_ADDR;
@@ -93,22 +93,27 @@ void board_flash_flush(void)
 {
   if ( _fl_addr == FLASH_CACHE_INVALID_ADDR ) return;
 
-  PRINTF("Erase and Write at 0x%08X", _fl_addr);
+  //PRINTF("Erase and Write at 0x%08X", _fl_addr);
 
-  // always write without check for contents match
-  // since reading from spi flash is also equally slow
-  // TODO should really read back for caching
+  // Check if contents already matched
+  uint32_t const verify_sz = 4096;
+  uint8_t* verify_buf = malloc(verify_sz);
+  board_flash_read(_fl_addr, verify_buf, verify_sz);
 
-  // TODO only erase if needed
-  esp_partition_erase_range(_part_ota0, _fl_addr, FLASH_CACHE_SIZE);
-  esp_partition_write(_part_ota0, _fl_addr, _fl_buf, FLASH_CACHE_SIZE);
+  if ( memcmp(_fl_buf, verify_buf, verify_sz) != 0 )
+  {
+    esp_partition_erase_range(_part_ota0, _fl_addr, FLASH_CACHE_SIZE);
+    esp_partition_write(_part_ota0, _fl_addr, _fl_buf, FLASH_CACHE_SIZE);
+  }
+
+  free(verify_buf);
 
   _fl_addr = FLASH_CACHE_INVALID_ADDR;
 }
 
-void board_flash_write (uint32_t dst, void const *src, uint32_t len)
+void board_flash_write (uint32_t addr, void const *data, uint32_t len)
 {
-  uint32_t new_addr = dst & ~(FLASH_CACHE_SIZE - 1);
+  uint32_t new_addr = addr & ~(FLASH_CACHE_SIZE - 1);
 
   if ( new_addr != _fl_addr )
   {
@@ -118,7 +123,7 @@ void board_flash_write (uint32_t dst, void const *src, uint32_t len)
     board_flash_read(new_addr, _fl_buf, FLASH_CACHE_SIZE);
   }
 
-  memcpy(_fl_buf + (dst & (FLASH_CACHE_SIZE - 1)), src, len);
+  memcpy(_fl_buf + (addr & (FLASH_CACHE_SIZE - 1)), data, len);
 }
 
 
