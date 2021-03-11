@@ -61,6 +61,7 @@
 // Baudrate for UART if used
 #define BOARD_UART_BAUDRATE   115200
 
+// Init basic peripherals such as clock, led indicator control (gpio, pwm etc ..)
 void board_init(void);
 
 // Write PWM duty value to LED
@@ -105,11 +106,11 @@ void     board_flash_write(uint32_t addr, void const *data, uint32_t len);
 void     board_flash_flush(void);
 
 #if TINYUF2_DISPLAY
-  void board_display_init(void);
-  void board_display_draw_line(int y, uint16_t* pixel_color, uint32_t pixel_num);
+void board_display_init(void);
+void board_display_draw_line(int y, uint16_t* pixel_color, uint32_t pixel_num);
 
-  void screen_draw_drag(void);
-  void screen_draw_hf2(void);
+void screen_draw_drag(void);
+void screen_draw_hf2(void);
 #endif
 
 // perform self-update on bootloader
