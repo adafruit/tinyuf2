@@ -306,17 +306,22 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
       remainingEntries--;
     }
 
-    for ( uint32_t i = DIRENTRIES_PER_SECTOR * sectionRelativeSector;
-          remainingEntries > 0 && i < NUM_FILES;
-          i++, d++ )
+    uint32_t startingFileIndex =
+      (sectionRelativeSector == 0) ?
+      0 :
+      (DIRENTRIES_PER_SECTOR * sectionRelativeSector) - 1; // -1 to account for volume label in first sector
+
+    for ( uint32_t fileIndex = startingFileIndex;
+          remainingEntries > 0 && fileIndex < NUM_FILES; // while space remains in buffer and more files to add...
+          fileIndex++, d++ )
     {
       // WARNING -- code presumes all files take exactly one directory entry (no long file names!)
       // WARNING -- code presumes all but last file take exactly one sector
       // Using the above two presumptions, can convert from file index to starting cluster number
       // by simply adding two (because first data cluster has cluster number of 2 in FAT)
-      uint32_t startCluster = i + 2;
+      uint32_t startCluster = fileIndex + 2;
 
-      struct TextFile const *inf = &info[i];
+      struct TextFile const *inf = &info[fileIndex];
       padded_memcpy(d->name, inf->name, 11);
       d->createTimeFine = __SECONDS_INT__ % 2 * 100;
       d->createTime = __DOSTIME__;
@@ -332,12 +337,24 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
   else if ( block_no < BPB_TOTAL_SECTORS )
   {
     sectionRelativeSector -= FS_START_CLUSTERS_SECTOR;
-    if ( sectionRelativeSector < (NUM_FILES - 1) * BPB_SECTORS_PER_CLUSTER )
+    uint32_t sectionRelativeClusterIndex = sectionRelativeSector / BPB_SECTORS_PER_CLUSTER;
+
+    if ( sectionRelativeClusterIndex < (NUM_FILES - 1) )
     {
       // WARNING -- code presumes first data cluster == first file, second data cluster == second file, etc.
-      // BUGBUG -- Data and stack corruption when file size is larger than BPB_SECTOR_SIZE
-      // BUGBUG -- Data corruption copies the first sector data to all sectors of the cluster
-      memcpy(data, info[sectionRelativeSector / BPB_SECTORS_PER_CLUSTER].content, strlen(info[sectionIdx / BPB_SECTORS_PER_CLUSTER].content));
+      struct TextFile const * inf = &info[ sectionRelativeSector / BPB_SECTORS_PER_CLUSTER ];
+      size_t fileContentStartOffset = (sectionRelativeSector % BPB_SECTORS_PER_CLUSTER) * BPB_SECTOR_SIZE;
+      size_t fileContentLength = strlen(inf->content);
+
+      if (fileContentLength > fileContentStartOffset) {
+        size_t bytesToCopy = fileContentLength - fileContentStartOffset;
+        const char * dataStart = (inf->content) + fileContentStartOffset;
+        STATIC_ASSERT(sizeof(char) == 1); // technically not required to be true
+        if (bytesToCopy > BPB_SECTOR_SIZE) {
+          bytesToCopy = BPB_SECTOR_SIZE;
+        }
+        memcpy(data, dataStart, bytesToCopy);
+      }
     }
     else
     {
