@@ -355,7 +355,7 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
       // nothing to copy if already past the end of the file (only when >1 sector per cluster)
       if (fileContentLength > fileContentStartOffset) {
         // obviously, 2nd and later sectors should not copy data from the start
-        const uint8_t * dataStart = (inf->content) + fileContentStartOffset;
+        const void * dataStart = (inf->content) + fileContentStartOffset;
         // limit number of bytes of data to be copied to remaining valid bytes
         size_t bytesToCopy = fileContentLength - fileContentStartOffset;
         // and further limit that to a single sector at a time
