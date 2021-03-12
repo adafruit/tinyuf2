@@ -64,6 +64,8 @@ extern uint32_t _board_dfu_dbl_tap[];
 #endif
 static volatile uint32_t _timer_count = 0;
 
+bool _dfu_complete = false;
+
 // return true if start DFU mode, else App mode
 static bool check_dfu_mode(void)
 {
@@ -142,6 +144,15 @@ int main(void)
   while(1)
   {
     tud_task();
+    if (_dfu_complete)
+    {
+      board_dfu_complete();
+	  
+      // _dfu_complete = false;
+      // board_dfu_complete() should not return
+      // getting here is an indicator of error
+      while(1) {}
+    }
   }
 #endif
 }

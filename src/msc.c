@@ -41,6 +41,8 @@ static WriteState _wr_state = { 0 };
 // tinyusb callbacks
 //--------------------------------------------------------------------+
 
+extern bool _dfu_complete;
+
 // Invoked when received SCSI_CMD_INQUIRY
 // Application fill vendor id, product id and revision with string up to 8, 16, 4 characters respectively
 void tud_msc_inquiry_cb(uint8_t lun, uint8_t vendor_id[8], uint8_t product_id[16], uint8_t product_rev[4])
@@ -190,11 +192,7 @@ void tud_msc_write10_complete_cb(uint8_t lun)
       #endif
 
       indicator_set(STATE_WRITING_FINISHED);
-      board_dfu_complete();
-
-      // board_dfu_complete() should not return
-      // getting here is an indicator of error
-      while(1) {}
+      _dfu_complete = true;
     }
   }
 }
