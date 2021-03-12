@@ -171,7 +171,11 @@ STATIC_ASSERT( CLUSTER_COUNT >= 0x1015 && CLUSTER_COUNT < 0xFFD5 );
                             ((UF2_SECTOR_COUNT % BPB_SECTORS_PER_CLUSTER) ? 1 : 0))
 #define UF2_BYTE_COUNT     (UF2_SECTOR_COUNT * BPB_SECTOR_SIZE) // always a multiple of sector size, per UF2 spec
 
-#define UF2_FIRST_CLUSTER_NUMBER ((NUM_FILES + 1 + 2))
+// NOTE: First cluster number of the UF2 file calculation is:
+//       Starts with NUM_FILES because each non-UF2 file is limited to a single cluster in size
+//       -1 because NUM_FILES includes UF2 entry is included in that array, which is zero-indexed
+//       +2 because FAT decided first data sector would be in cluster number 2, rather than zero
+#define UF2_FIRST_CLUSTER_NUMBER ((NUM_FILES -1) + 2)
 #define UF2_LAST_CLUSTER_NUMBER  (UF2_FIRST_CLUSTER_NUMBER + UF2_CLUSTER_COUNT - 1)
 
 #define FS_START_FAT0_SECTOR      BPB_RESERVED_SECTORS
@@ -272,11 +276,13 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
       for ( uint32_t i = 1; i < end; ++i ) data[i] = 0xff;
     }
 
+    // Generate the FAT chain for the firmware "file"
     for ( uint32_t i = 0; i < FAT_ENTRIES_PER_SECTOR; ++i )
     {
-      // Generate the FAT chain for the firmware "file"
-      uint32_t v = (sectionRelativeSector * FAT_ENTRIES_PER_SECTOR * BPB_SECTORS_PER_CLUSTER) + (i * BPB_SECTORS_PER_CLUSTER);
-
+      // `i` here is the sector-relative array index into this sector of the FAT
+      // `v` here is the overall array index into the FAT, which corresponds to
+      //     where the next cluster in the chain is stored.
+      uint32_t v = (sectionRelativeSector * FAT_ENTRIES_PER_SECTOR) + i;
       if ( UF2_FIRST_CLUSTER_NUMBER <= v && v < UF2_LAST_CLUSTER_NUMBER )
       {
         ((uint16_t*) (void*) data)[i] = v + 1; // contiguous file, so point to next cluster number
@@ -346,10 +352,13 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
       size_t fileContentStartOffset = (sectionRelativeSector % BPB_SECTORS_PER_CLUSTER) * BPB_SECTOR_SIZE;
       size_t fileContentLength = strlen(inf->content);
 
+      // nothing to copy if already past the end of the file (only when >1 sector per cluster)
       if (fileContentLength > fileContentStartOffset) {
+        // obviously, 2nd and later sectors should not copy data from the start
+        const uint8_t * dataStart = (inf->content) + fileContentStartOffset;
+        // limit number of bytes of data to be copied to remaining valid bytes
         size_t bytesToCopy = fileContentLength - fileContentStartOffset;
-        const char * dataStart = (inf->content) + fileContentStartOffset;
-        STATIC_ASSERT(sizeof(char) == 1); // technically not required to be true
+        // and further limit that to a single sector at a time
         if (bytesToCopy > BPB_SECTOR_SIZE) {
           bytesToCopy = BPB_SECTOR_SIZE;
         }
