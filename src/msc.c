@@ -25,9 +25,15 @@
 #include "tusb.h"
 #include "uf2.h"
 
-/*------------------------------------------------------------------*/
-/* MACRO TYPEDEF CONSTANT ENUM
- *------------------------------------------------------------------*/
+//--------------------------------------------------------------------+
+// MACRO TYPEDEF CONSTANT ENUM
+//--------------------------------------------------------------------+
+#define DEBUG_SPEED_TEST  0
+
+#if DEBUG_SPEED_TEST
+#include "esp_log.h"
+static uint32_t _write_ms;
+#endif
 
 static WriteState _wr_state = { 0 };
 
@@ -165,6 +171,10 @@ void tud_msc_write10_complete_cb(uint8_t lun)
     // Start LED writing pattern with first write
     if (first_write)
     {
+      #if DEBUG_SPEED_TEST
+      _write_ms = esp_log_timestamp();
+      #endif
+
       first_write = false;
       indicator_set(STATE_WRITING_STARTED);
     }
@@ -172,8 +182,19 @@ void tud_msc_write10_complete_cb(uint8_t lun)
     // All block of uf2 file is complete --> complete DFU process
     if (_wr_state.numWritten >= _wr_state.numBlocks)
     {
+      #if DEBUG_SPEED_TEST
+      uint32_t const wr_byte = _wr_state.numWritten*256;
+      _write_ms = esp_log_timestamp()-_write_ms;
+      printf("written %u bytes in %.02f seconds.\r\n", wr_byte, _write_ms / 1000.0F);
+      printf("Speed : %.02f KB/s\r\n", (wr_byte / 1000.0F) / (_write_ms / 1000.0F));
+      #endif
+
       indicator_set(STATE_WRITING_FINISHED);
       board_dfu_complete();
+
+      // board_dfu_complete() should not return
+      // getting here is an indicator of error
+      while(1) {}
     }
   }
 }

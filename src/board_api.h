@@ -61,6 +61,7 @@
 // Baudrate for UART if used
 #define BOARD_UART_BAUDRATE   115200
 
+// Init basic peripherals such as clock, led indicator control (gpio, pwm etc ..)
 void board_init(void);
 
 // Write PWM duty value to LED
@@ -90,7 +91,7 @@ void board_app_jump(void);
 // Init DFU process
 void board_dfu_init(void);
 
-// DFU is complete, should reset or jump to application mode
+// DFU is complete, should reset or jump to application mode and not return
 void board_dfu_complete(void);
 
 // Fill Serial Number and return its length (limit to 16 bytes)
@@ -105,11 +106,10 @@ void     board_flash_write(uint32_t addr, void const *data, uint32_t len);
 void     board_flash_flush(void);
 
 #if TINYUF2_DISPLAY
-  void board_display_init(void);
-  void board_display_draw_line(int y, uint16_t* pixel_color, uint32_t pixel_num);
+void board_display_init(void);
+void board_display_draw_line(int y, uint16_t* pixel_color, uint32_t pixel_num);
 
-  void screen_draw_drag(void);
-  void screen_draw_hf2(void);
+void screen_draw_drag(void);
 #endif
 
 // perform self-update on bootloader
