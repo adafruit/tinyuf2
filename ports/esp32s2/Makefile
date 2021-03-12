@@ -43,6 +43,12 @@ erase:
 monitor:
 	idf.py -B$(BUILD) -DBOARD=$(BOARD) monitor
 
+size-components:
+	idf.py -B$(BUILD) -DBOARD=$(BOARD) size-components
+
+size-files:
+	idf.py -B$(BUILD) -DBOARD=$(BOARD) size-files
+
 #-------------- Self Update --------------
 $(SELF_BUILD)/update-tinyuf2.bin: app
 	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py --carray $(BUILD)/tinyuf2.bin -o $(TOP)/self_update/bootloader_bin.c

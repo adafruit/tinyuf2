@@ -27,6 +27,7 @@
 #if TINYUF2_DISPLAY
 
 #include <string.h>
+#include <stdlib.h>
 
 // Overlap 4x chars by this much.
 #define CHAR4_KERNING 3
@@ -73,7 +74,12 @@ const uint16_t palette[] = {
   COL(0x000000), // 15
 };
 
-uint8_t fb[DISPLAY_WIDTH * DISPLAY_HEIGHT];
+// TODO only buffer partial screen to save SRAM
+// ESP32s2 can only statically allocated DRAM up to 160KB.
+// the remaining 160KB can only be allocated at runtime as heap.
+//static uint8_t frame_buf[DISPLAY_WIDTH * DISPLAY_HEIGHT];
+static uint8_t* frame_buf;
+
 extern const uint8_t font8[];
 extern const uint8_t fileLogo[];
 extern const uint8_t pendriveLogo[];
@@ -82,7 +88,7 @@ extern const uint8_t arrowLogo[];
 // print character with font size = 1
 static void printch(int x, int y, int color, const uint8_t *fnt) {
     for (int i = 0; i < 6; ++i) {
-        uint8_t *p = fb + (x + i) * DISPLAY_HEIGHT + y;
+        uint8_t *p = frame_buf + (x + i) * DISPLAY_HEIGHT + y;
         uint8_t mask = 0x01;
         for (int j = 0; j < 8; ++j) {
             if (*fnt & mask)
@@ -97,7 +103,7 @@ static void printch(int x, int y, int color, const uint8_t *fnt) {
 // print character with font size = 4
 static void printch4(int x, int y, int color, const uint8_t *fnt) {
     for (int i = 0; i < 6 * 4; ++i) {
-        uint8_t *p = fb + (x + i) * DISPLAY_HEIGHT + y;
+        uint8_t *p = frame_buf + (x + i) * DISPLAY_HEIGHT + y;
         uint8_t mask = 0x01;
         for (int j = 0; j < 8; ++j) {
             for (int k = 0; k < 4; ++k) {
@@ -113,7 +119,7 @@ static void printch4(int x, int y, int color, const uint8_t *fnt) {
 }
 
 // print icon
-void printicon(int x, int y, int color, const uint8_t *icon) {
+static void printicon(int x, int y, int color, const uint8_t *icon) {
     int w = *icon++;
     int h = *icon++;
     int sz = *icon++;
@@ -124,7 +130,7 @@ void printicon(int x, int y, int color, const uint8_t *icon) {
     uint8_t lastb = 0x00;
 
     for (int i = 0; i < w; ++i) {
-        uint8_t *p = fb + (x + i) * DISPLAY_HEIGHT + y;
+        uint8_t *p = frame_buf + (x + i) * DISPLAY_HEIGHT + y;
         for (int j = 0; j < h; ++j) {
             int c = 0;
             if (mask != 0x80) {
@@ -157,7 +163,7 @@ void printicon(int x, int y, int color, const uint8_t *icon) {
 }
 
 // print text with font size = 1
-void print(int x, int y, int col, const char *text) {
+static void print(int x, int y, int col, const char *text) {
     int x0 = x;
     while (*text) {
         char c = *text++;
@@ -185,7 +191,7 @@ void print(int x, int y, int col, const char *text) {
 }
 
 // Print text with font size = 4
-void print4 (int x, int y, int color, const char *text)
+static void print4 (int x, int y, int color, const char *text)
 {
   while ( *text )
   {
@@ -204,7 +210,7 @@ void print4 (int x, int y, int color, const char *text)
 // Send the whole buffer data to display controller
 static void draw_screen (void)
 {
-  uint8_t *p = fb;
+  uint8_t *p = frame_buf;
   for ( int i = 0; i < DISPLAY_WIDTH; ++i )
   {
     uint8_t cc[DISPLAY_HEIGHT * 2];
@@ -221,24 +227,21 @@ static void draw_screen (void)
 }
 
 // draw color bar
-void drawBar (int y, int h, int color)
+static void drawBar (int y, int h, int color)
 {
   for ( int x = 0; x < DISPLAY_WIDTH; ++x )
   {
-    memset(fb + x * DISPLAY_HEIGHT + y, color, h);
+    memset(frame_buf + x * DISPLAY_HEIGHT + y, color, h);
   }
-}
-
-void screen_draw_hf2(void) {
-  print4(20, 22, 5, "<-->");
-  print(40, 110, 7, "flashing...");
-  draw_screen();
 }
 
 // draw drag & drop screen
 void screen_draw_drag (void)
 {
-  memset(fb, 0, sizeof(fb));
+  frame_buf = malloc(DISPLAY_WIDTH * DISPLAY_HEIGHT);
+  if (!frame_buf) return;
+
+  memset(frame_buf, 0, DISPLAY_WIDTH * DISPLAY_HEIGHT);
 
   drawBar(0, 52, COLOR_GREEN);
   drawBar(52, 55, COLOR_BLUE);
@@ -263,6 +266,8 @@ void screen_draw_drag (void)
   print(90, DRAG - 12, COLOR_WHITE, UF2_VOLUME_LABEL);
 
   draw_screen();
+
+  free(frame_buf);
 }
 
 #endif

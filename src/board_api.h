@@ -110,7 +110,6 @@ void board_display_init(void);
 void board_display_draw_line(int y, uint16_t* pixel_color, uint32_t pixel_num);
 
 void screen_draw_drag(void);
-void screen_draw_hf2(void);
 #endif
 
 // perform self-update on bootloader
