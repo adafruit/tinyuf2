@@ -91,7 +91,7 @@ void board_app_jump(void);
 // Init DFU process
 void board_dfu_init(void);
 
-// DFU is complete, should reset or jump to application mode
+// DFU is complete, should reset or jump to application mode and not return
 void board_dfu_complete(void);
 
 // Fill Serial Number and return its length (limit to 16 bytes)

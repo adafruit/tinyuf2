@@ -47,7 +47,7 @@
     printf("\n");\
   }while(0)
 
-#define FLASH_CACHE_SIZE          (4*1024)
+#define FLASH_CACHE_SIZE          (64*1024)
 #define FLASH_CACHE_INVALID_ADDR  0xffffffff
 
 static uint32_t _fl_addr = FLASH_CACHE_INVALID_ADDR;
@@ -62,21 +62,6 @@ void board_flash_init(void)
 
   _part_ota0 = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL);
   assert(_part_ota0 != NULL);
-
-#if 0
-  esp_flash_t const * flash = _part_ota0->flash_chip;
-  PRINT_INT(_part_ota0->type);
-  PRINT_HEX(_part_ota0->subtype);
-  PRINT_HEX(_part_ota0->address);
-  PRINT_HEX(_part_ota0->size);
-  PRINT_INT(_part_ota0->encrypted);
-  PRINT_HEX(flash->chip_id);
-  PRINT_HEX(flash->size);
-
-  // TODO use block erase to speed up writing
-  uint32_t block_erase = flash->chip_drv->erase_block == NULL ? 0 : flash->chip_drv->block_erase_size;
-  PRINT_HEX(block_erase);
-#endif
 }
 
 uint32_t board_flash_size(void)
@@ -96,17 +81,27 @@ void board_flash_flush(void)
   //PRINTF("Erase and Write at 0x%08X", _fl_addr);
 
   // Check if contents already matched
+  bool content_matches = true;
   uint32_t const verify_sz = 4096;
   uint8_t* verify_buf = malloc(verify_sz);
-  board_flash_read(_fl_addr, verify_buf, verify_sz);
 
-  if ( memcmp(_fl_buf, verify_buf, verify_sz) != 0 )
+  for(uint32_t count = 0; count < FLASH_CACHE_SIZE; count += verify_sz)
+  {
+    board_flash_read(_fl_addr + count, verify_buf, verify_sz);
+    if ( 0 != memcmp(_fl_buf + count, verify_buf, verify_sz)  )
+    {
+      content_matches = false;
+      break;
+    }
+  }
+  free(verify_buf);
+
+  // skip erase & write if content already matches
+  if ( !content_matches )
   {
     esp_partition_erase_range(_part_ota0, _fl_addr, FLASH_CACHE_SIZE);
     esp_partition_write(_part_ota0, _fl_addr, _fl_buf, FLASH_CACHE_SIZE);
   }
-
-  free(verify_buf);
 
   _fl_addr = FLASH_CACHE_INVALID_ADDR;
 }
