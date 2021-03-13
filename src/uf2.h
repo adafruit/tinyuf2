@@ -42,12 +42,15 @@ SOFTWARE.
 // Version is passed by makefile
 // #define UF2_VERSION         "0.0.0"
 
-#define CFG_UF2_FLASH_SIZE          (4*1024*1024)    // TODO absolute max flash size
-#define CFG_UF2_NUM_BLOCKS          (0x10109)        // just under 32MB
-#define CFG_UF2_SECTORS_PER_CLUSTER (1)
-// #define CFG_UF2_FLASH_SIZE          (256*1024*1024)  // TODO absolute max flash size
-// #define CFG_UF2_NUM_BLOCKS          (0x300000)       // 1.5 GB
-// #define CFG_UF2_SECTORS_PER_CLUSTER (64)
+#ifndef CFG_UF2_FLASH_SIZE
+    #define CFG_UF2_FLASH_SIZE          (4*1024*1024)    // TODO absolute max flash size
+#endif
+#ifndef CFG_UF2_NUM_BLOCKS
+    #define CFG_UF2_NUM_BLOCKS          (0x10109)        // just under 32MB
+#endif
+#ifndef CFG_UF2_SECTORS_PER_CLUSTER
+    #define CFG_UF2_SECTORS_PER_CLUSTER (1)
+#endif
 
 //--------------------------------------------------------------------+
 //
