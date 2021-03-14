@@ -1,5 +1,8 @@
 #ifndef GHOSTFAT_TEST_CONFIG_H
 #define GHOSTFAT_TEST_CONFIG_H
+#ifdef __cplusplus
+ extern "C" {
+#endif
 
 #include <stdint.h>
 
@@ -9,6 +12,12 @@
 #define TINYUF2_DFU_DOUBLE_TAP      0
 #define TINYUF2_DISPLAY 0
 
-const uint32_t FLASH_SIZE_4MiB = 4u * 1024u * 1024u;
+#define FLASH_SIZE_4MiB  (4u * 1024u * 1024u);
 
+
+#include "board.h"
+
+#ifdef __cplusplus
+ }
+#endif
 #endif  // GHOSTFAT_TEST_CONFIG_H

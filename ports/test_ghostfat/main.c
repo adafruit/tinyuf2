@@ -109,7 +109,7 @@ int ValidateArgs(int argc, char const * const * argv) {
     return valid ? 0 : ERR_INVALID_FILENAME;
 }
 
-int DumpDiskImage() {
+int DumpDiskImage(void) {
     if (!options.filename) { return ERR_INTERNAL_NO_FILENAME; }
 
     // Generally:
