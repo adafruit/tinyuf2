@@ -329,7 +329,7 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
 
       struct TextFile const *inf = &info[fileIndex];
       padded_memcpy(d->name, inf->name, 11);
-      d->createTimeFine = __SECONDS_INT__ % 2 * 100;
+      d->createTimeFine = COMPILE_SECONDS_INT % 2 * 100;
       d->createTime = COMPILE_DOS_TIME;
       d->createDate = COMPILE_DOS_DATE;
       d->lastAccessDate = COMPILE_DOS_DATE;
