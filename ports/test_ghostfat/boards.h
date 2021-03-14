@@ -14,6 +14,8 @@
 
 #define FLASH_SIZE_4MiB  (4u * 1024u * 1024u);
 
+#define GHOSTFAT_SELF_TEST_MODE 1
+int test_main(void);
 
 #include "board.h"
 

@@ -129,6 +129,10 @@ int main(void)
   board_dfu_init();
   board_flash_init();
   uf2_init();
+#if GHOSTFAT_SELF_TEST_MODE
+  return test_main();
+#endif
+
   tusb_init();
 
   indicator_set(STATE_USB_UNPLUGGED);

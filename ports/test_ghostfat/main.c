@@ -148,8 +148,7 @@ int DumpDiskImage(void) {
     file = 0; // don't keep stale file pointer
     return ERR_NONE;
 }
-
-int main(void)
+int test_main(void)
 {
     int r = ValidateArgs(0, NULL);
     if (r) { return r; }
