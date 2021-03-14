@@ -149,9 +149,9 @@ int DumpDiskImage(void) {
     return ERR_NONE;
 }
 
-int main(int argc, char **argv)
+int main(void)
 {
-    int r = ValidateArgs(argc, ((char const * const *) argv) );
+    int r = ValidateArgs(0, NULL);
     if (r) { return r; }
 
     r = DumpDiskImage();
