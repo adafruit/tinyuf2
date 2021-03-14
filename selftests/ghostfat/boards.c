@@ -1,3 +1,5 @@
+#include "common.h"
+
 // From board_api.h
 
 //------------- Board  -------------//
