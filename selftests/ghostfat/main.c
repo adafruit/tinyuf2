@@ -24,6 +24,10 @@ typedef struct {
     char const * filename;
 } PROGRAM_OPTIONS;
 
+// If the sector size changes, such as to support 4kn sectors in the generated FAT filesystem, 
+// then this will need to change also.
+#define GHOSTFAT_SECTOR_SIZE 512
+
 
 static PROGRAM_OPTIONS options = {};
 
@@ -126,14 +130,14 @@ int DumpDiskImage() {
     // tusb_init();
 
     // this creates an image file in the current directory
-    uint8_t singleSector[512];
-    uint32_t countOfSectors_UF2 = board_flash_size() / 512;
+    uint8_t singleSector[GHOSTFAT_SECTOR_SIZE];
+    uint32_t countOfSectors_UF2 = board_flash_size() / GHOSTFAT_SECTOR_SIZE;
 
     for (uint32_t i = 0; i < countOfSectors_UF2; i++) {
 
         uf2_read_block(i, singleSector);
-        size_t written = fwrite (singleSector, 1, BPB_BYTES_PER_SECTOR, file );
-        if (written != BPB_BYTES_PER_SECTOR) {
+        size_t written = fwrite (singleSector, 1, GHOSTFAT_SECTOR_SIZE, file );
+        if (written != GHOSTFAT_SECTOR_SIZE) {
             return ERR_FAILED_WRITE_FILE;
         }
     }

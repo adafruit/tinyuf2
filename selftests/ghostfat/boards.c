@@ -29,7 +29,7 @@ int board_uart_write(void const * buf, int len) { (void)buf; (void)len; return 0
 
 //------------- Flash -------------//
 void     board_flash_init(void) {}
-uint32_t board_flash_size(void) { return 4MiB_FLASH_SIZE; }
+uint32_t board_flash_size(void) { return FLASH_SIZE_4MiB; }
 
 void     board_flash_write(uint32_t addr, void const *data, uint32_t len) {}           // not supported
 void     board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len) {} // not supported
@@ -43,13 +43,13 @@ void     board_flash_read (uint32_t addr, void* buffer, uint32_t len) {
         addr += 8 - (addr & 7);
     }
 
-    // EMBED address in each 64 bits of the FLASH
-    uint64_t * dest = buffer;
+    // EMBED address in each 32 bits of the FLASH
+    uint32_t * dest = buffer;
     size_t incBytes = sizeof(*dest);
-    uint64_t currentAddress = addr;
+    uint32_t currentAddress = addr;
 
     while (len >= incBytes) {
-        memcpy(dest, currentAddress, incBytes); // unaligned memory possible
+        memcpy(dest, &currentAddress, incBytes); // unaligned memory possible
 
         len -= incBytes;
         dest++;
