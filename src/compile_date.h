@@ -34,7 +34,7 @@
   #define COMPILE_DATE __DATE__
 #endif
 #ifndef COMPILE_TIME
-  #define REPRODUCIBLE_TIME __TIME__
+  #define COMPILE_TIME __TIME__
 #endif
 
 #define COMPILE_YEAR_INT ((( \
