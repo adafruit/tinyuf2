@@ -26,61 +26,65 @@
 #ifndef COMPILE_DATE_H
 #define COMPILE_DATE_H
 
-#ifndef __PERSISTENT_COMPILATION_DATE__
-  #define __PERSISTENT_COMPILATION_DATE__ __DATE__
+// Help enable build to be deterministic.
+// Allows Ghostfat to generate 100% reproducible images across compilations.
+// Reproducible builds are also important for other reasons.
+// See generally, https://reproducible-builds.org/
+#ifndef COMPILE_DATE
+  #define COMPILE_DATE __DATE__
 #endif
-
-#ifndef __PERSISTENT_COMPILATION_TIME__
-  #define __PERSISTENT_COMPILATION_TIME__ __TIME__
+#ifndef COMPILE_TIME
+  #define REPRODUCIBLE_TIME __TIME__
 #endif
 
 
 
 #define __YEAR_INT__ ((( \
-  (__PERSISTENT_COMPILATION_DATE__ [ 7u] - '0')  * 10u + \
-  (__PERSISTENT_COMPILATION_DATE__ [ 8u] - '0')) * 10u + \
-  (__PERSISTENT_COMPILATION_DATE__ [ 9u] - '0')) * 10u + \
-  (__PERSISTENT_COMPILATION_DATE__ [10u] - '0'))
+  (COMPILE_DATE [ 7u] - '0')  * 10u + \
+  (COMPILE_DATE [ 8u] - '0')) * 10u + \
+  (COMPILE_DATE [ 9u] - '0')) * 10u + \
+  (COMPILE_DATE [10u] - '0'))
 
 #define __MONTH_INT__ ( \
-    (__PERSISTENT_COMPILATION_DATE__ [2u] == 'n' && __PERSISTENT_COMPILATION_DATE__ [1u] == 'a') ?  1u  /*Jan*/ \
-  : (__PERSISTENT_COMPILATION_DATE__ [2u] == 'b'                                               ) ?  2u  /*Feb*/ \
-  : (__PERSISTENT_COMPILATION_DATE__ [2u] == 'r' && __PERSISTENT_COMPILATION_DATE__ [1u] == 'a') ?  3u  /*Mar*/ \
-  : (__PERSISTENT_COMPILATION_DATE__ [2u] == 'r'                                               ) ?  4u  /*Apr*/ \
-  : (__PERSISTENT_COMPILATION_DATE__ [2u] == 'y'                                               ) ?  5u  /*May*/ \
-  : (__PERSISTENT_COMPILATION_DATE__ [2u] == 'n'                                               ) ?  6u  /*Jun*/ \
-  : (__PERSISTENT_COMPILATION_DATE__ [2u] == 'l'                                               ) ?  7u  /*Jul*/ \
-  : (__PERSISTENT_COMPILATION_DATE__ [2u] == 'g'                                               ) ?  8u  /*Aug*/ \
-  : (__PERSISTENT_COMPILATION_DATE__ [2u] == 'p'                                               ) ?  9u  /*Sep*/ \
-  : (__PERSISTENT_COMPILATION_DATE__ [2u] == 't'                                               ) ? 10u  /*Oct*/ \
-  : (__PERSISTENT_COMPILATION_DATE__ [2u] == 'v'                                               ) ? 11u  /*Nov*/ \
-  :                                                                                                12u  /*Dec*/ )
+    (COMPILE_DATE [2u] == 'n' && COMPILE_DATE [1u] == 'a') ?  1u  /*Jan*/ \
+  : (COMPILE_DATE [2u] == 'b'                            ) ?  2u  /*Feb*/ \
+  : (COMPILE_DATE [2u] == 'r' && COMPILE_DATE [1u] == 'a') ?  3u  /*Mar*/ \
+  : (COMPILE_DATE [2u] == 'r'                            ) ?  4u  /*Apr*/ \
+  : (COMPILE_DATE [2u] == 'y'                            ) ?  5u  /*May*/ \
+  : (COMPILE_DATE [2u] == 'n'                            ) ?  6u  /*Jun*/ \
+  : (COMPILE_DATE [2u] == 'l'                            ) ?  7u  /*Jul*/ \
+  : (COMPILE_DATE [2u] == 'g'                            ) ?  8u  /*Aug*/ \
+  : (COMPILE_DATE [2u] == 'p'                            ) ?  9u  /*Sep*/ \
+  : (COMPILE_DATE [2u] == 't'                            ) ? 10u  /*Oct*/ \
+  : (COMPILE_DATE [2u] == 'v'                            ) ? 11u  /*Nov*/ \
+  :                                                          12u  /*Dec*/ )
 
 #define __DAY_INT__ ( \
-   (__PERSISTENT_COMPILATION_DATE__ [4u] == ' ' ? 0 : __PERSISTENT_COMPILATION_DATE__ [4u] - '0') * 10u \
- + (__PERSISTENT_COMPILATION_DATE__ [5u] - '0')                                   )
+   (COMPILE_DATE [4u] == ' ' ? 0 : COMPILE_DATE [4u] - '0') * 10u + \
+   (COMPILE_DATE [5u] - '0')                                             \
+   )
 
 // __TIME__ expands to an eight-character string constant
 // "23:59:01", or (if cannot determine time) "??:??:??" 
 #define __HOUR_INT__ ( \
-   (__PERSISTENT_COMPILATION_TIME__ [0u] == '?' ? 0 : __PERSISTENT_COMPILATION_TIME__ [0u] - '0') * 10u \
- + (__PERSISTENT_COMPILATION_TIME__ [1u] == '?' ? 0 : __PERSISTENT_COMPILATION_TIME__ [1u] - '0')       )
+   (COMPILE_TIME [0u] == '?' ? 0 : COMPILE_TIME [0u] - '0') * 10u \
+ + (COMPILE_TIME [1u] == '?' ? 0 : COMPILE_TIME [1u] - '0')       )
 
 #define __MINUTE_INT__ ( \
-   (__PERSISTENT_COMPILATION_TIME__ [3u] == '?' ? 0 : __PERSISTENT_COMPILATION_TIME__ [3u] - '0') * 10u \
- + (__PERSISTENT_COMPILATION_TIME__ [4u] == '?' ? 0 : __PERSISTENT_COMPILATION_TIME__ [4u] - '0')       )
+   (COMPILE_TIME [3u] == '?' ? 0 : COMPILE_TIME [3u] - '0') * 10u \
+ + (COMPILE_TIME [4u] == '?' ? 0 : COMPILE_TIME [4u] - '0')       )
 
 #define __SECONDS_INT__ ( \
-   (__PERSISTENT_COMPILATION_TIME__ [6u] == '?' ? 0 : __PERSISTENT_COMPILATION_TIME__ [6u] - '0') * 10u \
- + (__PERSISTENT_COMPILATION_TIME__ [7u] == '?' ? 0 : __PERSISTENT_COMPILATION_TIME__ [7u] - '0')       )
+   (COMPILE_TIME [6u] == '?' ? 0 : COMPILE_TIME [6u] - '0') * 10u \
+ + (COMPILE_TIME [7u] == '?' ? 0 : COMPILE_TIME [7u] - '0')       )
 
 
-#define __DOSDATE__ ( \
+#define COMPILE_DOS_DATE ( \
 	((__YEAR_INT__  - 1980u) << 9u) | \
 	( __MONTH_INT__          << 5u) | \
 	( __DAY_INT__            << 0u) )
 
-#define __DOSTIME__ ( \
+#define COMPILE_DOS_TIME ( \
 	( __HOUR_INT__    << 11u) | \
 	( __MINUTE_INT__  <<  5u) | \
 	( __SECONDS_INT__ <<  0u) )

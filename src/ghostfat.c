@@ -330,12 +330,12 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
       struct TextFile const *inf = &info[fileIndex];
       padded_memcpy(d->name, inf->name, 11);
       d->createTimeFine = __SECONDS_INT__ % 2 * 100;
-      d->createTime = __DOSTIME__;
-      d->createDate = __DOSDATE__;
-      d->lastAccessDate = __DOSDATE__;
+      d->createTime = COMPILE_DOS_TIME;
+      d->createDate = COMPILE_DOS_DATE;
+      d->lastAccessDate = COMPILE_DOS_DATE;
       d->highStartCluster = startCluster >> 16;
-      d->updateTime = __DOSTIME__;
-      d->updateDate = __DOSDATE__;
+      d->updateTime = COMPILE_DOS_TIME;
+      d->updateDate = COMPILE_DOS_DATE;
       d->startCluster = startCluster & 0xFFFF;
       d->size = (inf->content ? strlen(inf->content) : UF2_BYTE_COUNT);
     }
