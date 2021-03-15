@@ -377,10 +377,12 @@ static void board_led_on(void)
   gpio_ll_output_enable(&GPIO, DOTSTAR_PIN_SCK);
   gpio_ll_set_level(&GPIO, DOTSTAR_PIN_SCK, 0);
 
+  #ifdef DOTSTAR_PIN_PWR
   gpio_pad_select_gpio(DOTSTAR_PIN_PWR);
   gpio_ll_input_disable(&GPIO, DOTSTAR_PIN_PWR);
   gpio_ll_output_enable(&GPIO, DOTSTAR_PIN_PWR);
   gpio_ll_set_level(&GPIO, DOTSTAR_PIN_PWR, DOTSTAR_POWER_STATE);
+  #endif
 #endif
 
 #ifdef LED_PIN
@@ -428,8 +430,11 @@ static void board_led_off(void)
 
   gpio_ll_output_disable(&GPIO, DOTSTAR_PIN_DATA);
   gpio_ll_output_disable(&GPIO, DOTSTAR_PIN_SCK);
+
+  #ifdef DOTSTAR_PIN_PWR
   gpio_ll_set_level(&GPIO, DOTSTAR_PIN_PWR, 1-DOTSTAR_POWER_STATE);
   gpio_ll_output_disable(&GPIO, DOTSTAR_PIN_PWR);
+  #endif
 #endif
 
 #ifdef LED_PIN

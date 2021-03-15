@@ -321,7 +321,6 @@ void dotstar_init(void)
   gpio_set_level(DOTSTAR_PIN_PWR, DOTSTAR_POWER_STATE);
   #endif
 
-
   spi_bus_config_t bus_cfg =
   {
     .miso_io_num     = -1,
