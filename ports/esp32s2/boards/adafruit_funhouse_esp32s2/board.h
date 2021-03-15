@@ -93,7 +93,7 @@
 //--------------------------------------------------------------------+
 
 #define USB_VID           0x239A
-#define USB_PID           0x00E5 // TODO need PID for its own
+#define USB_PID           0x00F9
 #define USB_MANUFACTURER  "Adafruit"
 #define USB_PRODUCT       "FunHouse"
 
