@@ -79,22 +79,23 @@ ifeq ($(OS),Windows_NT)
 	SDPHOST = sdphost/win/sdphost.exe
 else
 	UNAME_S := $(shell uname -s)
-	UNAME_I := $(shell uname -i)
+	UNAME_M := $(shell uname -m)
 
 	ifeq ($(UNAME_S),Darwin)
 		SDPHOST = sdphost/mac/sdphost
 	endif
 
 	ifeq ($(UNAME_S),Linux)
-		ifeq ($(UNAME_I),x86_64)
+		ifeq ($(UNAME_M),x86_64)
 			SDPHOST = sdphost/linux/amd64/sdphost
-	  endif
-
-	  ifeq ($(UNAME_I),i386)
+		endif
+		ifeq ($(UNAME_M),i386)
 			SDPHOST = sdphost/linux/i386/sdphost
-	  endif
+		endif
 	endif
 endif
+
+SDPHOST ?= false
 
 flash-sdp: $(BUILD)/$(OUTNAME).bin
 	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- write-file $(SDP_$(MCU)_WRITE_ADDR) $<
