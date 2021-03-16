@@ -131,7 +131,7 @@ int DumpDiskImage(void) {
 
     // this creates an image file in the current directory
     uint8_t singleSector[GHOSTFAT_SECTOR_SIZE];
-    uint32_t countOfSectors_UF2 = board_flash_size() / GHOSTFAT_SECTOR_SIZE;
+    uint32_t countOfSectors_UF2 = CFG_UF2_NUM_BLOCKS;
 
     for (uint32_t i = 0; i < countOfSectors_UF2; i++) {
 
