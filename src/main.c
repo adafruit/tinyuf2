@@ -46,6 +46,10 @@
 // timeout for double tap detection
 #define DBL_TAP_DELAY             500
 
+#ifndef GHOSTFAT_SELF_TEST_MODE
+  #define GHOSTFAT_SELF_TEST_MODE 0
+#endif
+
 uint8_t const RGB_USB_UNMOUNTED[] = { 0xff, 0x00, 0x00 }; // Red
 uint8_t const RGB_USB_MOUNTED[]   = { 0x00, 0xff, 0x00 }; // Green
 uint8_t const RGB_WRITING[]       = { 0xcc, 0x66, 0x00 };
@@ -129,6 +133,7 @@ int main(void)
   board_dfu_init();
   board_flash_init();
   uf2_init();
+
 #if GHOSTFAT_SELF_TEST_MODE
   return test_main();
 #endif
