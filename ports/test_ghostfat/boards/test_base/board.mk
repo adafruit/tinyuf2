@@ -1,3 +1,3 @@
-CFLAGS +=
-SRC_S +=
-
+CFLAGS += \
+  -DCOMPILE_DATE=\"Mar 11 2020\" \
+  -DCOMPILE_TIME=\"17:35:07\"
