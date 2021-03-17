@@ -26,49 +26,17 @@
 #define BOARD_H_
 
 //--------------------------------------------------------------------+
-// Button
-//--------------------------------------------------------------------+
-
-//--------------------------------------------------------------------+
-// LED
-//--------------------------------------------------------------------+
-
-#define LED_PORT              GPIOC
-#define LED_PIN               GPIO_PIN_1
-#define LED_STATE_ON          1
-
-//--------------------------------------------------------------------+
-// Neopixel
-//--------------------------------------------------------------------+
-
-// Number of neopixels
-#define NEOPIXEL_NUMBER       1
-#define NEOPIXEL_PORT         GPIOC
-#define NEOPIXEL_PIN          GPIO_PIN_0
-
-//--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
 
 #define USB_VID           0x0000
 #define USB_PID           0x0000
 #define USB_MANUFACTURER  "Adafruit"
-#define USB_PRODUCT       "Dummy"
+#define USB_PRODUCT       "SELFTEST"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "Dummy"
-#define UF2_VOLUME_LABEL  "DUMMYBOOT"
+#define UF2_BOARD_ID      "TestBase"
+#define UF2_VOLUME_LABEL  "TestBase"
 #define UF2_INDEX_URL     "https://www.adafruit.com"
-
-//--------------------------------------------------------------------+
-// UART
-//--------------------------------------------------------------------+
-
-#define UART_DEV              USART3
-#define UART_CLOCK_ENABLE     __HAL_RCC_USART3_CLK_ENABLE
-#define UART_GPIO_PORT        GPIOB
-#define UART_GPIO_AF          GPIO_AF7_USART3
-#define UART_TX_PIN           GPIO_PIN_10
-#define UART_RX_PIN           GPIO_PIN_11
 
 #endif
