@@ -22,6 +22,15 @@
  * THE SOFTWARE.
  */
 
+// NOTE: This is a HUGE test image ... 1.5GiB if dumped fully
+//       FAT16 still works, using 64KiB clusters
+//       The flash size is set to 256MiB (0x1000_0000 == 268435456 == 256 * 1024 * 1024 bytes)
+//       The UF2 file thus should take 0x10_0000 512-byte sectors, and be 512MiB in size.
+//
+//       Ghostfat appears to have a bug in the generated .UF2 file.
+//       TODO: determine why the .UF2 file is generated with a size of 0x80_0000 bytes.
+//
+
 #ifndef BOARD_H_
 #define BOARD_H_
 
@@ -35,8 +44,8 @@
 #define USB_PRODUCT       "SELFTEST"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "Test_32k"
-#define UF2_VOLUME_LABEL  "Test_32k"
+#define UF2_BOARD_ID      "Test_Huge"
+#define UF2_VOLUME_LABEL  "Test_Huge"
 #define UF2_INDEX_URL     "https://www.adafruit.com"
 
 #endif
