@@ -35,8 +35,8 @@
 #define USB_PRODUCT       "SELFTEST"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "TestBase"
-#define UF2_VOLUME_LABEL  "TestBase"
+#define UF2_BOARD_ID      "Test_32k"
+#define UF2_VOLUME_LABEL  "Test_32k"
 #define UF2_INDEX_URL     "https://www.adafruit.com"
 
 #endif
