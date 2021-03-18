@@ -13,104 +13,121 @@ typedef enum {
     ERR_NONE = 0,
     ERR_SUCCESS = 0,
     ERR_INVALID_FILENAME = -1,
-    ERR_CANNOT_OPEN_FILE = -2,
+    ERR_CANNOT_OPEN_NEW_IMAGE_FILE = -2,
     ERR_FAILED_WRITE_FILE = -3,
     ERR_FAILED_CLOSE_FILE = -4,
-    ERR_INTERNAL_NO_FILENAME = -1000,
-
+    ERR_CANNOT_OPEN_KNOWN_GOOD_IMAGE_FILE = -5,
+    ERR_CANNOT_SEEK_TO_FILE_END = -6,
+    ERR_UNEXPECTED_NEW_FILE_SIZE = -7,
+    ERR_UNEXPECTED_KNOWN_GOOD_FILE_SIZE = -8,
+    ERR_FAILED_READ_DURING_COMPARE = -9,
+    ERR_FILES_NOT_IDENTICAL = -10,
+    ERR_CANNOT_SEEK_TO_FILE_START = -11,
+    ERR_NOT_YET_IMPLEMENTED = -12,
+    ERR_INTERNAL_ERROR = -13,
 } ErrorType;
 
-typedef struct {
-    char const * filename;
-} PROGRAM_OPTIONS;
+const char * GetErrorString(ErrorType e)
+{
+    if (e == ERR_SUCCESS) { return "SUCCESS"; }
+    if (e == ERR_INVALID_FILENAME) { return "INVALID_FILENAME"; }
+    if (e == ERR_CANNOT_OPEN_NEW_IMAGE_FILE) { return "CANNOT_OPEN_NEW_IMAGE_FILE"; }
+    if (e == ERR_FAILED_WRITE_FILE) { return "FAILED_WRITE_FILE"; }
+    if (e == ERR_FAILED_CLOSE_FILE) { return "FAILED_CLOSE_FILE"; }
+    if (e == ERR_CANNOT_OPEN_KNOWN_GOOD_IMAGE_FILE) { return "CANNOT_OPEN_KNOWN_GOOD_IMAGE_FILE"; }
+    if (e == ERR_CANNOT_SEEK_TO_FILE_END) { return "CANNOT_SEEK_TO_FILE_END"; }
+    if (e == ERR_UNEXPECTED_NEW_FILE_SIZE) { return "UNEXPECTED_NEW_FILE_SIZE"; }
+    if (e == ERR_UNEXPECTED_KNOWN_GOOD_FILE_SIZE) { return "UNEXPECTED_KNOWN_GOOD_FILE_SIZE"; }
+    if (e == ERR_FAILED_READ_DURING_COMPARE) { return "FAILED_READ_DURING_COMPARE"; }
+    if (e == ERR_FILES_NOT_IDENTICAL) { return "FILES_NOT_IDENTICAL"; }
+    if (e == ERR_CANNOT_SEEK_TO_FILE_START) { return "CANNOT_SEEK_TO_FILE_START"; }
+    if (e == ERR_NOT_YET_IMPLEMENTED) { return "NOT_YET_IMPLEMENTED"; }
+    if (e == ERR_INTERNAL_ERROR) { return "INTERNAL_ERROR"; }
+    return "Unknown error ... code update required";
+}
 
 // If the sector size changes, such as to support 4kn sectors in the generated FAT filesystem, 
 // then this will need to change also.
 #define GHOSTFAT_SECTOR_SIZE 512
 
-
-static PROGRAM_OPTIONS options = {};
-
-// currently only allows setting output filename
-int ValidateArgs(int argc, char const * const * argv) {
-
-    // ARGV[0] == program's own name ... maybe use that (minus extension) for filename default?
-    // ARGV[1] == first actual program argument, which we will use as the filename
+static char const * const knownGoodFilename = "knowngood.img";
+static char const * const defaultFilename = "ghostfat.img";
+static uint8_t singleSectorBuffer [GHOSTFAT_SECTOR_SIZE];
+static uint8_t anotherSectorBuffer[GHOSTFAT_SECTOR_SIZE];
 
 
-    // allow a default filename of "ghostfat.img"
-    if (argc < 2) {
-        static char const * const defaultFilename = "ghostfat.img";
-        options.filename = defaultFilename;
-        return ERR_NONE;
+// TODO: use gzopen() to open compressed known good image directly
+int CompareDiskImages(void) {
+    // open both files for binary read
+    FILE * newFile = NULL;
+    FILE * knownGoodFile = NULL;
+    int retVal; // code must set this value
+
+    newFile = fopen( defaultFilename, "r" );
+    if (!newFile) {
+        retVal = ERR_CANNOT_OPEN_NEW_IMAGE_FILE;
+        goto cleanup;
+    }
+    // TODO: use gzopen() to open compressed file...
+    knownGoodFile = fopen( knownGoodFilename, "r" );
+    if (!knownGoodFile) {
+        retVal = ERR_CANNOT_OPEN_KNOWN_GOOD_IMAGE_FILE;
+        goto cleanup;
+    }
+    if (fseek(newFile, 0L, SEEK_END) || fseek(knownGoodFile, 0L, SEEK_END)) {
+        retVal = ERR_CANNOT_SEEK_TO_FILE_END;
+        goto cleanup;
     }
 
-    // argv[0] == output filename
-    //   Must be of the form (ignoring whitespace):
-    //      ^  [A-Za-z]{1,8}  ( \. [A-Za-z]{1,3})?   $
-    //   
+    // verify both files have same size, using method that works with GZ'd file
+    long int newFileSize = ftell(newFile);
+    long int knownGoodFileSize = ftell(knownGoodFile);
+    long int expectedFileSize = ((long int)GHOSTFAT_SECTOR_SIZE) * CFG_UF2_NUM_BLOCKS;
+    if (newFileSize != expectedFileSize) {
+        retVal = ERR_UNEXPECTED_NEW_FILE_SIZE;
+        goto cleanup;
+    }
+    if (knownGoodFileSize != expectedFileSize) {
+        retVal = ERR_UNEXPECTED_KNOWN_GOOD_FILE_SIZE;
+        goto cleanup;
+    }
 
-    bool valid = false;
-    int i = 0;
-    char t = 0;
-    char const * filename = argv[1];
+    if (fseek(newFile, 0L, SEEK_SET) || fseek(knownGoodFile, 0L, SEEK_SET)) {
+        retVal = ERR_CANNOT_SEEK_TO_FILE_START;
+        goto cleanup;
+    }
 
-    // validate filename (not including extension, if any)
-    // NOTE: does NOT check for special filenames (CON, PRN, etc.)
-    for (; i < 8; i++) {
-        t = filename[i];
-        if ((('A' <= t) && (t <= 'Z')) ||
-            (('a' <= t) && (t <= 'z')) ||
-            (('0' <= t) && (t <= '9'))    ) {
-            // legal, allowed character
-            valid = true;
-            continue;
+
+    // loop through all sectors of both files, ensure they compare as equal
+    for (uint32_t i = 0; i < CFG_UF2_NUM_BLOCKS; i++) {
+
+        memset(singleSectorBuffer,  0xAA, GHOSTFAT_SECTOR_SIZE); // TODO: make this be random data...
+        memset(anotherSectorBuffer, 0x55, GHOSTFAT_SECTOR_SIZE); // TODO: make this be random data...
+
+        size_t read1 = fread(singleSectorBuffer,  1, GHOSTFAT_SECTOR_SIZE, newFile);
+        size_t read2 = fread(anotherSectorBuffer, 1, GHOSTFAT_SECTOR_SIZE, knownGoodFile);
+        if ((read1 != GHOSTFAT_SECTOR_SIZE) || (read2 != GHOSTFAT_SECTOR_SIZE)) {
+            retVal = ERR_FAILED_READ_DURING_COMPARE;
+            goto cleanup;
         }
-        // If not A-Za-z0-9, only allowed items are NULL or period ...
-        if ((t == '.') || (t == '\0')) {
-            // Note that `valid` will be true only if at least one character was already matched
-            break;
+        if (memcmp(singleSectorBuffer, anotherSectorBuffer, GHOSTFAT_SECTOR_SIZE)) {
+            retVal = ERR_FILES_NOT_IDENTICAL;
+            goto cleanup;
         }
-        // Character not allowed, and it's not the end of the filename or start of extension.
-        // Definitely not valid.
-        valid = false;
-        break; // out of for loop
+        // else compared OK for this sector... check next
     }
-    // validate file extension, if it exists
-    if (valid && (t != '\0') && (argv[0][i] == '.')) {
-        i++;
-        valid = false; // start at invalid again ... only valid with at least one character following period
-        for (int x = 0; x < 3; x++) {
-            t = filename[i+x];
-            if ((('A' <= t) && (t <= 'Z')) ||
-                (('a' <= t) && (t <= 'z')) ||
-                (('0' <= t) && (t <= '9'))    ) {
-                valid = true;
-                continue;
-            }
-            // If not A-Za-z0-9, only allowed value is NULL ...
-            if (t == '\0') {
-                // Note that `valid` will be true only if at least one character (in extension) was matched
-                break;
-            }
-            // no other valid characters in file extension
-            valid = false;
-            break; // out of for loop
-        }
-    }
-    if (t != '\0') {
-        valid = false; // filename or extension too long ...
-    }
+    // SUCCESS!
+    retVal = ERR_NONE;
 
-    if (valid) {
-        options.filename = filename;
-    }
+cleanup:
+    if (knownGoodFile) { fclose(knownGoodFile); }
+    if (newFile) { fclose(newFile); }
 
-    return valid ? 0 : ERR_INVALID_FILENAME;
+    // verify both files are same sized
+    return retVal;
 }
 
 int DumpDiskImage(void) {
-    if (!options.filename) { return ERR_INTERNAL_NO_FILENAME; }
 
     // Generally:
     // 1. Opens a file for the disk image results
@@ -120,8 +137,8 @@ int DumpDiskImage(void) {
     //    write the sector to the disk image file
     // 4. close the disk image file
 
-    FILE * file = fopen( options.filename, "w" ); // create / overwrite existing file
-    if (!file) { return ERR_CANNOT_OPEN_FILE; }
+    FILE * file = fopen( defaultFilename, "w" ); // create / overwrite existing file
+    if (!file) { return ERR_CANNOT_OPEN_NEW_IMAGE_FILE; }
 
     board_init();
     board_dfu_init();
@@ -130,13 +147,12 @@ int DumpDiskImage(void) {
     // tusb_init();
 
     // this creates an image file in the current directory
-    uint8_t singleSector[GHOSTFAT_SECTOR_SIZE];
     uint32_t countOfSectors_UF2 = CFG_UF2_NUM_BLOCKS;
 
     for (uint32_t i = 0; i < countOfSectors_UF2; i++) {
-
-        uf2_read_block(i, singleSector);
-        size_t written = fwrite (singleSector, 1, GHOSTFAT_SECTOR_SIZE, file );
+        memset(singleSectorBuffer, 0xAA, GHOSTFAT_SECTOR_SIZE); // TODO: make this be random data...
+        uf2_read_block(i, singleSectorBuffer);
+        size_t written = fwrite (singleSectorBuffer, 1, GHOSTFAT_SECTOR_SIZE, file );
         if (written != GHOSTFAT_SECTOR_SIZE) {
             return ERR_FAILED_WRITE_FILE;
         }
@@ -145,20 +161,26 @@ int DumpDiskImage(void) {
     if (fclose(file)) {
         return ERR_FAILED_CLOSE_FILE;
     }
-    file = 0; // don't keep stale file pointer
     return ERR_NONE;
 }
 int test_main(void)
 {
-    int r = ValidateArgs(0, NULL);
-    if (r) { return r; }
+    int r;
 
     r = DumpDiskImage();
-    if (r) { return r; }
+    if (r) { goto errorExit; }
 
-    // TODO: compare the disk image file vs. expected data ... but EXCLUDE timestamps such as from directory entries!
-    // TODO: allow overriding of DOSDATE and DOSTIME in ghostfat, to allow 100% reproducible images
+    r = CompareDiskImages();
+    if (r) { goto errorExit; }
+
+    printf("SUCCESS!\n");
     return ERR_NONE;
+
+errorExit:
+    printf("Failed -- %s", GetErrorString(r));
+    return r;
 }
+
+
 
 
