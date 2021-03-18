@@ -140,11 +140,6 @@ int DumpDiskImage(void) {
     FILE * file = fopen( defaultFilename, "w" ); // create / overwrite existing file
     if (!file) { return ERR_CANNOT_OPEN_NEW_IMAGE_FILE; }
 
-    board_init();
-    board_dfu_init();
-    board_flash_init();
-    uf2_init();
-    // tusb_init();
 
     // this creates an image file in the current directory
     uint32_t countOfSectors_UF2 = CFG_UF2_NUM_BLOCKS;
@@ -163,6 +158,7 @@ int DumpDiskImage(void) {
     }
     return ERR_NONE;
 }
+
 int test_main(void)
 {
     int r;
