@@ -57,7 +57,7 @@ int board_uart_write(void const * buf, int len) { (void)buf; (void)len; return 0
 
 //------------- Flash -------------//
 void     board_flash_init(void) {}
-uint32_t board_flash_size(void) { return FLASH_SIZE_4MiB; }
+uint32_t board_flash_size(void) { return CFG_UF2_FLASH_SIZE; }
 
 void     board_flash_write(uint32_t addr, void const *data, uint32_t len) {
     (void)addr;
