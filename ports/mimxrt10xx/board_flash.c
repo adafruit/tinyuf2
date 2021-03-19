@@ -76,7 +76,7 @@ void board_flash_init(void)
 
 uint32_t board_flash_size(void)
 {
-  return 1024*1024;
+  return 1024*1024; // TODO fix later
 }
 
 void board_flash_read(uint32_t addr, void* buffer, uint32_t len)

@@ -28,6 +28,9 @@
 #include <string.h>
 
 #include "board_api.h"
+#include "bl_flexspi.h"
+#include "flexspi_nor_flash.h"
+#include "fsl_cache.h"
 
 //--------------------------------------------------------------------+
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
@@ -38,6 +41,14 @@ uint8_t const RGB_OFF[]           = { 0x00, 0x00, 0x00 };
 
 static volatile uint32_t _timer_count = 0;
 
+#define FLEXSPI_INSTANCE 0
+
+// Mask off lower 12 bits to get FCFB offset
+#define FCFB_START_ADDRESS    (FlexSPI_AMBA_BASE + (((uint32_t) &qspiflash_config) & 0xFFF))
+
+// Flash Configuration Structure
+extern flexspi_nor_config_t const qspiflash_config;
+
 int main(void)
 {
   board_init();
@@ -47,8 +58,14 @@ int main(void)
   // Set indicator similar to WRITING
   board_timer_start(25);
 
-  // This should never return
-  // board_self_update((uint8_t const*) bindata, (uint32_t) bindata_len);
+  flexspi_nor_flash_init(FLEXSPI_INSTANCE, (flexspi_nor_config_t*) &qspiflash_config);
+  flexspi_nor_flash_erase_all(FLEXSPI_INSTANCE, (flexspi_nor_config_t*) &qspiflash_config);
+
+  board_timer_stop();
+  board_led_write(0x000);
+  board_rgb_write(RGB_OFF);
+
+  NVIC_SystemReset();
 
   while(1)
   {
