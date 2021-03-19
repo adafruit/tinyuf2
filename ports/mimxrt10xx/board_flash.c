@@ -27,7 +27,8 @@
 #include "flexspi_nor_flash.h"
 #include "fsl_cache.h"
 
-#include "tusb.h" // for logging
+
+#include "tusb.h" // for logging TODO remove
 
 #define FLASH_CACHE_SIZE          4096
 #define FLASH_CACHE_INVALID_ADDR  0xffffffff

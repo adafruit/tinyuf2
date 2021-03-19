@@ -34,7 +34,10 @@
 #include "fsl_xbara.h"
 
 #include "clock_config.h"
+
+#ifndef NO_TINYUF2_BUILD
 #include "tusb.h"
+#endif
 
 static bool _dfu_mode = false;
 
@@ -366,6 +369,8 @@ int board_uart_write(void const * buf, int len)
 //--------------------------------------------------------------------+
 // USB Interrupt Handler
 //--------------------------------------------------------------------+
+#ifndef NO_TINYUF2_BUILD
+
 void USB_OTG1_IRQHandler(void)
 {
   #if CFG_TUSB_RHPORT0_MODE & OPT_MODE_HOST
@@ -387,3 +392,5 @@ void USB_OTG2_IRQHandler(void)
     tud_int_handler(1);
   #endif
 }
+
+#endif
