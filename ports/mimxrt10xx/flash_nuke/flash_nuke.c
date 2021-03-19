@@ -42,7 +42,7 @@ int main(void)
 {
   board_init();
 
-  printf("TinyUF2: Flash Nuke\r\n");
+  printf("Nuking Flash\r\n");
 
   // Set indicator similar to WRITING
   board_timer_start(25);
@@ -75,7 +75,7 @@ void board_timer_handler(void)
 //--------------------------------------------------------------------+
 
 // Enable only with LOG is enabled (Note: ESP32-S2 has built-in support already)
-#if CFG_TUSB_DEBUG
+#if TUF2_LOG
 
 #if defined(LOGGER_RTT)
 #include "SEGGER_RTT.h"

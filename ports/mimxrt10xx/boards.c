@@ -357,7 +357,7 @@ uint32_t board_button_read(void)
 
 int board_uart_write(void const * buf, int len)
 {
-#if defined(UART_DEV) && CFG_TUSB_DEBUG
+#if defined(UART_DEV) && TUF2_LOG
   LPUART_WriteBlocking(UART_DEV, (uint8_t*)buf, len);
   return len;
 #else

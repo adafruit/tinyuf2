@@ -11,7 +11,8 @@
 #include <string.h>
 #include "bl_flexspi.h"
 #include "flexspi_nor_flash.h"
-#include "tusb.h" // for loggin
+
+#include "board_api.h" // for logging
 
 ////////////////////////////////////////////////////////////////////////////////
 // Definitions
@@ -71,7 +72,7 @@ status_t flexspi_nor_flash_init(uint32_t instance, flexspi_nor_config_t *config)
     status_t status = kStatus_Fail;
     status = flexspi_init(instance, memCfg);
     if (status != kStatus_Success) {
-        TU_LOG1("FlexSPI initialization failed: 0x%08X\r\n", (uint)status);
+        TUF2_LOG1("FlexSPI initialization failed: 0x%08X\r\n", (uint)status);
     }
 
     // Configure Lookup table

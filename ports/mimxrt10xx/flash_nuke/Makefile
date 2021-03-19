@@ -30,6 +30,7 @@ CFLAGS += -Wno-error=unused-parameter
 SRC_C += \
 	$(addprefix $(CURRENT_PATH)/, $(wildcard *.c)) \
 	$(PORT_DIR)/boards.c \
+	$(subst $(TOP)/,,$(wildcard $(TOP)/$(BOARD_DIR)/*.c)) \
 	$(MCU_DIR)/system_$(MCU).c \
 	$(MCU_DIR)/project_template/clock_config.c \
 	$(MCU_DIR)/drivers/fsl_clock.c \
@@ -55,3 +56,13 @@ INC += \
 	$(TOP)/$(MCU_DIR)/project_template
 
 include ../../rules.mk
+
+#---------------------------------------------------------
+# For flash-pyocd-bin target
+#---------------------------------------------------------
+
+FLASH_BIN_ADDR = $(UF2_$(MCU)_WRITE_ADDR)
+
+UF2_MIMXRT1011_WRITE_ADDR = 0x60000400
+UF2_MIMXRT1021_WRITE_ADDR = 0x60000400
+UF2_MIMXRT1062_WRITE_ADDR = 0x60000000
