@@ -193,3 +193,41 @@ status_t flexspi_nor_flash_page_program(uint32_t instance,
 
     return status;
 }
+
+status_t flexspi_nor_flash_erase_all(uint32_t instance, flexspi_nor_config_t *config)
+{
+    status_t status;
+    flexspi_xfer_t flashXfer;
+    bool isParallelMode;
+    flexspi_mem_config_t *memCfg = (flexspi_mem_config_t *)config;
+    isParallelMode = flexspi_is_parallel_mode(memCfg);
+
+    do {
+        status = flexspi_device_write_enable(instance, memCfg, isParallelMode, 0);
+        if (status != kStatus_Success) {
+            break;
+        }
+
+        flashXfer.baseAddress = 0;
+        flashXfer.operation = kFlexSpiOperation_Command;
+        flashXfer.seqNum = 1;
+        flashXfer.seqId = NOR_CMD_LUT_SEQ_IDX_CHIPERASE;
+        flashXfer.isParallelModeEnable = isParallelMode;
+
+        status = flexspi_command_xfer(instance, &flashXfer);
+        if (status != kStatus_Success) {
+            break;
+        }
+
+        // Wait until the sector erase operation completes on Serial NOR Flash side.
+        status = flexspi_device_wait_busy(instance, memCfg, isParallelMode, 0);
+        if (status != kStatus_Success) {
+            break;
+        }
+
+    } while (0);
+
+    flexspi_clear_cache(instance);
+
+    return status;
+}

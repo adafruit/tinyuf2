@@ -1,3 +1,4 @@
+UF2_FAMILY_ID = 0x4fb2d5bd
 CROSS_COMPILE = arm-none-eabi-
 PORT = mimxrt10xx
 OUTNAME = nuke-$(BOARD)
@@ -66,3 +67,10 @@ FLASH_BIN_ADDR = $(UF2_$(MCU)_WRITE_ADDR)
 UF2_MIMXRT1011_WRITE_ADDR = 0x60000400
 UF2_MIMXRT1021_WRITE_ADDR = 0x60000400
 UF2_MIMXRT1062_WRITE_ADDR = 0x60000000
+
+# self-update uf2 file
+uf2: $(BUILD)/$(OUTNAME).uf2
+
+$(BUILD)/$(OUTNAME).uf2: $(BUILD)/$(OUTNAME).bin
+	@echo CREATE $@
+	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py -f $(UF2_FAMILY_ID) -b $(UF2_$(MCU)_WRITE_ADDR) -c -o $@ $<
