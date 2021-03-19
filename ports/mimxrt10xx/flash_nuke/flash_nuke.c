@@ -42,7 +42,7 @@ int main(void)
 {
   board_init();
 
-  printf("Nuking Flash\r\n");
+  TUF2_LOG1("Nuking Flash\r\n");
 
   // Set indicator similar to WRITING
   board_timer_start(25);

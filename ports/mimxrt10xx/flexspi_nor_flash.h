@@ -15,86 +15,76 @@
 #include "bl_flexspi.h"
 
 /*  */
-#define NOR_CMD_INDEX_READ CMD_INDEX_READ               //!< 0
-#define NOR_CMD_INDEX_READSTATUS CMD_INDEX_READSTATUS   //!< 1
-#define NOR_CMD_INDEX_WRITEENABLE CMD_INDEX_WRITEENABLE //!< 2
-#define NOR_CMD_INDEX_ERASESECTOR 3                     //!< 3
-#define NOR_CMD_INDEX_PAGEPROGRAM CMD_INDEX_WRITE       //!< 4
-#define NOR_CMD_INDEX_CHIPERASE 5                       //!< 5
-#define NOR_CMD_INDEX_DUMMY 6                           //!< 6
-#define NOR_CMD_INDEX_ERASEBLOCK 7                      //!< 7
+#define NOR_CMD_INDEX_READ          CMD_INDEX_READ        //!< 0
+#define NOR_CMD_INDEX_READSTATUS    CMD_INDEX_READSTATUS  //!< 1
+#define NOR_CMD_INDEX_WRITEENABLE   CMD_INDEX_WRITEENABLE //!< 2
+#define NOR_CMD_INDEX_ERASESECTOR   3                     //!< 3
+#define NOR_CMD_INDEX_PAGEPROGRAM   CMD_INDEX_WRITE       //!< 4
+#define NOR_CMD_INDEX_CHIPERASE     5                     //!< 5
+#define NOR_CMD_INDEX_DUMMY         6                     //!< 6
+#define NOR_CMD_INDEX_ERASEBLOCK    7                     //!< 7
 
-#define NOR_CMD_LUT_SEQ_IDX_READ CMD_LUT_SEQ_IDX_READ //!< 0  READ LUT sequence id in lookupTable stored in config block
-#define NOR_CMD_LUT_SEQ_IDX_READSTATUS \
-    CMD_LUT_SEQ_IDX_READSTATUS //!< 1  Read Status LUT sequence id in lookupTable stored in config block
-#define NOR_CMD_LUT_SEQ_IDX_READSTATUS_XPI \
-    2 //!< 2  Read status DPI/QPI/OPI sequence id in lookupTable stored in config block
-#define NOR_CMD_LUT_SEQ_IDX_WRITEENABLE \
-    CMD_LUT_SEQ_IDX_WRITEENABLE //!< 3  Write Enable sequence id in lookupTable stored in config block
-#define NOR_CMD_LUT_SEQ_IDX_WRITEENABLE_XPI \
-    4 //!< 4  Write Enable DPI/QPI/OPI sequence id in lookupTable stored in config block
-#define NOR_CMD_LUT_SEQ_IDX_ERASESECTOR 5 //!< 5  Erase Sector sequence id in lookupTable stored in config block
-#define NOR_CMD_LUT_SEQ_IDX_ERASEBLOCK 8  //!< 8 Erase Block sequence id in lookupTable stored in config block
-#define NOR_CMD_LUT_SEQ_IDX_PAGEPROGRAM \
-    CMD_LUT_SEQ_IDX_WRITE                //!< 9  Program sequence id in lookupTable stored in config block
-#define NOR_CMD_LUT_SEQ_IDX_CHIPERASE 11 //!< 11 Chip Erase sequence in lookupTable id stored in config block
-#define NOR_CMD_LUT_SEQ_IDX_READ_SFDP 13 //!< 13 Read SFDP sequence in lookupTable id stored in config block
-#define NOR_CMD_LUT_SEQ_IDX_RESTORE_NOCMD \
-    14 //!< 14 Restore 0-4-4/0-8-8 mode sequence id in lookupTable stored in config block
-#define NOR_CMD_LUT_SEQ_IDX_EXIT_NOCMD \
-    15 //!< 15 Exit 0-4-4/0-8-8 mode sequence id in lookupTable stored in config blobk
+#define NOR_CMD_LUT_SEQ_IDX_READ              CMD_LUT_SEQ_IDX_READ        //!< 0  READ LUT sequence id in lookupTable stored in config block
+#define NOR_CMD_LUT_SEQ_IDX_READSTATUS        CMD_LUT_SEQ_IDX_READSTATUS  //!< 1  Read Status LUT sequence id in lookupTable stored in config block
+#define NOR_CMD_LUT_SEQ_IDX_READSTATUS_XPI    2                           //!< 2  Read status DPI/QPI/OPI sequence id in lookupTable stored in config block
+#define NOR_CMD_LUT_SEQ_IDX_WRITEENABLE       CMD_LUT_SEQ_IDX_WRITEENABLE //!< 3  Write Enable sequence id in lookupTable stored in config block
+#define NOR_CMD_LUT_SEQ_IDX_WRITEENABLE_XPI   4                           //!< 4  Write Enable DPI/QPI/OPI sequence id in lookupTable stored in config block
+#define NOR_CMD_LUT_SEQ_IDX_ERASESECTOR       5                           //!< 5  Erase Sector sequence id in lookupTable stored in config block
+#define NOR_CMD_LUT_SEQ_IDX_ERASEBLOCK        8                           //!< 8 Erase Block sequence id in lookupTable stored in config block
+#define NOR_CMD_LUT_SEQ_IDX_PAGEPROGRAM       CMD_LUT_SEQ_IDX_WRITE       //!< 9  Program sequence id in lookupTable stored in config block
+#define NOR_CMD_LUT_SEQ_IDX_CHIPERASE         11                          //!< 11 Chip Erase sequence in lookupTable id stored in config block
+#define NOR_CMD_LUT_SEQ_IDX_READ_SFDP         13                          //!< 13 Read SFDP sequence in lookupTable id stored in config block
+#define NOR_CMD_LUT_SEQ_IDX_RESTORE_NOCMD     14                          //!< 14 Restore 0-4-4/0-8-8 mode sequence id in lookupTable stored in config block
+#define NOR_CMD_LUT_SEQ_IDX_EXIT_NOCMD        15                          //!< 15 Exit 0-4-4/0-8-8 mode sequence id in lookupTable stored in config blobk
 
 /* FlexSPI NOR status */
 enum _flexspi_nor_status
 {
-    kStatusGroup_FLEXSPINOR = 201,      //!< FlexSPINOR status group number.
-    kStatus_FLEXSPINOR_ProgramFail = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 0), //!< Status for Page programming failure
-    kStatus_FLEXSPINOR_EraseSectorFail = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 1), //!< Status for Sector Erase failure
-    kStatus_FLEXSPINOR_EraseAllFail = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 2),    //!< Status for Chip Erase failure
-    kStatus_FLEXSPINOR_WaitTimeout = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 3),     //!< Status for timeout
-    kStatus_FlexSPINOR_NotSupported = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 4),    // Status for PageSize overflow
-    kStatus_FlexSPINOR_WriteAlignmentError = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 5), //!< Status for Alignement error
-    kStatus_FlexSPINOR_CommandFailure =
-        MAKE_STATUS(kStatusGroup_FLEXSPINOR, 6), //!< Status for Erase/Program Verify Error
-    kStatus_FlexSPINOR_SFDP_NotFound = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 7), //!< Status for SFDP read failure
-    kStatus_FLEXSPINOR_Unsupported_SFDP_Version =
-        MAKE_STATUS(kStatusGroup_FLEXSPINOR, 8), //!< Status for Unrecognized SFDP version
-    kStatus_FLEXSPINOR_Flash_NotFound = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 9), //!< Status for Flash detection failure
-    kStatus_FLEXSPINOR_DTRRead_DummyProbeFailed =
-        MAKE_STATUS(kStatusGroup_FLEXSPINOR, 10), //!< Status for DDR Read dummy probe failure
+    kStatusGroup_FLEXSPINOR                     = 201,                                      //!< FlexSPINOR status group number.
+    kStatus_FLEXSPINOR_ProgramFail              = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 0),  //!< Status for Page programming failure
+    kStatus_FLEXSPINOR_EraseSectorFail          = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 1),  //!< Status for Sector Erase failure
+    kStatus_FLEXSPINOR_EraseAllFail             = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 2),  //!< Status for Chip Erase failure
+    kStatus_FLEXSPINOR_WaitTimeout              = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 3),  //!< Status for timeout
+    kStatus_FlexSPINOR_NotSupported             = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 4),  // Status for PageSize overflow
+    kStatus_FlexSPINOR_WriteAlignmentError      = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 5),  //!< Status for Alignement error
+    kStatus_FlexSPINOR_CommandFailure           = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 6),  //!< Status for Erase/Program Verify Error
+    kStatus_FlexSPINOR_SFDP_NotFound            = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 7),  //!< Status for SFDP read failure
+    kStatus_FLEXSPINOR_Unsupported_SFDP_Version = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 8),  //!< Status for Unrecognized SFDP version
+    kStatus_FLEXSPINOR_Flash_NotFound           = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 9),  //!< Status for Flash detection failure
+    kStatus_FLEXSPINOR_DTRRead_DummyProbeFailed = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 10), //!< Status for DDR Read dummy probe failure
 };
 
 enum
 {
-    kSerialNorCfgOption_Tag = 0x0c,
-    kSerialNorCfgOption_DeviceType_ReadSFDP_SDR = 0,
-    kSerialNorCfgOption_DeviceType_ReadSFDP_DDR = 1,
-    kSerialNorCfgOption_DeviceType_HyperFLASH1V8 = 2,
-    kSerialNorCfgOption_DeviceType_HyperFLASH3V0 = 3,
+    kSerialNorCfgOption_Tag                         = 0x0c,
+    kSerialNorCfgOption_DeviceType_ReadSFDP_SDR     = 0,
+    kSerialNorCfgOption_DeviceType_ReadSFDP_DDR     = 1,
+    kSerialNorCfgOption_DeviceType_HyperFLASH1V8    = 2,
+    kSerialNorCfgOption_DeviceType_HyperFLASH3V0    = 3,
     kSerialNorCfgOption_DeviceType_MacronixOctalDDR = 4,
     kSerialNorCfgOption_DeviceType_MacronixOctalSDR = 5,
-    kSerialNorCfgOption_DeviceType_MicronOctalDDR = 6,
-    kSerialNorCfgOption_DeviceType_MicronOctalSDR = 7,
-    kSerialNorCfgOption_DeviceType_AdestoOctalDDR = 8,
-    kSerialNorCfgOption_DeviceType_AdestoOctalSDR = 9,
+    kSerialNorCfgOption_DeviceType_MicronOctalDDR   = 6,
+    kSerialNorCfgOption_DeviceType_MicronOctalSDR   = 7,
+    kSerialNorCfgOption_DeviceType_AdestoOctalDDR   = 8,
+    kSerialNorCfgOption_DeviceType_AdestoOctalSDR   = 9,
 };
 
 enum
 {
-    kSerialNorQuadMode_NotConfig = 0,
-    kSerialNorQuadMode_StatusReg1_Bit6 = 1,
-    kSerialNorQuadMode_StatusReg2_Bit1 = 2,
-    kSerialNorQuadMode_StatusReg2_Bit7 = 3,
+    kSerialNorQuadMode_NotConfig            = 0,
+    kSerialNorQuadMode_StatusReg1_Bit6      = 1,
+    kSerialNorQuadMode_StatusReg2_Bit1      = 2,
+    kSerialNorQuadMode_StatusReg2_Bit7      = 3,
     kSerialNorQuadMode_StatusReg2_Bit1_0x31 = 4,
 };
 
 enum
 {
-    kSerialNorEnhanceMode_Disabled = 0,
-    kSerialNorEnhanceMode_0_4_4_Mode = 1,
-    kSerialNorEnhanceMode_0_8_8_Mode = 2,
+    kSerialNorEnhanceMode_Disabled         = 0,
+    kSerialNorEnhanceMode_0_4_4_Mode       = 1,
+    kSerialNorEnhanceMode_0_8_8_Mode       = 2,
     kSerialNorEnhanceMode_DataOrderSwapped = 3,
-    kSerialNorEnhanceMode_2ndPinMux = 4,
+    kSerialNorEnhanceMode_2ndPinMux        = 4,
     kSerialNorEnhanceMode_InternalLoopback = 5,
 };
 
@@ -208,10 +198,7 @@ extern "C" {
 status_t flexspi_nor_flash_init(uint32_t instance, flexspi_nor_config_t *config);
 
 //!@brief Program data to Serial NOR via FlexSPI
-status_t flexspi_nor_flash_page_program(uint32_t instance,
-                                        flexspi_nor_config_t *config,
-                                        uint32_t dstAddr,
-                                        const uint32_t *src);
+status_t flexspi_nor_flash_page_program(uint32_t instance, flexspi_nor_config_t *config, uint32_t dstAddr, const uint32_t *src);
 
 //!@brief Erase all the Serial NOR devices connected on FlexSPI
 status_t flexspi_nor_flash_erase_all(uint32_t instance, flexspi_nor_config_t *config);
@@ -229,8 +216,7 @@ status_t flexspi_nor_get_config(uint32_t instance, flexspi_nor_config_t *config,
 status_t flexspi_nor_flash_erase(uint32_t instance, flexspi_nor_config_t *config, uint32_t start, uint32_t length);
 
 //!@brief Read data from Serial NOR
-status_t flexspi_nor_flash_read(
-    uint32_t instance, flexspi_nor_config_t *config, uint32_t *dst, uint32_t start, uint32_t bytes);
+status_t flexspi_nor_flash_read(uint32_t instance, flexspi_nor_config_t *config, uint32_t *dst, uint32_t start, uint32_t bytes);
 
 //!@brief Write FlexSPI persistent content
 extern status_t flexspi_nor_write_persistent(const uint32_t data);
@@ -239,9 +225,7 @@ extern status_t flexspi_nor_write_persistent(const uint32_t data);
 extern status_t flexspi_nor_read_persistent(uint32_t *data);
 
 //!@brief Restore Flash to SPI protocol
-status_t flexspi_nor_restore_spi_protocol(uint32_t instance,
-                                          flexspi_nor_config_t *config,
-                                          flash_run_context_t *run_ctx);
+status_t flexspi_nor_restore_spi_protocol(uint32_t instance, flexspi_nor_config_t *config, flash_run_context_t *run_ctx);
 
 #ifdef __cplusplus
 }
