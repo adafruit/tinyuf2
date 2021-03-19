@@ -49,11 +49,11 @@ jobs:
         path: ${{ github.workspace }}/.idf_tools
         key: ${{ runner.os }}-idf-tools-${{ hashFiles('.git/modules/lib/esp-idf/HEAD') }}-20201222
 
-    - name: Clone IDF submodules
-      run: |
-        (cd $IDF_PATH && git submodule update --init)
-      env:
-        IDF_PATH: ${{ github.workspace }}/lib/esp-idf
+#    - name: Clone IDF submodules
+#      run: |
+#        (cd $IDF_PATH && git submodule update --init)
+#      env:
+#        IDF_PATH: ${{ github.workspace }}/lib/esp-idf
 
     - name: Install IDF tools
       if: steps.idf-cache.outputs.cache-hit != 'true'
