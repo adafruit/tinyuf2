@@ -37,9 +37,11 @@ jobs:
 
     - name: Checkout
       uses: actions/checkout@v2
-      with:
-        submodules: 'true'
 
+    - name: Checkout submodules
+      run: git submodule update --init lib/esp-idf lib/tinyusb lib/uf2
+
+    # TODO use docker release version
     - uses: actions/cache@v2
       name: Fetch IDF tool cache
       id: idf-cache
