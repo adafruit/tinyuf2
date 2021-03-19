@@ -55,7 +55,7 @@
 #endif
 
 //--------------------------------------------------------------------+
-// Platform Dependent API
+// Basic API
 //--------------------------------------------------------------------+
 
 // Baudrate for UART if used
@@ -88,7 +88,7 @@ bool board_app_valid(void);
 // Jump to Application
 void board_app_jump(void);
 
-// Init DFU process
+// Init DFU process, mostly for starting USB
 void board_dfu_init(void);
 
 // DFU is complete, should reset or jump to application mode and not return
@@ -97,13 +97,28 @@ void board_dfu_complete(void);
 // Fill Serial Number and return its length (limit to 16 bytes)
 uint8_t board_usb_get_serial(uint8_t serial_id[16]);
 
-//------------- Flash -------------//
+//--------------------------------------------------------------------+
+// Flash API
+//--------------------------------------------------------------------+
+
+// Initialize flash for DFU
 void     board_flash_init(void);
+
+// Get size of flash
 uint32_t board_flash_size(void);
 
+// Read from flash
 void     board_flash_read (uint32_t addr, void* buffer, uint32_t len);
+
+// Write to flash
 void     board_flash_write(uint32_t addr, void const *data, uint32_t len);
+
+// Flush/Sync flash contents
 void     board_flash_flush(void);
+
+//--------------------------------------------------------------------+
+// Dispaly API
+//--------------------------------------------------------------------+
 
 #if TINYUF2_DISPLAY
 void board_display_init(void);

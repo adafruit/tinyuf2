@@ -27,9 +27,6 @@
 #include "flexspi_nor_flash.h"
 #include "fsl_cache.h"
 
-
-#include "tusb.h" // for logging TODO remove
-
 #define FLASH_CACHE_SIZE          4096
 #define FLASH_CACHE_INVALID_ADDR  0xffffffff
 
@@ -56,13 +53,15 @@ void board_flash_init(void)
 {
   flexspi_nor_flash_init(FLEXSPI_INSTANCE, (flexspi_nor_config_t*) &qspiflash_config);
 
-  // Check for FCFB and copy bootloader to flash if not present
-  if ( *(uint32_t*) FCFB_START_ADDRESS != FLEXSPI_CFG_BLK_TAG )
+  // TinyUF2 will copy its image to flash if  Boot Mode is '01' i.e Serial Download Mode (BootRom)
+  // Normally it is done once by SDPHost or used to recover an corrupted boards
+  uint32_t const boot_mode = (SRC->SBMR2 & SRC_SBMR2_BMOD_MASK) >> SRC_SBMR2_BMOD_SHIFT;
+  if (boot_mode == 1)
   {
     uint8_t const* image_data = (uint8_t const *) &qspiflash_config;
     uint32_t flash_addr = FCFB_START_ADDRESS;
 
-    TUF2_LOG1("FCFB not present.  Copying image to flash.\r\n");
+    TUF2_LOG1("BootMode = 01: copying TinyUF2 image to flash.\r\n");
     while ( flash_addr < (FlexSPI_AMBA_BASE + BOARD_BOOT_LENGTH) )
     {
       board_flash_write(flash_addr, image_data, FLASH_PAGE_SIZE);
