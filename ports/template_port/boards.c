@@ -40,7 +40,7 @@ void board_dfu_init(void)
 void board_dfu_complete(void)
 {
   // Mostly reset
-  NVIC_SystemReset();
+  // NVIC_SystemReset();
 }
 
 bool board_app_valid(void)
@@ -79,12 +79,13 @@ void board_rgb_write(uint8_t const rgb[])
 
 void board_timer_start(uint32_t ms)
 {
-  SysTick_Config( (SystemCoreClock/1000) * ms );
+  (void) ms;
+  // SysTick_Config( (SystemCoreClock/1000) * ms );
 }
 
 void board_timer_stop(void)
 {
-  SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk;
+  // SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk;
 }
 
 void SysTick_Handler (void)

@@ -27,7 +27,7 @@ iMXRT has built-in BootROM that implements the Serial Download Protocol (SDP), w
 
 Note1: `sdphost` executable binaries for common platforms (windows/mac/linux) are included in sdphost folder. If you have issue with executable permission, just manually give it permission to run. The source code for sdphost tool is also included just in case binaries for your host platform is not included (e.g ARM, RISC-V etc ...)
 
-Note2: Since SDP with BootROM doesn't requires external debugger and always exists regardless of the external flash, this method can also be used to de-brick your board should it needs.
+Note2: Since SDP with BootROM doesn't requires external debugger and always exists regardless of the external flash, this method can also be used to de-brick your board should it be needed.
 
 ## Update to newer version
 
