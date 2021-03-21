@@ -6,6 +6,9 @@ UF2_FAMILY_ID = 0x00000000
 # List of git submodules that is included as part of the UF2 version
 GIT_SUBMODULES = tinyusb
 
+# Define this before including parent make.mk
+NATIVE_TEST_CODE = 1
+
 include ../make.mk
 
 # Port Compiler Flags
