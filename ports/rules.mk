@@ -9,7 +9,11 @@ CP = cp
 RM = rm
 
 # libc
-LIBS += -lgcc -lm -lnosys -lc
+LIBS += -lgcc -lm -lc
+
+ifneq ($(NATIVE_TEST_CODE), 1)
+  LIBS += -lnosys
+endif
 
 CFLAGS  += $(addprefix -I,$(INC))
 LDFLAGS += $(CFLAGS)

@@ -127,14 +127,18 @@ else ifeq ($(LOGGER),swo)
   CFLAGS += -DLOGGER_SWO
 endif
 
+# TODO -- how to fix missing 'nosys.specs' error?
 # Linker Flags
 LDFLAGS += \
 	-fshort-enums \
 	-Wl,-Map=$@.map \
 	-Wl,-cref \
-	-Wl,-gc-sections \
-	-specs=nosys.specs \
-	-specs=nano.specs \
+	-Wl,-gc-sections
+
+ifneq ($(NATIVE_TEST_CODE), 1)
+  LDFLAGS += -specs=nosys.specs
+  LDFLAGS += -specs=nano.specs
+endif
 
 # Board specific define
 include $(TOP)/$(BOARD_DIR)/board.mk
