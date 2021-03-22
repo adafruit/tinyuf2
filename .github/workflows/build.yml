@@ -155,24 +155,24 @@ jobs:
 
     - name: Find Port
       run: |
-        PORT=`echo ports/*/boards/${{ matrix.board }}`
-        PORT=`dirname $PORT`
-        PORT=`dirname $PORT`
-        echo PORT=$PORT >> $GITHUB_ENV
+        ENV_PORT=`echo ports/*/boards/${{ matrix.board }}`
+        ENV_PORT=`dirname $ENV_PORT`
+        ENV_PORT=`dirname $ENV_PORT`
+        echo ENV_PORT=$ENV_PORT >> $GITHUB_ENV
 
     - name: Build
-      run: make -C $PORT BOARD=${{ matrix.board }} all copy-artifact
+      run: make -C $ENV_PORT BOARD=${{ matrix.board }} all copy-artifact
 
     - uses: actions/upload-artifact@v2
       with:
         name: ${{ matrix.board }}
-        path: ${{ env.PORT }}/_bin/${{ matrix.board }}
+        path: ${{ env.ENV_PORT }}/_bin/${{ matrix.board }}
 
     - name: Create Release Asset
       if: ${{ github.event_name == 'release' }}
       run: |
-        for f in ${{ env.PORT }}/_bin/${{ matrix.board }}/*; do mv $f ${f%.*}-${{ github.event.release.tag_name }}."${f#*.}"; done
-        zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ${{ env.PORT }}/_bin/${{ matrix.board }}
+        for f in ${{ env.ENV_PORT }}/_bin/${{ matrix.board }}/*; do mv $f ${f%.*}-${{ github.event.release.tag_name }}."${f#*.}"; done
+        zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ${{ env.ENV_PORT }}/_bin/${{ matrix.board }}
 
     - name: Upload Release Asset
       uses: actions/upload-release-asset@v1
@@ -192,6 +192,6 @@ jobs:
       if: ${{ github.event_name == 'release' }}
       with:
         upload_url: ${{ github.event.release.upload_url }}
-        asset_path: ${{ env.PORT }}/_bin/${{ matrix.board }}/update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
+        asset_path: ${{ env.ENV_PORT }}/_bin/${{ matrix.board }}/update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
         asset_name: update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
         asset_content_type: application/x-binary

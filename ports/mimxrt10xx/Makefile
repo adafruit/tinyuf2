@@ -57,7 +57,8 @@ INC += \
 
 include ../rules.mk
 
-#------------- Load to SRAM using sdphost -------------
+#---------------------------------------------------------
+# Load to SRAM using sdphost
 # Note: you may need to give the sdphost binary executable permission first.
 #---------------------------------------------------------
 SDP_MIMXRT1011_PID = 0x0145

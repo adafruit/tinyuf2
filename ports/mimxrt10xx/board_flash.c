@@ -27,8 +27,6 @@
 #include "flexspi_nor_flash.h"
 #include "fsl_cache.h"
 
-#include "tusb.h" // for logging
-
 #define FLASH_CACHE_SIZE          4096
 #define FLASH_CACHE_INVALID_ADDR  0xffffffff
 
@@ -63,7 +61,7 @@ void board_flash_init(void)
     uint8_t const* image_data = (uint8_t const *) &qspiflash_config;
     uint32_t flash_addr = FCFB_START_ADDRESS;
 
-    TU_LOG1("BootMode = 01: copying TinyUF2 image to flash.\r\n");
+    TUF2_LOG1("BootMode = 01: copying TinyUF2 image to flash.\r\n");
     while ( flash_addr < (FlexSPI_AMBA_BASE + BOARD_BOOT_LENGTH) )
     {
       board_flash_write(flash_addr, image_data, FLASH_PAGE_SIZE);
@@ -71,13 +69,13 @@ void board_flash_init(void)
       image_data += FLASH_PAGE_SIZE;
     }
     board_flash_flush();
-    TU_LOG1("TinyUF2 copied to flash.\r\n");
+    TUF2_LOG1("TinyUF2 copied to flash.\r\n");
   } 
 }
 
 uint32_t board_flash_size(void)
 {
-  return 1024*1024;
+  return 1024*1024; // TODO fix later
 }
 
 void board_flash_read(uint32_t addr, void* buffer, uint32_t len)
@@ -94,7 +92,7 @@ void board_flash_flush(void)
 
   if ( _flash_page_addr == NO_CACHE ) return;
 
-  TU_LOG1("Erase and Write at address = 0x%08lX\r\n",_flash_page_addr);
+  TUF2_LOG1("Erase and Write at address = 0x%08lX\r\n",_flash_page_addr);
 
   // Skip if data is the same
   if ( memcmp(_flash_cache, (void*) _flash_page_addr, SECTOR_SIZE) != 0 )
@@ -109,7 +107,7 @@ void board_flash_flush(void)
 
     if ( status != kStatus_Success )
     {
-      TU_LOG1("Erase failed: status = %ld!\r\n", status);
+      TUF2_LOG1("Erase failed: status = %ld!\r\n", status);
       return;
     }
 
@@ -124,7 +122,7 @@ void board_flash_flush(void)
 
       if ( status != kStatus_Success )
       {
-        TU_LOG1("Page program failed: status = %ld!\r\n", status);
+        TUF2_LOG1("Page program failed: status = %ld!\r\n", status);
         return;
       }
     }
