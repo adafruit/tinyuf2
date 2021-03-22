@@ -37,11 +37,10 @@
 //--------------------------------------------------------------------+
 //#define USE_DFU_BUTTON    1
 
-// Enter DFU magic
-#define DBL_TAP_MAGIC             0xf01669ef
 
-// Skip double tap delay detction
-#define DBL_TAP_MAGIC_QUICK_BOOT  0xf02669ef
+#define DBL_TAP_MAGIC            0xf01669ef // Enter DFU magic
+#define DBL_TAP_MAGIC_QUICK_BOOT 0xf02669ef // Skip double tap delay detection
+#define DBL_TAP_MAGIC_ERASE_APP  0xf5e80ab4 // Erase entire application !!
 
 // timeout for double tap detection
 #define DBL_TAP_DELAY             500
@@ -62,6 +61,7 @@ uint8_t const RGB_OFF[]           = { 0x00, 0x00, 0x00 };
 extern uint32_t _board_dfu_dbl_tap[];
 #define DBL_TAP_REG   _board_dfu_dbl_tap[0]
 #endif
+
 static volatile uint32_t _timer_count = 0;
 
 // return true if start DFU mode, else App mode
@@ -169,9 +169,10 @@ void tud_umount_cb(void)
 // Invoked when received GET_REPORT control request
 // Application must fill buffer report's content and return its length.
 // Return zero will cause the stack to STALL request
-uint16_t tud_hid_get_report_cb(uint8_t report_id, hid_report_type_t report_type, uint8_t* buffer, uint16_t reqlen)
+uint16_t tud_hid_get_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type, uint8_t* buffer, uint16_t reqlen)
 {
   // TODO not Implemented
+  (void) itf;
   (void) report_id;
   (void) report_type;
   (void) buffer;
@@ -182,9 +183,10 @@ uint16_t tud_hid_get_report_cb(uint8_t report_id, hid_report_type_t report_type,
 
 // Invoked when received SET_REPORT control request or
 // received data on OUT endpoint ( Report ID = 0, Type = 0 )
-void tud_hid_set_report_cb(uint8_t report_id, hid_report_type_t report_type, uint8_t const* buffer, uint16_t bufsize)
+void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type, uint8_t const* buffer, uint16_t bufsize)
 {
   // This example doesn't use multiple report and report ID
+  (void) itf;
   (void) report_id;
   (void) report_type;
   (void) buffer;
