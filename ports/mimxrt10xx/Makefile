@@ -9,6 +9,8 @@ FLASH_BIN_ADDR = $(UF2_$(MCU)_WRITE_ADDR)
 
 include ../make.mk
 
+# TODO include port.mk
+
 MCU_DIR = lib/nxp/sdk/devices/$(MCU)
 LD_FILES ?= $(PORT_DIR)/linker/$(MCU)_ram.ld $(PORT_DIR)/linker/memory.ld $(PORT_DIR)/linker/common.ld
 
