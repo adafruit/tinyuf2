@@ -37,13 +37,18 @@
 //--------------------------------------------------------------------+
 //#define USE_DFU_BUTTON    1
 
-
 #define DBL_TAP_MAGIC            0xf01669ef // Enter DFU magic
 #define DBL_TAP_MAGIC_QUICK_BOOT 0xf02669ef // Skip double tap delay detection
 #define DBL_TAP_MAGIC_ERASE_APP  0xf5e80ab4 // Erase entire application !!
 
 // timeout for double tap detection
 #define DBL_TAP_DELAY             500
+
+#ifndef DBL_TAP_REG
+// defined by linker script
+extern uint32_t _board_dfu_dbl_tap[];
+#define DBL_TAP_REG   _board_dfu_dbl_tap[0]
+#endif
 
 uint8_t const RGB_USB_UNMOUNTED[] = { 0xff, 0x00, 0x00 }; // Red
 uint8_t const RGB_USB_MOUNTED[]   = { 0x00, 0xff, 0x00 }; // Green
@@ -52,21 +57,60 @@ uint8_t const RGB_DOUBLE_TAP[]    = { 0x80, 0x00, 0xff }; // Purple
 uint8_t const RGB_UNKNOWN[]       = { 0x00, 0x00, 0x88 }; // for debug
 uint8_t const RGB_OFF[]           = { 0x00, 0x00, 0x00 };
 
+
+static volatile uint32_t _timer_count = 0;
+
 //--------------------------------------------------------------------+
 //
 //--------------------------------------------------------------------+
+static bool check_dfu_mode(void);
 
-#ifndef DBL_TAP_REG 
-// defined by linker script
-extern uint32_t _board_dfu_dbl_tap[];
-#define DBL_TAP_REG   _board_dfu_dbl_tap[0]
+int main(void)
+{
+  board_init();
+  TU_LOG1("TinyUF2\r\n");
+
+  // if not DFU mode, jump to App
+  if ( !check_dfu_mode() )
+  {
+    board_app_jump();
+    while(1) {}
+  }
+
+  board_dfu_init();
+  board_flash_init();
+  uf2_init();
+  tusb_init();
+
+  indicator_set(STATE_USB_UNPLUGGED);
+
+#if TINYUF2_DISPLAY
+  board_display_init();
+  screen_draw_drag();
 #endif
 
-static volatile uint32_t _timer_count = 0;
+#if (CFG_TUSB_OS == OPT_OS_NONE || CFG_TUSB_OS == OPT_OS_PICO)
+  while(1)
+  {
+    tud_task();
+  }
+#endif
+}
+
 
 // return true if start DFU mode, else App mode
 static bool check_dfu_mode(void)
 {
+
+  // TODO enable for all port instead of one with double tap
+#if TINYUF2_DFU_DOUBLE_TAP
+  // Erase application
+  if (DBL_TAP_REG == DBL_TAP_MAGIC_ERASE_APP)
+  {
+
+  }
+#endif
+
   // Check if app is valid
   if ( !board_app_valid() ) return true;
 
@@ -112,38 +156,6 @@ static bool check_dfu_mode(void)
 #endif
 
   return false;
-}
-
-int main(void)
-{
-  board_init();
-  TU_LOG1("TinyUF2\r\n");
-
-  // if not DFU mode, jump to App
-  if ( !check_dfu_mode() )
-  {
-    board_app_jump();
-    while(1) {}
-  }
-
-  board_dfu_init();
-  board_flash_init();
-  uf2_init();
-  tusb_init();
-
-  indicator_set(STATE_USB_UNPLUGGED);
-
-#if TINYUF2_DISPLAY
-  board_display_init();
-  screen_draw_drag();
-#endif
-
-#if (CFG_TUSB_OS == OPT_OS_NONE || CFG_TUSB_OS == OPT_OS_PICO)
-  while(1)
-  {
-    tud_task();
-  }
-#endif
 }
 
 //--------------------------------------------------------------------+
