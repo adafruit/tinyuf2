@@ -66,6 +66,7 @@ SDP_MIMXRT1011_WRITE_ADDR = 0x20206400
 SDP_MIMXRT1011_JUMP_ADDR  = 0x20207000
 UF2_MIMXRT1011_WRITE_ADDR = 0x60000400
 
+# RT1015, 1050 pid is also 0x0130
 SDP_MIMXRT1021_PID = 0x0130
 SDP_MIMXRT1021_WRITE_ADDR = 0x0400
 SDP_MIMXRT1021_JUMP_ADDR  = 0x1000
@@ -75,6 +76,9 @@ SDP_MIMXRT1062_PID = 0x0135
 SDP_MIMXRT1062_WRITE_ADDR = 0x20208000
 SDP_MIMXRT1062_JUMP_ADDR  = 0x20209000
 UF2_MIMXRT1062_WRITE_ADDR = 0x60000000
+
+DBL_TAP_MAGIC_ERASE_APP = 0xf5e80ab4
+DBL_TAP_REG_ADDR = 0x400D410C
 
 ifeq ($(OS),Windows_NT)
 	SDPHOST = sdphost/win/sdphost.exe
@@ -97,7 +101,14 @@ else
 endif
 
 flash-sdp: $(BUILD)/$(OUTNAME).bin
-	@if [ -z "$(SDPHOST)" ]; then echo SDPHOST is not found for this machine; exit 1; fi
+	@:$(call check_defined, SDPHOST, not found for this machine)
+	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- write-file $(SDP_$(MCU)_WRITE_ADDR) $<
+	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- jump-address $(SDP_$(MCU)_JUMP_ADDR)
+
+# TODO write-register doesn't work
+erase-app: $(BUILD)/$(OUTNAME).bin
+	@:$(call check_defined, SDPHOST, not found for this machine)
+	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- write-register $(DBL_TAP_REG_ADDR) 32 $(DBL_TAP_MAGIC_ERASE_APP)
 	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- write-file $(SDP_$(MCU)_WRITE_ADDR) $<
 	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- jump-address $(SDP_$(MCU)_JUMP_ADDR)
 

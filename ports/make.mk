@@ -25,7 +25,7 @@ check_defined = \
     $(call __check_defined,$1,$(strip $(value 2)))))
 __check_defined = \
     $(if $(value $1),, \
-    $(error Undefined make flag: $1$(if $2, ($2))))
+    $(error Undefined: $1$(if $2, ($2))))
 
 #-------------- Select the board to build for. ------------
 
