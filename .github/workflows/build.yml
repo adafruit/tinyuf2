@@ -161,7 +161,9 @@ jobs:
         echo ENV_PORT=$ENV_PORT >> $GITHUB_ENV
 
     - name: Build
-      run: make -C $ENV_PORT BOARD=${{ matrix.board }} all copy-artifact
+      run: |
+        make -C $ENV_PORT BOARD=${{ matrix.board }} all copy-artifact
+        make -C $ENV_PORT/erase_firmware BOARD=${{ matrix.board }} all
 
     - uses: actions/upload-artifact@v2
       with:
