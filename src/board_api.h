@@ -54,6 +54,10 @@
 #define TINYUF2_DISPLAY 0
 #endif
 
+#define DBL_TAP_MAGIC            0xf01669ef // Enter DFU magic
+#define DBL_TAP_MAGIC_QUICK_BOOT 0xf02669ef // Skip double tap delay detection
+#define DBL_TAP_MAGIC_ERASE_APP  0xf5e80ab4 // Erase entire application !!
+
 //--------------------------------------------------------------------+
 // Basic API
 //--------------------------------------------------------------------+
@@ -63,6 +67,9 @@
 
 // Init basic peripherals such as clock, led indicator control (gpio, pwm etc ..)
 void board_init(void);
+
+// Reset board, not return
+void board_reset(void);
 
 // Write PWM duty value to LED
 void board_led_write(uint32_t value);
@@ -102,19 +109,22 @@ uint8_t board_usb_get_serial(uint8_t serial_id[16]);
 //--------------------------------------------------------------------+
 
 // Initialize flash for DFU
-void     board_flash_init(void);
+void board_flash_init(void);
 
 // Get size of flash
 uint32_t board_flash_size(void);
 
 // Read from flash
-void     board_flash_read (uint32_t addr, void* buffer, uint32_t len);
+void board_flash_read (uint32_t addr, void* buffer, uint32_t len);
 
 // Write to flash
-void     board_flash_write(uint32_t addr, void const *data, uint32_t len);
+void board_flash_write(uint32_t addr, void const *data, uint32_t len);
 
 // Flush/Sync flash contents
-void     board_flash_flush(void);
+void board_flash_flush(void);
+
+// Erase application
+void board_flash_erase_app(void);
 
 //--------------------------------------------------------------------+
 // Dispaly API

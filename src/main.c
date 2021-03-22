@@ -37,10 +37,6 @@
 //--------------------------------------------------------------------+
 //#define USE_DFU_BUTTON    1
 
-#define DBL_TAP_MAGIC            0xf01669ef // Enter DFU magic
-#define DBL_TAP_MAGIC_QUICK_BOOT 0xf02669ef // Skip double tap delay detection
-#define DBL_TAP_MAGIC_ERASE_APP  0xf5e80ab4 // Erase entire application !!
-
 // timeout for double tap detection
 #define DBL_TAP_DELAY             500
 
@@ -57,7 +53,6 @@ uint8_t const RGB_DOUBLE_TAP[]    = { 0x80, 0x00, 0xff }; // Purple
 uint8_t const RGB_UNKNOWN[]       = { 0x00, 0x00, 0x88 }; // for debug
 uint8_t const RGB_OFF[]           = { 0x00, 0x00, 0x00 };
 
-
 static volatile uint32_t _timer_count = 0;
 
 //--------------------------------------------------------------------+
@@ -73,10 +68,12 @@ int main(void)
   // if not DFU mode, jump to App
   if ( !check_dfu_mode() )
   {
+    TU_LOG1("Jump to application\r\n");
     board_app_jump();
     while(1) {}
   }
 
+  TU_LOG1("Start DFU mode\r\n");
   board_dfu_init();
   board_flash_init();
   uf2_init();
@@ -101,13 +98,20 @@ int main(void)
 // return true if start DFU mode, else App mode
 static bool check_dfu_mode(void)
 {
-
   // TODO enable for all port instead of one with double tap
 #if TINYUF2_DFU_DOUBLE_TAP
+  // TUF2_LOG1_HEX(&DBL_TAP_REG);
+
   // Erase application
   if (DBL_TAP_REG == DBL_TAP_MAGIC_ERASE_APP)
   {
+    DBL_TAP_REG = 0;
 
+    indicator_set(STATE_WRITING_STARTED);
+    board_flash_erase_app();
+    indicator_set(STATE_WRITING_FINISHED);
+
+    // TODO maybe reset is better than continue
   }
 #endif
 
@@ -128,6 +132,7 @@ static bool check_dfu_mode(void)
   {
     // Double tap occurred
     DBL_TAP_REG = 0;
+    TU_LOG1("Double Tap Reset\r\n");
     return true;
   }
 
