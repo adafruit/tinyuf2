@@ -42,7 +42,7 @@ endif
 
 # Build directory
 BUILD = _build/$(BOARD)
-BIN = _bin/$(BOARD)
+BIN = $(TOP)/$(PORT_DIR)/_bin/$(BOARD)
 
 # can be set manually by custome build such as flash_nuke
 OUTNAME ?= tinyuf2-$(BOARD)

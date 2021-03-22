@@ -39,11 +39,10 @@ $(BUILD)/$(OUTNAME)-textonly.bin: $(BUILD)/$(OUTNAME).elf
 	@$(OBJCOPY) -O binary -R .flash_config -R .ivt $^ $@
 
 #-------------- Artifacts --------------
-ARTIFACT_DIR =
-
-$(ARTIFACT_DIR):
+# TODO refactor/remove later
+$(BIN):
 	@$(MKDIR) -p $@
 
-copy-artifact: $(ARTIFACT_DIR)
-copy-artifact: $(BUILD)/$(OUTNAME).uf2
-	@$(CP) $(BUILD)/$(OUTNAME).uf2 $(ARTIFACT_DIR)
+all: $(BIN)
+all: $(BUILD)/$(OUTNAME).uf2
+	$(CP) $< $(BIN)
