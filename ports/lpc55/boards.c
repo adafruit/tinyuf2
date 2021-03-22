@@ -93,6 +93,7 @@ static uint8_t  _flash_cache[FLASH_PAGE_SIZE] __attribute__((aligned(4)));
 //--------------------------------------------------------------------+
 //
 //--------------------------------------------------------------------+
+
 void board_flash_init(void)
 {
 }
@@ -139,6 +140,11 @@ void board_flash_write (uint32_t addr, void const *data, uint32_t len)
     }
   }
   memcpy(_flash_cache + (addr & (FLASH_PAGE_SIZE - 1)), data, len);
+}
+
+void board_flash_erase_app(void)
+{
+  // TODO implement later
 }
 
 uint8_t board_usb_get_serial(uint8_t serial_id[16])
@@ -279,6 +285,11 @@ void board_dfu_init(void)
 #endif
 
   TU_LOG2("FRO192M_CTRL:  0x%08lX\r\n", ANACTRL->FRO192M_CTRL);
+}
+
+void board_reset(void)
+{
+  NVIC_SystemReset();
 }
 
 void board_dfu_complete(void)

@@ -37,6 +37,11 @@ void board_dfu_init(void)
   // Init USB for DFU
 }
 
+void board_reset(void)
+{
+  // NVIC_SystemReset();
+}
+
 void board_dfu_complete(void)
 {
   // Mostly reset
