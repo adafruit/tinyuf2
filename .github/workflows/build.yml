@@ -9,6 +9,60 @@ on:
       - created
 
 jobs:
+
+  GHOSTFAT-VALIDATION:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        board:
+          # Alphabetical order
+          # test_ghostfat
+          - 'test_4k_cluster'
+          - 'test_32k_cluster'
+          - 'test_base'
+          - 'test_huge'
+
+    steps:
+    - name: Setup Python
+      uses: actions/setup-python@v2
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v1
+
+    - name: Checkout code
+      uses: actions/checkout@v2
+      with:
+        submodules: 'true'
+
+    - name: Build
+      run: |
+        make --directory ports/test_ghostfat/ BOARD=${{ matrix.board }} all
+
+    - name: Copy known good filesystem image
+      # NOTE: test_huge's knowngood.img file starts as 1.5 GiB
+      #       Compressing once with GZip results gives 85 MiB
+      #       Compressing it a second time gives 10 MiB ...
+      #       Therefore, store known good images double-compressed...
+      run: |
+        pushd ./ports/test_ghostfat/
+        cp ./boards/${{ matrix.board }}/knowngood.img.gz.gz  ./_build/${{ matrix.board }}/
+        popd
+
+    - name: Decompress known good filesystem image
+      run: |
+        pushd ./ports/test_ghostfat/
+        gzip --decompress  ./_build/${{ matrix.board }}/knowngood.img.gz.gz
+        gzip --decompress  ./_build/${{ matrix.board }}/knowngood.img.gz
+        popd
+
+    - name: Execute native self-test
+      run: |
+        pushd ./ports/test_ghostfat/_build/${{ matrix.board }}/
+        chmod +x ./tinyuf2-${{ matrix.board }}.elf
+        ./tinyuf2-${{ matrix.board }}.elf
+        popd
+
   ESP32-S2:
     runs-on: ubuntu-latest
     strategy:
