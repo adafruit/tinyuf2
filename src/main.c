@@ -81,6 +81,11 @@ int main(void)
   board_dfu_init();
   board_flash_init();
   uf2_init();
+
+#if GHOSTFAT_SELF_TEST_MODE
+  return test_main();
+#endif
+
   tusb_init();
 
   indicator_set(STATE_USB_UNPLUGGED);
@@ -165,43 +170,6 @@ static bool check_dfu_mode(void)
 #endif
 
   return false;
-}
-
-int main(void)
-{
-  board_init();
-  TU_LOG1("TinyUF2\r\n");
-
-  // if not DFU mode, jump to App
-  if ( !check_dfu_mode() )
-  {
-    board_app_jump();
-    while(1) {}
-  }
-
-  board_dfu_init();
-  board_flash_init();
-  uf2_init();
-
-#if GHOSTFAT_SELF_TEST_MODE
-  return test_main();
-#endif
-
-  tusb_init();
-
-  indicator_set(STATE_USB_UNPLUGGED);
-
-#if TINYUF2_DISPLAY
-  board_display_init();
-  screen_draw_drag();
-#endif
-
-#if (CFG_TUSB_OS == OPT_OS_NONE || CFG_TUSB_OS == OPT_OS_PICO)
-  while(1)
-  {
-    tud_task();
-  }
-#endif
 }
 
 //--------------------------------------------------------------------+
