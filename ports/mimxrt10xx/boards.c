@@ -190,6 +190,11 @@ uint8_t board_usb_get_serial(uint8_t serial_id[16])
   return 16;
 }
 
+void board_reset(void)
+{
+  NVIC_SystemReset();
+}
+
 void board_dfu_complete(void)
 {
   NVIC_SystemReset();

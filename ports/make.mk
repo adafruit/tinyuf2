@@ -25,7 +25,7 @@ check_defined = \
     $(call __check_defined,$1,$(strip $(value 2)))))
 __check_defined = \
     $(if $(value $1),, \
-    $(error Undefined make flag: $1$(if $2, ($2))))
+    $(error Undefined: $1$(if $2, ($2))))
 
 #-------------- Select the board to build for. ------------
 
@@ -42,7 +42,7 @@ endif
 
 # Build directory
 BUILD = _build/$(BOARD)
-BIN = _bin/$(BOARD)
+BIN = $(TOP)/$(PORT_DIR)/_bin/$(BOARD)
 
 # can be set manually by custome build such as flash_nuke
 OUTNAME ?= tinyuf2-$(BOARD)

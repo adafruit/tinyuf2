@@ -1,7 +1,7 @@
 /*
  * The MIT License (MIT)
  *
- * Copyright (c) 2018 Ha Thach for Adafruit Industries
+ * Copyright (c) 2020 Ha Thach (tinyusb.org) for Adafruit Industries
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,95 +22,69 @@
  * THE SOFTWARE.
  */
 
+#include <stdlib.h>
+#include <stdio.h>
+#include <stdbool.h>
+#include <string.h>
+
 #include "board_api.h"
-#include "tusb.h"
+
+/* This is an application that erases whole application firmware by
+ * writing the erase magic and reset to let bootloader do its work
+ */
+
+#ifndef DBL_TAP_REG
+// defined by linker script
+extern uint32_t _board_dfu_dbl_tap[];
+#define DBL_TAP_REG   _board_dfu_dbl_tap[0]
+#endif
 
 //--------------------------------------------------------------------+
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
 //--------------------------------------------------------------------+
-void board_init(void)
+
+int main(void)
 {
+  board_init();
+  printf("TinyUF2: Erase Application Firmware\r\n");
+
+  // set magic then reset
+  DBL_TAP_REG = DBL_TAP_MAGIC_ERASE_APP;
+
+  board_reset();
+
+  while(1)
+  {
+
+  }
 }
 
-void board_dfu_init(void)
+void board_timer_handler(void)
 {
-  // Init USB for DFU
-}
 
-void board_reset(void)
-{
-  // NVIC_SystemReset();
-}
-
-void board_dfu_complete(void)
-{
-  // Mostly reset
-  // NVIC_SystemReset();
-}
-
-bool board_app_valid(void)
-{
-  return false;
-}
-
-void board_app_jump(void)
-{
-  // Jump to application code
-}
-
-uint8_t board_usb_get_serial(uint8_t serial_id[16])
-{
-  (void) serial_id;
-  return 0;
 }
 
 //--------------------------------------------------------------------+
-// LED pattern
+// Logger newlib retarget
 //--------------------------------------------------------------------+
 
-void board_led_write(uint32_t state)
+// Enable only with LOG is enabled (Note: ESP32-S2 has built-in support already)
+#if TUF2_LOG // && (CFG_TUSB_MCU != OPT_MCU_ESP32S2)
+
+#if defined(LOGGER_RTT)
+#include "SEGGER_RTT.h"
+#endif
+
+__attribute__ ((used)) int _write (int fhdl, const void *buf, size_t count)
 {
-  (void) state;
-}
+  (void) fhdl;
 
-void board_rgb_write(uint8_t const rgb[])
-{
-  (void) rgb;
-}
-
-//--------------------------------------------------------------------+
-// Timer
-//--------------------------------------------------------------------+
-
-void board_timer_start(uint32_t ms)
-{
-  (void) ms;
-  // SysTick_Config( (SystemCoreClock/1000) * ms );
-}
-
-void board_timer_stop(void)
-{
-  // SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk;
-}
-
-void SysTick_Handler (void)
-{
-  board_timer_handler();
-}
-
-
-int board_uart_write(void const * buf, int len)
-{
-  (void) buf; (void) len;
-  return 0;
-}
-
-#ifndef TINYUF2_SELF_UPDATE
-
-// Forward USB interrupt events to TinyUSB IRQ Handler
-void OTG_FS_IRQHandler(void)
-{
-  tud_int_handler(0);
+#if defined(LOGGER_RTT)
+  SEGGER_RTT_Write(0, (char*) buf, (int) count);
+  return count;
+#else
+  return board_uart_write(buf, count);
+#endif
 }
 
 #endif
