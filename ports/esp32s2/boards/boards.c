@@ -185,6 +185,11 @@ void board_dfu_init(void)
   configure_pins(&hal);
 }
 
+void board_reset(void)
+{
+  esp_restart();
+}
+
 void board_dfu_complete(void)
 {
   // Set partition OTA0 as bootable and reset

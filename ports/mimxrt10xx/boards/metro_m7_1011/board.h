@@ -29,7 +29,7 @@
 #define BOARD_H_
 
 // Size of on-board external flash
-#define BOARD_FLASH_SIZE     (2*1024*1024)
+#define BOARD_FLASH_SIZE     (4*1024*1024)
 
 //--------------------------------------------------------------------+
 // LED
@@ -72,12 +72,12 @@
 #define USB_VID           0x239A
 #define USB_PID           0x00E1
 #define USB_MANUFACTURER  "Adafruit"
-#define USB_PRODUCT       "Metro M7 1011"
+#define USB_PRODUCT       "Metro M7 iMX RT1011"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID      "MIMXRT1011-Metro-revA"
 #define UF2_VOLUME_LABEL  "METROM7BOOT"
-#define UF2_INDEX_URL     "https://www.adafruit.com"
+#define UF2_INDEX_URL     "https://www.adafruit.com/product/4950"
 
 //--------------------------------------------------------------------+
 // UART

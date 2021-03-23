@@ -18,17 +18,16 @@ make BOARD=metro_m7_1011 flash-jlink-bin
 
 iMXRT has built-in BootROM that implements the Serial Download Protocol (SDP), which can be used to load & execute TinyUF2 to SRAM with `spdhost` tool via USB. You need to
 
-1. Power up your board with the Boot Mode switch set to `BOOT_MODE[1:0]=01` to enter Serial Download mode. Note Serial Download mode also automatically run with blank flash, therefore you don't have to manual change it in your production run.
-2. Run `flash-sdp` make target which in turn uses the `sdphost` with correct address and arguments to load TinyUF2 
+1. Power up your board with the Boot Mode switch set to `BOOT_MODE[1:0]=01` to enter Serial Download mode. Note: Serial Download mode also automatically run with blank flash, therefore you don't have to manual change it in your production run.
+2. Run `flash-sdp` make target which in turn uses the `sdphost` with correct address and arguments to load and execute TinyUF2. While running, TinyUF2 will program the external flash with its SRAM's image.
 
   ```
   make BOARD=imxrt1010_evk flash-sdp
   ```
-3. (Optional) Drag and drop `update-tinyuf2_BOARD.uf2` to program the external flash. This step is optional for blank chip since TinyUF2 will automatically check the external flash to see if it has a valid Flash Configure Block (FCFB), if not TinyUF2 will program the external flash with its SRAM's image.
 
-Note: `sdphost` executable binaries for common platforms (windows/mac/linux) are included in sdphost folder. If you have issue with executable permission, just manually give it permission to run. The source code for sdphost tool is also included just in case binaries for your host platform is not included (e.g ARM, RISC-V etc ...)
+Note: `sdphost` executable binaries for common platforms (windows/mac/linux/arm32) are included in sdphost folder. If you have issue with executable permission, just manually give it permission to run. Should binaries for your host platform is not included (e.g ARM, RISC-V etc ...), you could build it from source using [apexrtos/nxp_blhost_sdphost](https://github.com/apexrtos/nxp_blhost_sdphost).
 
-Note2: Since SDP with BootROM doesn't requires external debugger and always exists regardless of the external flash, this method can also be used to de-brick your board should it needs. 
+Note2: Since SDP with BootROM doesn't requires external debugger and always exists regardless of the external flash, this method can also be used to de-brick your board should it be needed.
 
 ## Update to newer version
 
@@ -36,7 +35,7 @@ Double tap to enter bootloader mode, then simply drag & drop `update-tinyuf2_BOA
 
 ## Supported Boards
 
-- Adafruit Metro M7 1011
+- [Adafruit Metro M7 1011](https://www.adafruit.com/product/4950)
 - [MIMX RT1010 Evaluation Kit](https://www.nxp.com/design/development-boards/i.mx-evaluation-and-development-boards/i.mx-rt1010-evaluation-kit:MIMXRT1010-EVK)
 - [MIMX RT1020 Evaluation Kit](https://www.nxp.com/design/development-boards/i.mx-evaluation-and-development-boards/i.mx-rt1020-evaluation-kit:MIMXRT1020-EVK)
 - [MIMX RT1060 Evaluation Kit](https://www.nxp.com/design/development-boards/i.mx-evaluation-and-development-boards/mimxrt1060-evk-i.mx-rt1060-evaluation-kit:MIMXRT1060-EVK)

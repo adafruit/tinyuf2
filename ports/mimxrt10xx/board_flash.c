@@ -27,8 +27,6 @@
 #include "flexspi_nor_flash.h"
 #include "fsl_cache.h"
 
-#include "tusb.h" // for logging
-
 #define FLASH_CACHE_SIZE          4096
 #define FLASH_CACHE_INVALID_ADDR  0xffffffff
 
@@ -50,32 +48,41 @@ extern flexspi_nor_config_t const qspiflash_config;
 static uint32_t _flash_page_addr = NO_CACHE;
 static uint8_t  _flash_cache[SECTOR_SIZE] __attribute__((aligned(4)));
 
+static void write_tinyuf2_to_flash(void)
+{
+  uint8_t const* image_data = (uint8_t const *) &qspiflash_config;
+  uint32_t flash_addr = FCFB_START_ADDRESS;
+
+  TUF2_LOG1("Writing TinyUF2 image to flash.\r\n");
+  while ( flash_addr < (FlexSPI_AMBA_BASE + BOARD_BOOT_LENGTH) )
+  {
+    board_flash_write(flash_addr, image_data, FLASH_PAGE_SIZE);
+    flash_addr += FLASH_PAGE_SIZE;
+    image_data += FLASH_PAGE_SIZE;
+  }
+  board_flash_flush();
+  TUF2_LOG1("TinyUF2 copied to flash.\r\n");
+}
 
 void board_flash_init(void)
 {
   flexspi_nor_flash_init(FLEXSPI_INSTANCE, (flexspi_nor_config_t*) &qspiflash_config);
 
-  // Check for FCFB and copy bootloader to flash if not present
-  if ( *(uint32_t*) FCFB_START_ADDRESS != FLEXSPI_CFG_BLK_TAG )
+  // TinyUF2 will copy its image to flash if  Boot Mode is '01' i.e Serial Download Mode (BootRom)
+  // Normally it is done once by SDPHost or used to recover an corrupted boards
+  uint32_t const boot_mode = (SRC->SBMR2 & SRC_SBMR2_BMOD_MASK) >> SRC_SBMR2_BMOD_SHIFT;
+  if (boot_mode == 1)
   {
-    uint8_t const* image_data = (uint8_t const *) &qspiflash_config;
-    uint32_t flash_addr = FCFB_START_ADDRESS;
-
-    TU_LOG1("FCFB not present.  Copying image to flash.\r\n");
-    while ( flash_addr < (FlexSPI_AMBA_BASE + BOARD_BOOT_LENGTH) )
-    {
-      board_flash_write(flash_addr, image_data, FLASH_PAGE_SIZE);
-      flash_addr += FLASH_PAGE_SIZE;
-      image_data += FLASH_PAGE_SIZE;
-    }
-    board_flash_flush();
-    TU_LOG1("TinyUF2 copied to flash.\r\n");
+    TUF2_LOG1("BootMode = 01: ");
+    write_tinyuf2_to_flash();
   } 
 }
 
 uint32_t board_flash_size(void)
 {
-  return 1024*1024;
+  // TODO currently limit at 8MB since the CURRENT.UF2 can occupies all 32MB virtual disk
+  uint32_t const max_size = 8*1024*1024;
+  return (BOARD_FLASH_SIZE < max_size) ? BOARD_FLASH_SIZE : max_size;
 }
 
 void board_flash_read(uint32_t addr, void* buffer, uint32_t len)
@@ -92,7 +99,7 @@ void board_flash_flush(void)
 
   if ( _flash_page_addr == NO_CACHE ) return;
 
-  TU_LOG1("Erase and Write at address = 0x%08lX\r\n",_flash_page_addr);
+  TUF2_LOG1("Erase and Write at address = 0x%08lX\r\n",_flash_page_addr);
 
   // Skip if data is the same
   if ( memcmp(_flash_cache, (void*) _flash_page_addr, SECTOR_SIZE) != 0 )
@@ -107,7 +114,7 @@ void board_flash_flush(void)
 
     if ( status != kStatus_Success )
     {
-      TU_LOG1("Erase failed: status = %ld!\r\n", status);
+      TUF2_LOG1("Erase failed: status = %ld!\r\n", status);
       return;
     }
 
@@ -122,7 +129,7 @@ void board_flash_flush(void)
 
       if ( status != kStatus_Success )
       {
-        TU_LOG1("Page program failed: status = %ld!\r\n", status);
+        TUF2_LOG1("Page program failed: status = %ld!\r\n", status);
         return;
       }
     }
@@ -150,4 +157,17 @@ void board_flash_write (uint32_t addr, void const *src, uint32_t len)
 
   // Overwrite part or all of the page cache with the src data.
   memcpy(_flash_cache + (addr & (SECTOR_SIZE - 1)), src, len);
+}
+
+void board_flash_erase_app(void)
+{
+  TUF2_LOG1("Erase whole chip\r\n");
+
+  // Perform chip erase first
+  flexspi_nor_flash_init(FLEXSPI_INSTANCE, (flexspi_nor_config_t*) &qspiflash_config);
+  flexspi_nor_flash_erase_all(FLEXSPI_INSTANCE, (flexspi_nor_config_t*) &qspiflash_config);
+
+  // write bootloader to flash
+  TUF2_LOG1("Erase app firmware: ");
+  write_tinyuf2_to_flash();
 }

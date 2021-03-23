@@ -34,7 +34,10 @@
 #include "fsl_xbara.h"
 
 #include "clock_config.h"
+
+#ifndef NO_TINYUF2_BUILD
 #include "tusb.h"
+#endif
 
 static bool _dfu_mode = false;
 
@@ -185,6 +188,11 @@ uint8_t board_usb_get_serial(uint8_t serial_id[16])
   OCOTP_Deinit(OCOTP);
 
   return 16;
+}
+
+void board_reset(void)
+{
+  NVIC_SystemReset();
 }
 
 void board_dfu_complete(void)
@@ -354,7 +362,7 @@ uint32_t board_button_read(void)
 
 int board_uart_write(void const * buf, int len)
 {
-#if defined(UART_DEV) && CFG_TUSB_DEBUG
+#if defined(UART_DEV) && TUF2_LOG
   LPUART_WriteBlocking(UART_DEV, (uint8_t*)buf, len);
   return len;
 #else
@@ -366,6 +374,8 @@ int board_uart_write(void const * buf, int len)
 //--------------------------------------------------------------------+
 // USB Interrupt Handler
 //--------------------------------------------------------------------+
+#ifndef NO_TINYUF2_BUILD
+
 void USB_OTG1_IRQHandler(void)
 {
   #if CFG_TUSB_RHPORT0_MODE & OPT_MODE_HOST
@@ -387,3 +397,5 @@ void USB_OTG2_IRQHandler(void)
     tud_int_handler(1);
   #endif
 }
+
+#endif

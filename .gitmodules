@@ -4,15 +4,9 @@
 [submodule "lib/st/stm32f4xx_hal_driver"]
 	path = lib/st/stm32f4xx_hal_driver
 	url = https://github.com/STMicroelectronics/stm32f4xx_hal_driver.git
-[submodule "lib/CMSIS_5"]
-	path = lib/CMSIS_5
-	url = https://github.com/ARM-software/CMSIS_5.git
 [submodule "lib/tinyusb"]
 	path = lib/tinyusb
 	url = https://github.com/hathach/tinyusb.git
-[submodule "ports/esp32s2/components/bootloader/subproject/components/micro-ecc/micro-ecc"]
-	path = ports/esp32s2/components/bootloader/subproject/components/micro-ecc/micro-ecc
-	url = https://github.com/kmackay/micro-ecc.git
 [submodule "lib/nxp"]
 	path = lib/nxp
 	url = https://github.com/hathach/nxp_driver.git
@@ -25,9 +19,9 @@
 [submodule "lib/sct_neopixel"]
 	path = lib/sct_neopixel
 	url = https://github.com/gsteiert/sct_neopixel
-	[submodule "lib/st/stm32f3xx_hal_driver"]
-		path = lib/st/stm32f3xx_hal_driver
-		url = https://github.com/STMicroelectronics/stm32f3xx_hal_driver
-	[submodule "lib/st/cmsis_device_f3"]
-		path = lib/st/cmsis_device_f3
-		url = https://github.com/STMicroelectronics/cmsis_device_f3.git
+[submodule "lib/st/stm32f3xx_hal_driver"]
+	path = lib/st/stm32f3xx_hal_driver
+	url = https://github.com/STMicroelectronics/stm32f3xx_hal_driver
+[submodule "lib/st/cmsis_device_f3"]
+	path = lib/st/cmsis_device_f3
+	url = https://github.com/STMicroelectronics/cmsis_device_f3.git

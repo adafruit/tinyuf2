@@ -41,6 +41,12 @@ status_t flexspi_nor_flash_page_program(uint32_t instance,
     return g_bootloaderTree->flexSpiNorDriver->program(instance, config, dstAddr, src);
 }
 
+status_t flexspi_nor_flash_erase_all(uint32_t instance, flexspi_nor_config_t *config)
+{
+    // return g_bootloaderTree->flexSpiNorDriver->erase_all(instance, config);
+    return kStatus_Fail; // TODO implement erase all later
+}
+
 status_t flexspi_nor_flash_erase(uint32_t instance, flexspi_nor_config_t *config, uint32_t start, uint32_t length)
 {
     return g_bootloaderTree->flexSpiNorDriver->erase(instance, config, start, length);

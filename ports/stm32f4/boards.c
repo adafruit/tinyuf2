@@ -140,6 +140,11 @@ void board_dfu_init(void)
 #endif
 }
 
+void board_reset(void)
+{
+  NVIC_SystemReset();
+}
+
 void board_dfu_complete(void)
 {
   NVIC_SystemReset();

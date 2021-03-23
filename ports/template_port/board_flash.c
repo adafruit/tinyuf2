@@ -52,6 +52,10 @@ void board_flash_write (uint32_t addr, void const *data, uint32_t len)
   (void) addr; (void) data; (void) len;
 }
 
+void board_flash_erase_app(void)
+{
+  // TODO implement later
+}
 
 #ifdef TINYUF2_SELF_UPDATE
 void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)

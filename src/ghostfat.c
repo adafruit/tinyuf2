@@ -226,6 +226,7 @@ static inline bool is_uf2_block (UF2_Block const *bl)
 
 void uf2_init(void)
 {
+  // TODO maybe limit to application size only if possible board_flash_app_size()
   _flash_size = board_flash_size();
 }
 

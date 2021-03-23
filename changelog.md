@@ -1,5 +1,27 @@
 # TinyUF2 Changelog
 
+## 0.4.0 - 2021.03.23
+
+- Add support for multiple sectors per cluster in GhostFAT to enable larger flash sizes
+- Add new board API: board_reset() and board_flash_erase_app()
+- Add `erase_firmware` application target (only implemented for iMXRT for now).
+  - TinyUF2 will erase whole flash if `MAGIC_ERASE_APP` is written by application.
+  - `erase_firmware.uf2` is also uploaded as part of build/release asset if available
+- No major chagnes to LPC55, STM32 F3 F4
+
+### ESP32-S2
+
+- Rework Dotstar driver
+- Speed up flashing speed by increase cache size to 64KB and using block erase
+- Add new boards:
+  - Adafruit Fun House
+  - Unexpected Maker TinyS2
+
+### iMXRT
+
+- Always write tinyuf2 image to flash if loaded in Serial Donwload mode (Boot Mode = 01)
+- Add `erase_firmware.uf2` to erase the whole flash except bootloader
+
 ## 0.3.0 - 2021.02.17
 
 - Add compiled date to INFO_UF2.TXT

@@ -37,17 +37,17 @@
 //--------------------------------------------------------------------+
 //#define USE_DFU_BUTTON    1
 
-// Enter DFU magic
-#define DBL_TAP_MAGIC             0xf01669ef
-
-// Skip double tap delay detction
-#define DBL_TAP_MAGIC_QUICK_BOOT  0xf02669ef
-
 // timeout for double tap detection
 #define DBL_TAP_DELAY             500
 
 #ifndef GHOSTFAT_SELF_TEST_MODE
   #define GHOSTFAT_SELF_TEST_MODE 0
+#endif
+
+#ifndef DBL_TAP_REG
+// defined by linker script
+extern uint32_t _board_dfu_dbl_tap[];
+#define DBL_TAP_REG   _board_dfu_dbl_tap[0]
 #endif
 
 uint8_t const RGB_USB_UNMOUNTED[] = { 0xff, 0x00, 0x00 }; // Red
@@ -57,20 +57,68 @@ uint8_t const RGB_DOUBLE_TAP[]    = { 0x80, 0x00, 0xff }; // Purple
 uint8_t const RGB_UNKNOWN[]       = { 0x00, 0x00, 0x88 }; // for debug
 uint8_t const RGB_OFF[]           = { 0x00, 0x00, 0x00 };
 
+static volatile uint32_t _timer_count = 0;
+
 //--------------------------------------------------------------------+
 //
 //--------------------------------------------------------------------+
+static bool check_dfu_mode(void);
 
-#ifndef DBL_TAP_REG 
-// defined by linker script
-extern uint32_t _board_dfu_dbl_tap[];
-#define DBL_TAP_REG   _board_dfu_dbl_tap[0]
+int main(void)
+{
+  board_init();
+  TU_LOG1("TinyUF2\r\n");
+
+  // if not DFU mode, jump to App
+  if ( !check_dfu_mode() )
+  {
+    TU_LOG1("Jump to application\r\n");
+    board_app_jump();
+    while(1) {}
+  }
+
+  TU_LOG1("Start DFU mode\r\n");
+  board_dfu_init();
+  board_flash_init();
+  uf2_init();
+  tusb_init();
+
+  indicator_set(STATE_USB_UNPLUGGED);
+
+#if TINYUF2_DISPLAY
+  board_display_init();
+  screen_draw_drag();
 #endif
-static volatile uint32_t _timer_count = 0;
+
+#if (CFG_TUSB_OS == OPT_OS_NONE || CFG_TUSB_OS == OPT_OS_PICO)
+  while(1)
+  {
+    tud_task();
+  }
+#endif
+}
+
 
 // return true if start DFU mode, else App mode
 static bool check_dfu_mode(void)
 {
+  // TODO enable for all port instead of one with double tap
+#if TINYUF2_DFU_DOUBLE_TAP
+  // TUF2_LOG1_HEX(&DBL_TAP_REG);
+
+  // Erase application
+  if (DBL_TAP_REG == DBL_TAP_MAGIC_ERASE_APP)
+  {
+    DBL_TAP_REG = 0;
+
+    indicator_set(STATE_WRITING_STARTED);
+    board_flash_erase_app();
+    indicator_set(STATE_WRITING_FINISHED);
+
+    // TODO maybe reset is better than continue
+  }
+#endif
+
   // Check if app is valid
   if ( !board_app_valid() ) return true;
 
@@ -88,6 +136,7 @@ static bool check_dfu_mode(void)
   {
     // Double tap occurred
     DBL_TAP_REG = 0;
+    TU_LOG1("Double Tap Reset\r\n");
     return true;
   }
 
@@ -178,9 +227,10 @@ void tud_umount_cb(void)
 // Invoked when received GET_REPORT control request
 // Application must fill buffer report's content and return its length.
 // Return zero will cause the stack to STALL request
-uint16_t tud_hid_get_report_cb(uint8_t report_id, hid_report_type_t report_type, uint8_t* buffer, uint16_t reqlen)
+uint16_t tud_hid_get_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type, uint8_t* buffer, uint16_t reqlen)
 {
   // TODO not Implemented
+  (void) itf;
   (void) report_id;
   (void) report_type;
   (void) buffer;
@@ -191,9 +241,10 @@ uint16_t tud_hid_get_report_cb(uint8_t report_id, hid_report_type_t report_type,
 
 // Invoked when received SET_REPORT control request or
 // received data on OUT endpoint ( Report ID = 0, Type = 0 )
-void tud_hid_set_report_cb(uint8_t report_id, hid_report_type_t report_type, uint8_t const* buffer, uint16_t bufsize)
+void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type, uint8_t const* buffer, uint16_t bufsize)
 {
   // This example doesn't use multiple report and report ID
+  (void) itf;
   (void) report_id;
   (void) report_type;
   (void) buffer;

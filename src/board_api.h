@@ -54,8 +54,12 @@
 #define TINYUF2_DISPLAY 0
 #endif
 
+#define DBL_TAP_MAGIC            0xf01669ef // Enter DFU magic
+#define DBL_TAP_MAGIC_QUICK_BOOT 0xf02669ef // Skip double tap delay detection
+#define DBL_TAP_MAGIC_ERASE_APP  0xf5e80ab4 // Erase entire application !!
+
 //--------------------------------------------------------------------+
-// Platform Dependent API
+// Basic API
 //--------------------------------------------------------------------+
 
 // Baudrate for UART if used
@@ -63,6 +67,9 @@
 
 // Init basic peripherals such as clock, led indicator control (gpio, pwm etc ..)
 void board_init(void);
+
+// Reset board, not return
+void board_reset(void);
 
 // Write PWM duty value to LED
 void board_led_write(uint32_t value);
@@ -88,7 +95,7 @@ bool board_app_valid(void);
 // Jump to Application
 void board_app_jump(void);
 
-// Init DFU process
+// Init DFU process, mostly for starting USB
 void board_dfu_init(void);
 
 // DFU is complete, should reset or jump to application mode and not return
@@ -97,13 +104,31 @@ void board_dfu_complete(void);
 // Fill Serial Number and return its length (limit to 16 bytes)
 uint8_t board_usb_get_serial(uint8_t serial_id[16]);
 
-//------------- Flash -------------//
-void     board_flash_init(void);
+//--------------------------------------------------------------------+
+// Flash API
+//--------------------------------------------------------------------+
+
+// Initialize flash for DFU
+void board_flash_init(void);
+
+// Get size of flash
 uint32_t board_flash_size(void);
 
-void     board_flash_read (uint32_t addr, void* buffer, uint32_t len);
-void     board_flash_write(uint32_t addr, void const *data, uint32_t len);
-void     board_flash_flush(void);
+// Read from flash
+void board_flash_read (uint32_t addr, void* buffer, uint32_t len);
+
+// Write to flash
+void board_flash_write(uint32_t addr, void const *data, uint32_t len);
+
+// Flush/Sync flash contents
+void board_flash_flush(void);
+
+// Erase application
+void board_flash_erase_app(void);
+
+//--------------------------------------------------------------------+
+// Dispaly API
+//--------------------------------------------------------------------+
 
 #if TINYUF2_DISPLAY
 void board_display_init(void);
@@ -114,6 +139,57 @@ void screen_draw_drag(void);
 
 // perform self-update on bootloader
 void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len);
+
+//--------------------------------------------------------------------+
+// LOG
+//--------------------------------------------------------------------+
+#if TUF2_LOG
+
+#include <stdio.h>
+
+#ifndef tuf2_printf
+#define tuf2_printf printf
+#endif
+
+// Log with debug level 1
+#define TUF2_LOG1               tuf2_printf
+#define TUF2_LOG1_MEM           // tu_print_mem
+#define TUF2_LOG1_VAR(_x)       // tu_print_var((uint8_t const*)(_x), sizeof(*(_x)))
+#define TUF2_LOG1_INT(_x)       tuf2_printf(#_x " = %ld\n", (uint32_t) (_x) )
+#define TUF2_LOG1_HEX(_x)       tuf2_printf(#_x " = %lX\n", (uint32_t) (_x) )
+#define TUF2_LOG1_LOCATION()    tuf2_printf("%s: %d:\r\n", __PRETTY_FUNCTION__, __LINE__)
+#define TUF2_LOG1_FAILED()      tuf2_printf("%s: %d: Failed\r\n", __PRETTY_FUNCTION__, __LINE__)
+
+// Log with debug level 2
+#if CFG_TUSB_DEBUG > 1
+  #define TUF2_LOG2             TUF2_LOG1
+  #define TUF2_LOG2_MEM         TUF2_LOG1_MEM
+  #define TUF2_LOG2_VAR         TUF2_LOG1_VAR
+  #define TUF2_LOG2_INT         TUF2_LOG1_INT
+  #define TUF2_LOG2_HEX         TUF2_LOG1_HEX
+  #define TUF2_LOG2_LOCATION()  TUF2_LOG1_LOCATION()
+#endif
+
+#endif // TUF2_LOG
+
+#ifndef TUF2_LOG1
+  #define TUF2_LOG1(...)
+  #define TUF2_LOG1_MEM(...)
+  #define TUF2_LOG1_VAR(...)
+  #define TUF2_LOG1_INT(...)
+  #define TUF2_LOG1_HEX(...)
+  #define TUF2_LOG1_LOCATION()
+  #define TUF2_LOG1_FAILED()
+#endif
+
+#ifndef TUF2_LOG2
+  #define TUF2_LOG2(...)
+  #define TUF2_LOG2_MEM(...)
+  #define TUF2_LOG2_VAR(...)
+  #define TUF2_LOG2_INT(...)
+  #define TUF2_LOG2_HEX(...)
+  #define TUF2_LOG2_LOCATION()
+#endif
 
 //--------------------------------------------------------------------+
 // not part of board API, move to its own file later
