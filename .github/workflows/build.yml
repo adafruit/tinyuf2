@@ -10,7 +10,7 @@ on:
 
 jobs:
 
-  GHOSTFAT-VALIDATION:
+  GHOSTFAT:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
