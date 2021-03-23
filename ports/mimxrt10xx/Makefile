@@ -93,23 +93,22 @@ else
 	endif
 
 	ifeq ($(UNAME_S),Linux)
-		ifeq ($(UNAME_M),x86_64)
-			SDPHOST = sdphost/linux/amd64/sdphost
-		endif
-		ifeq ($(UNAME_M),i386)
-			SDPHOST = sdphost/linux/i386/sdphost
-		endif
+		SDPHOST_x86_64 = amd64
+		SDPHOST_i386 = i386
+		SDPHOST_armv7l = arm32
+
+		SDPHOST = sdphost/linux/$(SDPHOST_$(UNAME_M))/sdphost
 	endif
 endif
 
 flash-sdp: $(BUILD)/$(OUTNAME).bin
-	@:$(call check_defined, SDPHOST, not found for this machine)
+	@if [ -z "$(SDPHOST)" ]; then echo SDPHOST is not found for this machine; exit 1; fi
 	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- write-file $(SDP_$(MCU)_WRITE_ADDR) $<
 	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- jump-address $(SDP_$(MCU)_JUMP_ADDR)
 
 # TODO write-register doesn't work
 erase-app: $(BUILD)/$(OUTNAME).bin
-	@:$(call check_defined, SDPHOST, not found for this machine)
+	@if [ -z "$(SDPHOST)" ]; then echo SDPHOST is not found for this machine; exit 1; fi
 	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- write-register $(DBL_TAP_REG_ADDR) 32 $(DBL_TAP_MAGIC_ERASE_APP)
 	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- write-file $(SDP_$(MCU)_WRITE_ADDR) $<
 	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- jump-address $(SDP_$(MCU)_JUMP_ADDR)
