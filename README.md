@@ -6,6 +6,7 @@ This repo is cross-platform UF2 Bootloader projects for MCUs based on [TinyUSB](
 
 ```
 .
+├── apps              # Useful applications such as self-update, erase firmware
 ├── lib               # Sources from 3rd party such as tinyusb, mcu drivers ...
 ├── ports             # Port/family specific sources
 │   ├── esp32s2       

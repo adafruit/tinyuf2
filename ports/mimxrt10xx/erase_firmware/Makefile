@@ -6,7 +6,6 @@ OUTNAME = erase_firmware-$(BOARD)
 NO_TINYUF2_BUILD = 1
 
 include ../../make.mk
-
 include ../port.mk
 
 LD_FILES ?= $(PORT_DIR)/linker/$(MCU)_ram.ld $(PORT_DIR)/erase_firmware/memory.ld $(PORT_DIR)/linker/common.ld
@@ -14,13 +13,8 @@ LD_FILES ?= $(PORT_DIR)/linker/$(MCU)_ram.ld $(PORT_DIR)/erase_firmware/memory.l
 # Port Compiler Flags
 CFLAGS += -DNO_TINYUF2_BUILD
 
-# mcu driver cause following warnings
-CFLAGS += -Wno-error=unused-parameter
+SRC_C += apps/erase_firmware/erase_firmware.c
 
-# Port source
-SRC_C += erase_firmware/erase_firmware.c
-
-# Port include
 INC += $(TOP)/src
 
 include ../../rules.mk

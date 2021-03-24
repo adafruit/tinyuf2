@@ -154,6 +154,5 @@ ifneq ($(SKIP_NANOLIB), 1)
   LIBS += -lnosys
 endif
 
-
 # Board specific define
 include $(TOP)/$(BOARD_DIR)/board.mk
