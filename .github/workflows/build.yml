@@ -212,7 +212,7 @@ jobs:
     - name: Build
       run: |
         make -C $ENV_PORT BOARD=${{ matrix.board }} all copy-artifact
-        make -C $ENV_PORT/erase_firmware BOARD=${{ matrix.board }} all
+        make -C $ENV_PORT/apps/erase_firmware BOARD=${{ matrix.board }} all
 
     - uses: actions/upload-artifact@v2
       with:
