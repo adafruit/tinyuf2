@@ -1,6 +1,6 @@
 OUTNAME = usb2uart-$(BOARD)
 
-SRC_C += $(CURRENT_PATH)/usb2uart.c
+SRC_C += $(addprefix $(CURRENT_PATH)/, $(wildcard *.c))
 INC += \
 	$(TOP)/$(CURRENT_PATH) \
 	$(TOP)/src

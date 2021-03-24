@@ -108,7 +108,7 @@ void board_init(void)
 #endif
 }
 
-void board_dfu_init(void)
+void board_usb_init(void)
 {
   // Clock
   CLOCK_EnableUsbhs0PhyPllClock(kCLOCK_Usbphy480M, 480000000U);
@@ -135,6 +135,11 @@ void board_dfu_init(void)
   // USB1
 //  CLOCK_EnableUsbhs1PhyPllClock(kCLOCK_Usbphy480M, 480000000U);
 //  CLOCK_EnableUsbhs1Clock(kCLOCK_Usb480M, 480000000U);
+}
+
+void board_dfu_init(void)
+{
+  board_usb_init();
 
   _dfu_mode = true;
 

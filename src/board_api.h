@@ -95,6 +95,9 @@ bool board_app_valid(void);
 // Jump to Application
 void board_app_jump(void);
 
+// Init USB hardware (not used for now)
+void board_usb_init(void);
+
 // Init DFU process, mostly for starting USB
 void board_dfu_init(void);
 

@@ -28,8 +28,10 @@
 #include <string.h>
 
 #include "board_api.h"
+#include "tusb.h"
 
-/* This is an application to act as USB <-> Uart
+/* This is an application to act as USB <-> Uart and
+ * used to program ESP32 Co-Processors
  */
 
 //--------------------------------------------------------------------+
@@ -39,12 +41,14 @@
 int main(void)
 {
   board_init();
-  printf("USB <-> Uart Firmware\r\n");
-  printf("test\r\n");
+  printf("ESP32 Programmer Firmware\r\n");
+
+  board_usb_init();
+  tusb_init();
 
   while(1)
   {
-
+    tud_task();
   }
 }
 

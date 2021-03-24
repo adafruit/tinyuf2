@@ -9,7 +9,6 @@ include $(TOP)/$(PORT_DIR)/port.mk
 
 LD_FILES ?= $(PORT_DIR)/linker/$(MCU)_ram.ld $(PORT_DIR)/apps/memory.ld $(PORT_DIR)/linker/common.ld
 
-
 include $(TOP)/ports/rules.mk
 
 APPLICATION_ADDR = 0x6000C000
@@ -33,3 +32,7 @@ $(BIN):
 all: $(BIN)
 all: $(BUILD)/$(OUTNAME).uf2
 	$(CP) $< $(BIN)
+
+flash-app: $(BUILD)/$(OUTNAME)-textonly.bin
+	pyocd flash -t $(PYOCD_TARGET) -a $(APPLICATION_ADDR) $<
+	pyocd reset -t $(PYOCD_TARGET)
