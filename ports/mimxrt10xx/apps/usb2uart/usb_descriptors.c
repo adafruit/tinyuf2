@@ -60,7 +60,7 @@ tusb_desc_device_t const desc_device =
     .bMaxPacketSize0    = CFG_TUD_ENDPOINT0_SIZE,
 
     .idVendor           = USB_VID,
-    .idProduct          = USB_PID,
+    .idProduct          = 0x8000 | USB_PID, // application PID
     .bcdDevice          = 0x0100,
 
     .iManufacturer      = STRID_MANUFACTURER,
