@@ -87,6 +87,7 @@ int main(void)
 
   while(1)
   {
+
     tud_task();
   }
 }
@@ -94,6 +95,28 @@ int main(void)
 void board_timer_handler(void)
 {
   _timer_count++;
+}
+
+//--------------------------------------------------------------------+
+// USB CDC
+//--------------------------------------------------------------------+
+
+// Invoked when line coding is change via SET_LINE_CODING
+void tud_cdc_line_coding_cb(uint8_t itf, cdc_line_coding_t const* line_coding)
+{
+  (void) itf;
+
+  // TODO change UART baudrate accordingly
+}
+
+// Invoked when cdc when line state changed e.g connected/disconnected
+void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts)
+{
+  (void) itf;
+  (void) dtr;
+  (void) rts;
+
+  // TODO ESP tool does use DTR and RTS, maybe we could have some usage
 }
 
 //--------------------------------------------------------------------+
