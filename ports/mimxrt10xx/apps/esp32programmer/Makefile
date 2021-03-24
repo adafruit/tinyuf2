@@ -1,4 +1,4 @@
-OUTNAME = usb2uart-$(BOARD)
+OUTNAME = esp32programmer-$(BOARD)
 
 SRC_C += $(addprefix $(CURRENT_PATH)/, $(wildcard *.c))
 INC += \
