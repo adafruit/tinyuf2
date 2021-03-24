@@ -9,7 +9,7 @@ CROSS_COMPILE =
 GIT_SUBMODULES = tinyusb
 
 # Define this before including parent make.mk
-NO_TINYUF2_BUILD = 0
+NO_TINYUF2_BUILD = 1
 SKIP_NANOLIB = 1
 
 include ../make.mk
