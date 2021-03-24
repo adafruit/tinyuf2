@@ -24,19 +24,23 @@
 // Selected option #3.
 
 //------------- Flash -------------//
-void     board_flash_init(void) {}
 uint32_t board_flash_size(void) { return CFG_UF2_FLASH_SIZE; }
 
+// not supported
 void     board_flash_write(uint32_t addr, void const *data, uint32_t len) {
     (void)addr;
     (void)data;
     (void)len;
-} // not supported
+}
+
+// not supported
 void     board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len) {
     (void)bootloader_bin;
     (void)bootloader_len;
-} // not supported
-void     board_flash_flush(void) {}                                                    // not supported
+}
+
+// not supported
+void     board_flash_flush(void) {}
 
 //------------- Interesting part of flash support for this test -------------//
 void     board_flash_read (uint32_t addr, void* buffer, uint32_t len) {
