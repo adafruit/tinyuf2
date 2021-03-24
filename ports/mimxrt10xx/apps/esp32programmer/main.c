@@ -29,6 +29,7 @@
 
 #include "fsl_gpio.h"
 #include "fsl_iomuxc.h"
+#include "fsl_lpuart.h"
 
 #include "board_api.h"
 #include "tusb.h"
@@ -41,6 +42,10 @@
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
 //--------------------------------------------------------------------+
 
+// optional API, not included in board_api.h
+int board_uart_read(uint8_t* buf, int len);
+
+
 // TODO ESP32 pindef for Metro M7 1011, move to board.h later
 #define ESP_GPIO0_PINMUX  IOMUXC_GPIO_SD_05_GPIO2_IO05
 #define ESP_GPIO0_PORT    GPIO2
@@ -51,6 +56,9 @@
 #define ESP_RESET_PIN     21
 
 static volatile uint32_t _timer_count = 0;
+
+uint32_t baud_rate = 115200;
+uint8_t serial_buf[512];
 
 int main(void)
 {
@@ -87,6 +95,24 @@ int main(void)
 
   while(1)
   {
+    uint32_t count;
+
+    // USB -> UART
+    while( tud_cdc_available() )
+    {
+      count = tud_cdc_read(serial_buf, sizeof(serial_buf));
+      board_uart_write(serial_buf, count);
+    }
+//
+//    // UART -> USB
+//    count = 0;
+//    while( board_uart_read(serial_buf+count, 1) ) count++;
+//
+//    if (count)
+//    {
+//      tud_cdc_write(serial_buf, count);
+//      tud_cdc_write_flush();
+//    }
 
     tud_task();
   }
@@ -107,6 +133,23 @@ void tud_cdc_line_coding_cb(uint8_t itf, cdc_line_coding_t const* line_coding)
   (void) itf;
 
   // TODO change UART baudrate accordingly
+  if ( baud_rate != line_coding->bit_rate )
+  {
+    baud_rate = line_coding->bit_rate;
+
+    // not must be the same freq as board_init()
+    uint32_t freq;
+    if (CLOCK_GetMux(kCLOCK_UartMux) == 0) /* PLL3 div6 80M */
+    {
+      freq = (CLOCK_GetPllFreq(kCLOCK_PllUsb1) / 6U) / (CLOCK_GetDiv(kCLOCK_UartDiv) + 1U);
+    }
+    else
+    {
+      freq = CLOCK_GetOscFreq() / (CLOCK_GetDiv(kCLOCK_UartDiv) + 1U);
+    }
+
+    LPUART_SetBaudRate(UART_DEV, baud_rate, freq);
+  }
 }
 
 // Invoked when cdc when line state changed e.g connected/disconnected

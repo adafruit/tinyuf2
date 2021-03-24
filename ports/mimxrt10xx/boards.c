@@ -377,6 +377,17 @@ int board_uart_write(void const * buf, int len)
 #endif
 }
 
+// optional API, not included in board_api.h
+int board_uart_read(uint8_t* buf, int len)
+{
+#if defined(UART_DEV) && TUF2_LOG
+  return (kStatus_Success == LPUART_ReadBlocking(UART_DEV, buf, len)) ? len : 0;
+#else
+  (void) buf; (void) len;
+  return 0;
+#endif
+}
+
 //--------------------------------------------------------------------+
 // USB Interrupt Handler
 //--------------------------------------------------------------------+
