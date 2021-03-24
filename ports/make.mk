@@ -58,7 +58,7 @@ CFLAGS += \
   -DUF2_VERSION='"$(GIT_VERSION) - $(GIT_SUBMODULE_VERSIONS)"'
 
 #-------------- Bootloader --------------
-# Can skip bootloader src if building application
+# skip bootloader src if building application
 ifdef BUILD_APPLICATION
 
 CFLAGS += -DBUILD_APPLICATION
@@ -79,7 +79,7 @@ INC += \
 endif # BUILD_APPLICATION
 
 #-------------- TinyUSB --------------
-# Can skip tinyusb src if building application such as erase firmware
+# skip tinyusb src if building application such as erase firmware
 ifdef BUILD_NO_TINYUSB
 
 CFLAGS += -DBUILD_NO_TINYUSB
