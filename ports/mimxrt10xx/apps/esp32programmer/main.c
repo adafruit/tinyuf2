@@ -27,6 +27,9 @@
 #include <stdbool.h>
 #include <string.h>
 
+#include "fsl_gpio.h"
+#include "fsl_iomuxc.h"
+
 #include "board_api.h"
 #include "tusb.h"
 
@@ -38,10 +41,46 @@
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
 //--------------------------------------------------------------------+
 
+// TODO ESP32 pindef for Metro M7 1011, move to board.h later
+#define ESP_GPIO0_PINMUX  IOMUXC_GPIO_SD_05_GPIO2_IO05
+#define ESP_GPIO0_PORT    GPIO2
+#define ESP_GPIO0_PIN     5
+
+#define ESP_RESET_PINMUX  IOMUXC_GPIO_AD_07_GPIOMUX_IO21
+#define ESP_RESET_PORT    GPIO1
+#define ESP_RESET_PIN     21
+
+static volatile uint32_t _timer_count = 0;
+
 int main(void)
 {
   board_init();
-  printf("ESP32 Programmer Firmware\r\n");
+
+  TUF2_LOG1("ESP32 Programmer Firmware\r\n");
+  gpio_pin_config_t pin_config = { kGPIO_DigitalOutput, 0, kGPIO_NoIntmode };
+
+  // ESP GPIO0
+  IOMUXC_SetPinMux(ESP_GPIO0_PINMUX, 0U);
+  IOMUXC_SetPinConfig(ESP_GPIO0_PINMUX, 0x10B0U);
+  GPIO_PinInit(ESP_GPIO0_PORT, ESP_GPIO0_PIN, &pin_config);
+
+  // ESP Reset
+  IOMUXC_SetPinMux(ESP_RESET_PINMUX, 0U);
+  IOMUXC_SetPinConfig(ESP_RESET_PINMUX, 0x10B0U);
+  GPIO_PinInit(ESP_RESET_PORT, ESP_RESET_PIN, &pin_config);
+
+  // Put ESP into upload mode
+  GPIO_PinWrite(ESP_GPIO0_PORT, ESP_GPIO0_PIN, 0);
+
+  // Reset ESP in 100 ms
+  GPIO_PinWrite(ESP_RESET_PORT, ESP_RESET_PIN, 0);
+
+  _timer_count = 0;
+  board_timer_start(1);
+  while(_timer_count < 100) {}
+  board_timer_stop();
+
+  GPIO_PinWrite(ESP_RESET_PORT, ESP_RESET_PIN, 1);
 
   board_usb_init();
   tusb_init();
@@ -54,7 +93,7 @@ int main(void)
 
 void board_timer_handler(void)
 {
-
+  _timer_count++;
 }
 
 //--------------------------------------------------------------------+

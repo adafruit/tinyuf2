@@ -56,6 +56,7 @@ void board_init(void)
 
   // Enable IOCON clock
   CLOCK_EnableClock(kCLOCK_Iomuxc);
+
   // Prevent clearing of SNVS General Purpose Register
   SNVS->LPCR |= SNVS_LPCR_GPR_Z_DIS_MASK;
 
@@ -81,7 +82,7 @@ void board_init(void)
   GPIO_PinInit(BUTTON_PORT, BUTTON_PIN, &button_config);
 #endif
 
-#if defined(UART_DEV) && CFG_TUSB_DEBUG
+#if defined(UART_DEV) && TUF2_LOG
   // Enable UART when debug log is on
   IOMUXC_SetPinMux(UART_TX_PINMUX, 0U);
   IOMUXC_SetPinMux(UART_RX_PINMUX, 0U);
