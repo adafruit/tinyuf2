@@ -7,7 +7,8 @@ UF2_FAMILY_ID = 0x00000000
 GIT_SUBMODULES = tinyusb
 
 # Define this before including parent make.mk
-NATIVE_TEST_CODE = 1
+NO_TINYUF2_BUILD = 0
+SKIP_NANOLIB = 1
 
 include ../make.mk
 
@@ -22,17 +23,17 @@ CFLAGS += -Wno-error=cast-align -Wno-error=unused-parameter
 LD_FILES ?=
 
 # Port source
-PORT_SRC_C += \
-	$(addprefix $(CURRENT_PATH)/, $(wildcard *.c))
-
 SRC_C += \
-	$(PORT_SRC_C) \
-	lib/tinyusb/src/portable/template/dcd_template.c \
+	src/ghostfat.c \
+	$(addprefix $(CURRENT_PATH)/, $(wildcard *.c))
 
 SRC_S +=
 
 # Port include
-INC +=
+INC += \
+  $(TOP)/src \
+  $(TOP)/$(PORT_DIR) \
+  $(TOP)/$(BOARD_DIR) \
 
 include ../rules.mk
 

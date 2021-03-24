@@ -47,6 +47,16 @@ BIN = $(TOP)/$(PORT_DIR)/_bin/$(BOARD)
 # can be set manually by custome build such as flash_nuke
 OUTNAME ?= tinyuf2-$(BOARD)
 
+# UF2 version with git tag and submodules
+GIT_VERSION := $(shell git describe --dirty --always --tags)
+GIT_SUBMODULE_VERSIONS := $(shell git submodule status $(addprefix ../../lib/,$(GIT_SUBMODULES)) | cut -d" " -f3,4 | paste -s -d" " -)
+GIT_SUBMODULE_VERSIONS := $(subst ../../lib/,,$(GIT_SUBMODULE_VERSIONS))
+
+CFLAGS += \
+  -DBOARD_UF2_FAMILY_ID=$(UF2_FAMILY_ID) \
+  -DUF2_VERSION_BASE='"$(GIT_VERSION)"'\
+  -DUF2_VERSION='"$(GIT_VERSION) - $(GIT_SUBMODULE_VERSIONS)"'
+
 #-------------- Source files and compiler flags --------------
 
 # Skip if doing custom build
@@ -78,16 +88,6 @@ INC += \
   $(TOP)/$(BOARD_DIR) \
   $(TOP)/$(TINYUSB_DIR)
 
-# UF2 version with git tag and submodules
-GIT_VERSION := $(shell git describe --dirty --always --tags)
-GIT_SUBMODULE_VERSIONS := $(shell git submodule status $(addprefix ../../lib/,$(GIT_SUBMODULES)) | cut -d" " -f3,4 | paste -s -d" " -)
-GIT_SUBMODULE_VERSIONS := $(subst ../../lib/,,$(GIT_SUBMODULE_VERSIONS))
-
-CFLAGS += \
-  -DBOARD_UF2_FAMILY_ID=$(UF2_FAMILY_ID) \
-  -DUF2_VERSION_BASE='"$(GIT_VERSION)"'\
-  -DUF2_VERSION='"$(GIT_VERSION) - $(GIT_SUBMODULE_VERSIONS)"'
-
 endif # NO_TINYUF2_BUILD
 
 #-------------- Debug & Log --------------
@@ -113,7 +113,7 @@ else ifeq ($(LOGGER),swo)
   CFLAGS += -DLOGGER_SWO
 endif
 
-#-------------- Common Compiler & Linker Flags --------------
+#-------------- Common Compiler Flags --------------
 
 # Compiler Flags
 CFLAGS += \
@@ -145,11 +145,15 @@ LDFLAGS += \
 	-Wl,-cref \
 	-Wl,-gc-sections
 
-# TODO -- how to fix missing 'nosys.specs' error?
-ifneq ($(NATIVE_TEST_CODE), 1)
-  LDFLAGS += -specs=nosys.specs
-  LDFLAGS += -specs=nano.specs
+# libc
+LIBS += -lgcc -lm -lc
+
+# nanolib
+ifneq ($(SKIP_NANOLIB), 1)
+  LDFLAGS += -specs=nosys.specs -specs=nano.specs
+  LIBS += -lnosys
 endif
+
 
 # Board specific define
 include $(TOP)/$(BOARD_DIR)/board.mk

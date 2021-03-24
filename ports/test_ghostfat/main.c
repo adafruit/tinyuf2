@@ -1,4 +1,4 @@
-#include "common.h"
+#include "boards.h"
 #include <inttypes.h>
 
 #ifndef COMPILE_DATE
@@ -79,7 +79,7 @@ void DumpBuffer(uint64_t startingOffset, const void * sectorBuffer, uint16_t byt
             for (int k = 0; k < 16; k++) {
                 if (0 == k % 8) {
                     printf(" ");
-                }
+                }//------------- Board  -------------//
                 printf("%c", printable[k]);
             }
         }
@@ -369,9 +369,11 @@ int DumpDiskImage(void) {
     return ERR_NONE;
 }
 
-int test_main(void)
+int main(void)
 {
     int r;
+
+    uf2_init();
 
     r = DumpDiskImage();
     if (r) { goto errorExit; }
