@@ -31,6 +31,10 @@ SRC_C += \
 	$(MCU_DIR)/drivers/fsl_xbara.c \
 	$(MCU_DIR)/drivers/fsl_lpuart.c
 
+ifndef BUILD_NO_TINYUSB
+SRC_C += lib/tinyusb/src/portable/nxp/transdimension/dcd_transdimension.c
+endif
+
 SRC_S += $(MCU_DIR)/gcc/startup_$(MCU).S
 
 # Port include
