@@ -3,15 +3,13 @@ PORT = mimxrt10xx
 OUTNAME = erase_firmware-$(BOARD)
 
 # skip src and tinyusb files
-NO_TINYUF2_BUILD = 1
+BUILD_APPLICATION = 1
+BUILD_NO_TINYUSB = 1
 
 include ../../../make.mk
 include $(TOP)/$(PORT_DIR)/port.mk
 
 LD_FILES ?= $(PORT_DIR)/linker/$(MCU)_ram.ld $(PORT_DIR)/apps/memory.ld $(PORT_DIR)/linker/common.ld
-
-# Port Compiler Flags
-CFLAGS += -DNO_TINYUF2_BUILD
 
 SRC_C += apps/erase_firmware/erase_firmware.c
 
@@ -20,9 +18,6 @@ INC += $(TOP)/src
 include $(TOP)/ports/rules.mk
 
 APPLICATION_ADDR = 0x6000C000
-
-# self-update uf2 file
-uf2: $(BUILD)/$(OUTNAME).uf2
 
 $(BUILD)/$(OUTNAME).uf2: $(BUILD)/$(OUTNAME)-textonly.bin
 	@echo CREATE $@

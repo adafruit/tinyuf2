@@ -35,7 +35,7 @@
 
 #include "clock_config.h"
 
-#ifndef NO_TINYUF2_BUILD
+#ifndef BUILD_NO_TINYUSB
 #include "tusb.h"
 #endif
 
@@ -374,7 +374,7 @@ int board_uart_write(void const * buf, int len)
 //--------------------------------------------------------------------+
 // USB Interrupt Handler
 //--------------------------------------------------------------------+
-#ifndef NO_TINYUF2_BUILD
+#ifndef BUILD_NO_TINYUSB
 
 void USB_OTG1_IRQHandler(void)
 {
