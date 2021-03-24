@@ -40,6 +40,7 @@ int main(void)
 {
   board_init();
   printf("USB <-> Uart Firmware\r\n");
+  printf("test\r\n");
 
   while(1)
   {
