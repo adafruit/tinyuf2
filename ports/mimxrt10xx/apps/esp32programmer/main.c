@@ -59,6 +59,26 @@ static volatile uint32_t _timer_count = 0;
 static uint32_t baud_rate = 115200;
 static uint8_t serial_buf[512];
 
+void put_esp_into_dfu(void)
+{
+  // Put ESP into upload mode
+  GPIO_PinWrite(ESP_GPIO0_PORT, ESP_GPIO0_PIN, 0);
+
+  // Reset ESP in 100 ms
+  GPIO_PinWrite(ESP_RESET_PORT, ESP_RESET_PIN, 0);
+
+  // delay 100 ms
+  _timer_count = 0;
+  board_timer_start(1);
+  while(_timer_count < 100) {}
+  board_timer_stop();
+
+  GPIO_PinWrite(ESP_RESET_PORT, ESP_RESET_PIN, 1);
+
+  uint8_t rgb[3] = { 20, 20, 0 };
+  board_rgb_write(rgb);
+}
+
 int main(void)
 {
   board_init();
@@ -76,18 +96,7 @@ int main(void)
   IOMUXC_SetPinConfig(ESP_RESET_PINMUX, 0x10B0U);
   GPIO_PinInit(ESP_RESET_PORT, ESP_RESET_PIN, &pin_config);
 
-  // Put ESP into upload mode
-  GPIO_PinWrite(ESP_GPIO0_PORT, ESP_GPIO0_PIN, 0);
-
-  // Reset ESP in 100 ms
-  GPIO_PinWrite(ESP_RESET_PORT, ESP_RESET_PIN, 0);
-
-  _timer_count = 0;
-  board_timer_start(1);
-  while(_timer_count < 100) {}
-  board_timer_stop();
-
-  GPIO_PinWrite(ESP_RESET_PORT, ESP_RESET_PIN, 1);
+  put_esp_into_dfu();
 
   board_usb_init();
   tusb_init();
@@ -101,6 +110,9 @@ int main(void)
     {
       count = tud_cdc_read(serial_buf, sizeof(serial_buf));
       board_uart_write(serial_buf, count);
+
+      uint8_t rgb[3] = { 10, 0, 0 };
+      board_rgb_write(rgb);
     }
 
     // UART -> USB
@@ -109,6 +121,9 @@ int main(void)
     {
       tud_cdc_write(serial_buf, count);
       tud_cdc_write_flush();
+
+      uint8_t rgb[3] = { 0, 0, 10 };
+      board_rgb_write(rgb);
     }
 
     tud_task();
