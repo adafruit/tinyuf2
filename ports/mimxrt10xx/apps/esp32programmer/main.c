@@ -62,8 +62,8 @@ static uint8_t serial_buf[512];
 int main(void)
 {
   board_init();
+  board_uart_init(115200);
 
-  //TUF2_LOG1("ESP32 Programmer Firmware\r\n");
   gpio_pin_config_t pin_config = { kGPIO_DigitalOutput, 0, kGPIO_NoIntmode };
 
   // ESP GPIO0

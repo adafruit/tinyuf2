@@ -77,6 +77,9 @@ void board_led_write(uint32_t value);
 // Write color to rgb strip
 void board_rgb_write(uint8_t const rgb[]);
 
+// Init uart hardware
+void board_uart_init(uint32_t baud_rate);
+
 // Send characters to UART for debugging
 int board_uart_write(void const * buf, int len);
 

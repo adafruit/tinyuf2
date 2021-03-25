@@ -82,30 +82,8 @@ void board_init(void)
   GPIO_PinInit(BUTTON_PORT, BUTTON_PIN, &button_config);
 #endif
 
-#if defined(UART_DEV) && TUF2_LOG
-  // Enable UART when debug log is on
-  IOMUXC_SetPinMux(UART_TX_PINMUX, 0U);
-  IOMUXC_SetPinMux(UART_RX_PINMUX, 0U);
-  IOMUXC_SetPinConfig(UART_TX_PINMUX, 0x10B0u);
-  IOMUXC_SetPinConfig(UART_RX_PINMUX, 0x10B0u);
-
-  lpuart_config_t uart_config;
-  LPUART_GetDefaultConfig(&uart_config);
-  uart_config.baudRate_Bps = BOARD_UART_BAUDRATE;
-  uart_config.enableTx = true;
-  uart_config.enableRx = true;
-
-  uint32_t freq;
-  if (CLOCK_GetMux(kCLOCK_UartMux) == 0) /* PLL3 div6 80M */
-  {
-    freq = (CLOCK_GetPllFreq(kCLOCK_PllUsb1) / 6U) / (CLOCK_GetDiv(kCLOCK_UartDiv) + 1U);
-  }
-  else
-  {
-    freq = CLOCK_GetOscFreq() / (CLOCK_GetDiv(kCLOCK_UartDiv) + 1U);
-  }
-
-  LPUART_Init(UART_DEV, &uart_config, freq);
+#if TUF2_LOG
+  board_uart_init(BOARD_UART_BAUDRATE);
 #endif
 }
 
@@ -366,9 +344,38 @@ uint32_t board_button_read(void)
 // UART
 //--------------------------------------------------------------------+
 
+void board_uart_init(uint32_t baud_rate)
+{
+#ifdef UART_DEV
+  // Enable UART when debug log is on
+  IOMUXC_SetPinMux(UART_TX_PINMUX, 0U);
+  IOMUXC_SetPinMux(UART_RX_PINMUX, 0U);
+  IOMUXC_SetPinConfig(UART_TX_PINMUX, 0x10B0u);
+  IOMUXC_SetPinConfig(UART_RX_PINMUX, 0x10B0u);
+
+  lpuart_config_t uart_config;
+  LPUART_GetDefaultConfig(&uart_config);
+  uart_config.baudRate_Bps = baud_rate;
+  uart_config.enableTx = true;
+  uart_config.enableRx = true;
+
+  uint32_t freq;
+  if (CLOCK_GetMux(kCLOCK_UartMux) == 0) /* PLL3 div6 80M */
+  {
+    freq = (CLOCK_GetPllFreq(kCLOCK_PllUsb1) / 6U) / (CLOCK_GetDiv(kCLOCK_UartDiv) + 1U);
+  }
+  else
+  {
+    freq = CLOCK_GetOscFreq() / (CLOCK_GetDiv(kCLOCK_UartDiv) + 1U);
+  }
+
+  LPUART_Init(UART_DEV, &uart_config, freq);
+#endif
+}
+
 int board_uart_write(void const * buf, int len)
 {
-#if defined(UART_DEV) && TUF2_LOG
+#ifdef UART_DEV
   uint8_t const* buf8 = (uint8_t const*) buf;
   int count = 0;
 
@@ -393,7 +400,7 @@ int board_uart_write(void const * buf, int len)
 // optional API, not included in board_api.h
 int board_uart_read(uint8_t* buf, int len)
 {
-#if defined(UART_DEV)
+#ifdef UART_DEV
   int count = 0;
 
   while( count < len )
