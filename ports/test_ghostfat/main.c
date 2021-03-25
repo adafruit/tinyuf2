@@ -79,7 +79,7 @@ void DumpBuffer(uint64_t startingOffset, const void * sectorBuffer, uint16_t byt
             for (int k = 0; k < 16; k++) {
                 if (0 == k % 8) {
                     printf(" ");
-                }//------------- Board  -------------//
+                }
                 printf("%c", printable[k]);
             }
         }
