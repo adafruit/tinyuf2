@@ -87,4 +87,16 @@
 #define UART_RX_PINMUX        IOMUXC_GPIO_09_LPUART1_RXD
 #define UART_TX_PINMUX        IOMUXC_GPIO_10_LPUART1_TXD
 
+//--------------------------------------------------------------------+
+// EPS32 Co-Processors
+//--------------------------------------------------------------------+
+#define ESP_GPIO0_PINMUX  IOMUXC_GPIO_SD_05_GPIO2_IO05
+#define ESP_GPIO0_PORT    GPIO2
+#define ESP_GPIO0_PIN     5
+
+#define ESP_RESET_PINMUX  IOMUXC_GPIO_AD_07_GPIOMUX_IO21
+#define ESP_RESET_PORT    GPIO1
+#define ESP_RESET_PIN     21
+
+
 #endif /* BOARD_H_ */

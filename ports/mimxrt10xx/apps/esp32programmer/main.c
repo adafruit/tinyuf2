@@ -45,16 +45,6 @@
 // optional API, not included in board_api.h
 int board_uart_read(uint8_t* buf, int len);
 
-
-// TODO ESP32 pindef for Metro M7 1011, move to board.h later
-#define ESP_GPIO0_PINMUX  IOMUXC_GPIO_SD_05_GPIO2_IO05
-#define ESP_GPIO0_PORT    GPIO2
-#define ESP_GPIO0_PIN     5
-
-#define ESP_RESET_PINMUX  IOMUXC_GPIO_AD_07_GPIOMUX_IO21
-#define ESP_RESET_PORT    GPIO1
-#define ESP_RESET_PIN     21
-
 static volatile uint32_t _timer_count = 0;
 static uint32_t baud_rate = 115200;
 static uint8_t serial_buf[512];
