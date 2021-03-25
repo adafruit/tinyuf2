@@ -56,15 +56,14 @@ int board_uart_read(uint8_t* buf, int len);
 #define ESP_RESET_PIN     21
 
 static volatile uint32_t _timer_count = 0;
-
-uint32_t baud_rate = 115200;
-uint8_t serial_buf[512];
+static uint32_t baud_rate = 115200;
+static uint8_t serial_buf[512];
 
 int main(void)
 {
   board_init();
 
-  TUF2_LOG1("ESP32 Programmer Firmware\r\n");
+  //TUF2_LOG1("ESP32 Programmer Firmware\r\n");
   gpio_pin_config_t pin_config = { kGPIO_DigitalOutput, 0, kGPIO_NoIntmode };
 
   // ESP GPIO0
@@ -103,16 +102,14 @@ int main(void)
       count = tud_cdc_read(serial_buf, sizeof(serial_buf));
       board_uart_write(serial_buf, count);
     }
-//
-//    // UART -> USB
-//    count = 0;
-//    while( board_uart_read(serial_buf+count, 1) ) count++;
-//
-//    if (count)
-//    {
-//      tud_cdc_write(serial_buf, count);
-//      tud_cdc_write_flush();
-//    }
+
+    // UART -> USB
+    count = board_uart_read(serial_buf, sizeof(serial_buf));
+    if (count)
+    {
+      tud_cdc_write(serial_buf, count);
+      tud_cdc_write_flush();
+    }
 
     tud_task();
   }
@@ -132,12 +129,11 @@ void tud_cdc_line_coding_cb(uint8_t itf, cdc_line_coding_t const* line_coding)
 {
   (void) itf;
 
-  // TODO change UART baudrate accordingly
   if ( baud_rate != line_coding->bit_rate )
   {
     baud_rate = line_coding->bit_rate;
 
-    // not must be the same freq as board_init()
+    // must be the same freq as board_init()
     uint32_t freq;
     if (CLOCK_GetMux(kCLOCK_UartMux) == 0) /* PLL3 div6 80M */
     {

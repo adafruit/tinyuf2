@@ -369,9 +369,22 @@ uint32_t board_button_read(void)
 int board_uart_write(void const * buf, int len)
 {
 #if defined(UART_DEV) && TUF2_LOG
-  LPUART_WriteBlocking(UART_DEV, (uint8_t*)buf, len);
+  uint8_t const* buf8 = (uint8_t const*) buf;
+  int count = 0;
+
+  while(count < len)
+  {
+    if (LPUART_GetStatusFlags(UART_DEV) & kLPUART_TxDataRegEmptyFlag)
+    {
+      LPUART_WriteByte(UART_DEV, *buf8++);
+      count++;
+    }
+  }
+
   return len;
+
 #else
+
   (void) buf; (void) len;
   return 0;
 #endif
@@ -380,9 +393,21 @@ int board_uart_write(void const * buf, int len)
 // optional API, not included in board_api.h
 int board_uart_read(uint8_t* buf, int len)
 {
-#if defined(UART_DEV) && TUF2_LOG
-  return (kStatus_Success == LPUART_ReadBlocking(UART_DEV, buf, len)) ? len : 0;
+#if defined(UART_DEV)
+  int count = 0;
+
+  while( count < len )
+  {
+    if ( !((UART_DEV->WATER & LPUART_WATER_RXCOUNT_MASK) >> LPUART_WATER_RXCOUNT_SHIFT) ) break;
+
+    buf[count] = LPUART_ReadByte(UART_DEV);
+    count++;
+  }
+
+  return count;
+
 #else
+
   (void) buf; (void) len;
   return 0;
 #endif
