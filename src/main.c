@@ -40,10 +40,6 @@
 // timeout for double tap detection
 #define DBL_TAP_DELAY             500
 
-#ifndef GHOSTFAT_SELF_TEST_MODE
-  #define GHOSTFAT_SELF_TEST_MODE 0
-#endif
-
 #ifndef DBL_TAP_REG
 // defined by linker script
 extern uint32_t _board_dfu_dbl_tap[];
@@ -81,11 +77,6 @@ int main(void)
   board_dfu_init();
   board_flash_init();
   uf2_init();
-
-#if GHOSTFAT_SELF_TEST_MODE
-  return test_main();
-#endif
-
   tusb_init();
 
   indicator_set(STATE_USB_UNPLUGGED);

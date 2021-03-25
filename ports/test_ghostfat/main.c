@@ -1,4 +1,4 @@
-#include "common.h"
+#include "boards.h"
 #include <inttypes.h>
 
 #ifndef COMPILE_DATE
@@ -369,9 +369,11 @@ int DumpDiskImage(void) {
     return ERR_NONE;
 }
 
-int test_main(void)
+int main(void)
 {
     int r;
+
+    uf2_init();
 
     r = DumpDiskImage();
     if (r) { goto errorExit; }
