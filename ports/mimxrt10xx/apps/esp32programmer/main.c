@@ -63,8 +63,6 @@ void put_esp_into_dfu(void)
 {
   // Put ESP into upload mode
   GPIO_PinWrite(ESP_GPIO0_PORT, ESP_GPIO0_PIN, 0);
-
-  // Reset ESP in 100 ms
   GPIO_PinWrite(ESP_RESET_PORT, ESP_RESET_PIN, 0);
 
   // delay 100 ms
@@ -84,7 +82,7 @@ int main(void)
   board_init();
   board_uart_init(115200);
 
-  gpio_pin_config_t pin_config = { kGPIO_DigitalOutput, 0, kGPIO_NoIntmode };
+  gpio_pin_config_t pin_config = { kGPIO_DigitalOutput, 1, kGPIO_NoIntmode };
 
   // ESP GPIO0
   IOMUXC_SetPinMux(ESP_GPIO0_PINMUX, 0U);
@@ -170,7 +168,37 @@ void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts)
   (void) dtr;
   (void) rts;
 
-  // TODO ESP tool does use DTR and RTS, maybe we could have some usage
+  /* esptool does use DTR and RTS to put esp32 into bootloader mode
+   * DTR  RTS -> IO0  nRST
+   * 0    1   ->  0    1    Switch ESP to DFU
+   * 1    0   ->  1    0    Reset complete
+   *
+   * 1    1   ->  1    1    Normal
+   * 0    0   ->  0    0    Normal
+   */
+#if 0
+  TUF2_LOG1("dtr = %d, rts = %d: ", dtr, rts);
+  if ( dtr == rts )
+  {
+    // normal operation
+    TUF2_LOG1("Normal\n");
+    //GPIO_PinWrite(ESP_GPIO0_PORT, ESP_GPIO0_PIN, 1);
+    GPIO_PinWrite(ESP_RESET_PORT, ESP_RESET_PIN, 1);
+  }else
+  {
+    GPIO_PinWrite(ESP_RESET_PORT, ESP_RESET_PIN, rts);
+//    if (rts)
+//    {
+//      TUF2_LOG1("Reset to DFU start\n");
+//      GPIO_PinWrite(ESP_GPIO0_PORT, ESP_GPIO0_PIN, 0);
+//      GPIO_PinWrite(ESP_RESET_PORT, ESP_RESET_PIN, 0);
+//    }else
+//    {
+//      TUF2_LOG1("Reset Complete\n");
+//      GPIO_PinWrite(ESP_RESET_PORT, ESP_RESET_PIN, 1);
+//    }
+  }
+#endif
 }
 
 //--------------------------------------------------------------------+
