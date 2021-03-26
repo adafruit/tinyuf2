@@ -77,6 +77,9 @@ void board_led_write(uint32_t value);
 // Write color to rgb strip
 void board_rgb_write(uint8_t const rgb[]);
 
+// Init uart hardware
+void board_uart_init(uint32_t baud_rate);
+
 // Send characters to UART for debugging
 int board_uart_write(void const * buf, int len);
 
@@ -94,6 +97,9 @@ bool board_app_valid(void);
 
 // Jump to Application
 void board_app_jump(void);
+
+// Init USB hardware (not used for now)
+void board_usb_init(void);
 
 // Init DFU process, mostly for starting USB
 void board_dfu_init(void);

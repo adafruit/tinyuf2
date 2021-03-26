@@ -46,7 +46,7 @@ extern uint32_t _board_dfu_dbl_tap[];
 int main(void)
 {
   board_init();
-  printf("TinyUF2: Erase Application Firmware\r\n");
+  printf("Erase Application Firmware\r\n");
 
   // set magic then reset
   DBL_TAP_REG = DBL_TAP_MAGIC_ERASE_APP;

@@ -1,29 +1,15 @@
 CROSS_COMPILE = arm-none-eabi-
 PORT = mimxrt10xx
-OUTNAME = erase_firmware-$(BOARD)
 
-# skip src and tinyusb files
-NO_TINYUF2_BUILD = 1
+# skip bootloader src
+BUILD_APPLICATION = 1
 
-include ../../make.mk
+include ../../../make.mk
+include $(TOP)/$(PORT_DIR)/port.mk
 
-include ../port.mk
+LD_FILES ?= $(PORT_DIR)/linker/$(MCU)_ram.ld $(PORT_DIR)/apps/memory.ld $(PORT_DIR)/linker/common.ld
 
-LD_FILES ?= $(PORT_DIR)/linker/$(MCU)_ram.ld $(PORT_DIR)/erase_firmware/memory.ld $(PORT_DIR)/linker/common.ld
-
-# Port Compiler Flags
-CFLAGS += -DNO_TINYUF2_BUILD
-
-# mcu driver cause following warnings
-CFLAGS += -Wno-error=unused-parameter
-
-# Port source
-SRC_C += erase_firmware/erase_firmware.c
-
-# Port include
-INC += $(TOP)/src
-
-include ../../rules.mk
+include $(TOP)/ports/rules.mk
 
 APPLICATION_ADDR = 0x6000C000
 
@@ -46,3 +32,7 @@ $(BIN):
 all: $(BIN)
 all: $(BUILD)/$(OUTNAME).uf2
 	$(CP) $< $(BIN)
+
+flash-app: $(BUILD)/$(OUTNAME)-textonly.bin
+	pyocd flash -t $(PYOCD_TARGET) -a $(APPLICATION_ADDR) $<
+	pyocd reset -t $(PYOCD_TARGET)

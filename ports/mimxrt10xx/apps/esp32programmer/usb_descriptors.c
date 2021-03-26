@@ -33,20 +33,13 @@ enum
   STRID_MANUFACTURER,
   STRID_PRODUCT,
   STRID_SERIAL,
-  STRID_MSC,
-  STRID_HID,
-  STRID_VENDOR,
+  STRID_CDC
 };
 
 enum
 {
-  ITF_NUM_MSC,
-  ITF_NUM_HID,
-
-#if CFG_TUD_VENDOR
-  ITF_NUM_VENDOR, // webUSB
-#endif
-
+  ITF_NUM_CDC,
+  ITF_NUM_CDC_DATA,
   ITF_NUM_TOTAL
 };
 
@@ -58,13 +51,16 @@ tusb_desc_device_t const desc_device =
     .bLength            = sizeof(tusb_desc_device_t),
     .bDescriptorType    = TUSB_DESC_DEVICE,
     .bcdUSB             = 0x0200,
-    .bDeviceClass       = 0x00,
-    .bDeviceSubClass    = 0x00,
-    .bDeviceProtocol    = 0x00,
+
+    // Use Interface Association Descriptor (IAD) for CDC
+    // As required by USB Specs IAD's subclass must be common class (2) and protocol must be IAD (1)
+    .bDeviceClass       = TUSB_CLASS_MISC,
+    .bDeviceSubClass    = MISC_SUBCLASS_COMMON,
+    .bDeviceProtocol    = MISC_PROTOCOL_IAD,
     .bMaxPacketSize0    = CFG_TUD_ENDPOINT0_SIZE,
 
     .idVendor           = USB_VID,
-    .idProduct          = USB_PID,
+    .idProduct          = 0x8000 | USB_PID, // application PID
     .bcdDevice          = 0x0100,
 
     .iManufacturer      = STRID_MANUFACTURER,
@@ -82,57 +78,30 @@ uint8_t const * tud_descriptor_device_cb(void)
 }
 
 //--------------------------------------------------------------------+
-// HID Report Descriptor
-//--------------------------------------------------------------------+
-
-uint8_t const desc_hid_report[] =
-{
-  TUD_HID_REPORT_DESC_GENERIC_INOUT(CFG_TUD_HID_BUFSIZE)
-};
-
-// Invoked when received GET HID REPORT DESCRIPTOR
-// Application return pointer to descriptor
-// Descriptor contents must exist long enough for transfer to complete
-uint8_t const * tud_hid_descriptor_report_cb(uint8_t itf)
-{
-  (void) itf;
-  return desc_hid_report;
-}
-
-
-//--------------------------------------------------------------------+
 // Configuration Descriptor
 //--------------------------------------------------------------------+
+#define CONFIG_TOTAL_LEN    (TUD_CONFIG_DESC_LEN + TUD_CDC_DESC_LEN)
 
-#define CONFIG_TOTAL_LEN  (TUD_CONFIG_DESC_LEN + TUD_MSC_DESC_LEN + TUD_HID_INOUT_DESC_LEN + CFG_TUD_VENDOR*TUD_VENDOR_DESC_LEN)
+#define EPNUM_CDC_NOTIF   0x81
+#define EPNUM_CDC_DATA    0x02
 
-#define EPNUM_MSC_OUT     0x01
-#define EPNUM_MSC_IN      0x81
-
-#define EPNUM_HID_OUT     0x02
-#define EPNUM_HID_IN      0x82
-
-#define EPNUM_VENDOR_OUT  0x03
-#define EPNUM_VENDOR_IN   0x83
-
-uint8_t const desc_configuration[] =
+uint8_t const desc_fs_configuration[] =
 {
   // Config number, interface count, string index, total length, attribute, power in mA
   TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
 
-  // Interface number, string index, EP Out & EP In address, EP size
-  TUD_MSC_DESCRIPTOR(ITF_NUM_MSC, STRID_MSC, EPNUM_MSC_OUT, EPNUM_MSC_IN, TUD_OPT_HIGH_SPEED ? 512 : 64),
-
-  // Interface number, string index, protocol, report descriptor len, EP In & Out address, size & polling interval
-  TUD_HID_INOUT_DESCRIPTOR(ITF_NUM_HID, STRID_HID, HID_PROTOCOL_NONE, sizeof(desc_hid_report), EPNUM_HID_OUT, EPNUM_HID_IN, CFG_TUD_HID_BUFSIZE, 10),
-
-#if CFG_TUD_VENDOR
-  // Interface number, string index, EP Out & IN address, EP size
-  TUD_VENDOR_DESCRIPTOR(ITF_NUM_VENDOR, STRID_VENDOR, EPNUM_VENDOR_OUT, EPNUM_VENDOR_IN, 64)
-#endif
-
+  // CDC: Interface number, string index, EP notification address and size, EP data address (out, in) and size.
+  TUD_CDC_DESCRIPTOR(ITF_NUM_CDC, 4, EPNUM_CDC_NOTIF, 8, EPNUM_CDC_DATA, 0x80 | EPNUM_CDC_DATA, 64)
 };
 
+uint8_t const desc_hs_configuration[] =
+{
+  // Config number, interface count, string index, total length, attribute, power in mA
+  TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
+
+  // CDC: Interface number, string index, EP notification address and size, EP data address (out, in) and size.
+  TUD_CDC_DESCRIPTOR(ITF_NUM_CDC, STRID_CDC, EPNUM_CDC_NOTIF, 8, EPNUM_CDC_DATA, 0x80 | EPNUM_CDC_DATA, 512)
+};
 
 // Invoked when received GET CONFIGURATION DESCRIPTOR
 // Application return pointer to descriptor
@@ -141,8 +110,8 @@ uint8_t const * tud_descriptor_configuration_cb(uint8_t index)
 {
   (void) index; // for multiple configurations
 
-  // TODO when device is highspeed, host is fullspeed.
-  return desc_configuration;
+  // Although we are highspeed, host may be fullspeed.
+  return (tud_speed_get() == TUSB_SPEED_HIGH) ?  desc_hs_configuration : desc_fs_configuration;
 }
 
 //--------------------------------------------------------------------+
@@ -159,9 +128,7 @@ char const* string_desc_arr [] =
   USB_MANUFACTURER,              // 1: Manufacturer
   USB_PRODUCT,                   // 2: Product
   desc_str_serial,               // 3: Serials, use default MAC address
-  "UF2",                         // 4: MSC Interface
-  "HF2 HID",
-  "HF2 WebUSB"
+  "USB to UART",                 // 4: CDC Interface
 };
 
 static uint16_t _desc_str[32+1];
@@ -181,7 +148,6 @@ uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid)
       chr_count = 1;
     break;
 
-    // TODO light alternation such as +1 to prevent conflict with application
     case STRID_SERIAL:
     {
       uint8_t serial_id[16];

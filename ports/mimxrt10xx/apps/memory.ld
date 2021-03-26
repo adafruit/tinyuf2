@@ -14,8 +14,8 @@ MEMORY
   /* flash config and ivt are not used, leave here for compile only */
   m_flash_config        (RX)  : ORIGIN = _fcfb_origin       , LENGTH = _fcfb_length
   m_ivt                 (RX)  : ORIGIN = _ivt_origin        , LENGTH = _ivt_length
-  
+
   m_interrupts          (RX)  : ORIGIN = _interrupts_origin , LENGTH = _interrupts_length
   m_text                (RX)  : ORIGIN = _text_origin       , LENGTH = _text_length
-  m_data                (RW)  : ORIGIN = 0x20000000         , LENGTH = 32K 
+  m_data                (RW)  : ORIGIN = 0x20000000         , LENGTH = 32K
 }

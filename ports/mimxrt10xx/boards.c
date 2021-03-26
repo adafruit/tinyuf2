@@ -35,7 +35,7 @@
 
 #include "clock_config.h"
 
-#ifndef NO_TINYUF2_BUILD
+#ifndef BUILD_NO_TINYUSB
 #include "tusb.h"
 #endif
 
@@ -56,6 +56,7 @@ void board_init(void)
 
   // Enable IOCON clock
   CLOCK_EnableClock(kCLOCK_Iomuxc);
+
   // Prevent clearing of SNVS General Purpose Register
   SNVS->LPCR |= SNVS_LPCR_GPR_Z_DIS_MASK;
 
@@ -81,34 +82,12 @@ void board_init(void)
   GPIO_PinInit(BUTTON_PORT, BUTTON_PIN, &button_config);
 #endif
 
-#if defined(UART_DEV) && CFG_TUSB_DEBUG
-  // Enable UART when debug log is on
-  IOMUXC_SetPinMux(UART_TX_PINMUX, 0U);
-  IOMUXC_SetPinMux(UART_RX_PINMUX, 0U);
-  IOMUXC_SetPinConfig(UART_TX_PINMUX, 0x10B0u);
-  IOMUXC_SetPinConfig(UART_RX_PINMUX, 0x10B0u);
-
-  lpuart_config_t uart_config;
-  LPUART_GetDefaultConfig(&uart_config);
-  uart_config.baudRate_Bps = BOARD_UART_BAUDRATE;
-  uart_config.enableTx = true;
-  uart_config.enableRx = true;
-
-  uint32_t freq;
-  if (CLOCK_GetMux(kCLOCK_UartMux) == 0) /* PLL3 div6 80M */
-  {
-    freq = (CLOCK_GetPllFreq(kCLOCK_PllUsb1) / 6U) / (CLOCK_GetDiv(kCLOCK_UartDiv) + 1U);
-  }
-  else
-  {
-    freq = CLOCK_GetOscFreq() / (CLOCK_GetDiv(kCLOCK_UartDiv) + 1U);
-  }
-
-  LPUART_Init(UART_DEV, &uart_config, freq);
+#if TUF2_LOG
+  board_uart_init(BOARD_UART_BAUDRATE);
 #endif
 }
 
-void board_dfu_init(void)
+void board_usb_init(void)
 {
   // Clock
   CLOCK_EnableUsbhs0PhyPllClock(kCLOCK_Usbphy480M, 480000000U);
@@ -135,6 +114,11 @@ void board_dfu_init(void)
   // USB1
 //  CLOCK_EnableUsbhs1PhyPllClock(kCLOCK_Usbphy480M, 480000000U);
 //  CLOCK_EnableUsbhs1Clock(kCLOCK_Usb480M, 480000000U);
+}
+
+void board_dfu_init(void)
+{
+  board_usb_init();
 
   _dfu_mode = true;
 
@@ -360,12 +344,77 @@ uint32_t board_button_read(void)
 // UART
 //--------------------------------------------------------------------+
 
+void board_uart_init(uint32_t baud_rate)
+{
+#ifdef UART_DEV
+  // Enable UART when debug log is on
+  IOMUXC_SetPinMux(UART_TX_PINMUX, 0U);
+  IOMUXC_SetPinMux(UART_RX_PINMUX, 0U);
+  IOMUXC_SetPinConfig(UART_TX_PINMUX, 0x10B0u);
+  IOMUXC_SetPinConfig(UART_RX_PINMUX, 0x10B0u);
+
+  lpuart_config_t uart_config;
+  LPUART_GetDefaultConfig(&uart_config);
+  uart_config.baudRate_Bps = baud_rate;
+  uart_config.enableTx = true;
+  uart_config.enableRx = true;
+
+  uint32_t freq;
+  if (CLOCK_GetMux(kCLOCK_UartMux) == 0) /* PLL3 div6 80M */
+  {
+    freq = (CLOCK_GetPllFreq(kCLOCK_PllUsb1) / 6U) / (CLOCK_GetDiv(kCLOCK_UartDiv) + 1U);
+  }
+  else
+  {
+    freq = CLOCK_GetOscFreq() / (CLOCK_GetDiv(kCLOCK_UartDiv) + 1U);
+  }
+
+  LPUART_Init(UART_DEV, &uart_config, freq);
+#endif
+}
+
 int board_uart_write(void const * buf, int len)
 {
-#if defined(UART_DEV) && TUF2_LOG
-  LPUART_WriteBlocking(UART_DEV, (uint8_t*)buf, len);
+#ifdef UART_DEV
+  uint8_t const* buf8 = (uint8_t const*) buf;
+  int count = 0;
+
+  while(count < len)
+  {
+    if (LPUART_GetStatusFlags(UART_DEV) & kLPUART_TxDataRegEmptyFlag)
+    {
+      LPUART_WriteByte(UART_DEV, *buf8++);
+      count++;
+    }
+  }
+
   return len;
+
 #else
+
+  (void) buf; (void) len;
+  return 0;
+#endif
+}
+
+// optional API, not included in board_api.h
+int board_uart_read(uint8_t* buf, int len)
+{
+#ifdef UART_DEV
+  int count = 0;
+
+  while( count < len )
+  {
+    if ( !((UART_DEV->WATER & LPUART_WATER_RXCOUNT_MASK) >> LPUART_WATER_RXCOUNT_SHIFT) ) break;
+
+    buf[count] = LPUART_ReadByte(UART_DEV);
+    count++;
+  }
+
+  return count;
+
+#else
+
   (void) buf; (void) len;
   return 0;
 #endif
@@ -374,7 +423,7 @@ int board_uart_write(void const * buf, int len)
 //--------------------------------------------------------------------+
 // USB Interrupt Handler
 //--------------------------------------------------------------------+
-#ifndef NO_TINYUF2_BUILD
+#ifndef BUILD_NO_TINYUSB
 
 void USB_OTG1_IRQHandler(void)
 {

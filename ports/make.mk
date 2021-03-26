@@ -57,17 +57,38 @@ CFLAGS += \
   -DUF2_VERSION_BASE='"$(GIT_VERSION)"'\
   -DUF2_VERSION='"$(GIT_VERSION) - $(GIT_SUBMODULE_VERSIONS)"'
 
-#-------------- Source files and compiler flags --------------
+#-------------- Bootloader --------------
+# skip bootloader src if building application
+ifdef BUILD_APPLICATION
 
-# Skip if doing custom build
-ifndef NO_TINYUF2_BUILD
+CFLAGS += -DBUILD_APPLICATION
 
-TINYUSB_DIR = lib/tinyusb/src
+else
 
 # Bootloader src, board folder and TinyUSB stack
 SRC_C += \
   $(subst $(TOP)/,,$(wildcard $(TOP)/src/*.c)) \
-  $(subst $(TOP)/,,$(wildcard $(TOP)/$(BOARD_DIR)/*.c)) \
+  $(subst $(TOP)/,,$(wildcard $(TOP)/$(BOARD_DIR)/*.c))
+
+# Include
+INC += \
+  $(TOP)/src \
+  $(TOP)/$(PORT_DIR) \
+  $(TOP)/$(BOARD_DIR)
+
+endif # BUILD_APPLICATION
+
+#-------------- TinyUSB --------------
+# skip tinyusb src if building application such as erase firmware
+ifdef BUILD_NO_TINYUSB
+
+CFLAGS += -DBUILD_NO_TINYUSB
+
+else
+
+TINYUSB_DIR = lib/tinyusb/src
+
+SRC_C += \
 	$(TINYUSB_DIR)/tusb.c \
 	$(TINYUSB_DIR)/common/tusb_fifo.c \
 	$(TINYUSB_DIR)/device/usbd.c \
@@ -81,14 +102,9 @@ SRC_C += \
 	$(TINYUSB_DIR)/class/usbtmc/usbtmc_device.c \
 	$(TINYUSB_DIR)/class/vendor/vendor_device.c
 
-# Include
-INC += \
-  $(TOP)/src \
-  $(TOP)/$(PORT_DIR) \
-  $(TOP)/$(BOARD_DIR) \
-  $(TOP)/$(TINYUSB_DIR)
+INC += $(TOP)/$(TINYUSB_DIR)
 
-endif # NO_TINYUF2_BUILD
+endif # BUILD_NO_TINYUSB
 
 #-------------- Debug & Log --------------
 
@@ -153,7 +169,6 @@ ifneq ($(SKIP_NANOLIB), 1)
   LDFLAGS += -specs=nosys.specs -specs=nano.specs
   LIBS += -lnosys
 endif
-
 
 # Board specific define
 include $(TOP)/$(BOARD_DIR)/board.mk
