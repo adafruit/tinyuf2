@@ -1,9 +1,14 @@
 # TinyUF2 Changelog
 
-## 0.4.0 - 2021.03.23
+## 0.4.0 - 2021.04.04
 
 - Add support for multiple sectors per cluster in GhostFAT to enable larger flash sizes
-- Add new board API: board_reset() and board_flash_erase_app()
+  - Add native test for ghostfat with varous checks
+- Add new board API:
+  - board_reset()
+  - board_flash_erase_app()
+  - board_usb_init()
+  - board_uart_init()
 - Add `erase_firmware` application target (only implemented for iMXRT for now).
   - TinyUF2 will erase whole flash if `MAGIC_ERASE_APP` is written by application.
   - `erase_firmware.uf2` is also uploaded as part of build/release asset if available
@@ -21,6 +26,8 @@
 
 - Always write tinyuf2 image to flash if loaded in Serial Donwload mode (Boot Mode = 01)
 - Add `erase_firmware.uf2` to erase the whole flash except bootloader
+- Add sdphost binary for arm 32bit e.g raspberry pi 4
+- Add `esp32programmer.uf2` app for selected board.
 
 ## 0.3.0 - 2021.02.17
 
@@ -29,7 +36,7 @@
 
 ### ESP32-S2
 
-- Add new boards: gravitech_cucumberRIS_v1.1, lilygo_ttgo_t8_s2_st7789, olimex_esp32s2_devkit_lipo_vB1
+- Add new boards: gravitech_cucumberRIS_v1.1, lilygo_ttgo_t8_s2_st7789, olimex_esp32s2_devkit_lipo_vB1, artisense_rd00
 
 ### iMXRT
 
