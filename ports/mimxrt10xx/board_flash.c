@@ -76,6 +76,11 @@ void board_flash_init(void)
     TUF2_LOG1("BootMode = 01: ");
     write_tinyuf2_to_flash();
   } 
+  bool fcfb_valid = (*(uint32_t*) FCFB_START_ADDRESS == FLEXSPI_CFG_BLK_TAG);
+  if (!fcfb_valid) {
+    TUF2_LOG1("FCFB not present: ");
+    write_tinyuf2_to_flash();
+  }
 }
 
 uint32_t board_flash_size(void)
