@@ -97,7 +97,7 @@ jobs:
       id: idf-cache
       with:
         path: ${{ github.workspace }}/.idf_tools
-        key: ${{ runner.os }}-idf-tools-${{ hashFiles('.git/modules/lib/esp-idf/HEAD') }}-20201222
+        key: ${{ runner.os }}-idf-tools-${{ hashFiles('.git/modules/lib/esp-idf/HEAD') }}-20210412
 
     - name: Install IDF tools
       if: steps.idf-cache.outputs.cache-hit != 'true'
