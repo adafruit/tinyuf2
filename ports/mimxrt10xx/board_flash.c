@@ -71,9 +71,9 @@ void board_flash_init(void)
   // TinyUF2 will copy its image to flash if  Boot Mode is '01' i.e Serial Download Mode (BootRom)
   // Normally it is done once by SDPHost or used to recover an corrupted boards
   uint32_t const boot_mode = (SRC->SBMR2 & SRC_SBMR2_BMOD_MASK) >> SRC_SBMR2_BMOD_SHIFT;
-  if (boot_mode == 1)
+  bool fcfb_valid = (*(uint32_t*) FCFB_START_ADDRESS == FLEXSPI_CFG_BLK_TAG);
+  if (boot_mode == 1 || !fcfb_valid)
   {
-    TUF2_LOG1("BootMode = 01: ");
     write_tinyuf2_to_flash();
   } 
 }
