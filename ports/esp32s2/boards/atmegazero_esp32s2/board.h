@@ -57,7 +57,7 @@
 #define USB_PRODUCT       "ATMegaZero ESP32-S2"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "ATMegaZero-ESP32-S2"
+#define UF2_BOARD_ID      "ESP32S2-ATMegaZero-RevA"
 #define UF2_VOLUME_LABEL  "ATMZBOOT"
 #define UF2_INDEX_URL     "https://atmegazero.com"
 
