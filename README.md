@@ -36,8 +36,8 @@ TODO more docs later
 
 Firstly clone this repo and its submodules with 
 
-``` 
-$ git clone --recurse-submodules https://github.com/adafruit/tinyuf2
+```
+$ git clone --recurse-submodules https://github.com/Franzininho/tinyuf2.git
 ```
 
 To build this for a specific board, we need to change current directory to its port folder
