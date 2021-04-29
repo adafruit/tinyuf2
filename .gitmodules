@@ -22,3 +22,6 @@
 [submodule "lib/st/cmsis_device_f3"]
 	path = lib/st/cmsis_device_f3
 	url = https://github.com/STMicroelectronics/cmsis_device_f3.git
+[submodule "lib/nxp/mcux-sdk"]
+	path = lib/nxp/mcux-sdk
+	url = https://github.com/NXPmicro/mcux-sdk.git

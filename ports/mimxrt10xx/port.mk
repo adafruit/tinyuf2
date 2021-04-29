@@ -1,6 +1,7 @@
 UF2_FAMILY_ID = 0x4fb2d5bd
 
-MCU_DIR = lib/nxp/sdk/devices/$(MCU)
+SDK_DIR = lib/nxp/mcux-sdk
+MCU_DIR = $(SDK_DIR)/devices/$(MCU)
 
 # Port Compiler Flags
 CFLAGS += \
@@ -23,13 +24,13 @@ SRC_C += \
 	$(MCU_DIR)/system_$(MCU).c \
 	$(MCU_DIR)/project_template/clock_config.c \
 	$(MCU_DIR)/drivers/fsl_clock.c \
-	$(MCU_DIR)/drivers/fsl_gpio.c \
-	$(MCU_DIR)/drivers/fsl_common.c \
-	$(MCU_DIR)/drivers/fsl_ocotp.c \
-	$(MCU_DIR)/drivers/fsl_cache.c \
-	$(MCU_DIR)/drivers/fsl_pwm.c \
-	$(MCU_DIR)/drivers/fsl_xbara.c \
-	$(MCU_DIR)/drivers/fsl_lpuart.c
+	$(SDK_DIR)/drivers/cache/armv7-m7/fsl_cache.c \
+	$(SDK_DIR)/drivers/common/fsl_common.c \
+	$(SDK_DIR)/drivers/igpio/fsl_gpio.c \
+	$(SDK_DIR)/drivers/lpuart/fsl_lpuart.c \
+	$(SDK_DIR)/drivers/ocotp/fsl_ocotp.c \
+	$(SDK_DIR)/drivers/pwm/fsl_pwm.c \
+	$(SDK_DIR)/drivers/xbara/fsl_xbara.c \
 
 ifndef BUILD_NO_TINYUSB
 SRC_C += lib/tinyusb/src/portable/nxp/transdimension/dcd_transdimension.c
@@ -41,8 +42,15 @@ SRC_S += $(MCU_DIR)/gcc/startup_$(MCU).S
 INC += \
   $(TOP)/$(PORT_DIR) \
   $(TOP)/$(BOARD_DIR) \
-	$(TOP)/$(MCU_DIR)/../../CMSIS/Include \
+	$(TOP)/$(SDK_DIR)/CMSIS/Include \
 	$(TOP)/$(MCU_DIR) \
-	$(TOP)/$(MCU_DIR)/drivers \
+	$(TOP)/$(MCU_DIR)/project_template \
 	$(TOP)/$(MCU_DIR)/xip \
-	$(TOP)/$(MCU_DIR)/project_template
+	$(TOP)/$(MCU_DIR)/drivers \
+	$(TOP)/$(SDK_DIR)/drivers/cache/armv7-m7 \
+	$(TOP)/$(SDK_DIR)/drivers/common \
+	$(TOP)/$(SDK_DIR)/drivers/igpio \
+	$(TOP)/$(SDK_DIR)/drivers/lpuart \
+	$(TOP)/$(SDK_DIR)/drivers/ocotp \
+	$(TOP)/$(SDK_DIR)/drivers/pwm \
+	$(TOP)/$(SDK_DIR)/drivers/xbara \
