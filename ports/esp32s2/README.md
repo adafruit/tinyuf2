@@ -18,7 +18,7 @@ Following boards are supported:
 
 ### Build
 
-You will need to download and [set up ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/get-started/). This repo is developed and tested with IDF v4.3. IDF version will be updated when needed. 
+You will need to download and [set up ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/get-started/). The IDF version is developed and tested by TinyUF2 is at `lib/esp-idf`
 
 ```
 make BOARD=adafruit_feather_esp32s2 all
