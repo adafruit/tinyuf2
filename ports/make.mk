@@ -40,6 +40,13 @@ ifeq ($(wildcard $(TOP)/$(BOARD_DIR)/),)
   $(error Invalid BOARD specified)
 endif
 
+
+# Fetch submodules depended by family
+fetch_submodule_if_empty = $(if $(wildcard $(TOP)/lib/$1/*),,$(info $(shell git -C $(TOP)/lib submodule update --init $1)))
+ifdef GIT_SUBMODULES
+  $(foreach s,$(GIT_SUBMODULES),$(call fetch_submodule_if_empty,$(s)))
+endif
+
 # Build directory
 BUILD = _build/$(BOARD)
 BIN = $(TOP)/$(PORT_DIR)/_bin/$(BOARD)
