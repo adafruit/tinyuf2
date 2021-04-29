@@ -48,7 +48,7 @@ jobs:
       uses: actions/checkout@v2
 
     - name: Checkout submodules
-      run: git submodule update --init lib/esp-idf lib/tinyusb lib/uf2
+      run: git submodule update --init lib/tinyusb lib/uf2
 
     - name: Build
       run: docker run --rm -v $PWD:/project -w /project espressif/idf:release-v4.3 make -C ports/esp32s2/ BOARD=${{ matrix.board }} all self-update copy-artifact
