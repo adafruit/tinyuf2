@@ -1,18 +1,18 @@
-/* Simplified memory map for the bootloader.
- * Make sure the bootloader can load into main memory without overwriting itself.
+/** Simplified memory map for the bootloader.
+ *  Make sure the bootloader can load into main memory without overwriting itself.
+ *  We put 2nd bootloader in the high address space (before ROM stack/data/bss).
+ *  See memory usage for ROM bootloader at the end of this file.
  */
-
 
 MEMORY
 {
-  iram_seg (RWX) :                  org = 0x4004c000, len = 0x4000  /* SRAM Block 13 */
-  iram_loader_seg (RWX) :           org = 0x40050000, len = 0x6000  /* SRAM Block 14 & part of 15 */
-  dram_seg (RW) :                   org = 0x3FFE6000, len = 0x4B00  /* Part SRAM Blocks 15 & 16, ROM static buffer starts at end of this region (reclaimed after app runs) */
+  iram_seg (RWX) :                  org = 0x403CE000, len = 0x2000
+  iram_loader_seg (RWX) :           org = 0x403D0000, len = 0x6000
+  dram_seg (RW) :                   org = 0x3FCD6000, len = 0x4000
 }
 
-/*  Default entry point:  */
+/* Default entry point: */
 ENTRY(call_start_cpu0);
-
 
 SECTIONS
 {
@@ -30,7 +30,8 @@ SECTIONS
     *libbootloader_support.a:bootloader_flash.*(.literal .text .literal.* .text.*)
     *libbootloader_support.a:bootloader_random.*(.literal .text .literal.* .text.*)
     *libbootloader_support.a:bootloader_random*.*(.literal.bootloader_random_disable .text.bootloader_random_disable)
-    *libbootloader_support.a:bootloader_efuse_esp32s2.*(.literal .text .literal.* .text.*)
+    *libbootloader_support.a:bootloader_random*.*(.literal.bootloader_random_enable .text.bootloader_random_enable)
+    *libbootloader_support.a:bootloader_efuse_esp32c3.*(.literal .text .literal.* .text.*)
     *libbootloader_support.a:bootloader_utility.*(.literal .text .literal.* .text.*)
     *libbootloader_support.a:bootloader_sha.*(.literal .text .literal.* .text.*)
     *libbootloader_support.a:bootloader_console_loader.*(.literal .text .literal.* .text.*)
@@ -83,7 +84,7 @@ SECTIONS
     *(COMMON)
     . = ALIGN (8);
     _bss_end = ABSOLUTE(.);
-  } >dram_seg
+  } > dram_seg
 
   .dram0.data :
   {
@@ -100,7 +101,7 @@ SECTIONS
     *(.gnu.linkonce.s2.*)
     *(.jcr)
     _data_end = ABSOLUTE(.);
-  } >dram_seg
+  } > dram_seg
 
   .dram0.rodata :
   {
@@ -116,7 +117,7 @@ SECTIONS
     *(.gnu.version_r)
     *(.eh_frame)
     . = (. + 3) & ~ 3;
-    /*  C++ constructor and destructor tables, properly ordered:  */
+    /* C++ constructor and destructor tables, properly ordered: */
     __init_array_start = ABSOLUTE(.);
     KEEP (*crtbegin.*(.ctors))
     KEEP (*(EXCLUDE_FILE (*crtend.*) .ctors))
@@ -136,7 +137,7 @@ SECTIONS
     *(.dynamic)
     *(.gnu.version_d)
     _rodata_end = ABSOLUTE(.);
-	/* Literals are also RO data. */
+    /* Literals are also RO data. */
     _lit4_start = ABSOLUTE(.);
     *(*.lit4)
     *(.lit4.*)
@@ -144,7 +145,7 @@ SECTIONS
     _lit4_end = ABSOLUTE(.);
     . = ALIGN(4);
     _dram_end = ABSOLUTE(.);
-  } >dram_seg
+  } > dram_seg
 
   .iram.text :
   {
@@ -168,3 +169,22 @@ SECTIONS
   } > iram_seg
 
 }
+
+
+/**
+ *  Appendix: Memory Usage of ROM bootloader
+ *
+ *  +--------+--------------+------+ 0x3FCC_B000
+ *  |        ^              |
+ *  |        |              |
+ *  |        | data/bss     |
+ *  |        |              |
+ *  |        v              |
+ *  +------------------------------+ 0x3FCD_C910
+ *  |        ^              |
+ *  |        |              |
+ *  |        | stack        |
+ *  |        |              |
+ *  |        v              |
+ *  +------------------------------+ 0x3FCD_E910
+ */

@@ -18,7 +18,7 @@ Following boards are supported:
 
 ### Build
 
-You will need to first run `lib/esp-idf/export.sh (or bat)` to set up environment, then
+You will need to download and [set up ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/get-started/). The IDF version is developed and tested by TinyUF2 is at `lib/esp-idf`
 
 ```
 make BOARD=adafruit_feather_esp32s2 all
