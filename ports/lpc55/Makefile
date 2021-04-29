@@ -2,11 +2,12 @@ UF2_FAMILY_ID = 0x2abc77ec
 CROSS_COMPILE = arm-none-eabi-
 
 # List of git submodules that is included as part of the UF2 version
-GIT_SUBMODULES = nxp sct_neopixel tinyusb
+GIT_SUBMODULES = nxp/mcux-sdk sct_neopixel tinyusb
 
 include ../make.mk
 
-MCU_DIR = lib/nxp/sdk/devices/$(MCU)
+SDK_DIR = lib/nxp/mcux-sdk
+MCU_DIR = $(SDK_DIR)/devices/$(MCU)
 LD_FILES ?= $(MCU_DIR)/gcc/$(MCU_CORE)_flash.ld
 
 # Port Compiler Flags
@@ -28,14 +29,13 @@ PORT_SRC_C += \
 	$(MCU_DIR)/system_$(MCU_CORE).c \
 	$(MCU_DIR)/project_template/clock_config.c \
 	$(MCU_DIR)/drivers/fsl_clock.c \
-	$(MCU_DIR)/drivers/fsl_common.c \
-	$(MCU_DIR)/drivers/fsl_iap.c \
-	$(MCU_DIR)/drivers/fsl_rtc.c \
-	$(MCU_DIR)/drivers/fsl_gpio.c \
-	$(MCU_DIR)/drivers/fsl_usart.c \
-	$(MCU_DIR)/drivers/fsl_flexcomm.c \
 	$(MCU_DIR)/drivers/fsl_power.c \
-	$(MCU_DIR)/drivers/fsl_reset.c	
+	$(MCU_DIR)/drivers/fsl_reset.c \
+	$(SDK_DIR)/drivers/flexcomm/fsl_flexcomm.c \
+	$(SDK_DIR)/drivers/flexcomm/fsl_usart.c \
+	$(SDK_DIR)/drivers/iap1/fsl_iap.c \
+	$(SDK_DIR)/drivers/lpc_gpio/fsl_gpio.c \
+	$(SDK_DIR)/drivers/lpc_rtc/fsl_rtc.c \
 
 SRC_C += \
 	$(PORT_SRC_C) \
@@ -47,10 +47,17 @@ LIBS += $(TOP)/$(MCU_DIR)/gcc/libpower_hardabi.a
 
 # Port include
 INC += \
-	$(TOP)/$(MCU_DIR)/../../CMSIS/Include \
+	$(TOP)/$(SDK_DIR)/CMSIS/Include \
 	$(TOP)/$(MCU_DIR) \
+	$(TOP)/$(MCU_DIR)/project_template \
 	$(TOP)/$(MCU_DIR)/drivers \
-	$(TOP)/$(MCU_DIR)/project_template
+	$(TOP)/$(SDK_DIR)/drivers/common \
+	$(TOP)/$(SDK_DIR)/drivers/flexcomm \
+	$(TOP)/$(SDK_DIR)/drivers/iap1 \
+	$(TOP)/$(SDK_DIR)/drivers/lpc_gpio \
+	$(TOP)/$(SDK_DIR)/drivers/lpc_iocon \
+	$(TOP)/$(SDK_DIR)/drivers/lpc_rtc \
+	$(TOP)/$(SDK_DIR)/drivers/sctimer
 
 include ../rules.mk
 
