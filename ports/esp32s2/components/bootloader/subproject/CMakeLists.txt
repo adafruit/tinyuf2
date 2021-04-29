@@ -163,7 +163,7 @@ elseif(CONFIG_SECURE_BOOTLOADER_REFLASHABLE)
         COMMAND ${CMAKE_COMMAND} -E echo
             "Burn secure boot key to efuse using:"
         COMMAND ${CMAKE_COMMAND} -E echo
-            "\t${espefusepy} burn_key secure_boot ${secure_bootloader_key}"
+            "\t${espefusepy} burn_key secure_boot_v1 ${secure_bootloader_key}"
         COMMAND ${CMAKE_COMMAND} -E echo
             "First time flash command is:"
         COMMAND ${CMAKE_COMMAND} -E echo
@@ -182,7 +182,7 @@ elseif(CONFIG_SECURE_BOOTLOADER_REFLASHABLE)
             "* Not recommended to re-use the same secure boot keyfile on multiple production devices."
         DEPENDS gen_secure_bootloader_key gen_bootloader_digest_bin
         VERBATIM)
-elseif(CONFIG_SECURE_BOOT_V2_ENABLED AND CONFIG_IDF_TARGET_ESP32S2)
+elseif(CONFIG_SECURE_BOOT_V2_ENABLED AND (CONFIG_IDF_TARGET_ESP32S2 OR CONFIG_IDF_TARGET_ESP32C3))
     add_custom_command(TARGET bootloader.elf POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E echo
         "=============================================================================="
@@ -191,7 +191,8 @@ elseif(CONFIG_SECURE_BOOT_V2_ENABLED AND CONFIG_IDF_TARGET_ESP32S2)
     COMMAND ${CMAKE_COMMAND} -E echo
         "To sign the bootloader with additional private keys."
     COMMAND ${CMAKE_COMMAND} -E echo
-        "\t${espsecurepy} sign_data -k secure_boot_signing_key2.pem -v 2 --append_signatures -o signed_bootloader.bin build/bootloader/bootloader.bin"
+        "\t${espsecurepy} sign_data -k secure_boot_signing_key2.pem -v 2 \
+--append_signatures -o signed_bootloader.bin build/bootloader/bootloader.bin"
     COMMAND ${CMAKE_COMMAND} -E echo
         "Secure boot enabled, so bootloader not flashed automatically."
     COMMAND ${CMAKE_COMMAND} -E echo
