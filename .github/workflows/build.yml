@@ -41,38 +41,17 @@ jobs:
     - name: Setup Python
       uses: actions/setup-python@v2
 
+    - name: Pull ESP-IDF docker
+      run: docker pull espressif/idf:release-v4.3
+
     - name: Checkout
       uses: actions/checkout@v2
 
     - name: Checkout submodules
       run: git submodule update --init lib/esp-idf lib/tinyusb lib/uf2
 
-    # TODO use docker release version
-    - uses: actions/cache@v2
-      name: Fetch IDF tool cache
-      id: idf-cache
-      with:
-        path: ${{ github.workspace }}/.idf_tools
-        key: ${{ runner.os }}-idf-tools-${{ hashFiles('.git/modules/lib/esp-idf/HEAD') }}-20210412
-
-    - name: Install IDF tools
-      if: steps.idf-cache.outputs.cache-hit != 'true'
-      run: |
-        $IDF_PATH/tools/idf_tools.py --non-interactive install required
-        $IDF_PATH/tools/idf_tools.py --non-interactive install cmake
-        $IDF_PATH/tools/idf_tools.py --non-interactive install-python-env
-        rm -rf $IDF_TOOLS_PATH/dist
-      env:
-        IDF_PATH: ${{ github.workspace }}/lib/esp-idf
-        IDF_TOOLS_PATH: ${{ github.workspace }}/.idf_tools
-
     - name: Build
-      run: |
-        source $IDF_PATH/export.sh
-        make -C ports/esp32s2/ BOARD=${{ matrix.board }} all self-update copy-artifact
-      env:
-        IDF_PATH: ${{ github.workspace }}/lib/esp-idf
-        IDF_TOOLS_PATH: ${{ github.workspace }}/.idf_tools
+      run: docker run --rm -v $PWD:/project -w /project espressif/idf:release-v4.3 make -C ports/esp32s2/ BOARD=${{ matrix.board }} all self-update copy-artifact
 
     - uses: actions/upload-artifact@v2
       with:
