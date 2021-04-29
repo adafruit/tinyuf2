@@ -57,6 +57,7 @@ INC += \
 	$(TOP)/$(SDK_DIR)/drivers/lpc_gpio \
 	$(TOP)/$(SDK_DIR)/drivers/lpc_iocon \
 	$(TOP)/$(SDK_DIR)/drivers/lpc_rtc \
+	$(TOP)/$(SDK_DIR)/drivers/sctimer
 
 include ../rules.mk
 
