@@ -15,5 +15,5 @@ target_sources(${COMPONENT_TARGET} PUBLIC
   "${TOP}/lib/tinyusb/src/class/net/net_device.c"
   "${TOP}/lib/tinyusb/src/class/usbtmc/usbtmc_device.c"
   "${TOP}/lib/tinyusb/src/class/vendor/vendor_device.c"
-  "${TOP}/lib/tinyusb/src/portable/espressif/esp32s2/dcd_esp32s2.c"
+  "${TOP}/lib/tinyusb/src/portable/espressif/esp32sx/dcd_esp32sx.c"
 )

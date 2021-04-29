@@ -2,7 +2,7 @@ UF2_FAMILY_ID = 0x2abc77ec
 CROSS_COMPILE = arm-none-eabi-
 
 # List of git submodules that is included as part of the UF2 version
-GIT_SUBMODULES = nxp tinyusb
+GIT_SUBMODULES = nxp sct_neopixel tinyusb
 
 include ../make.mk
 
