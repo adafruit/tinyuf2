@@ -67,7 +67,9 @@ INC += \
 	$(TOP)/$(SDK_DIR)/drivers/lpuart \
 	$(TOP)/$(SDK_DIR)/drivers/ocotp \
 	$(TOP)/$(SDK_DIR)/drivers/pwm \
+	$(TOP)/$(SDK_DIR)/drivers/rtwdog \
 	$(TOP)/$(SDK_DIR)/drivers/xbara \
+	$(TOP)/$(SDK_DIR)/drivers/wdog01 \
 
 include ../rules.mk
 
