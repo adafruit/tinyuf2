@@ -37,6 +37,7 @@ jobs:
         - 'targett_mcb_wroom'
         - 'targett_mcb_wrover'
         - 'unexpectedmaker_feathers2'
+        - 'unexpectedmaker_tinys2'
     steps:
     - name: Setup Python
       uses: actions/setup-python@v2
