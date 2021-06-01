@@ -59,9 +59,9 @@
 // USB UF2
 //--------------------------------------------------------------------+
 
-#define USB_VID           0x0069
-#define USB_PID           0x005D
-#define USB_MANUFACTURER  "STM32"
+#define USB_VID           0x239A
+#define USB_PID           0x0069
+#define USB_MANUFACTURER  "ST"
 #define USB_PRODUCT       "STM32F411 BlackPill"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
