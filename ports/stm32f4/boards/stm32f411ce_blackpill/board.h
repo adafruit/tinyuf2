@@ -59,15 +59,15 @@
 // USB UF2
 //--------------------------------------------------------------------+
 
-#define USB_VID           0x239A
+#define USB_VID           0x0069
 #define USB_PID           0x005D
 #define USB_MANUFACTURER  "STM32"
-#define USB_PRODUCT       "STM32F411CxUx"
+#define USB_PRODUCT       "STM32F411 BlackPill"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "STM32F411CE BLACKPILL uf2_family_id=STM32F4"
-#define UF2_VOLUME_LABEL  "BlackPill"
-#define UF2_INDEX_URL     "https://stm32-base.org/boards/STM32F411CEU6-WeAct-Black-Pill-V2.0.html"
+#define UF2_BOARD_ID      "STM32F411-BlackPill-rev2"
+#define UF2_VOLUME_LABEL  "STM32F411BOOT"
+#define UF2_INDEX_URL     "https://www.adafruit.com/product/4877"
 
 #define USB_NO_VBUS_PIN   1
 
