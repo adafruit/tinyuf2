@@ -70,7 +70,7 @@
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID      "ESP32S2-nanoESP32-S2-WROOM-v1.2"
-#define UF2_VOLUME_LABEL  "NANOESP32S2WROOMBOOT"
+#define UF2_VOLUME_LABEL  "NANOESPBOOT"
 #define UF2_INDEX_URL     "https://github.com/wuxx/nanoESP32-S2"
 
 #endif
