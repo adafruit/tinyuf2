@@ -66,7 +66,7 @@
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID      "STM32F411-BlackPill-rev2"
-#define UF2_VOLUME_LABEL  "STM32F411BOOT"
+#define UF2_VOLUME_LABEL  "STMF411BOOT"
 #define UF2_INDEX_URL     "https://www.adafruit.com/product/4877"
 
 #define USB_NO_VBUS_PIN   1
