@@ -113,6 +113,7 @@ jobs:
         # stm32f4
         - 'feather_stm32f405_express'
         - 'stm32f411ve_discovery'
+        - 'stm32f411ce_blackpill'
         - 'stm32f401_blackpill'
 
     steps:
