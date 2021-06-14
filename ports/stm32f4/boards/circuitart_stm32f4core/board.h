@@ -66,7 +66,7 @@
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID      "STM32F405-FeatherCORE-revA"
 #define UF2_VOLUME_LABEL  "CA-STM32F4"
-#define UF2_INDEX_URL     "https://www.circuitart.net/product/FTHRf405CORE" 
+#define UF2_INDEX_URL     "https://www.circuitart.net/product/FTHRf405CORE" // TODO update link
 
 //--------------------------------------------------------------------+
 // UART
