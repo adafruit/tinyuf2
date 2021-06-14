@@ -68,6 +68,6 @@
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID      "ESP32S2-FeatherCORE-revA"
 #define UF2_VOLUME_LABEL  "CA-ESP32S2"
-#define UF2_INDEX_URL     "https://www.circuitart.net/product/FTHRS2CORE" 
+#define UF2_INDEX_URL     "https://www.circuitart.net/product/FTHRS2CORE" // TODO update link
 
 #endif
