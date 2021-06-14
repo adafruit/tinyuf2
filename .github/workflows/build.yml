@@ -26,6 +26,7 @@ jobs:
         - 'adafruit_magtag_29gray'
         - 'adafruit_metro_esp32s2'
         - 'artisense_rd00'
+        - 'circuitart_esp32s2core'
         - 'atmegazero_esp32s2'
         - 'espressif_kaluga_1'
         - 'espressif_saola_1_wroom'
@@ -111,6 +112,7 @@ jobs:
         #stm32f3
         - 'stm32f303disco'
         # stm32f4
+        - 'circuitart_stm32f4core'
         - 'feather_stm32f405_express'
         - 'stm32f411ve_discovery'
         - 'stm32f411ce_blackpill'
