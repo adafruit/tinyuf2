@@ -51,11 +51,10 @@ size-files:
 
 $(BUILD)/combined.bin: app
 	UF2_OFFSET=`awk '{if(FNR==2)print $$1}' $(BUILD)/app-flash_args)`; \
-	echo "UF2_OFFSET = $$UF2_OFFSET"; \
-	set -x; \
 	esptool.py --chip esp32s2 merge_bin --output $@ \
 		0x1000 $(BUILD)/bootloader/bootloader.bin \
 		0x8000 $(BUILD)/partition_table/partition-table.bin \
+		0xe000 $(BUILD)/ota_data_initial.bin \
 		$$UF2_OFFSET $(BUILD)/tinyuf2.bin
 
 #-------------- Self Update --------------
