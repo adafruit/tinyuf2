@@ -49,6 +49,14 @@ size-components:
 size-files:
 	idf.py -B$(BUILD) -DBOARD=$(BOARD) size-files
 
+$(BUILD)/combined.bin: app
+	UF2_OFFSET=`awk '{if(FNR==2)print $$1}' $(BUILD)/app-flash_args)`; \
+	esptool.py --chip esp32s2 merge_bin --output $@ \
+		0x1000 $(BUILD)/bootloader/bootloader.bin \
+		0x8000 $(BUILD)/partition_table/partition-table.bin \
+		0xe000 $(BUILD)/ota_data_initial.bin \
+		$$UF2_OFFSET $(BUILD)/tinyuf2.bin
+
 #-------------- Self Update --------------
 $(SELF_BUILD)/update-tinyuf2.bin: app
 	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py --carray $(BUILD)/tinyuf2.bin -o $(TOP)/self_update/bootloader_bin.c
@@ -64,9 +72,10 @@ self-update: $(SELF_BUILD)/update-tinyuf2.uf2
 $(BIN):
 	@mkdir -p $@
 
-copy-artifact: $(BIN)
+copy-artifact: $(BIN) all self-update $(BUILD)/combined.bin
 	@cp $(BUILD)/bootloader/bootloader.bin $<
 	@cp $(BUILD)/partition_table/partition-table.bin $<
 	@cp $(BUILD)/ota_data_initial.bin $<
 	@cp $(BUILD)/tinyuf2.bin $<
+	@cp $(BUILD)/combined.bin $<
 	@cp $(SELF_BUILD)/update-tinyuf2.uf2 $<
