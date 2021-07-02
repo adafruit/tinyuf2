@@ -1,4 +1,4 @@
-name: Build
+name: Build ARM
 
 on:
   pull_request:
@@ -9,85 +9,6 @@ on:
       - created
 
 jobs:
-
-  # ---------------------------------------
-  # Build ESP32SX family
-  # ---------------------------------------
-  ESP32-S2:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        board:
-        # Alphabetical order
-        - 'adafruit_feather_esp32s2'
-        - 'adafruit_feather_esp32s2_tft'
-        - 'adafruit_funhouse_esp32s2'
-        - 'adafruit_magtag_29gray'
-        - 'adafruit_metro_esp32s2'
-        - 'artisense_rd00'
-        - 'atmegazero_esp32s2'
-        - 'espressif_kaluga_1'
-        - 'espressif_saola_1_wroom'
-        - 'espressif_saola_1_wrover'
-        - 'gravitech_cucumberRIS_v1.1'
-        - 'lilygo_ttgo_t8_s2_st7789'
-        - 'microdev_micro_s2'
-        - 'muselab_nanoesp32-s2_wroom'
-        - 'muselab_nanoesp32-s2_wrover'
-        - 'olimex_esp32s2_devkit_lipo_vB1'
-        - 'targett_mcb_wroom'
-        - 'targett_mcb_wrover'
-        - 'unexpectedmaker_feathers2'
-        - 'unexpectedmaker_tinys2'
-    steps:
-    - name: Setup Python
-      uses: actions/setup-python@v2
-
-    - name: Pull ESP-IDF docker
-      run: docker pull espressif/idf:release-v4.3
-
-    - name: Checkout
-      uses: actions/checkout@v2
-
-    - name: Checkout submodules
-      run: git submodule update --init lib/tinyusb lib/uf2
-
-    - name: Build
-      run: docker run --rm -v $PWD:/project -w /project espressif/idf:release-v4.3 make -C ports/esp32s2/ BOARD=${{ matrix.board }} all self-update copy-artifact
-
-    - uses: actions/upload-artifact@v2
-      with:
-        name: ${{ matrix.board }}
-        path: ports/esp32s2/_bin/${{ matrix.board }}/
-
-    - name: Create Release Asset
-      if: ${{ github.event_name == 'release' }}
-      run: |
-        #for f in ports/esp32s2/_bin/${{ matrix.board }}/*; do mv $f ${f%.*}-${{ github.event.release.tag_name }}."${f#*.}"; done
-        zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ports/esp32s2/_bin/${{ matrix.board }}
-
-    - name: Upload Release Asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      if: ${{ github.event_name == 'release' }}
-      with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_path: tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip
-        asset_name: tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip
-        asset_content_type: application/zip
-
-    - name: Upload Release Asset for Self-Update
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      if: ${{ github.event_name == 'release' }}
-      with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_path: ports/esp32s2/_bin/${{ matrix.board }}/update-tinyuf2.uf2
-        asset_name: update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
-        asset_content_type: application/x-binary
 
   # ---------------------------------------
   # Build ARM family
