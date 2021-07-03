@@ -1,6 +1,10 @@
 OUTNAME = esp32programmer-$(BOARD)
 
-SRC_C += $(addprefix $(CURRENT_PATH)/, $(wildcard *.c))
+SRC_C += \
+	$(PORT_DIR)/boards.c \
+	$(CURRENT_PATH)/main.c \
+	$(CURRENT_PATH)/usb_descriptors.c \
+
 INC += \
 	$(TOP)/$(CURRENT_PATH) \
 	$(TOP)/src

@@ -1,4 +1,3 @@
-CROSS_COMPILE = arm-none-eabi-
 PORT = mimxrt10xx
 
 # skip bootloader src

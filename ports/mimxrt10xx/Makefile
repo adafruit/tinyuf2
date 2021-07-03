@@ -1,6 +1,3 @@
-UF2_FAMILY_ID = 0x4fb2d5bd
-CROSS_COMPILE = arm-none-eabi-
-
 # List of git submodules that is included as part of the UF2 version
 GIT_SUBMODULES = nxp/mcux-sdk tinyusb
 
@@ -8,68 +5,19 @@ GIT_SUBMODULES = nxp/mcux-sdk tinyusb
 FLASH_BIN_ADDR = $(UF2_$(MCU)_WRITE_ADDR)
 
 include ../make.mk
-
-# TODO include port.mk
-
-SDK_DIR = lib/nxp/mcux-sdk
-MCU_DIR = $(SDK_DIR)/devices/$(MCU)
+include port.mk
 
 LD_FILES ?= \
   $(PORT_DIR)/linker/$(MCU)_ram.ld \
   $(PORT_DIR)/linker/memory.ld \
   $(PORT_DIR)/linker/common.ld
 
-# Port Compiler Flags
-CFLAGS += \
-  -mthumb \
-  -mabi=aapcs \
-  -mcpu=cortex-m7 \
-  -mfloat-abi=hard \
-  -mfpu=fpv5-d16 \
-  -D__ARMVFP__=0 -D__ARMFPV5__=0 \
-  -DXIP_EXTERNAL_FLASH=1 \
-  -DXIP_BOOT_HEADER_ENABLE=1 \
-  -DCFG_TUSB_MCU=OPT_MCU_MIMXRT10XX
-
-# mcu driver cause following warnings
-CFLAGS += -Wno-error=unused-parameter
-
-# Port source
-PORT_SRC_C = \
-	$(addprefix $(CURRENT_PATH)/, $(wildcard *.c)) \
-	$(MCU_DIR)/system_$(MCU).c \
-	$(MCU_DIR)/project_template/clock_config.c \
-	$(MCU_DIR)/drivers/fsl_clock.c \
-	$(SDK_DIR)/drivers/cache/armv7-m7/fsl_cache.c \
-	$(SDK_DIR)/drivers/common/fsl_common.c \
-	$(SDK_DIR)/drivers/igpio/fsl_gpio.c \
-	$(SDK_DIR)/drivers/lpuart/fsl_lpuart.c \
-	$(SDK_DIR)/drivers/ocotp/fsl_ocotp.c \
-	$(SDK_DIR)/drivers/pwm/fsl_pwm.c \
-	$(SDK_DIR)/drivers/xbara/fsl_xbara.c \
-
 SRC_C += \
-	$(PORT_SRC_C) \
-	lib/tinyusb/src/portable/nxp/transdimension/dcd_transdimension.c
+	$(PORT_DIR)/boards.c \
+	$(PORT_DIR)/board_flash.c
 
-SRC_S += $(MCU_DIR)/gcc/startup_$(MCU).S
-
-# Port include
-INC += \
-	$(TOP)/$(SDK_DIR)/CMSIS/Include \
-	$(TOP)/$(MCU_DIR) \
-	$(TOP)/$(MCU_DIR)/project_template\
-	$(TOP)/$(MCU_DIR)/xip \
-	$(TOP)/$(MCU_DIR)/drivers \
-	$(TOP)/$(SDK_DIR)/drivers/cache/armv7-m7 \
-	$(TOP)/$(SDK_DIR)/drivers/common \
-	$(TOP)/$(SDK_DIR)/drivers/igpio \
-	$(TOP)/$(SDK_DIR)/drivers/lpuart \
-	$(TOP)/$(SDK_DIR)/drivers/ocotp \
-	$(TOP)/$(SDK_DIR)/drivers/pwm \
-	$(TOP)/$(SDK_DIR)/drivers/rtwdog \
-	$(TOP)/$(SDK_DIR)/drivers/xbara \
-	$(TOP)/$(SDK_DIR)/drivers/wdog01 \
+# include
+# INC +=
 
 include ../rules.mk
 
