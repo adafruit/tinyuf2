@@ -127,11 +127,10 @@ erase-app: $(BUILD)/$(OUTNAME).bin
 	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- write-file $(SDP_$(MCU)_WRITE_ADDR) $<
 	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- jump-address $(SDP_$(MCU)_JUMP_ADDR)
 
-#-------------- Self-update  --------------
-# RT10xx run entire bootloader from SRAM and
-# can directly flash the bootloader region
-# without using self-update app as other port
-#--------------------------------------------
+#-------------------------- Self-update  --------------------------
+# RT10xx run entire bootloader from SRAM and can directly flash
+# the bootloader region without using self-update app as other port
+#--------------------------------------------------------------------
 include ../self_update.mk
 
 # self-update uf2 file
