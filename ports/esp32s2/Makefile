@@ -8,7 +8,6 @@ PYTHON3 ?= python3
 
 # Build directory
 BUILD = _build/$(BOARD)
-SELF_BUILD = self_update/$(BUILD)
 BIN = _bin/$(BOARD)
 TOP = ../..
 
@@ -58,10 +57,12 @@ $(BUILD)/combined.bin: app
 		$$UF2_OFFSET $(BUILD)/tinyuf2.bin
 
 #-------------- Self Update --------------
+SELF_BUILD = apps/self_update/$(BUILD)
+
 $(SELF_BUILD)/update-tinyuf2.bin: app
-	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py --carray $(BUILD)/tinyuf2.bin -o $(TOP)/self_update/bootloader_bin.c
-	idf.py -C self_update/ -B$(SELF_BUILD) -DBOARD=$(BOARD) app
-	@rm $(TOP)/self_update/bootloader_bin.c
+	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py --carray $(BUILD)/tinyuf2.bin -o $(TOP)/apps/self_update/bootloader_bin.c
+	idf.py -C apps/self_update/ -B$(SELF_BUILD) -DBOARD=$(BOARD) app
+	@rm $(TOP)/apps/self_update/bootloader_bin.c
 
 $(SELF_BUILD)/update-tinyuf2.uf2: $(SELF_BUILD)/update-tinyuf2.bin
 	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py -f 0xbfdd4eee -b 0x0000 -c -o $@ $^
