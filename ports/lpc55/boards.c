@@ -23,7 +23,6 @@
  */
 
 #include "board_api.h"
-#include "tusb.h"
 #include "fsl_device_registers.h"
 #include "fsl_rtc.h"
 #include "fsl_iap.h"
@@ -33,6 +32,15 @@
 #include "fsl_power.h"
 #include "fsl_iocon.h"
 #include "clock_config.h"
+
+#ifndef BUILD_NO_TINYUSB
+#include "tusb.h"
+
+#else
+
+#define TU_LOG1(...)
+#define TU_LOG2(...)
+#endif
 
 #if NEOPIXEL_NUMBER
 #include "sct_neopixel.h"
@@ -158,6 +166,7 @@ bool board_app_valid(void)
 {
   uint32_t readData[2];
   status_t readStatus;
+
   // 2nd word is App entry point (reset)
   readStatus = FLASH_Read(&_flash_config, BOARD_FLASH_APP_START, (uint8_t *)readData, 8);
   if (readStatus) {
@@ -344,7 +353,6 @@ void board_led_write(uint32_t value)
 // Write color to rgb strip
 void board_rgb_write(uint8_t const rgb[])
 {
-
 #if NEOPIXEL_NUMBER
   uint32_t color = 0;    // Neopixel is GRB
   if (rgb[0]) { color += (NEOPIXEL_BRIGHTNESS <<16); }
@@ -390,15 +398,13 @@ int board_uart_write(void const * buf, int len)
 }
 
 
-#ifdef TINYUF2_SELF_UPDATE
-
 void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
 {
   (void) bootloader_bin;
   (void) bootloader_len;
 }
 
-#else
+#ifndef BUILD_NO_TINYUSB
 
 // Forward USB interrupt events to TinyUSB IRQ Handler
 void USB0_IRQHandler(void)

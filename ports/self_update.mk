@@ -1,7 +1,7 @@
 SELF_OUTNAME = update-tinyuf2-$(BOARD)
 
-SELF_SRC_C += $(subst $(TOP)/,,$(wildcard $(TOP)/self_update/*.c))
-SELF_SRC_C += self_update/$(OUTNAME).c
+SELF_SRC_C += apps/self_update/self_update.c
+SELF_SRC_C += apps/self_update/$(OUTNAME).c
 
 SELF_BUILD_OBJ = $(BUILD)/self_obj
 SELF_OBJ += $(addprefix $(SELF_BUILD_OBJ)/, $(SRC_S:.s=.o))
