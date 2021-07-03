@@ -398,11 +398,15 @@ int board_uart_write(void const * buf, int len)
 }
 
 
+#ifdef TINYUF2_SELF_UPDATE
+
 void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
 {
   (void) bootloader_bin;
   (void) bootloader_len;
 }
+
+#endif
 
 #ifndef BUILD_NO_TINYUSB
 

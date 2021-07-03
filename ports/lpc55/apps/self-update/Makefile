@@ -7,6 +7,8 @@ BUILD_APPLICATION = 1
 # skip tinyusb src
 BUILD_NO_TINYUSB = 1
 
+CFLAGS += -DTINYUF2_SELF_UPDATE
+
 include ../../../make.mk
 include ../../port.mk
 
@@ -16,9 +18,6 @@ SRC_C += \
 	$(CURRENT_PATH)/bootloader_bin.c
 
 INC += $(TOP)/src
-
-
-$(info $(SRC_C))
 
 include ../../../rules.mk
 

@@ -81,6 +81,8 @@ erase-app: $(BUILD)/$(OUTNAME).bin
 #--------------------------------------------------------------------
 include ../self_update.mk
 
+self-update: $(SELF_BUILD_OBJ)/$(SELF_OUTNAME).uf2
+
 # self-update uf2 file
 $(SELF_BUILD_OBJ)/$(SELF_OUTNAME).uf2: $(BUILD)/$(OUTNAME).bin $(SELF_OBJ_DIRS)
 	@echo CREATE $@
