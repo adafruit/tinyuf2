@@ -61,6 +61,18 @@ clean:
 	$(RM) -rf $(BUILD)
 	$(RM) -rf $(BIN)
 
+#-------------- Artifacts --------------
+SELF_UF2 = $(BUILD)/update-$(OUTNAME).uf2
+
+$(BIN):
+	@$(MKDIR) -p $@
+
+copy-artifact: $(BIN)
+copy-artifact: $(BUILD)/$(OUTNAME).bin $(BUILD)/$(OUTNAME).hex
+	@$(CP) $(BUILD)/$(OUTNAME).bin $(BIN)
+	@$(CP) $(BUILD)/$(OUTNAME).hex $(BIN)
+	@if [ -f "$(SELF_UF2)" ]; then $(CP) $(SELF_UF2) $(BIN); fi
+
 #-------------- Compile Rules --------------
 
 # We set vpath to point to the top of the tree so that the source files

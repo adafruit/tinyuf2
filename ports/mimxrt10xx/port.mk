@@ -1,4 +1,5 @@
 UF2_FAMILY_ID = 0x4fb2d5bd
+CROSS_COMPILE = arm-none-eabi-
 
 SDK_DIR = lib/nxp/mcux-sdk
 MCU_DIR = $(SDK_DIR)/devices/$(MCU)
@@ -20,7 +21,6 @@ CFLAGS += -Wno-error=unused-parameter
 
 # Port source
 SRC_C += \
-	$(PORT_DIR)/boards.c \
 	$(MCU_DIR)/system_$(MCU).c \
 	$(MCU_DIR)/project_template/clock_config.c \
 	$(MCU_DIR)/drivers/fsl_clock.c \

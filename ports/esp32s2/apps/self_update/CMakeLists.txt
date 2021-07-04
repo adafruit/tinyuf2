@@ -3,7 +3,7 @@
 cmake_minimum_required(VERSION 3.5)
 
 # Check for -DBOARD=
-if(NOT (DEFINED BOARD AND EXISTS "${CMAKE_SOURCE_DIR}/../boards/${BOARD}/board.h") )
+if(NOT (DEFINED BOARD AND EXISTS "${CMAKE_SOURCE_DIR}/../../boards/${BOARD}/board.h") )
   file(GLOB BOARD_LIST RELATIVE ${CMAKE_SOURCE_DIR}/../boards "boards/*/board.h")
   
   message("Please specify `-DBOARD=` with one of supported boards")
@@ -16,10 +16,10 @@ if(NOT (DEFINED BOARD AND EXISTS "${CMAKE_SOURCE_DIR}/../boards/${BOARD}/board.h
 endif()
 
 # TOP is absolute path to root directory
-set(TOP "../../..")
+set(TOP "../../../..")
 get_filename_component(TOP "${TOP}" REALPATH)
 
-set(EXTRA_COMPONENT_DIRS "${TOP}/self_update" "../boards" "../components")
+set(EXTRA_COMPONENT_DIRS "${TOP}/apps/self_update" "../../boards" "../../components")
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 set(SUPPORTED_TARGETS esp32s2)
