@@ -16,12 +16,12 @@ LD_FILES ?= $(MCU_DIR)/gcc/$(MCU_CORE)_flash.ld
 include ../rules.mk
 
 #-------------- Self-update  --------------
-# not implemented
-SELF_DIR = apps/self-update
+# Self-update is not implemented yet
+SELF_DIR = apps/self_update
 
 $(SELF_DIR)/bootloader_bin.c:	$(BUILD)/$(OUTNAME).bin
 	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py --carray $^ -o $@
 
 self-update: $(SELF_DIR)/bootloader_bin.c
-	make -C apps/self-update BOARD=$(BOARD) self-update
+	make -C $(SELF_DIR) BOARD=$(BOARD) self-update
 	@rm $^

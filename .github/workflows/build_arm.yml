@@ -76,8 +76,8 @@ jobs:
 
     - name: Build
       run: |
-        make -C $ENV_PORT BOARD=${{ matrix.board }} all copy-artifact
-        for app in ${{ env.ENV_PORT }}/apps/*/; do make -C $app BOARD=${{ matrix.board }} all; done
+        make -C $ENV_PORT BOARD=${{ matrix.board }} all self-update copy-artifact
+        for app in ${{ env.ENV_PORT }}/apps/*/; do if [ $app != 'apps/self_update/' ]; then make -C $app BOARD=${{ matrix.board }} all; fi done
 
     - uses: actions/upload-artifact@v2
       with:
