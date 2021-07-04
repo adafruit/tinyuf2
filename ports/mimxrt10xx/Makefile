@@ -79,11 +79,9 @@ erase-app: $(BUILD)/$(OUTNAME).bin
 # RT10xx run entire bootloader from SRAM and can directly flash
 # the bootloader region without using self-update app as other port
 #--------------------------------------------------------------------
-include ../self_update.mk
-
-self-update: $(SELF_BUILD_OBJ)/$(SELF_OUTNAME).uf2
+self-update: $(SELF_UF2)
 
 # self-update uf2 file
-$(SELF_BUILD_OBJ)/$(SELF_OUTNAME).uf2: $(BUILD)/$(OUTNAME).bin $(SELF_OBJ_DIRS)
+$(SELF_UF2): $(BUILD)/$(OUTNAME).bin
 	@echo CREATE $@
 	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py -f $(UF2_FAMILY_ID) -b $(UF2_$(MCU)_WRITE_ADDR) -c -o $@ $<

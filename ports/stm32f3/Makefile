@@ -59,5 +59,3 @@ flash-dfu-util: $(BUILD)/$(OUTNAME).bin
 
 self-update:
 	@echo "not implemented yet"
-
-# include ../self_update.mk
