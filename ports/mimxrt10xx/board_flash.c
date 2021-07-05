@@ -23,9 +23,14 @@
  */
 
 #include "board_api.h"
-#include "bl_flexspi.h"
-#include "flexspi_nor_flash.h"
+
+//#include "bl_flexspi.h"
+//#include "flexspi_nor_flash.h"
 #include "fsl_cache.h"
+
+#if defined(FSL_FEATURE_BOOT_ROM_HAS_ROMAPI) && FSL_FEATURE_BOOT_ROM_HAS_ROMAPI
+#include "fsl_romapi.h"
+#endif
 
 #define FLASH_CACHE_SIZE          4096
 #define FLASH_CACHE_INVALID_ADDR  0xffffffff
@@ -66,7 +71,7 @@ static void write_tinyuf2_to_flash(void)
 
 void board_flash_init(void)
 {
-  flexspi_nor_flash_init(FLEXSPI_INSTANCE, (flexspi_nor_config_t*) &qspiflash_config);
+  ROM_FLEXSPI_NorFlash_Init(FLEXSPI_INSTANCE, (flexspi_nor_config_t*) &qspiflash_config);
 
   // TinyUF2 will copy its image to flash if  Boot Mode is '01' i.e Serial Download Mode (BootRom)
   // Normally it is done once by SDPHost or used to recover an corrupted boards
@@ -107,7 +112,7 @@ void board_flash_flush(void)
     uint32_t const sector_addr = (_flash_page_addr - FlexSPI_AMBA_BASE);
 
     __disable_irq();
-    status = flexspi_nor_flash_erase(FLEXSPI_INSTANCE, (flexspi_nor_config_t*) &qspiflash_config, sector_addr, SECTOR_SIZE);
+    status = ROM_FLEXSPI_NorFlash_Erase(FLEXSPI_INSTANCE, (flexspi_nor_config_t*) &qspiflash_config, sector_addr, SECTOR_SIZE);
     __enable_irq();
 
     SCB_InvalidateDCache_by_Addr((uint32_t *)sector_addr, SECTOR_SIZE);
@@ -124,7 +129,7 @@ void board_flash_flush(void)
       void* page_data =  _flash_cache + i * FLASH_PAGE_SIZE;
 
       __disable_irq();
-      status = flexspi_nor_flash_page_program(FLEXSPI_INSTANCE, (flexspi_nor_config_t*) &qspiflash_config, page_addr, (uint32_t*) page_data);
+      status = ROM_FLEXSPI_NorFlash_ProgramPage(FLEXSPI_INSTANCE, (flexspi_nor_config_t*) &qspiflash_config, page_addr, (uint32_t*) page_data);
       __enable_irq();
 
       if ( status != kStatus_Success )
@@ -164,8 +169,8 @@ void board_flash_erase_app(void)
   TUF2_LOG1("Erase whole chip\r\n");
 
   // Perform chip erase first
-  flexspi_nor_flash_init(FLEXSPI_INSTANCE, (flexspi_nor_config_t*) &qspiflash_config);
-  flexspi_nor_flash_erase_all(FLEXSPI_INSTANCE, (flexspi_nor_config_t*) &qspiflash_config);
+  ROM_FLEXSPI_NorFlash_Init(FLEXSPI_INSTANCE, (flexspi_nor_config_t*) &qspiflash_config);
+  ROM_FLEXSPI_NorFlash_EraseAll(FLEXSPI_INSTANCE, (flexspi_nor_config_t*) &qspiflash_config);
 
   // write bootloader to flash
   TUF2_LOG1("Erase app firmware: ");
