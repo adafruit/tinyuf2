@@ -28,9 +28,7 @@
 //#include "flexspi_nor_flash.h"
 #include "fsl_cache.h"
 
-#if defined(FSL_FEATURE_BOOT_ROM_HAS_ROMAPI) && FSL_FEATURE_BOOT_ROM_HAS_ROMAPI
-#include "fsl_romapi.h"
-#endif
+#include "romapi_flash.h"
 
 #define FLASH_CACHE_SIZE          4096
 #define FLASH_CACHE_INVALID_ADDR  0xffffffff
