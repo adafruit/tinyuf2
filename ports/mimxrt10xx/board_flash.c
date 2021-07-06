@@ -23,11 +23,6 @@
  */
 
 #include "board_api.h"
-
-//#include "bl_flexspi.h"
-//#include "flexspi_nor_flash.h"
-#include "fsl_cache.h"
-
 #include "romapi_flash.h"
 
 #define FLASH_CACHE_SIZE          4096

@@ -26,8 +26,20 @@
 
 #if defined(FSL_FEATURE_BOOT_ROM_HAS_ROMAPI) && FSL_FEATURE_BOOT_ROM_HAS_ROMAPI
 #include "fsl_romapi.h"
+
+#else
+
+#include "bl_flexspi.h"
+#include "flexspi_nor_flash.h"
+
+status_t ROM_FLEXSPI_NorFlash_Init(uint32_t instance, flexspi_nor_config_t *config);
+status_t ROM_FLEXSPI_NorFlash_Erase(uint32_t instance, flexspi_nor_config_t *config, uint32_t start, uint32_t length);
+status_t ROM_FLEXSPI_NorFlash_ProgramPage(uint32_t instance, flexspi_nor_config_t *config, uint32_t dstAddr, const uint32_t *src);
+
 #endif
+
 
 #if !( defined(FSL_ROM_FLEXSPINOR_API_HAS_FEATURE_ERASE_ALL) && FSL_ROM_FLEXSPINOR_API_HAS_FEATURE_ERASE_ALL )
 status_t ROM_FLEXSPI_NorFlash_EraseAll(uint32_t instance, flexspi_nor_config_t *config);
 #endif
+
