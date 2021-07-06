@@ -11,7 +11,6 @@
 #define __FLEXSPI_NOR_FLASH_H__
 
 #include "fsl_common.h"
-//#include "bootloader_common.h"
 #include "bl_flexspi.h"
 
 /*  */

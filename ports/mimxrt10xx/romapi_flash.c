@@ -60,6 +60,100 @@ status_t ROM_FLEXSPI_NorFlash_EraseAll(uint32_t instance, flexspi_nor_config_t *
 // Some variant such as RT1011 does not have fsl_romapi for flash nor at all,
 // therefore we need to implement it here
 
+//--------------------------------------------------------------------+
+// FlexSPI API
+//--------------------------------------------------------------------+
+bool flexspi_is_parallel_mode(flexspi_mem_config_t *config)
+{
+  bool (*const _flexspi_is_parallel_mode)(flexspi_mem_config_t *) = (bool (*)(flexspi_mem_config_t *))0x0020c687;
+  return _flexspi_is_parallel_mode(config);
+}
+
+status_t flexspi_device_wait_busy(uint32_t instance, flexspi_mem_config_t *config, bool isParallelMode, uint32_t baseAddr)
+{
+  status_t (*const _flexspi_device_wait_busy)(uint32_t, flexspi_mem_config_t *, bool, uint32_t) =
+      (status_t(*)(uint32_t, flexspi_mem_config_t *, bool, uint32_t))0x0020c025;
+  return _flexspi_device_wait_busy(instance, config, isParallelMode, baseAddr);
+}
+
+status_t flexspi_command_xfer(uint32_t instance, flexspi_xfer_t *xfer)
+{
+  status_t (*const _flexspi_command_xfer)(uint32_t, flexspi_xfer_t *) =
+      (status_t(*)(uint32_t, flexspi_xfer_t *))0x0020bb75;
+  return _flexspi_command_xfer(instance, xfer);
+}
+
+status_t flexspi_update_lut(uint32_t instance, uint32_t seqIndex, const uint32_t *lutBase, uint32_t seqNumber)
+{
+  status_t (*const _flexspi_update_lut)(uint32_t, uint32_t, const uint32_t *, uint32_t) =
+      (status_t(*)(uint32_t, uint32_t, const uint32_t *, uint32_t))0x0020c815;
+  return _flexspi_update_lut(instance, seqIndex, lutBase, seqNumber);
+}
+
+void flexspi_clear_cache(uint32_t instance)
+{
+  void (*const _flexspi_clear_cache)(uint32_t) = (void (*)(uint32_t))0x0020ba3f;
+  _flexspi_clear_cache(instance);
+}
+
+status_t flexspi_device_write_enable(uint32_t instance, flexspi_mem_config_t *config, bool isParallelMode, uint32_t baseAddr)
+{
+  status_t (*const _flexspi_device_write_enable)(uint32_t, flexspi_mem_config_t *, bool, uint32_t) =
+      (status_t(*)(uint32_t, flexspi_mem_config_t *, bool, uint32_t))0x0020c1cd;
+  return _flexspi_device_write_enable(instance, config, isParallelMode, baseAddr);
+}
+
+void flexspi_wait_idle(uint32_t instance)
+{
+  void (*const _flexspi_wait_idle)(uint32_t) = (void (*)(uint32_t))0x0020c87d;
+  _flexspi_wait_idle(instance);
+}
+
+status_t flexspi_configure_dll(uint32_t instance, flexspi_mem_config_t *config)
+{
+  status_t (*const _flexspi_configure_dll)(uint32_t, flexspi_mem_config_t *) =
+      (status_t(*)(uint32_t, flexspi_mem_config_t *))0x0020be25;
+  return _flexspi_configure_dll(instance, config);
+}
+
+status_t flexspi_init(uint32_t instance, flexspi_mem_config_t *config)
+{
+  status_t (*const _flexspi_init)(uint32_t, flexspi_mem_config_t *) =
+      (status_t(*)(uint32_t, flexspi_mem_config_t *))0x0020c339;
+  return _flexspi_init(instance, config);
+}
+
+void flexspi_half_clock_control(uint32_t instance, uint32_t option)
+{
+  do
+  {
+    FLEXSPI_Type *(*const _flexspi_get_module_base)(uint32_t) = (FLEXSPI_Type * (*)(uint32_t))0x0020c2f1;
+    FLEXSPI_Type *base = _flexspi_get_module_base(instance);
+
+    if (base == NULL)
+    {
+      break;
+    }
+
+    void (*const _flexspi_wait_until_ip_idle)(FLEXSPI_Type *) = (void (*)(FLEXSPI_Type *))0x0020c893;
+    _flexspi_wait_until_ip_idle(base);
+
+    if (option)
+    {
+      base->MCR0 |= FLEXSPI_MCR0_HSEN_MASK;
+    }
+    else
+    {
+      base->MCR0 &= (uint32_t)~FLEXSPI_MCR0_HSEN_MASK;
+    }
+
+  } while (0);
+}
+
+//--------------------------------------------------------------------+
+// Flash Nor API
+//--------------------------------------------------------------------+
+
 #ifndef ALIGN_DOWN
 #define ALIGN_DOWN(x, a) ((x) & -(a))
 #endif
@@ -73,11 +167,7 @@ status_t ROM_FLEXSPI_NorFlash_Init (uint32_t instance, flexspi_nor_config_t *con
   flexspi_mem_config_t *memCfg = (flexspi_mem_config_t*) config;
   status_t status = flexspi_init(instance, memCfg);
 
-  if ( status != kStatus_Success )
-  {
-    //TUF2_LOG1("FlexSPI initialization failed: 0x%08X\r\n", (uint) status);
-    return status;
-  }
+  if ( status != kStatus_Success ) return status;
 
   // Configure Lookup table
   flexspi_update_lut(instance, 0, memCfg->lookupTable, 16);
@@ -85,7 +175,6 @@ status_t ROM_FLEXSPI_NorFlash_Init (uint32_t instance, flexspi_nor_config_t *con
   return status;
 }
 
-// See flexspi_nor_flash.h for more details.
 status_t ROM_FLEXSPI_NorFlash_EraseSector (uint32_t instance, flexspi_nor_config_t *config, uint32_t address)
 {
   status_t status;
@@ -128,7 +217,6 @@ status_t ROM_FLEXSPI_NorFlash_EraseSector (uint32_t instance, flexspi_nor_config
   return status;
 }
 
-// See flexspi_nor_flash.h for more details.
 status_t ROM_FLEXSPI_NorFlash_Erase (uint32_t instance, flexspi_nor_config_t *config, uint32_t start, uint32_t length)
 {
   uint32_t aligned_start;
@@ -160,7 +248,6 @@ status_t ROM_FLEXSPI_NorFlash_Erase (uint32_t instance, flexspi_nor_config_t *co
   return status;
 }
 
-// See flexspi_nor_flash.h for more details
 status_t ROM_FLEXSPI_NorFlash_ProgramPage (uint32_t instance, flexspi_nor_config_t *config, uint32_t dstAddr,
                                            const uint32_t *src)
 {
