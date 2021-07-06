@@ -189,45 +189,4 @@ typedef struct _flexspi_nor_config
     uint32_t reserve2[11];          //!< Reserved for future use
 } flexspi_nor_config_t;
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-//!@brief Initialize Serial NOR devices via FlexSPI
-status_t flexspi_nor_flash_init(uint32_t instance, flexspi_nor_config_t *config);
-
-//!@brief Program data to Serial NOR via FlexSPI
-status_t flexspi_nor_flash_page_program(uint32_t instance, flexspi_nor_config_t *config, uint32_t dstAddr, const uint32_t *src);
-
-//!@brief Erase all the Serial NOR devices connected on FlexSPI
-status_t flexspi_nor_flash_erase_all(uint32_t instance, flexspi_nor_config_t *config);
-
-//!@brief Erase one sector specified by address
-status_t flexspi_nor_flash_erase_sector(uint32_t instance, flexspi_nor_config_t *config, uint32_t address);
-
-//!@brief Erase one block specified by address
-status_t flexspi_nor_flash_erase_block(uint32_t instance, flexspi_nor_config_t *config, uint32_t address);
-
-//!@brief Get FlexSPI NOR Configuration Block based on specified option
-status_t flexspi_nor_get_config(uint32_t instance, flexspi_nor_config_t *config, serial_nor_config_option_t *option);
-
-//!@brief Erase Flash Region specified by address and length
-status_t flexspi_nor_flash_erase(uint32_t instance, flexspi_nor_config_t *config, uint32_t start, uint32_t length);
-
-//!@brief Read data from Serial NOR
-status_t flexspi_nor_flash_read(uint32_t instance, flexspi_nor_config_t *config, uint32_t *dst, uint32_t start, uint32_t bytes);
-
-//!@brief Write FlexSPI persistent content
-extern status_t flexspi_nor_write_persistent(const uint32_t data);
-
-//!@brief Read FlexSPI persistent content
-extern status_t flexspi_nor_read_persistent(uint32_t *data);
-
-//!@brief Restore Flash to SPI protocol
-status_t flexspi_nor_restore_spi_protocol(uint32_t instance, flexspi_nor_config_t *config, flash_run_context_t *run_ctx);
-
-#ifdef __cplusplus
-}
-#endif
-
 #endif // __FLEXSPI_NOR_FLASH_H__
