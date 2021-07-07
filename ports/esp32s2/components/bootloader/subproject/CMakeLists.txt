@@ -24,6 +24,7 @@ set(COMPONENTS
     soc
     bootloader_support
     log
+    nvs_flash
     spi_flash
     micro-ecc
     main
@@ -32,7 +33,7 @@ set(COMPONENTS
     newlib)
 set(BOOTLOADER_BUILD 1)
 include("${IDF_PATH}/tools/cmake/project.cmake")
-set(common_req log esp_rom esp_common esp_hw_support hal newlib)
+set(common_req log nvs_flash esp_rom esp_common esp_hw_support hal newlib)
 if(LEGACY_INCLUDE_COMMON_HEADERS)
     list(APPEND common_req soc hal)
 endif()
