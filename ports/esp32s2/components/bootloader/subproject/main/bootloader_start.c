@@ -13,6 +13,8 @@
 // limitations under the License.
 #include <stdbool.h>
 #include "esp_log.h"
+#include "nvs.h"
+#include "nvs_flash.h"
 #include "bootloader_init.h"
 #include "bootloader_utility.h"
 #include "bootloader_common.h"
@@ -24,8 +26,6 @@
 // Specific board header specified with -DBOARD=
 #include "board.h"
 
-// Reset Reason Hint to enter UF2. Check out esp_reset_reason_t for other Espressif pre-defined values
-#define APP_REQUEST_UF2_RESET_HINT   0x11F2
 
 // Initial delay in milliseconds to detect user interaction to enter UF2.
 #define UF2_DETECTION_DELAY_MS       500
@@ -45,28 +45,29 @@ static void board_led_on(void);
 static void board_led_off(void);
 
 //--------------------------------------------------------------------+
-// Get Reset Reason Hint requested by Application to enter UF2
+// Get UF2 boot flag and clear it if set
 //--------------------------------------------------------------------+
 
-// copied from esp_system/port/esp32s2/reset_reason.c
-#define RST_REASON_BIT  0x80000000
-#define RST_REASON_MASK 0x7FFF
-#define RST_REASON_SHIFT 16
+bool getBootIntoUF2Flag() {
+  nvs_handle_t m_nvsHandle = 0;
+//   int32_t flag = 0;
 
-uint32_t /*IRAM_ATTR*/ esp_reset_reason_get_hint(void)
-{
-    uint32_t reset_reason_hint = REG_READ(RTC_RESET_CAUSE_REG);
-    uint32_t high = (reset_reason_hint >> RST_REASON_SHIFT) & RST_REASON_MASK;
-    uint32_t low = reset_reason_hint & RST_REASON_MASK;
-    if ((reset_reason_hint & RST_REASON_BIT) == 0 || high != low) {
-        return 0;
-    }
-    return low;
-}
+  ESP_GOTO_ON_ERROR(nvs_flash_init(), err, TAG, "initializing NVS failed");
+  ESP_GOTO_ON_ERROR(nvs_open("storage", NVS_READWRITE, &m_nvsHandle), err, TAG, "opening storage file failed");
+  ESP_GOTO_ON_ERROR(nvs_get_i32(m_nvsHandle, "uf2flag", &flag), err, TAG, "getting uf2flag failed");
 
-static void esp_reset_reason_clear_hint(void)
-{
-    REG_WRITE(RTC_RESET_CAUSE_REG, 0);
+  if (value == 1) {
+    //reset flag and return
+    value = 0
+    ESP_GOTO_ON_ERROR(nvs_set_i32(m_nvsHandle, "uf2flag", flag), err, TAG, "resetting uf2flag failed");
+    ESP_GOTO_ON_ERROR(nvs_commit(m_nvsHandle), err, TAG, "commiting file failed");
+    return true;
+  }
+
+  return false;
+
+  err:
+    return false;
 }
 
 /*
@@ -156,15 +157,12 @@ static int selected_boot_partition(const bootloader_state_t *bs)
         }
 #endif
 
-        // UF2: check if Application want to load uf2 "bootloader" with reset reason hint.
+        // UF2: check if Application want to load uf2 "bootloader" with uf2 boot flag.
         if ( boot_index != FACTORY_INDEX )
         {
-          // Application request to enter UF2 with Software Reset with reason hint
           if ( reset_reason == RTC_SW_SYS_RESET )
           {
-            if ( APP_REQUEST_UF2_RESET_HINT == esp_reset_reason_get_hint() )
-            {
-              esp_reset_reason_clear_hint(); // clear the hint
+            if ( getBootIntoUF2Flag() ) {
               ESP_LOGI(TAG, "Detect application request to enter UF2 bootloader");
               boot_index = FACTORY_INDEX;
             }
