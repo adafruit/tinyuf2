@@ -49,17 +49,29 @@ There are a few ways to enter UF2 mode:
   - Holding `GPIO0` then reset -> ROM bootloader
   - Press reset, see indicator on (purple RGB) then press `GPIO0` -> UF2 bootloader
 - `PIN_DOUBLE_RESET_RC` GPIO is attached to an 100K resistor and 1uF Capacitor to serve as 1-bit memory, which hold the pin value long enough for double reset detection. Simply press double reset to enter UF2
-- Request by application using [system reset reason](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/system.html?highlight=esp_reset_reason#reset-reason) with hint of `0x11F2`. Reset reason hint is different than hardware reset source, it is written to RTC's store6 register and hold value through a software reset. Since Espressif only uses an dozen of value in `esp_reset_reason_t`, it is safe to hijack and use *0x11F2* as reset reason to enter UF2 using following snippet.
+- Request by application using NVS storage flag. To enter UF2 following snippet can be used.
   ```
-  #include "esp_private/system_internal.h"
+  #include "nvs_flash.h"
+  
+  // Initialize NVS (optional)
+  bool initialize_nvs() {
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
+    {
+      if (nvs_flash_erase() != ESP_OK)
+        return false;
+      ret = nvs_flash_init();
+    }
+  }
+
+  // Set UF2 flag and reboot
   void reboot_to_uf2(void)
   {
-    // Check out esp_reset_reason_t for other Espressif pre-defined values
-    enum { APP_REQUEST_UF2_RESET_HINT = 0x11F2 };
-
-    // call esp_reset_reason() is required for idf.py to properly links esp_reset_reason_set_hint()
-    (void) esp_reset_reason();
-    esp_reset_reason_set_hint(APP_REQUEST_UF2_RESET_HINT);
+    nvs_handle_t m_nvsHandle = 0;
+    nvs_flash_init();
+    nvs_open("storage", NVS_READWRITE, &m_nvsHandle);
+    nvs_set_i32(m_nvsHandle, "uf2flag", 1);
+    nvs_commit(m_nvsHandle);
     esp_restart();
   }
   ```
