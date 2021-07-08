@@ -14,7 +14,8 @@ LD_FILES ?= \
 
 SRC_C += \
 	$(PORT_DIR)/boards.c \
-	$(PORT_DIR)/board_flash.c
+	$(PORT_DIR)/board_flash.c \
+	$(PORT_DIR)/romapi_flash.c \
 
 # include
 # INC +=

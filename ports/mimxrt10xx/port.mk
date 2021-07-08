@@ -32,6 +32,11 @@ SRC_C += \
 	$(SDK_DIR)/drivers/pwm/fsl_pwm.c \
 	$(SDK_DIR)/drivers/xbara/fsl_xbara.c \
 
+# It seems that only RT1011 does not have ROM API
+ifneq ($(MCU),MIMXRT1011)
+SRC_C += $(MCU_DIR)/drivers/fsl_romapi.c
+endif
+
 ifndef BUILD_NO_TINYUSB
 SRC_C += lib/tinyusb/src/portable/nxp/transdimension/dcd_transdimension.c
 endif
