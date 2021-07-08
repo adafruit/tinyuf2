@@ -20,7 +20,7 @@ const ivt image_vector_table = {
   IVT_RSVD,                           /* Reserved = 0 */
   (uint32_t)DCD_ADDRESS,              /* Address where DCD information is stored */
   (uint32_t)BOOT_DATA_ADDRESS,        /* Address where BOOT Data Structure is stored */
-  (uint32_t)&image_vector_table,      /* Pointer to IVT Self (absolute address */
+  (uint32_t)&image_vector_table,      /* Pointer to IVT Self (absolute address) */
   (uint32_t)CSF_ADDRESS,              /* Address where CSF file is stored */
   IVT_RSVD                            /* Reserved = 0 */
 };
@@ -32,11 +32,11 @@ __attribute__((section(".boot_hdr.boot_data")))
 const BOOT_DATA_T boot_data = {
   BOARD_BOOT_START,           /* boot start location */
   BOARD_BOOT_LENGTH,          /* bootloader size 48K */
-  PLUGIN_FLAG,                /* Plugin flag*/
+  PLUGIN_FLAG,                /* Plugin flag */
   0xFFFFFFFF                  /* empty - extra data word */
 };
 
-// Config for IS25LP064A with QSPI routed.
+// Config for on-chip W25Q32JV with QSPI routed.
 __attribute__((section(".boot_hdr.conf")))
 const flexspi_nor_config_t qspiflash_config = {
     .pageSize           = 256u,
@@ -61,11 +61,17 @@ const flexspi_nor_config_t qspiflash_config = {
           .seqId = 4u,
           .seqNum = 1u,
         },
-        .deviceModeArg = 0x40,
-        .deviceType    = kFlexSpiDeviceType_SerialNOR,
+        .deviceModeArg = 0x0200,
+        .configCmdEnable = 1u,
+        .configModeType[0] = kDeviceConfigCmdType_Generic,
+        .configCmdSeqs[0] = {
+            .seqId = 2u,
+            .seqNum = 1u,
+        },
+        .deviceType = kFlexSpiDeviceType_SerialNOR,
         .sflashPadType = kSerialFlash_4Pads,
-        .serialClkFreq = kFlexSpiSerialClk_30MHz,
-        .sflashA1Size  = FLASH_SIZE,
+        .serialClkFreq = kFlexSpiSerialClk_60MHz,
+        .sflashA1Size  = BOARD_FLASH_SIZE,
         .lookupTable =
         {
             // FLEXSPI_LUT_SEQ(cmd0, pad0, op0, cmd1, pad1, op1)
@@ -79,27 +85,31 @@ const flexspi_nor_config_t qspiflash_config = {
 
             // 0: ROM: Read LUTs
             // Quad version
-             SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0xEB /* the command to send */,
-                                      RADDR_SDR, FLEXSPI_4PAD, 24  /* bits to transmit */ ),
-                      FLEXSPI_LUT_SEQ(DUMMY_SDR, FLEXSPI_4PAD, 6 /* 6 dummy cycles, 2 for M7-0 and 4 dummy */,
-                                      READ_SDR,  FLEXSPI_4PAD, 0x04),
+            SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0xEB /* the command to send */,
+                                     RADDR_SDR, FLEXSPI_4PAD, 24 /* bits to transmit */),
+                     FLEXSPI_LUT_SEQ(DUMMY_SDR, FLEXSPI_4PAD, 6 /* 6 dummy cycles, 2 for M7-0 and 4 dummy */,
+                                     READ_SDR,  FLEXSPI_4PAD, 0x04),
             // Single fast read version, good for debugging.
-            // SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0x0B /* the command to send */,
-            //                         RADDR_SDR, FLEXSPI_1PAD, 24  /* bits to transmit */),
-            //         FLEXSPI_LUT_SEQ(DUMMY_SDR, FLEXSPI_1PAD, 8 /* 8 dummy clocks */,
-            //                         READ_SDR,  FLEXSPI_1PAD, 0x04),
+            // FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0x0B /* the command to send */,
+            //                 RADDR_SDR, FLEXSPI_1PAD, 24  /* bits to transmit */),
+            // FLEXSPI_LUT_SEQ(DUMMY_SDR, FLEXSPI_1PAD, 8 /* 8 dummy clocks */,
+            //                 READ_SDR,  FLEXSPI_1PAD, 0x04),
                      TWO_EMPTY_STEPS,
                      TWO_EMPTY_STEPS),
 
             // 1: ROM: Read status
             SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,  FLEXSPI_1PAD, 0x05  /* the command to send */,
-                                     READ_SDR, FLEXSPI_1PAD, 0x01),
+                                     READ_SDR, FLEXSPI_1PAD, 0x02),
                      TWO_EMPTY_STEPS,
                      TWO_EMPTY_STEPS,
                      TWO_EMPTY_STEPS),
 
             // 2: Empty
-            EMPTY_SEQUENCE,
+            SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0x35 /* the command to send */,
+                DUMMY_SDR, FLEXSPI_1PAD, 8),
+                TWO_EMPTY_STEPS,
+                TWO_EMPTY_STEPS,
+                TWO_EMPTY_STEPS),
 
             // 3: ROM: Write Enable
             SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR, FLEXSPI_1PAD, 0x06  /* the command to send */,

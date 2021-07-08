@@ -33,15 +33,22 @@
 
 #define SECTOR_SIZE     (4*1024)
 #define FLASH_PAGE_SIZE 256
-#define FILESYSTEM_BLOCK_SIZE 256
 
-#define FLEXSPI_INSTANCE 0
+// on-board flash is connected to FLEXSPI2 on rt1064
+#if defined(MIMXRT1064_SERIES)
+  #define FLEXSPI_INSTANCE    1
+  #define FLEXSPI_FLASH_BASE  FlexSPI2_AMBA_BASE
+#else
+  #define FLEXSPI_INSTANCE    0
+  #define FLEXSPI_FLASH_BASE  FlexSPI_AMBA_BASE
+#endif
 
 // Mask off lower 12 bits to get FCFB offset
-#define FCFB_START_ADDRESS    (FlexSPI_AMBA_BASE + (((uint32_t) &qspiflash_config) & 0xFFF))
+#define FCFB_START_ADDRESS    (FLEXSPI_FLASH_BASE + (((uint32_t) &qspiflash_config) & 0xFFF))
 
 // Flash Configuration Structure 
 extern flexspi_nor_config_t const qspiflash_config;
+static flexspi_nor_config_t* flash_cfg = (flexspi_nor_config_t*) &qspiflash_config;
 
 static uint32_t _flash_page_addr = NO_CACHE;
 static uint8_t  _flash_cache[SECTOR_SIZE] __attribute__((aligned(4)));
@@ -52,7 +59,7 @@ static void write_tinyuf2_to_flash(void)
   uint32_t flash_addr = FCFB_START_ADDRESS;
 
   TUF2_LOG1("Writing TinyUF2 image to flash.\r\n");
-  while ( flash_addr < (FlexSPI_AMBA_BASE + BOARD_BOOT_LENGTH) )
+  while ( flash_addr < (FLEXSPI_FLASH_BASE + BOARD_BOOT_LENGTH) )
   {
     board_flash_write(flash_addr, image_data, FLASH_PAGE_SIZE);
     flash_addr += FLASH_PAGE_SIZE;
@@ -64,7 +71,7 @@ static void write_tinyuf2_to_flash(void)
 
 void board_flash_init(void)
 {
-  ROM_FLEXSPI_NorFlash_Init(FLEXSPI_INSTANCE, (flexspi_nor_config_t*) &qspiflash_config);
+  ROM_FLEXSPI_NorFlash_Init(FLEXSPI_INSTANCE, flash_cfg);
 
   // TinyUF2 will copy its image to flash if  Boot Mode is '01' i.e Serial Download Mode (BootRom)
   // Normally it is done once by SDPHost or used to recover an corrupted boards
@@ -102,10 +109,10 @@ void board_flash_flush(void)
   // Skip if data is the same
   if ( memcmp(_flash_cache, (void*) _flash_page_addr, SECTOR_SIZE) != 0 )
   {
-    uint32_t const sector_addr = (_flash_page_addr - FlexSPI_AMBA_BASE);
+    uint32_t const sector_addr = (_flash_page_addr - FLEXSPI_FLASH_BASE);
 
     __disable_irq();
-    status = ROM_FLEXSPI_NorFlash_Erase(FLEXSPI_INSTANCE, (flexspi_nor_config_t*) &qspiflash_config, sector_addr, SECTOR_SIZE);
+    status = ROM_FLEXSPI_NorFlash_Erase(FLEXSPI_INSTANCE, flash_cfg, sector_addr, SECTOR_SIZE);
     __enable_irq();
 
     SCB_InvalidateDCache_by_Addr((uint32_t *)sector_addr, SECTOR_SIZE);
@@ -122,7 +129,7 @@ void board_flash_flush(void)
       void* page_data =  _flash_cache + i * FLASH_PAGE_SIZE;
 
       __disable_irq();
-      status = ROM_FLEXSPI_NorFlash_ProgramPage(FLEXSPI_INSTANCE, (flexspi_nor_config_t*) &qspiflash_config, page_addr, (uint32_t*) page_data);
+      status = ROM_FLEXSPI_NorFlash_ProgramPage(FLEXSPI_INSTANCE, flash_cfg, page_addr, (uint32_t*) page_data);
       __enable_irq();
 
       if ( status != kStatus_Success )
@@ -162,8 +169,8 @@ void board_flash_erase_app(void)
   TUF2_LOG1("Erase whole chip\r\n");
 
   // Perform chip erase first
-  ROM_FLEXSPI_NorFlash_Init(FLEXSPI_INSTANCE, (flexspi_nor_config_t*) &qspiflash_config);
-  ROM_FLEXSPI_NorFlash_EraseAll(FLEXSPI_INSTANCE, (flexspi_nor_config_t*) &qspiflash_config);
+  ROM_FLEXSPI_NorFlash_Init(FLEXSPI_INSTANCE, flash_cfg);
+  ROM_FLEXSPI_NorFlash_EraseAll(FLEXSPI_INSTANCE, flash_cfg);
 
   // write bootloader to flash
   TUF2_LOG1("Erase app firmware: ");
