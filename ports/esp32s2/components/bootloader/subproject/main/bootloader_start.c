@@ -48,7 +48,7 @@ static void board_led_off(void);
 // Get Reset Reason Hint requested by Application to enter UF2
 //--------------------------------------------------------------------+
 
-// copied from esp_system/port/esp32s2/reset_reason.c
+// copied from esp_system/port/soc/esp32s2/reset_reason.c
 #define RST_REASON_BIT  0x80000000
 #define RST_REASON_MASK 0x7FFF
 #define RST_REASON_SHIFT 16
@@ -160,9 +160,10 @@ static int selected_boot_partition(const bootloader_state_t *bs)
         if ( boot_index != FACTORY_INDEX )
         {
           // Application request to enter UF2 with Software Reset with reason hint
-          if ( reset_reason == RTC_SW_SYS_RESET )
+          if ( reset_reason == RTC_SW_SYS_RESET ||  reset_reason == RTC_SW_CPU_RESET )
           {
-            if ( APP_REQUEST_UF2_RESET_HINT == esp_reset_reason_get_hint() )
+            uint32_t const reset_hint = (uint32_t) esp_reset_reason_get_hint();
+            if ( APP_REQUEST_UF2_RESET_HINT == reset_hint )
             {
               esp_reset_reason_clear_hint(); // clear the hint
               ESP_LOGI(TAG, "Detect application request to enter UF2 bootloader");
