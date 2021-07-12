@@ -1,5 +1,26 @@
 # TinyUF2 Changelog
 
+## 0.5.0 - 2021.07.12
+
+- Update self-update as application
+
+### ESP32-S2
+
+- Update IDF to v4.3
+- Add new boards: muselab_nanoesp32_s2, atmegazero_esp32s2
+- Fix esp32s2 request to uf2 using reset hint
+
+### iMXRT
+
+- self-install tinyuf2 when FCFB not valid
+- Use official nxp mcux-sdk submodule
+- Refactor fsl_romapi
+- Add support for on-chip flash (W25Q32JV) for rt1024 and rt1064
+
+### LPC55
+
+- Use official nxp mcux-sdk submodule
+
 ## 0.4.0 - 2021.04.04
 
 - Add support for multiple sectors per cluster in GhostFAT to enable larger flash sizes
