@@ -112,7 +112,8 @@ void flash_write(uint32_t dst, const uint8_t *src, int len)
 
   for (int i = 0; i < len; i += 4)
   {
-    HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, dst + i, (uint64_t) (*(uint32_t*)(src + i)) );
+    uint32_t data = *( (uint32_t*) ((void*) (src + i)) );
+    HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, dst + i, (uint64_t) data);
   }
 
   if (memcmp((void*)dst, src, len) != 0)
