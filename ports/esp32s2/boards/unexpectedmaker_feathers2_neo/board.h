@@ -22,8 +22,8 @@
  * THE SOFTWARE.
  */
 
-#ifndef UNEXPECTEDMAKER_FEATHERS2_H_
-#define UNEXPECTEDMAKER_FEATHERS2_H_
+#ifndef UNEXPECTEDMAKER_FEATHERS2_NEO_H_
+#define UNEXPECTEDMAKER_FEATHERS2_NEO_H_
 
 //--------------------------------------------------------------------+
 // Button
@@ -34,39 +34,38 @@
 // reset since that will instead run the 1st stage ROM bootloader
 #define PIN_BUTTON_UF2        0
 
+// GPIO that implement 1-bit memory with RC components which hold the
+// pin value long enough for double reset detection.
+// #define PIN_DOUBLE_RESET_RC
+
 //--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
 
-// Number of Dotstar
-#define DOTSTAR_NUMBER         1
+// GPIO connected to Neopixel data
+#define NEOPIXEL_PIN          40
 
-// GPIO connected to Dotstar
-#define DOTSTAR_PIN_DATA       40
-#define DOTSTAR_PIN_SCK        45
-#define DOTSTAR_PIN_PWR        21
-#define DOTSTAR_POWER_STATE    1
+#define NEOPIXEL_POWER_PIN    39
+#define NEOPIXEL_POWER_STATE  1
 
 // Brightness percentage from 1 to 255
-#define DOTSTAR_BRIGHTNESS     175
+#define NEOPIXEL_BRIGHTNESS   0x64
 
-// LED for indicator and writing flash
-// If not defined neopixel will be use for flash writing instead
-#define LED_PIN               13
-#define LED_STATE_ON          1
+// Number of neopixels
+#define NEOPIXEL_NUMBER       1
 
 //--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
 
-#define USB_VID           0x239A
-#define USB_PID           0x00AB
+#define USB_VID           0x303A
+#define USB_PID           0x80B5
 #define USB_MANUFACTURER  "Unexpected Maker"
-#define USB_PRODUCT       "FeatherS2"
+#define USB_PRODUCT       "FeatherS2 Neo"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "ESP32S2-FeatherS2-01"
-#define UF2_VOLUME_LABEL  "UFTHRS2BOOT"
-#define UF2_INDEX_URL     "https://circuitpython.org/board/unexpectedmaker_feathers2/"
+#define UF2_BOARD_ID      "ESP32S2FN4R2-FeatherS2Neo-01"
+#define UF2_VOLUME_LABEL  "FS2NEOBOOT"
+#define UF2_INDEX_URL     "https://circuitpython.org/board/unexpectedmaker_featherS2_neo/"
 
 #endif
