@@ -29,10 +29,10 @@ body:
     validations:
       required: true
 
-  - type: input
+  - type: textarea
     attributes:
       label: Firmware/Software/Tool Version
-      description: "Version of TinyUF2 and/or software, tool that are used to reproduce the issue"
+      placeholder: "Version of TinyUF2 and/or software, tools that are used to reproduce the issue"
     validations:
       required: true
 
