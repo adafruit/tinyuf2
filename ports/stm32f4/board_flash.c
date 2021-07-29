@@ -25,83 +25,63 @@
 #include "board_api.h"
 #include "tusb.h" // for logging
 
-#define FLASH_CACHE_SIZE          4096
-#define FLASH_CACHE_INVALID_ADDR  0xffffffff
+//--------------------------------------------------------------------+
+//
+//--------------------------------------------------------------------+
+
+// no caching
+//#define FLASH_CACHE_SIZE          4096
+//#define FLASH_CACHE_INVALID_ADDR  0xffffffff
+
+
+#define FLASH_BASE_ADDR  0x08000000
+#define APP_LOAD_ADDRESS 0x08010000
+
+/* flash parameters that we should not really know */
+static const uint32_t sector_size[] =
+{
+  // First 4 sectors are for bootloader (64KB)
+  16 * 1024,
+	16 * 1024,
+	16 * 1024,
+	16 * 1024,
+	// Application (APP_LOAD_ADDRESS)
+	64 * 1024,
+	128 * 1024,
+	128 * 1024,
+	128 * 1024,
+	128 * 1024,
+	128 * 1024,
+	128 * 1024,
+	128 * 1024,
+
+	// flash sectors only in 2MiB devices
+	16 * 1024,
+	16 * 1024,
+	16 * 1024,
+	16 * 1024,
+	64 * 1024,
+	128 * 1024,
+	128 * 1024,
+	128 * 1024,
+	128 * 1024,
+	128 * 1024,
+	128 * 1024,
+	128 * 1024
+};
+
+enum
+{
+  SECTOR_COUNT = TU_ARRAY_SIZE(sector_size)
+};
+
+static uint8_t erased_sectors[SECTOR_COUNT] = { 0 };
 
 //--------------------------------------------------------------------+
 //
 //--------------------------------------------------------------------+
 
-#ifndef BOARD_FLASH_SECTORS
-#define BOARD_FLASH_SECTORS 8
-#endif
-
-#define BOARD_FIRST_FLASH_SECTOR_TO_ERASE 0
-
-#define APP_LOAD_ADDRESS 0x08010000
-
-/* flash parameters that we should not really know */
-static struct {
-	uint32_t	sector_number;
-	uint32_t	size;
-} flash_sectors[] = {
-
-	/* Physical FLASH sector 0 is reserved for bootloader and is not
-	 * the table below.
-	 * N sectors may aslo be reserved for the app fw in which case
-	 * the zero based define BOARD_FIRST_FLASH_SECTOR_TO_ERASE must
-	 * be defined to begin the erase above of the reserved sectors.
-	 * The default value of BOARD_FIRST_FLASH_SECTOR_TO_ERASE is 0
-	 * and begins flash erase operations at phsical sector 1 the 0th entry
-	 * in the table below.
-	 * A value of 1 for BOARD_FIRST_FLASH_SECTOR_TO_ERASE would reserve
-	 * the 0th entry and begin erasing a index 1 the third physical sector
-	 * on the device.
-	 *
-	 * When BOARD_FIRST_FLASH_SECTOR_TO_ERASE is defined APP_RESERVATION_SIZE
-	 * must also be defined to remove that additonal reserved FLASH space
-	 * from the BOARD_FLASH_SIZE. See APP_SIZE_MAX below.
-	 */
-
-	{0x01, 16 * 1024},
-	{0x02, 16 * 1024},
-	{0x03, 16 * 1024},
-	{0x04, 64 * 1024},
-	{0x05, 128 * 1024},
-	{0x06, 128 * 1024},
-	{0x07, 128 * 1024},
-	{0x08, 128 * 1024},
-	{0x09, 128 * 1024},
-	{0x0a, 128 * 1024},
-	{0x0b, 128 * 1024},
-	/* flash sectors only in 2MiB devices */
-	{0x10, 16 * 1024},
-	{0x11, 16 * 1024},
-	{0x12, 16 * 1024},
-	{0x13, 16 * 1024},
-	{0x14, 64 * 1024},
-	{0x15, 128 * 1024},
-	{0x16, 128 * 1024},
-	{0x17, 128 * 1024},
-	{0x18, 128 * 1024},
-	{0x19, 128 * 1024},
-	{0x1a, 128 * 1024},
-	{0x1b, 128 * 1024},
-};
-
-static uint8_t erasedSectors[BOARD_FLASH_SECTORS];
-
-uint32_t flash_func_sector_size (unsigned sector)
-{
-  if ( sector < BOARD_FLASH_SECTORS )
-  {
-    return flash_sectors[sector].size;
-  }
-
-  return 0;
-}
-
-static bool is_blank (uint32_t addr, uint32_t size)
+static bool is_blank(uint32_t addr, uint32_t size)
 {
   for ( uint32_t i = 0; i < size; i += sizeof(uint32_t) )
   {
@@ -113,54 +93,53 @@ static bool is_blank (uint32_t addr, uint32_t size)
   return true;
 }
 
-void flash_write(uint32_t dst, const uint8_t *src, int len)
+static bool flash_erase(uint32_t addr)
 {
-  // assume sector 0 (bootloader) is same size as sector 1
-  uint32_t addr = flash_func_sector_size(0) + (APP_LOAD_ADDRESS & 0xfff00000);
+  // starting address from 0x08000000
+  uint32_t sector_addr = FLASH_BASE_ADDR;
+  bool erased = false;
+
   uint32_t sector = 0;
-  int erased = false;
   uint32_t size = 0;
 
-  for ( unsigned i = 0; i < BOARD_FLASH_SECTORS; i++ )
+  for ( uint32_t i = 0; i < SECTOR_COUNT; i++ )
   {
-    size = flash_func_sector_size(i);
-    if ( addr + size > dst )
+    TU_ASSERT(sector_addr < FLASH_BASE_ADDR + BOARD_FLASH_SIZE);
+
+    size = sector_size[i];
+    if ( sector_addr + size > addr )
     {
-      sector = flash_sectors[i].sector_number;
-      erased = erasedSectors[i];
-      erasedSectors[i] = 1;    // don't erase anymore - we will continue writing here!
+      sector = i;
+      erased = erased_sectors[i];
+      erased_sectors[i] = 1;    // don't erase anymore - we will continue writing here!
       break;
     }
-    addr += size;
+    sector_addr += size;
   }
 
-  if ( sector == 0 )
-  {
-    TU_LOG1("invalid sector");
-  }
+  TU_ASSERT(sector);
 
-  HAL_FLASH_Unlock();
-
-  if ( !erased && !is_blank(addr, size) )
+  if ( !erased && !is_blank(sector_addr, size) )
   {
-    TU_LOG1("Erase: %08lX size = %lu\n", addr, size);
+    TU_LOG1("Erase: %08lX size = %lu KB\n", sector_addr, size / 1024);
 
     FLASH_Erase_Sector(sector, FLASH_VOLTAGE_RANGE_3);
-    if ( FLASH_WaitForLastOperation(HAL_MAX_DELAY) != HAL_OK )
-    {
-      TU_LOG1("Waiting on last operation failed");
-      return;
-    };
+    FLASH_WaitForLastOperation(HAL_MAX_DELAY);
 
-    if ( !is_blank(addr, size) )
-    {
-      TU_LOG1("failed to erase!");
-    }
+    TU_ASSERT( is_blank(sector_addr, size) );
   }
+
+  return true;
+}
+
+static void flash_write(uint32_t dst, const uint8_t *src, int len)
+{
+  flash_erase(dst);
 
   for ( int i = 0; i < len; i += 4 )
   {
     uint32_t data = *((uint32_t*) ((void*) (src + i)));
+
     if ( HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, dst + i, (uint64_t) data) != HAL_OK )
     {
       TU_LOG1("Failed to write flash at address %08lX", dst + i);
@@ -205,8 +184,13 @@ void board_flash_flush(void)
 // TODO not working quite yet
 void board_flash_write (uint32_t addr, void const *data, uint32_t len)
 {
-  // TODO skip matching contents
-  flash_write(addr, data, len);
+  // skip matching contents
+  if ( memcmp((void*) addr, data, len) )
+  {
+    HAL_FLASH_Unlock();
+    flash_write(addr, data, len);
+    HAL_FLASH_Lock();
+  }
 }
 
 void board_flash_erase_app(void)

@@ -22,17 +22,10 @@ body:
     validations:
       required: true
 
-  - type: input
-    attributes:
-      label: Board
-      placeholder: e.g Feather nRF52840 Express
-    validations:
-      required: true
-
   - type: textarea
     attributes:
-      label: Firmware/Software/Tool Version
-      placeholder: "Version of TinyUF2 and/or software, tools that are used to reproduce the issue"
+      label: INFO_UF2.TXT
+      placeholder: "Put your INFO_UF2.TXT contents here"
     validations:
       required: true
 
