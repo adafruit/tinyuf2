@@ -28,17 +28,9 @@ TODO more docs later
 
 ## Build and Flash
 
-### Requirements
-
-- GCC cross compiler and Make
+Following is generic compiling information. Each port may require extra set-up and slight different process e.g esp32s2 require setup IDF.
 
 ### Compile
-
-Firstly clone this repo and its submodules with 
-
-``` 
-$ git clone --recurse-submodules https://github.com/adafruit/tinyuf2
-```
 
 To build this for a specific board, we need to change current directory to its port folder
 
@@ -51,6 +43,8 @@ Then compile with `make BOARD=[board_name] all`, for example
 ```
 make BOARD=feather_stm32f405_express all
 ```
+
+The required mcu driver submodule if any will be clone automatically if needed. 
 
 ### Flash
 
