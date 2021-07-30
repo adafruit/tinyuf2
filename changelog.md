@@ -1,5 +1,15 @@
 # TinyUF2 Changelog
 
+## 0.5.1 - 2021.07.30
+
+### ESP32-S2
+
+- Added new board: unexpectedmaker_feathers2_neo
+
+### STM32F4
+
+- fix updating issue with circuipython
+
 ## 0.5.0 - 2021.07.12
 
 - Update self-update as application

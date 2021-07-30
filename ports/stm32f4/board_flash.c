@@ -33,9 +33,7 @@
 //#define FLASH_CACHE_SIZE          4096
 //#define FLASH_CACHE_INVALID_ADDR  0xffffffff
 
-
 #define FLASH_BASE_ADDR  0x08000000
-#define APP_LOAD_ADDRESS 0x08010000
 
 /* flash parameters that we should not really know */
 static const uint32_t sector_size[] =
@@ -45,17 +43,19 @@ static const uint32_t sector_size[] =
 	16 * 1024,
 	16 * 1024,
 	16 * 1024,
-	// Application (APP_LOAD_ADDRESS)
+	// Application (BOARD_FLASH_APP_START)
 	64 * 1024,
 	128 * 1024,
 	128 * 1024,
 	128 * 1024,
+
+	// flash sectors only in 1 MB devices
 	128 * 1024,
 	128 * 1024,
 	128 * 1024,
 	128 * 1024,
 
-	// flash sectors only in 2MiB devices
+	// flash sectors only in 2 MB devices
 	16 * 1024,
 	16 * 1024,
 	16 * 1024,

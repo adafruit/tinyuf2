@@ -1,4 +1,4 @@
-# UF2 Bootloader **Application** for ESP32-S2
+# TinyUF2 "Bootloader Application" for ESP32-S2
 
 The project is composed of customizing the 2nd stage bootloader from IDF and UF2 factory application as 3rd stage bootloader. **Note**: since IDF is actively developed and change very often, it is included as submodule at `lib/esp-idf`, please run export script there to have your environment setup correctly.
 
@@ -68,9 +68,10 @@ There are a few ways to enter UF2 mode:
 
 To create your own UF2 file, simply use the [Python conversion script](https://github.com/Microsoft/uf2/blob/master/utils/uf2conv.py) on a .bin file, specifying the family as **0xbfdd4eee**. Note you must specify application address of 0x00 with the -b switch, the bootloader will use it as offset to write to ota partition.
 
-To create a UF2 image from a .bin file:
+To create a UF2 image from a .bin file using family option `ESP32S2` or its magic number as followss:
 
 ```
+uf2conv.py firmware.bin -c -b 0x00 -f ESP32S2
 uf2conv.py firmware.bin -c -b 0x00 -f 0xbfdd4eee
 ```
 
@@ -94,9 +95,7 @@ NOTE: uf2 bootloader, customized 2nd bootloader and partition table can be overw
 
 ## Partition
 
-The following partition isn't final yet, current build without optimization and lots of debug is around 100 KB. Since IDF requires application type must be 64KB aligned, uf2 is best with size of 64KB, we will try to see if we could fit  https://github.com/microsoft/uf2/blob/master/hf2.md and https://github.com/microsoft/uf2/blob/master/cf2.md within 64KB.
-
-UF2 only uses `ota_0` user application can change partition table (e.g increase ota_0 size, re-arrange layout/address) but should not overwrite the uf2 part. If an complete re-design partition is required, `uf2_bootloader.bin` and the `modified 2nd_stage_bootloader.bin` should be included as part of user combined binary for flash command.
+Following is typical partition for 4MB flash, check out the `partition-xMB.csv` for details.
 
 ```
 # Name,   Type, SubType, Offset,  Size, Flags

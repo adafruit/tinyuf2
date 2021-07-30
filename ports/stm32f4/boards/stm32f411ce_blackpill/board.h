@@ -52,8 +52,8 @@
 //--------------------------------------------------------------------+
 
 // Flash size of the board
-#define BOARD_FLASH_SIZE  (512 * 1024)
-#define BOARD_FLASH_SECTORS 8
+#define BOARD_FLASH_SIZE      (512 * 1024)
+#define BOARD_FLASH_SECTORS   8
 
 //--------------------------------------------------------------------+
 // USB UF2

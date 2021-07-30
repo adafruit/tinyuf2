@@ -8,8 +8,5 @@ SRC_S += \
 # For flash-jlink target
 JLINK_DEVICE = stm32f401cc
 
-flash: flash-jlink
+flash: flash-dfu-util
 erase: erase-jlink
-
-#flash: flash-stlink
-#erase: erase-stlink
