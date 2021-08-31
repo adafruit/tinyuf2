@@ -22,9 +22,6 @@
  * THE SOFTWARE.
  */
 
- // #ifndef UNEXPECTEDMAKER_TINYS2_H_
- // #define UNEXPECTEDMAKER_TINYS2_H_
-
 //--------------------------------------------------------------------+
 // Button
 //--------------------------------------------------------------------+
@@ -67,5 +64,3 @@
 #define UF2_BOARD_ID      "ESP32S2FN4R2-S2Mini-1-0-0"
 #define UF2_VOLUME_LABEL  "S2MINIBOOT"
 #define UF2_INDEX_URL     "https://circuitpython.org/board/lolin_s2_mini/"
-
-#endif
