@@ -42,22 +42,21 @@
 //--------------------------------------------------------------------+
 
 // LED for indicator and writing flash
-// If not defined neopixel will be use for flash writing instead
 #define LED_PIN               15
 #define LED_STATE_ON          1
 
-// Wire-up NeoPixel to board for testing
-// GPIOs connected to NeoPixel data & power
-#define NEOPIXEL_PIN          01
-
-#define NEOPIXEL_POWER_PIN    02
-#define NEOPIXEL_POWER_STATE  1
-
-// Brightness percentage from 1 to 255
-#define NEOPIXEL_BRIGHTNESS   0x64
-
-// Number of neopixels
-#define NEOPIXEL_NUMBER       1
+// Uncomment & wire-up NeoPixel to board for testing
+// // GPIOs connected to NeoPixel data & power
+// #define NEOPIXEL_PIN          01
+// 
+// #define NEOPIXEL_POWER_PIN    02
+// #define NEOPIXEL_POWER_STATE  1
+// 
+// // Brightness percentage from 1 to 255
+// #define NEOPIXEL_BRIGHTNESS   0x64
+// 
+// // Number of neopixels
+// #define NEOPIXEL_NUMBER       1
 
 //--------------------------------------------------------------------+
 // USB UF2
