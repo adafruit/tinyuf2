@@ -39,7 +39,13 @@
 // LED
 //--------------------------------------------------------------------+
 
-// GPIO connected to Neopixel data
+// LED for indicator and writing flash
+// If not defined neopixel will be use for flash writing instead
+#define LED_PIN               15
+#define LED_STATE_ON          1
+
+// Wire-up NeoPixel to board for testing
+// GPIOs connected to NeoPixel data & power
 #define NEOPIXEL_PIN          01
 
 #define NEOPIXEL_POWER_PIN    02
