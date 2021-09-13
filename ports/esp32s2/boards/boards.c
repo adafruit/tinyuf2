@@ -60,6 +60,11 @@ void dotstar_init(void);
 void dotstar_write(uint8_t const rgb[]);
 #endif
 
+#ifdef TCA9554_ADDR
+#include "esp_err.h"
+#include "driver/i2c.h"
+#endif
+
 #ifdef LED_PIN
 #include "driver/ledc.h"
 ledc_channel_config_t ledc_channel =
@@ -130,6 +135,42 @@ void app_main(void)
 
 void board_init(void)
 {
+// Peripheral control through I2C Expander
+#ifdef TCA9554_ADDR
+  int i2c_num = I2C_MASTER_NUM;
+  i2c_config_t conf = {
+      .mode = I2C_MODE_MASTER,
+      .sda_io_num = I2C_MASTER_SDA_IO,
+      .scl_io_num = I2C_MASTER_SCL_IO,
+      .sda_pullup_en = GPIO_PULLUP_ENABLE,
+      .scl_pullup_en = GPIO_PULLUP_ENABLE,
+      .master.clk_speed = I2C_MASTER_FREQ_HZ,
+  };
+  i2c_param_config(i2c_num, &conf);
+  i2c_driver_install(i2c_num, conf.mode, I2C_MASTER_RX_BUF_DISABLE, I2C_MASTER_TX_BUF_DISABLE, 0);
+
+  // Turn on PERI_POWER that is controlled by TC9554 I2C Expander
+  i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+  i2c_master_start(cmd);
+  i2c_master_write_byte(cmd, TCA9554_ADDR << 1 | I2C_MASTER_WRITE, true);
+  i2c_master_write_byte(cmd, TCA9554_CONFIGURATION_REG, true);
+  i2c_master_write_byte(cmd, TCA9554_DEFAULT_CONFIG, true);
+  i2c_master_stop(cmd);
+  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_RATE_MS);
+  i2c_cmd_link_delete(cmd);
+  vTaskDelay(30 / portTICK_RATE_MS);
+  cmd = i2c_cmd_link_create();
+  i2c_master_start(cmd);
+  i2c_master_write_byte(cmd, TCA9554_ADDR << 1 | I2C_MASTER_WRITE, true);
+  i2c_master_write_byte(cmd, TCA9554_OUTPUT_PORT_REG, true);
+  i2c_master_write_byte(cmd, TCA9554_DEFAULT_VALUE, true);
+  i2c_master_stop(cmd);
+  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_RATE_MS);
+  i2c_cmd_link_delete(cmd);
+  i2c_driver_delete(i2c_num);
+
+#endif
+
 #ifdef LED_PIN
   ledc_timer_config_t ledc_timer =
   {
