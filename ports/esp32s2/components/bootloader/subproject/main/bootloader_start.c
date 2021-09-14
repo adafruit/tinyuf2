@@ -20,9 +20,14 @@
 #include "esp32s2/rom/gpio.h"
 #include "soc/cpu.h"
 #include "hal/gpio_ll.h"
-
+#include "esp_rom_sys.h"
+#include "esp_rom_gpio.h"
 // Specific board header specified with -DBOARD=
 #include "board.h"
+#ifdef TCA9554_ADDR
+#include "hal/i2c_types.h"
+#endif
+
 
 // Reset Reason Hint to enter UF2. Check out esp_reset_reason_t for other Espressif pre-defined values
 #define APP_REQUEST_UF2_RESET_HINT   0x11F2
@@ -253,6 +258,19 @@ static inline uint32_t delay_cycle(uint32_t cycle)
   return ccount;
 }
 
+#ifdef TCA9554_ADDR
+
+//  Derived from https://github.com/bitbank2/BitBang_I2C  Larry Bank
+// 
+#define LOW   0x00
+#define HIGH  0x01
+#define ACK   0x00
+#define NACK  0x01
+#define CLOCK_STRETCH_TIMEOUT   1000 
+
+// static bool i2c_started;
+#endif
+
 #ifdef NEOPIXEL_PIN
 
 static inline uint8_t color_brightness(uint8_t color, uint8_t brightness)
@@ -267,6 +285,7 @@ static void board_neopixel_set(uint32_t num_pin, uint8_t const rgb[])
   uint32_t const time1  = ns2cycle(800);
   uint32_t const period = ns2cycle(1250);
 
+  
   uint8_t pixels[3*NEOPIXEL_NUMBER];
   for(uint32_t i=0; i<NEOPIXEL_NUMBER; i++)
   {
@@ -350,10 +369,100 @@ static void board_dotstar_set(uint32_t pin_data, uint32_t pin_sck, uint8_t const
 }
 #endif
 
+#ifdef TCA9554_ADDR
+// Write one byte to I2C bus
+uint8_t sw_i2c_write_byte(uint8_t b) {
+    uint8_t ack;
+
+//Shift out 8 bits
+  for (uint8_t mask=0x80; mask!=0; mask>>=1) {
+    if (mask & b) 
+      gpio_ll_set_level(&GPIO, I2C_MASTER_SDA_IO, HIGH);
+    else
+      gpio_ll_set_level(&GPIO, I2C_MASTER_SDA_IO, LOW);
+    delay_cycle( ns2cycle(I2C_WAIT/2*1000) ) ;
+    gpio_ll_set_level(&GPIO, I2C_MASTER_SCL_IO, HIGH);
+    delay_cycle( ns2cycle(I2C_WAIT/2*1000) ) ;
+    gpio_ll_set_level(&GPIO, I2C_MASTER_SCL_IO, LOW);
+  }
+// Wait for ACK/NACK 
+  delay_cycle( ns2cycle(I2C_WAIT/2*1000) ) ;
+  gpio_ll_set_level(&GPIO, I2C_MASTER_SDA_IO, HIGH);
+  gpio_ll_set_level(&GPIO, I2C_MASTER_SCL_IO, HIGH);
+  esp_rom_delay_us(I2C_WAIT);
+  ack = gpio_ll_get_level( &GPIO, I2C_MASTER_SDA_IO);
+  gpio_ll_set_level( &GPIO, I2C_MASTER_SCL_IO, LOW);
+  gpio_ll_set_level(&GPIO, I2C_MASTER_SDA_IO, LOW);
+  return ack == 0;
+}
+
+// I2C Start and Address
+void sw_i2c_begin(uint8_t address) {
+// Start signal
+  gpio_ll_set_level(&GPIO, I2C_MASTER_SDA_IO, LOW);
+  delay_cycle( ns2cycle(I2C_WAIT*1000) ) ;
+  gpio_ll_set_level(&GPIO, I2C_MASTER_SCL_IO, LOW);
+// Address the device
+  sw_i2c_write_byte(address);
+}
+
+void sw_i2c_end() {
+  gpio_ll_set_level(&GPIO, I2C_MASTER_SDA_IO, LOW);
+  delay_cycle( ns2cycle(I2C_WAIT*1000) ) ;  
+  gpio_ll_set_level(&GPIO, I2C_MASTER_SCL_IO, HIGH);
+  delay_cycle( ns2cycle(I2C_WAIT*1000) ) ;  
+  gpio_ll_set_level(&GPIO, I2C_MASTER_SDA_IO, HIGH);
+}
+
+// Initialize I2C pins
+void sw_i2c_init() {
+  gpio_pad_select_gpio(I2C_MASTER_SDA_IO);
+  gpio_ll_input_enable(&GPIO, I2C_MASTER_SDA_IO);
+  gpio_ll_output_enable(&GPIO, I2C_MASTER_SDA_IO);
+  gpio_ll_od_enable(&GPIO, I2C_MASTER_SDA_IO);
+  gpio_ll_pullup_en(&GPIO, I2C_MASTER_SDA_IO);
+  gpio_ll_pulldown_dis(&GPIO, I2C_MASTER_SDA_IO);
+  gpio_ll_intr_disable(&GPIO, I2C_MASTER_SDA_IO);
+  gpio_ll_set_level(&GPIO, I2C_MASTER_SDA_IO, HIGH);
+
+  gpio_pad_select_gpio(I2C_MASTER_SCL_IO);
+  gpio_ll_input_disable(&GPIO, I2C_MASTER_SCL_IO);
+  gpio_ll_output_enable(&GPIO, I2C_MASTER_SCL_IO);
+  gpio_ll_od_enable(&GPIO, I2C_MASTER_SCL_IO);
+  gpio_ll_pullup_en(&GPIO, I2C_MASTER_SCL_IO); 
+  gpio_ll_pulldown_dis(&GPIO, I2C_MASTER_SCL_IO);
+  gpio_ll_intr_disable(&GPIO, I2C_MASTER_SCL_IO); 
+  gpio_ll_set_level(&GPIO, I2C_MASTER_SCL_IO, HIGH);
+}
+
+//Turn on Peripheral power. 
+void init_tca9554() {
+  sw_i2c_begin(TCA9554_ADDR << 1);
+  sw_i2c_write_byte(TCA9554_CONFIGURATION_REG);
+  sw_i2c_write_byte(TCA9554_DEFAULT_CONFIG);
+  sw_i2c_end();
+
+  delay_cycle( ns2cycle(30000*1000) ) ;
+
+  sw_i2c_begin(TCA9554_ADDR << 1);
+  sw_i2c_write_byte(TCA9554_OUTPUT_PORT_REG);
+  sw_i2c_write_byte(TCA9554_PERI_POWER_ON_VALUE);
+  sw_i2c_end();
+}
+#endif
+
 static void board_led_on(void)
 {
+
 #ifdef NEOPIXEL_PIN
 
+  #ifdef TCA9554_ADDR
+  sw_i2c_init();
+  // For some reason this delay is required after the pins are initialized before being used. 
+  delay_cycle( ns2cycle(30000*1000) );
+  init_tca9554();
+  #endif
+  
   #ifdef NEOPIXEL_POWER_PIN
   gpio_pad_select_gpio(NEOPIXEL_POWER_PIN);
   gpio_ll_input_disable(&GPIO, NEOPIXEL_POWER_PIN);
@@ -394,7 +503,9 @@ static void board_led_on(void)
 #endif
 
   // Need at least 200 us for initial delay although Neopixel reset time is only 50 us
-  delay_cycle( ns2cycle(200000) ) ;
+  // Changed to 1000usec as the HMI WS2812 seems to need a longer reset. 
+  // Tested with the Gravitech Cucumber board neopixel.  
+  delay_cycle( ns2cycle(1000*1000) ) ;
 
 #ifdef NEOPIXEL_PIN
   board_neopixel_set(NEOPIXEL_PIN, RGB_DOUBLE_TAP);
@@ -412,13 +523,23 @@ static void board_led_on(void)
 static void board_led_off(void)
 {
 #ifdef NEOPIXEL_PIN
+  delay_cycle( ns2cycle(1000*1000) ) ;
   board_neopixel_set(NEOPIXEL_PIN, RGB_OFF);
 
   // Neopixel reset time
-  delay_cycle( ns2cycle(200000) ) ;
 
   // TODO how to de-select GPIO pad to set it back to default state !?
   gpio_ll_output_disable(&GPIO, NEOPIXEL_PIN);
+
+
+  #ifdef TCA9554_ADDR
+  sw_i2c_begin(TCA9554_ADDR << 1);
+  sw_i2c_write_byte(TCA9554_OUTPUT_PORT_REG);
+  sw_i2c_write_byte(TCA9554_PERI_POWER_OFF_VALUE);
+  sw_i2c_end();
+  gpio_ll_output_disable(&GPIO, I2C_MASTER_SCL_IO);
+  gpio_ll_output_disable(&GPIO, I2C_MASTER_SDA_IO);
+  #endif
 
   #ifdef NEOPIXEL_POWER_PIN
   gpio_ll_set_level(&GPIO, NEOPIXEL_POWER_PIN, 1-NEOPIXEL_POWER_STATE);
