@@ -28,6 +28,14 @@
 
 #ifdef TCA9554_ADDR
 #include "hal/i2c_types.h"
+
+// Using GPIO expander requires long reset delay (somehow)
+#define NEOPIXEL_RESET_DELAY      ns2cycle(1000*1000)
+#endif
+
+#ifndef NEOPIXEL_RESET_DELAY
+// Need at least 200 us for initial delay although Neopixel reset time is only 50 us
+#define NEOPIXEL_RESET_DELAY      ns2cycle(200*1000)
 #endif
 
 
@@ -485,6 +493,11 @@ static void board_led_on(void)
   gpio_ll_input_disable(&GPIO, NEOPIXEL_PIN);
   gpio_ll_output_enable(&GPIO, NEOPIXEL_PIN);
   gpio_ll_set_level(&GPIO, NEOPIXEL_PIN, 0);
+
+  // Need at least 200 us for initial delay although Neopixel reset time is only 50 us
+  delay_cycle( NEOPIXEL_RESET_DELAY ) ;
+
+  board_neopixel_set(NEOPIXEL_PIN, RGB_DOUBLE_TAP);
 #endif
 
 #ifdef DOTSTAR_PIN_DATA
@@ -504,37 +517,23 @@ static void board_led_on(void)
   gpio_ll_output_enable(&GPIO, DOTSTAR_PIN_PWR);
   gpio_ll_set_level(&GPIO, DOTSTAR_PIN_PWR, DOTSTAR_POWER_STATE);
   #endif
+
+  board_dotstar_set(DOTSTAR_PIN_DATA, DOTSTAR_PIN_SCK, RGB_DOUBLE_TAP);
 #endif
 
 #ifdef LED_PIN
   gpio_pad_select_gpio(LED_PIN);
   gpio_ll_input_disable(&GPIO, LED_PIN);
   gpio_ll_output_enable(&GPIO, LED_PIN);
+
   gpio_ll_set_level(&GPIO, LED_PIN, LED_STATE_ON);
-#endif
-
-  // Need at least 200 us for initial delay although Neopixel reset time is only 50 us
-  // Changed to 1000usec as the HMI WS2812 seems to need a longer reset. 
-  // Tested with the Gravitech Cucumber board neopixel.  
-  delay_cycle( ns2cycle(1000*1000) ) ;
-
-#ifdef NEOPIXEL_PIN
-  board_neopixel_set(NEOPIXEL_PIN, RGB_DOUBLE_TAP);
-#endif
-
-#ifdef LED_PIN
-  gpio_ll_set_level(&GPIO, LED_PIN, 1);
-#endif
-
-#ifdef DOTSTAR_PIN_DATA
-  board_dotstar_set(DOTSTAR_PIN_DATA, DOTSTAR_PIN_SCK, RGB_DOUBLE_TAP);
 #endif
 }
 
 static void board_led_off(void)
 {
 #ifdef NEOPIXEL_PIN
-  delay_cycle( ns2cycle(1000*1000) ) ;
+  delay_cycle( NEOPIXEL_RESET_DELAY ) ;
   board_neopixel_set(NEOPIXEL_PIN, RGB_OFF);
 
   // Neopixel reset time
