@@ -533,8 +533,8 @@ static void board_led_on(void)
 static void board_led_off(void)
 {
 #ifdef NEOPIXEL_PIN
-  delay_cycle( NEOPIXEL_RESET_DELAY ) ;
   board_neopixel_set(NEOPIXEL_PIN, RGB_OFF);
+  delay_cycle( NEOPIXEL_RESET_DELAY ) ;
 
   // Neopixel reset time
 
