@@ -534,9 +534,9 @@ static void board_led_off(void)
 {
 #ifdef NEOPIXEL_PIN
   board_neopixel_set(NEOPIXEL_PIN, RGB_OFF);
-  delay_cycle( NEOPIXEL_RESET_DELAY ) ;
 
   // Neopixel reset time
+  delay_cycle( NEOPIXEL_RESET_DELAY ) ;
 
   // TODO how to de-select GPIO pad to set it back to default state !?
   gpio_ll_output_disable(&GPIO, NEOPIXEL_PIN);
