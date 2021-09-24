@@ -46,7 +46,7 @@
 #define NEOPIXEL_PIN          21
 
 // Brightness percentage from 1 to 255
-#define NEOPIXEL_BRIGHTNESS   0x10
+#define NEOPIXEL_BRIGHTNESS   0x30
 
 // Number of neopixels
 #define NEOPIXEL_NUMBER       1
@@ -59,6 +59,7 @@
 #define I2C_MASTER_TX_BUF_DISABLE   0
 #define I2C_MASTER_RX_BUF_DISABLE   0
 #define I2C_MASTER_TIMEOUT_MS       1000
+#define I2C_WAIT                    40      //Timing (in microseconds) for I2C
 
 #define TCA9554_ADDR                    0x20
 #define TCA9554_INPUT_PORT_REG          0x00
@@ -67,6 +68,8 @@
 #define TCA9554_CONFIGURATION_REG       0x03
 #define TCA9554_DEFAULT_CONFIG          0b10100000            
 #define TCA9554_DEFAULT_VALUE           0b11100000             //Enable peripheral power and ws2812 data in
+#define TCA9554_PERI_POWER_ON_VALUE     0b11100000             //Enable peripheral power and ws2812 data in
+#define TCA9554_PERI_POWER_OFF_VALUE    0b11110000             //Disable Peripheral power
 
 //--------------------------------------------------------------------+
 // USB UF2

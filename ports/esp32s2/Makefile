@@ -11,6 +11,10 @@ BUILD = _build/$(BOARD)
 BIN = _bin/$(BOARD)
 TOP = ../..
 
+ifdef SERIAL
+SERIAL_OPT = --port $(SERIAL)
+endif
+
 all:
 	idf.py -B$(BUILD) -DBOARD=$(BOARD) build
 
@@ -28,13 +32,13 @@ fullclean:
 	@rm -rf $(BIN)
 
 flash:
-	idf.py -B$(BUILD) -DBOARD=$(BOARD) flash
+	idf.py -B$(BUILD) -DBOARD=$(BOARD) $(SERIAL_OPT) flash
 
 bootloader-flash:
-	idf.py -B$(BUILD) -DBOARD=$(BOARD) bootloader-flash
+	idf.py -B$(BUILD) -DBOARD=$(BOARD) $(SERIAL_OPT) bootloader-flash
 
 app-flash:
-	idf.py -B$(BUILD) -DBOARD=$(BOARD) app-flash
+	idf.py -B$(BUILD) -DBOARD=$(BOARD) $(SERIAL_OPT) app-flash
 
 erase:
 	idf.py -B$(BUILD) -DBOARD=$(BOARD) erase_flash
