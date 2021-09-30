@@ -6,5 +6,5 @@ To create a UF2 image from a .bin file, either use family option `STM32L4` or it
 
 ```
 uf2conv.py -c -b 0x08010000 -f STM32L4 firmware.bin
-uf2conv.py -c -b 0x08010000 -f 0x58755a58 firmware.bin
+uf2conv.py -c -b 0x08010000 -f 0x00ff6919 firmware.bin
 ```
