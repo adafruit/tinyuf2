@@ -1,9 +1,15 @@
 [submodule "lib/st/cmsis_device_f4"]
 	path = lib/st/cmsis_device_f4
 	url = https://github.com/STMicroelectronics/cmsis_device_f4.git
+[submodule "lib/st/cmsis_device_l4"]
+	path = lib/st/cmsis_device_l4
+	url = https://github.com/STMicroelectronics/cmsis_device_l4.git
 [submodule "lib/st/stm32f4xx_hal_driver"]
 	path = lib/st/stm32f4xx_hal_driver
 	url = https://github.com/STMicroelectronics/stm32f4xx_hal_driver.git
+[submodule "lib/st/stm32l4xx_hal_driver"]
+	path = lib/st/stm32l4xx_hal_driver
+	url = https://github.com/STMicroelectronics/stm32l4xx_hal_driver.git
 [submodule "lib/tinyusb"]
 	path = lib/tinyusb
 	url = https://github.com/hathach/tinyusb.git
