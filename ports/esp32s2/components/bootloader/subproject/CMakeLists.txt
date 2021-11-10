@@ -15,10 +15,13 @@ if(NOT IDF_TARGET)
         "in by the parent build process.")
 endif()
 
+# A number of these components are implemented as config-only when built in the bootloader
 set(COMPONENTS
     bootloader
     esptool_py
     esp_hw_support
+    esp_system
+    freertos
     hal
     partition_table
     soc
@@ -30,6 +33,21 @@ set(COMPONENTS
     efuse
     esp_system
     newlib)
+
+# Make EXTRA_COMPONENT_DIRS variable to point to the bootloader_components directory
+# of the project being compiled
+set(PROJECT_EXTRA_COMPONENTS "${PROJECT_SOURCE_DIR}/bootloader_components")
+list(APPEND EXTRA_COMPONENT_DIRS "${PROJECT_EXTRA_COMPONENTS}")
+
+# Consider each directory in project's bootloader_components as a component to be compiled
+file(GLOB proj_components RELATIVE ${PROJECT_EXTRA_COMPONENTS} ${PROJECT_EXTRA_COMPONENTS}/*)
+foreach(component ${proj_components})
+  # Only directories are considered as components
+  if(IS_DIRECTORY ${curdir}/${child})
+    list(APPEND COMPONENTS ${component})
+  endif()
+endforeach()
+
 set(BOOTLOADER_BUILD 1)
 include("${IDF_PATH}/tools/cmake/project.cmake")
 set(common_req log esp_rom esp_common esp_hw_support hal newlib)
@@ -53,6 +71,9 @@ string(REPLACE ";" " " esptoolpy_write_flash
 
 string(REPLACE ";" " " espsecurepy "${ESPSECUREPY}")
 string(REPLACE ";" " " espefusepy "${ESPEFUSEPY}")
+
+# Suppress warning: "Manually-specified variables were not used by the project: SECURE_BOOT_SIGNING_KEY"
+set(ignore_signing_key "${SECURE_BOOT_SIGNING_KEY}")
 
 if(CONFIG_SECURE_BOOTLOADER_REFLASHABLE)
     if(CONFIG_SECURE_BOOTLOADER_KEY_ENCODING_192BIT)

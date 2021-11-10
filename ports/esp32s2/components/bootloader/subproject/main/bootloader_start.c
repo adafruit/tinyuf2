@@ -16,6 +16,7 @@
 #include "bootloader_init.h"
 #include "bootloader_utility.h"
 #include "bootloader_common.h"
+#include "bootloader_hooks.h"
 
 #include "esp32s2/rom/gpio.h"
 #include "soc/cpu.h"
@@ -91,9 +92,19 @@ static void esp_reset_reason_clear_hint(void)
  */
 void __attribute__((noreturn)) call_start_cpu0(void)
 {
+    // (0. Call the before-init hook, if available)
+    if (bootloader_before_init) {
+        bootloader_before_init();
+    }
+
     // 1. Hardware initialization
     if (bootloader_init() != ESP_OK) {
         bootloader_reset();
+    }
+
+    // (1.1 Call the after-init hook, if available)
+    if (bootloader_after_init) {
+        bootloader_after_init();
     }
 
 #ifdef CONFIG_BOOTLOADER_SKIP_VALIDATE_IN_DEEP_SLEEP
@@ -143,7 +154,11 @@ static int selected_boot_partition(const bootloader_state_t *bs)
     if (reset_reason != DEEPSLEEP_RESET) {
         // Factory firmware.
 #ifdef CONFIG_BOOTLOADER_FACTORY_RESET
-        if (bootloader_common_check_long_hold_gpio(CONFIG_BOOTLOADER_NUM_PIN_FACTORY_RESET, CONFIG_BOOTLOADER_HOLD_TIME_GPIO) == 1) {
+        bool reset_level = false;
+#if CONFIG_BOOTLOADER_FACTORY_RESET_PIN_HIGH
+        reset_level = true;
+#endif
+        if (bootloader_common_check_long_hold_gpio_level(CONFIG_BOOTLOADER_NUM_PIN_FACTORY_RESET, CONFIG_BOOTLOADER_HOLD_TIME_GPIO, reset_level) == GPIO_LONG_HOLD) {
             ESP_LOGI(TAG, "Detect a condition of the factory reset");
             bool ota_data_erase = false;
 #ifdef CONFIG_BOOTLOADER_OTA_DATA_ERASE
