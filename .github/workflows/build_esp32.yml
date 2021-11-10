@@ -50,7 +50,7 @@ jobs:
       uses: actions/setup-python@v2
 
     - name: Pull ESP-IDF docker
-      run: docker pull espressif/idf:release-v4.3
+      run: docker pull espressif/idf:release-v4.4
 
     - name: Checkout
       uses: actions/checkout@v2
