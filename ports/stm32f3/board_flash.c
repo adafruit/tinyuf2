@@ -85,7 +85,7 @@ void flash_write(uint32_t dst, const uint8_t *src, int len)
 
   if (sector == 0)
   {
-    TU_LOG1("invalid sector");
+    TU_LOG1("invalid sector\r\n");
   }
 
   HAL_FLASH_Unlock();
@@ -106,7 +106,7 @@ void flash_write(uint32_t dst, const uint8_t *src, int len)
 
     if (SectorError != 0xFFFFFFFF)
     {
-      TU_LOG1("failed to erase!");
+      TU_LOG1("failed to erase!\r\n");
     }
   }
 
@@ -118,7 +118,7 @@ void flash_write(uint32_t dst, const uint8_t *src, int len)
 
   if (memcmp((void*)dst, src, len) != 0)
   {
-    TU_LOG1("failed to write");
+    TU_LOG1("failed to write\r\n");
   }
 }
 
