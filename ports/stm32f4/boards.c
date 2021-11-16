@@ -45,7 +45,9 @@ void board_init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
+#ifdef __HAL_RCC_GPIOD_CLK_ENABLE
   __HAL_RCC_GPIOD_CLK_ENABLE();
+#endif
 
   GPIO_InitTypeDef  GPIO_InitStruct;
 
@@ -189,7 +191,9 @@ void board_app_jump(void)
   __HAL_RCC_GPIOA_CLK_DISABLE();
   __HAL_RCC_GPIOB_CLK_DISABLE();
   __HAL_RCC_GPIOC_CLK_DISABLE();
+#ifdef __HAL_RCC_GPIOD_CLK_DISABLE
   __HAL_RCC_GPIOD_CLK_DISABLE();
+#endif
 
   HAL_RCC_DeInit();
 
