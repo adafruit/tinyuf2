@@ -35,7 +35,9 @@
 #include "board.h"
 
 // Flash Start Address of Application
+#ifndef BOARD_FLASH_APP_START
 #define BOARD_FLASH_APP_START   0x08010000
+#endif
 
 // Double Reset tap to enter DFU
 #define TINYUF2_DFU_DOUBLE_TAP  1
