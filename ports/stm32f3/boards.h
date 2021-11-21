@@ -35,7 +35,9 @@
 #include "board.h"
 
 // Flash Start Address of Application
+#ifndef BOARD_FLASH_APP_START
 #define BOARD_FLASH_APP_START   0x08004000
+#endif
 #define BOARD_RAM_START 0x20000000
 #define BOARD_RAM_SIZE 0x9FFF
 

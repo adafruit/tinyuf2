@@ -21,6 +21,11 @@ CFLAGS += \
   -nostdlib -nostartfiles \
   -DCFG_TUSB_MCU=OPT_MCU_STM32F3
 
+# Allow to override application start vector
+ifneq ($(APP_START),)
+  CFLAGS += -DBOARD_FLASH_APP_START=$(APP_START)
+endif
+
 # suppress warning caused by vendor mcu driver
 CFLAGS += -Wno-error=cast-align -Wno-error=unused-parameter
 
