@@ -30,7 +30,7 @@ __check_defined = \
 #-------------- Select the board to build for. ------------
 
 # PORT is default to directory name containing the Makefile
-# can be set manually by custome build such as flash_nuke
+# can be set manually by custom build such as flash_nuke
 PORT ?= $(notdir $(shell pwd))
 PORT_DIR = ports/$(PORT)
 BOARD_DIR = $(PORT_DIR)/boards/$(BOARD)
@@ -51,7 +51,7 @@ endif
 BUILD = _build/$(BOARD)
 BIN = $(TOP)/$(PORT_DIR)/_bin/$(BOARD)
 
-# can be set manually by custome build such as flash_nuke
+# can be set manually by custom build such as flash_nuke
 OUTNAME ?= tinyuf2-$(BOARD)
 
 # UF2 version with git tag and submodules
