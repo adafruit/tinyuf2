@@ -29,7 +29,7 @@
 // Flash
 //--------------------------------------------------------------------+
 
-#define BOARD_FLASH_TOTAL     0x40000U
+#define BOARD_FLASH_SIZE      0x40000U
 
 //--------------------------------------------------------------------+
 // Button
@@ -63,13 +63,13 @@
 //--------------------------------------------------------------------+
 
 #define USB_VID           0x1FC9
-#define USB_PID           0x009E
+#define USB_PID           0xDA7A
 #define USB_MANUFACTURER  "NXP"
 #define USB_PRODUCT       "FRDM-K32L2B3"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID      "FRDM-K32L2B3"
-#define UF2_VOLUME_LABEL  "K32L2B3BOOT"
+#define UF2_VOLUME_LABEL  "K32L2BOOT"
 #define UF2_INDEX_URL     "https://www.nxp.com/FRDM-K32L2B3"
 
 //--------------------------------------------------------------------+

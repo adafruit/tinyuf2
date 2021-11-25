@@ -23,6 +23,7 @@
  */
 
 #include "board_api.h"
+#include "fsl_rtc.h"
 #include "fsl_gpio.h"
 #include "fsl_port.h"
 #include "fsl_clock.h"
@@ -36,6 +37,7 @@
 void board_init(void)
 {
   BOARD_BootClockRUN();
+  CLOCK_EnableClock(kCLOCK_Rtc0);
 
   SystemCoreClockUpdate();
 
@@ -123,6 +125,9 @@ void board_app_jump(void)
   // we need to ensure the values we are using are not stored on the previous stack
   static uint32_t stack_pointer;
   static uint32_t app_entry;
+
+  // Clear RTC registers used for double tap
+  RTC_Reset(RTC);
 
   uint32_t const * app_vector = (uint32_t const*) BOARD_FLASH_APP_START;
   stack_pointer = app_vector[0];

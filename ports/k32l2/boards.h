@@ -30,10 +30,12 @@
 #endif
 
 #include "board.h"
+#include "fsl_rtc.h"
 
-#define TINYUF2_DFU_DOUBLE_TAP   0
+#define TINYUF2_DFU_DOUBLE_TAP   1
+#define DBL_TAP_REG              RTC->TAR
 #define BOARD_FLASH_APP_START    0x8000 
-#define BOARD_FLASH_SIZE         (BOARD_FLASH_TOTAL - BOARD_FLASH_APP_START)
+//#define BOARD_FLASH_SIZE         (BOARD_FLASH_TOTAL - BOARD_FLASH_APP_START)
 
 #ifdef __cplusplus
  }

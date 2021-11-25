@@ -37,17 +37,20 @@ static uint8_t  _flash_cache[FLASH_PAGE_SIZE] __attribute__((aligned(4)));
 /*! @brief Flash driver Structure */
 static flash_config_t _flash_config;
 /*! @brief Flash cache driver Structure */
-//static ftfx_cache_config_t _cache_config;
+static ftfx_cache_config_t _cache_config;
 
 //--------------------------------------------------------------------+
 //
 //--------------------------------------------------------------------+
 void board_flash_init(void)
 {
+    uint32_t pflashBlockBase  = 0;
+    uint32_t pflashTotalSize  = 0;
+    uint32_t pflashSectorSize = 0;
     status_t result;   /* Return code from each flash driver function */
     /* Clean up Flash, Cache driver Structure*/
     memset(&_flash_config, 0, sizeof(flash_config_t));
-    // memset(&_cache_config, 0, sizeof(ftfx_cache_config_t));
+    memset(&_cache_config, 0, sizeof(ftfx_cache_config_t));
 
     /* Setup flash driver structure for device and initialize variables. */
     result = FLASH_Init(&_flash_config);
@@ -55,16 +58,18 @@ void board_flash_init(void)
         TU_LOG1("FLASH_Init failed");
     }
     /* Setup flash cache driver structure for device and initialize variables. */
-    // result = FTFx_CACHE_Init(&_cache_config);
-    // if (kStatus_FTFx_Success != result)
-    // {
-    //     TU_LOG1("FTFx_CACHE_Init failed");
-    // }
+    result = FTFx_CACHE_Init(&_cache_config);
+    if (kStatus_FTFx_Success != result)
+    {
+        TU_LOG1("FTFx_CACHE_Init failed");
+    }
     /* Get flash properties*/
-    //FLASH_GetProperty(&_flash_config, kFLASH_PropertyPflash0BlockBaseAddr, &pflashBlockBase);
-    //FLASH_GetProperty(&_flash_config, kFLASH_PropertyPflash0TotalSize, &pflashTotalSize);
-    //FLASH_GetProperty(&_flash_config, kFLASH_PropertyPflash0SectorSize, &pflashSectorSize);
+    FLASH_GetProperty(&_flash_config, kFLASH_PropertyPflash0BlockBaseAddr, &pflashBlockBase);
+    FLASH_GetProperty(&_flash_config, kFLASH_PropertyPflash0TotalSize, &pflashTotalSize);
+    FLASH_GetProperty(&_flash_config, kFLASH_PropertyPflash0SectorSize, &pflashSectorSize);
 
+    TU_LOG1("Base: 0x%08lX,  Total: 0x%08lX,  Sector: 0x%08lX\r\n", 
+            pflashBlockBase, pflashTotalSize, pflashSectorSize);
 }
 
 uint32_t board_flash_size(void)
@@ -89,15 +94,25 @@ void board_flash_flush(void)
 
   // skip matching contents
   if ( memcmp(_flash_cache, (void*) _flash_page_addr, FLASH_PAGE_SIZE) ) {
-    TU_LOG1("Erase and Write at address = 0x%08lX\r\n",_flash_page_addr);
+    TU_LOG1("Clear cache prefetch speculation for flush operation.\r\n");
+        
+    /* Pre-preparation work about flash Cache/Prefetch/Speculation. */
+    FTFx_CACHE_ClearCachePrefetchSpeculation(&_cache_config, true);
+
+    TU_LOG1("Erase and Write at address = 0x%08lX...\r\n", _flash_page_addr);
     result = FLASH_Erase(&_flash_config, _flash_page_addr, FLASH_PAGE_SIZE, kFLASH_ApiEraseKey);
     if (kStatus_FTFx_Success != result) {
         TU_LOG1("FLASH_Erase failed at address = 0x%08lX\r\n",_flash_page_addr);
     }
+    TU_LOG1("Erased...\r\n");
     result = FLASH_Program(&_flash_config, _flash_page_addr, _flash_cache, FLASH_PAGE_SIZE);
     if (kStatus_FTFx_Success != result) {
         TU_LOG1("FLASH_Program failed at address = 0x%08lX\r\n",_flash_page_addr);
     }
+    TU_LOG1("Programmed.\r\n");
+
+    /* Post-preparation work about flash Cache/Prefetch/Speculation. */
+    FTFx_CACHE_ClearCachePrefetchSpeculation(&_cache_config, false);
   }
 
   _flash_page_addr = NO_CACHE;

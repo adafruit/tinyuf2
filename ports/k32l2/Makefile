@@ -34,8 +34,9 @@ SRC_C += \
 	$(PORT_DIR)/boards.c \
 	$(PORT_DIR)/board_flash.c 
 
-SRC_C += \
-	lib/tinyusb/src/portable/nxp/khci/dcd_khci.c
+ifndef BUILD_NO_TINYUSB
+SRC_C += lib/tinyusb/src/portable/nxp/khci/dcd_khci.c
+endif
 
 SRC_S += $(MCU_DIR)/gcc/startup_$(MCU).S
 
@@ -48,6 +49,7 @@ INC += \
 	$(TOP)/$(MCU_DIR)/drivers \
 	$(TOP)/$(MCU_DIR)/project_template \
 	$(TOP)/$(SDK_DIR)/drivers/smc \
+	$(TOP)/$(SDK_DIR)/drivers/rtc \
 	$(TOP)/$(SDK_DIR)/drivers/common \
 	$(TOP)/$(SDK_DIR)/drivers/gpio \
 	$(TOP)/$(SDK_DIR)/drivers/port \
