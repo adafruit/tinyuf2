@@ -30,6 +30,6 @@ SRC_S +=
 INC += \
   $(TOP)/src \
   $(TOP)/$(PORT_DIR) \
-  $(TOP)/$(BOARD_DIR) \
+  $(BOARD_DIR) \
 
 include ../rules.mk

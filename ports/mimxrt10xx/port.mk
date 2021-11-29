@@ -46,7 +46,7 @@ SRC_S += $(MCU_DIR)/gcc/startup_$(MCU).S
 # Port include
 INC += \
   $(TOP)/$(PORT_DIR) \
-  $(TOP)/$(BOARD_DIR) \
+  $(BOARD_DIR) \
 	$(TOP)/$(SDK_DIR)/CMSIS/Include \
 	$(TOP)/$(MCU_DIR) \
 	$(TOP)/$(MCU_DIR)/project_template \

@@ -33,13 +33,18 @@ __check_defined = \
 # can be set manually by custom build such as flash_nuke
 PORT ?= $(notdir $(shell pwd))
 PORT_DIR = ports/$(PORT)
-BOARD_DIR = $(PORT_DIR)/boards/$(BOARD)
 
-ifeq ($(wildcard $(TOP)/$(BOARD_DIR)/),)
+# BOARD must be set manually. BOARD_DIR can be set by a custom build to
+# an absolute path or relative to where make was invoked.
+ifeq ($(BOARD),)
   $(info You must provide a BOARD parameter with 'BOARD=')
-  $(error Invalid BOARD specified)
+  $(error No BOARD specified)
 endif
-
+BOARD_DIR ?= $(TOP)/$(PORT_DIR)/boards/$(BOARD)
+ifeq ($(wildcard $(BOARD_DIR)/),)
+  $(info Check your BOARD parameter and optionally provide BOARD_DIR)
+  $(error Cannot find board directory)
+endif
 
 # Fetch submodules depended by family
 fetch_submodule_if_empty = $(if $(wildcard $(TOP)/lib/$1/*),,$(info $(shell git -C $(TOP)/lib submodule update --init $1)))
@@ -75,13 +80,13 @@ else
 # Bootloader src, board folder and TinyUSB stack
 SRC_C += \
   $(subst $(TOP)/,,$(wildcard $(TOP)/src/*.c)) \
-  $(subst $(TOP)/,,$(wildcard $(TOP)/$(BOARD_DIR)/*.c))
+  $(subst $(TOP)/,,$(wildcard $(BOARD_DIR)/*.c))
 
 # Include
 INC += \
   $(TOP)/src \
   $(TOP)/$(PORT_DIR) \
-  $(TOP)/$(BOARD_DIR)
+  $(BOARD_DIR)
 
 endif # BUILD_APPLICATION
 
@@ -178,4 +183,4 @@ ifneq ($(SKIP_NANOLIB), 1)
 endif
 
 # Board specific define
-include $(TOP)/$(BOARD_DIR)/board.mk
+include $(BOARD_DIR)/board.mk

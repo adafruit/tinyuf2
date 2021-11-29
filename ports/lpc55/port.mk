@@ -37,7 +37,7 @@ SRC_C += \
 # Port include
 INC += \
   $(TOP)/$(PORT_DIR) \
-  $(TOP)/$(BOARD_DIR) \
+  $(BOARD_DIR) \
 	$(TOP)/$(SDK_DIR)/CMSIS/Include \
 	$(TOP)/$(MCU_DIR) \
 	$(TOP)/$(MCU_DIR)/project_template \
@@ -49,4 +49,3 @@ INC += \
 	$(TOP)/$(SDK_DIR)/drivers/lpc_iocon \
 	$(TOP)/$(SDK_DIR)/drivers/lpc_rtc \
 	$(TOP)/$(SDK_DIR)/drivers/sctimer
-
