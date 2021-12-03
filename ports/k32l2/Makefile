@@ -23,7 +23,6 @@ CFLAGS += -Wno-error=cast-align -Wno-error=unused-parameter
 # Port source
 SRC_C += \
 	$(MCU_DIR)/system_$(MCU).c \
-	$(MCU_DIR)/project_template/clock_config.c \
 	$(MCU_DIR)/drivers/fsl_clock.c \
 	$(SDK_DIR)/drivers/gpio/fsl_gpio.c \
 	$(SDK_DIR)/drivers/flash/fsl_ftfx_controller.c \
@@ -31,6 +30,7 @@ SRC_C += \
 	$(SDK_DIR)/drivers/flash/fsl_ftfx_cache.c \
 	$(SDK_DIR)/drivers/flash/fsl_ftfx_flexnvm.c \
 	$(SDK_DIR)/drivers/lpuart/fsl_lpuart.c \
+	$(PORT_DIR)/clock_config.c \
 	$(PORT_DIR)/boards.c \
 	$(PORT_DIR)/board_flash.c 
 
@@ -47,7 +47,6 @@ INC += \
 	$(TOP)/$(SDK_DIR)/CMSIS/Include \
 	$(TOP)/$(MCU_DIR) \
 	$(TOP)/$(MCU_DIR)/drivers \
-	$(TOP)/$(MCU_DIR)/project_template \
 	$(TOP)/$(SDK_DIR)/drivers/smc \
 	$(TOP)/$(SDK_DIR)/drivers/rtc \
 	$(TOP)/$(SDK_DIR)/drivers/common \
