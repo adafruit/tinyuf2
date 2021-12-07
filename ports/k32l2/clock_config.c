@@ -42,6 +42,7 @@ board: FRDM-K32L2B
  ******************************************************************************/
 #define OSC_CAP0P 0U                   /*!< Oscillator 0pF capacitor load */
 #define OSC_ER_CLK_DISABLE 0U          /*!< Disable external reference clock */
+#define SIM_OSC32KSEL_LPO_CLK       3U  /*!< OSC32KSEL select: LPO clock */
 #define SIM_OSC32KSEL_OSC32KCLK_CLK 0U /*!< OSC32KSEL select: OSC32KCLK clock */
 
 /*******************************************************************************
@@ -69,6 +70,7 @@ called_from_default_init: true
 outputs:
 - {id: Bus_clock.outFreq, value: 24 MHz}
 - {id: Core_clock.outFreq, value: 48 MHz}
+- {id: ERCLK32K.outFreq, value: 1 kHz}
 - {id: Flash_clock.outFreq, value: 24 MHz}
 - {id: LPO_clock.outFreq, value: 1 kHz}
 - {id: MCGIRCLK.outFreq, value: 8 MHz}
@@ -87,6 +89,7 @@ settings:
 - {id: SIM.FLEXIOSRCSEL.sel, value: MCG.MCGPCLK}
 - {id: SIM.LPUART0SRCSEL.sel, value: MCG.MCGPCLK}
 - {id: SIM.LPUART1SRCSEL.sel, value: MCG.MCGPCLK}
+- {id: SIM.OSC32KSEL.sel, value: PMC.LPOCLK}
 - {id: SIM.RTCCLKOUTSEL.sel, value: OSC.OSCERCLK}
 - {id: SIM.TPMSRCSEL.sel, value: MCG.MCGPCLK}
 - {id: SIM.USBSRCSEL.sel, value: MCG.MCGPCLK}
@@ -108,7 +111,7 @@ const mcglite_config_t mcgliteConfig_BOARD_BootClockRUN = {
     .hircEnableInNotHircMode = true,         /* HIRC source is enabled */
 };
 const sim_clock_config_t simConfig_BOARD_BootClockRUN = {
-    .er32kSrc = SIM_OSC32KSEL_OSC32KCLK_CLK, /* OSC32KSEL select: OSC32KCLK clock */
+    .er32kSrc = SIM_OSC32KSEL_OSC32KCLK_CLK,       /* OSC32KSEL select: OSC32KCLK clock */
     .clkdiv1  = 0x10000U,                    /* SIM_CLKDIV1 - OUTDIV1: /1, OUTDIV4: /2 */
 };
 const osc_config_t oscConfig_BOARD_BootClockRUN = {
@@ -174,7 +177,7 @@ const mcglite_config_t mcgliteConfig_BOARD_BootClockVLPR = {
     .hircEnableInNotHircMode = false,        /* HIRC source is not enabled */
 };
 const sim_clock_config_t simConfig_BOARD_BootClockVLPR = {
-    .er32kSrc = SIM_OSC32KSEL_OSC32KCLK_CLK, /* OSC32KSEL select: OSC32KCLK clock */
+    .er32kSrc = SIM_OSC32KSEL_LPO_CLK, /* OSC32KSEL select: OSC32KCLK clock */
     .clkdiv1  = 0x10000U,                    /* SIM_CLKDIV1 - OUTDIV1: /1, OUTDIV4: /2 */
 };
 const osc_config_t oscConfig_BOARD_BootClockVLPR = {
