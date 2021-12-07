@@ -65,7 +65,7 @@ void board_init(void)
 #endif
 
 #if defined(UART_DEV) && CFG_TUSB_DEBUG
-  CLOCK_SetLpuart0Clock(1);
+  UART_SET_CLOCK;
   CLOCK_EnableClock(UART_CLK_PORT);
   PORT_SetPinMux(UART_PIN_PORT, UART_RX_PIN, UART_RX_MUX);
   PORT_SetPinMux(UART_PIN_PORT, UART_TX_PIN, UART_TX_MUX);

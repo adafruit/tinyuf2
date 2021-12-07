@@ -32,23 +32,13 @@
 #define BOARD_FLASH_SIZE      0x40000U
 
 //--------------------------------------------------------------------+
-// Button
-//--------------------------------------------------------------------+
-
-#define BUTTON_GPIO           GPIOC
-#define BUTTON_PORT           PORTC
-#define BUTTON_CLK_PORT       kCLOCK_PortC
-#define BUTTON_PIN            3
-#define BUTTON_STATE_ACTIVE   0
-
-//--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
 
-#define LED_GPIO              GPIOD
-#define LED_PORT              PORTD
-#define LED_CLK_PORT          kCLOCK_PortD
-#define LED_PIN               5
+#define LED_GPIO              GPIOA
+#define LED_PORT              PORTA
+#define LED_CLK_PORT          kCLOCK_PortA
+#define LED_PIN               1
 #define LED_STATE_ON          0
 
 //--------------------------------------------------------------------+
@@ -63,28 +53,28 @@
 //--------------------------------------------------------------------+
 
 #define USB_VID           0x1FC9
-#define USB_PID           0xDA7A
+#define USB_PID           0xB007
 #define USB_MANUFACTURER  "NXP"
-#define USB_PRODUCT       "FRDM-K32L2B3"
+#define USB_PRODUCT       "KUIIC"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "FRDM-K32L2B3"
+#define UF2_BOARD_ID      "KUIIC"
 #define UF2_VOLUME_LABEL  "K32L2BOOT"
-#define UF2_INDEX_URL     "https://www.nxp.com/FRDM-K32L2B3"
+#define UF2_INDEX_URL     "https://www.nxp.com/docs/en/data-sheet/K32L2B3x.pdf"
 
 //--------------------------------------------------------------------+
 // UART
 //--------------------------------------------------------------------+
 
-#define UART_DEV              LPUART0
-#define UART_SET_CLOCK        CLOCK_SetLpuart0Clock(1)
-#define UART_CLK_PORT         kCLOCK_PortA
-#define UART_PIN_PORT         PORTA
-#define UART_TX_PIN           2
-#define UART_TX_MUX           kPORT_MuxAlt2
+#define UART_DEV              LPUART1
+#define UART_SET_CLOCK        CLOCK_SetLpuart1Clock(1)
+#define UART_CLK_PORT         kCLOCK_PortE
+#define UART_PIN_PORT         PORTE
+#define UART_TX_PIN           0
+#define UART_TX_MUX           kPORT_MuxAlt3
 #define UART_RX_PIN           1
-#define UART_RX_MUX           kPORT_MuxAlt2
+#define UART_RX_MUX           kPORT_MuxAlt3
 #define UART_SOPT_INIT        \
-  SIM->SOPT5 &= ~(SIM_SOPT5_LPUART0TXSRC_MASK | SIM_SOPT5_LPUART0RXSRC_MASK)
+  SIM->SOPT5 &= ~(SIM_SOPT5_LPUART1TXSRC_MASK | SIM_SOPT5_LPUART1RXSRC_MASK)
 
 #endif
