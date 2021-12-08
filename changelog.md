@@ -1,5 +1,17 @@
 # TinyUF2 Changelog
 
+## 0.6.0
+
+### ESP32-S2
+
+- Update IDF to release/v4.4
+- Improve Adafruit Feather ESP32S2, Espressif HMI, Micro S2,  board
+- Add new boards: Adafruit QTPY S2, Lolin S2 pico
+
+### STM32F4
+
+- fix board_flash_write() on stm32f4
+
 ## 0.5.2
 
 Added new boards: MorphESP-240 ESP32S2, Lolin S2 Mini, Espressif HMI devkit
