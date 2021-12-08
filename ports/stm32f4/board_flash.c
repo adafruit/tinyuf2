@@ -136,6 +136,7 @@ static void flash_write(uint32_t dst, const uint8_t *src, int len)
 {
   flash_erase(dst);
 
+  TU_LOG2("Write flash at address %08lX\r\n", dst);
   for ( int i = 0; i < len; i += 4 )
   {
     uint32_t data = *((uint32_t*) ((void*) (src + i)));
@@ -184,13 +185,10 @@ void board_flash_flush(void)
 // TODO not working quite yet
 void board_flash_write (uint32_t addr, void const *data, uint32_t len)
 {
-  // skip matching contents
-  if ( memcmp((void*) addr, data, len) )
-  {
-    HAL_FLASH_Unlock();
-    flash_write(addr, data, len);
-    HAL_FLASH_Lock();
-  }
+  // TODO skip matching contents
+  HAL_FLASH_Unlock();
+  flash_write(addr, data, len);
+  HAL_FLASH_Lock();
 }
 
 void board_flash_erase_app(void)
