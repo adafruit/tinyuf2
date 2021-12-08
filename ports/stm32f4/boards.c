@@ -45,7 +45,9 @@ void board_init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
+#ifdef __HAL_RCC_GPIOD_CLK_ENABLE
   __HAL_RCC_GPIOD_CLK_ENABLE();
+#endif
 
   GPIO_InitTypeDef  GPIO_InitStruct;
 
@@ -130,13 +132,35 @@ void board_dfu_init(void)
   // Enable USB OTG clock
   __HAL_RCC_USB_OTG_FS_CLK_ENABLE();
 
-#ifdef USB_NO_VBUS_PIN
-  // Disable VBUS sense
-  USB_OTG_FS->GCCFG |= USB_OTG_GCCFG_NOVBUSSENS;
+#if defined(STM32F446xx) || defined(STM32F469xx) || defined(STM32F479xx) || \
+    defined(STM32F412Zx) || defined(STM32F412Vx) || defined(STM32F412Rx) || \
+    defined(STM32F412Cx) || defined(STM32F413xx) || defined(STM32F423xx)
+
+  #ifdef USB_NO_VBUS_PIN
+    /* Deactivate VBUS Sensing B */
+    USB_OTG_FS->GCCFG &= ~USB_OTG_GCCFG_VBDEN;
+
+    /* B-peripheral session valid override enable */
+    USB_OTG_FS->GOTGCTL |= USB_OTG_GOTGCTL_BVALOEN;
+    USB_OTG_FS->GOTGCTL |= USB_OTG_GOTGCTL_BVALOVAL;
+
+    USB_OTG_FS->GCCFG &= ~(USB_OTG_GCCFG_BCDEN);
+  #else
+    // Enable VBUS sense (B device) via pin PA9
+    USB_OTG_FS->GCCFG |= USB_OTG_GCCFG_VBDEN;
+  #endif
+
 #else
-  // Enable VBUS sense (B device) via pin PA9
-  USB_OTG_FS->GCCFG &= ~USB_OTG_GCCFG_NOVBUSSENS;
-  USB_OTG_FS->GCCFG |= USB_OTG_GCCFG_VBUSBSEN;
+
+  #ifdef USB_NO_VBUS_PIN
+    // Disable VBUS sense
+    USB_OTG_FS->GCCFG |= USB_OTG_GCCFG_NOVBUSSENS;
+  #else
+    // Enable VBUS sense (B device) via pin PA9
+    USB_OTG_FS->GCCFG &= ~USB_OTG_GCCFG_NOVBUSSENS;
+    USB_OTG_FS->GCCFG |= USB_OTG_GCCFG_VBUSBSEN;
+  #endif
+
 #endif
 }
 
@@ -189,7 +213,9 @@ void board_app_jump(void)
   __HAL_RCC_GPIOA_CLK_DISABLE();
   __HAL_RCC_GPIOB_CLK_DISABLE();
   __HAL_RCC_GPIOC_CLK_DISABLE();
+#ifdef __HAL_RCC_GPIOD_CLK_DISABLE
   __HAL_RCC_GPIOD_CLK_DISABLE();
+#endif
 
   HAL_RCC_DeInit();
 
