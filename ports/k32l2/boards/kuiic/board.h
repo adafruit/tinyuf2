@@ -72,6 +72,8 @@
 #define UART_PIN_PORT         PORTE
 #define UART_TX_PIN           0
 #define UART_TX_MUX           kPORT_MuxAlt3
+// PTE1 is not connected in this package 
+// but RX is not needed to output log messages
 #define UART_RX_PIN           1
 #define UART_RX_MUX           kPORT_MuxAlt3
 #define UART_SOPT_INIT        \
