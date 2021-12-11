@@ -29,7 +29,7 @@
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
 //--------------------------------------------------------------------+
 
-#define STM32_UUID ((uint32_t *)0x1FFF7A10)
+#define STM32_UUID ((uint32_t *)0x1FFF7A10UL)
 
 UART_HandleTypeDef UartHandle;
 
@@ -238,7 +238,11 @@ void board_app_jump(void)
 uint8_t board_usb_get_serial(uint8_t serial_id[16])
 {
   uint8_t const len = 12;
-  memcpy(serial_id, STM32_UUID, len);
+  uint32_t word;
+  for (int i = 0; i < len; i=i+4) {
+    word = READ_REG(*(STM32_UUID+i));
+    memcpy(serial_id+i, &word, 4);
+  }
   return len;
 }
 
