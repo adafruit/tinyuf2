@@ -61,7 +61,7 @@
 #define USB_VID           0x239A
 #define USB_PID           0x0111
 #define USB_MANUFACTURER  "Adafruit"
-#define USB_PRODUCT       "Feather QT Py ESP32-S2"
+#define USB_PRODUCT       "Adafruit QT Py ESP32-S2"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID      "ESP32S2-QTPY-revB"
