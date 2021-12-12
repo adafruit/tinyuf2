@@ -36,7 +36,7 @@
 
 // GPIO that implement 1-bit memory with RC components which hold the
 // pin value long enough for double reset detection.
-#define PIN_DOUBLE_RESET_RC   15
+#define PIN_DOUBLE_RESET_RC   10
 
 //--------------------------------------------------------------------+
 // LED
@@ -64,8 +64,8 @@
 #define USB_PRODUCT       "Feather QT Py ESP32-S2"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "ESP32S2-QTPY-revA"
+#define UF2_BOARD_ID      "ESP32S2-QTPY-revB"
 #define UF2_VOLUME_LABEL  "QTPYS2BOOT"
-#define UF2_INDEX_URL     "https://www.adafruit.com/product/pid" // TODO update link
+#define UF2_INDEX_URL     "https://www.adafruit.com/product/5325" // TODO update link
 
 #endif
