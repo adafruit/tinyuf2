@@ -6,9 +6,9 @@
 
 MEMORY
 {
-  iram_seg (RWX) :                  org = 0x403B6000, len = 0x4000
-  iram_loader_seg (RWX) :           org = 0x403BA000, len = 0x6000
-  dram_seg (RW) :                   org = 0x3FCD0000, len = 0x4000
+  iram_seg (RWX) :                  org = 0x403CE000, len = 0x2000
+  iram_loader_seg (RWX) :           org = 0x403D0000, len = 0x6000
+  dram_seg (RW) :                   org = 0x3FCD6000, len = 0x4000
 }
 
 /* Default entry point: */
@@ -31,8 +31,7 @@ SECTIONS
     *libbootloader_support.a:bootloader_random.*(.literal .text .literal.* .text.*)
     *libbootloader_support.a:bootloader_random*.*(.literal.bootloader_random_disable .text.bootloader_random_disable)
     *libbootloader_support.a:bootloader_random*.*(.literal.bootloader_random_enable .text.bootloader_random_enable)
-    *libesp_common.a:fpga_overrides.*(.literal.bootloader_fill_random .text.bootloader_fill_random)
-    *libbootloader_support.a:bootloader_efuse_esp32s3.*(.literal .text .literal.* .text.*)
+    *libbootloader_support.a:bootloader_efuse_esp32h2.*(.literal .text .literal.* .text.*)
     *libbootloader_support.a:bootloader_utility.*(.literal .text .literal.* .text.*)
     *libbootloader_support.a:bootloader_sha.*(.literal .text .literal.* .text.*)
     *libbootloader_support.a:bootloader_console_loader.*(.literal .text .literal.* .text.*)
@@ -40,10 +39,8 @@ SECTIONS
     *libbootloader_support.a:bootloader_soc.*(.literal .text .literal.* .text.*)
     *libbootloader_support.a:esp_image_format.*(.literal .text .literal.* .text.*)
     *libbootloader_support.a:flash_encrypt.*(.literal .text .literal.* .text.*)
-    *libbootloader_support.a:flash_encryption_secure_features.*(.literal .text .literal.* .text.*)
     *libbootloader_support.a:flash_partitions.*(.literal .text .literal.* .text.*)
     *libbootloader_support.a:secure_boot.*(.literal .text .literal.* .text.*)
-    *libbootloader_support.a:secure_boot_secure_features.*(.literal .text .literal.* .text.*)
     *libbootloader_support.a:secure_boot_signatures_bootloader.*(.literal .text .literal.* .text.*)
     *libmicro-ecc.a:*.*(.literal .text .literal.* .text.*)
     *libspi_flash.a:*.*(.literal .text .literal.* .text.*)
@@ -141,7 +138,7 @@ SECTIONS
     *(.dynamic)
     *(.gnu.version_d)
     _rodata_end = ABSOLUTE(.);
-	  /* Literals are also RO data. */
+    /* Literals are also RO data. */
     _lit4_start = ABSOLUTE(.);
     *(*.lit4)
     *(.lit4.*)
@@ -174,27 +171,20 @@ SECTIONS
 
 }
 
-
 /**
  *  Appendix: Memory Usage of ROM bootloader
  *
- *  +--------+--------------+------+ 0x3FCD_8000
+ *  +--------+--------------+------+ 0x3FCC_B900
  *  |        ^              |
  *  |        |              |
  *  |        | data/bss     |
  *  |        |              |
  *  |        v              |
- *  +------------------------------+ 0x3FCE_9910
+ *  +------------------------------+ 0x3FCD_D210
  *  |        ^              |
  *  |        |              |
- *  |        | stack (pro)  |
+ *  |        | stack        |
  *  |        |              |
  *  |        v              |
- *  +------------------------------+ 0x3FCE_B910
- *  |        ^              |
- *  |        |              |
- *  |        | stack (app)  |
- *  |        |              |
- *  |        v              |
- *  +--------+--------------+------+ 0x3FCE_D910
+ *  +------------------------------+ 0x3FCD_F210
  */

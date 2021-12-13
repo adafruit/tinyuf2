@@ -1,6 +1,22 @@
 # TinyUF2 Changelog
 
-## 0.5.1 - 2021.07.30
+## 0.6.0
+
+### ESP32-S2
+
+- Update IDF to release/v4.4
+- Improve Adafruit Feather ESP32S2, Espressif HMI, Micro S2,  board
+- Add new boards: Adafruit QTPY S2, Lolin S2 pico
+
+### STM32F4
+
+- fix board_flash_write() on stm32f4
+
+## 0.5.2
+
+Added new boards: MorphESP-240 ESP32S2, Lolin S2 Mini, Espressif HMI devkit
+
+## 0.5.1
 
 ### ESP32-S2
 
@@ -10,7 +26,7 @@
 
 - fix updating issue with circuipython
 
-## 0.5.0 - 2021.07.12
+## 0.5.0
 
 - Update self-update as application
 
@@ -31,7 +47,7 @@
 
 - Use official nxp mcux-sdk submodule
 
-## 0.4.0 - 2021.04.04
+## 0.4.0
 
 - Add support for multiple sectors per cluster in GhostFAT to enable larger flash sizes
   - Add native test for ghostfat with varous checks
@@ -60,7 +76,7 @@
 - Add sdphost binary for arm 32bit e.g raspberry pi 4
 - Add `esp32programmer.uf2` app for selected board.
 
-## 0.3.0 - 2021.02.17
+## 0.3.0
 
 - Add compiled date to INFO_UF2.TXT
 - Add new port STM32F3
@@ -87,13 +103,13 @@
 
 - No major changes
 
-## 0.2.1 - 2021.02.02
+## 0.2.1
 
 - Added stm32f401 blackpill
 - Fix stm32f4 uart logging
 - `update-*.uf2` is uploaded separately in release assests.
 
-## 0.2.0 - 2021.01.19
+## 0.2.0
 
 - Add new port for NXP LPC55xx.
 - Rename `USE_` feature to `TINYUF2_`
@@ -117,6 +133,6 @@
 
 - No major changes
 
-## 0.1.0 - 2020.12.23
+## 0.1.0
 
 - Initial release with support for ESP32-S2, iMXRT 10xx, STM32F4

@@ -121,7 +121,7 @@ static bool flash_erase(uint32_t addr)
 
   if ( !erased && !is_blank(sector_addr, size) )
   {
-    TU_LOG1("Erase: %08lX size = %lu KB\n", sector_addr, size / 1024);
+    TU_LOG1("Erase: %08lX size = %lu KB\r\n", sector_addr, size / 1024);
 
     FLASH_Erase_Sector(sector, FLASH_VOLTAGE_RANGE_3);
     FLASH_WaitForLastOperation(HAL_MAX_DELAY);
@@ -136,26 +136,27 @@ static void flash_write(uint32_t dst, const uint8_t *src, int len)
 {
   flash_erase(dst);
 
+  TU_LOG2("Write flash at address %08lX\r\n", dst);
   for ( int i = 0; i < len; i += 4 )
   {
     uint32_t data = *((uint32_t*) ((void*) (src + i)));
 
     if ( HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, dst + i, (uint64_t) data) != HAL_OK )
     {
-      TU_LOG1("Failed to write flash at address %08lX", dst + i);
+      TU_LOG1("Failed to write flash at address %08lX\r\n", dst + i);
       break;
     }
 
     if ( FLASH_WaitForLastOperation(HAL_MAX_DELAY) != HAL_OK )
     {
-      TU_LOG1("Waiting on last operation failed");
+      TU_LOG1("Waiting on last operation failed\r\n");
       return;
     }
   }
 
   if ( memcmp((void*) dst, src, len) != 0 )
   {
-    TU_LOG1("failed to write");
+    TU_LOG1("Failed to write\r\n");
   }
 }
 
@@ -184,13 +185,10 @@ void board_flash_flush(void)
 // TODO not working quite yet
 void board_flash_write (uint32_t addr, void const *data, uint32_t len)
 {
-  // skip matching contents
-  if ( memcmp((void*) addr, data, len) )
-  {
-    HAL_FLASH_Unlock();
-    flash_write(addr, data, len);
-    HAL_FLASH_Lock();
-  }
+  // TODO skip matching contents
+  HAL_FLASH_Unlock();
+  flash_write(addr, data, len);
+  HAL_FLASH_Lock();
 }
 
 void board_flash_erase_app(void)

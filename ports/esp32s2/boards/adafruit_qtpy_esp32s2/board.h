@@ -1,4 +1,4 @@
-/*
+/* 
  * The MIT License (MIT)
  *
  * Copyright (c) 2020 Ha Thach (tinyusb.org) for Adafruit Industries
@@ -22,8 +22,8 @@
  * THE SOFTWARE.
  */
 
-#ifndef MICRODEV_MICROS2_H_
-#define MICRODEV_MICROS2_H_
+#ifndef ADAFRUIT_QTPY_ESP32S2_H_
+#define ADAFRUIT_QTPY_ESP32S2_H_
 
 //--------------------------------------------------------------------+
 // Button
@@ -32,38 +32,40 @@
 // Enter UF2 mode if GPIO is pressed while 2nd stage bootloader indicator
 // is on e.g RGB = Purple. If it is GPIO0, user should not hold this while
 // reset since that will instead run the 1st stage ROM bootloader
-#define PIN_BUTTON_UF2      0
+#define PIN_BUTTON_UF2        0
+
+// GPIO that implement 1-bit memory with RC components which hold the
+// pin value long enough for double reset detection.
+#define PIN_DOUBLE_RESET_RC   10
 
 //--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
 
 // GPIO connected to Neopixel data
-#define NEOPIXEL_PIN        33
+#define NEOPIXEL_PIN          39
+
+#define NEOPIXEL_POWER_PIN    38
+#define NEOPIXEL_POWER_STATE  1
 
 // Brightness percentage from 1 to 255
-#define NEOPIXEL_BRIGHTNESS 0x10
+#define NEOPIXEL_BRIGHTNESS   0x10
 
 // Number of neopixels
-#define NEOPIXEL_NUMBER     1
-
-// LED for indicator and writing flash
-// If not defined neopixel will be use for flash writing instead
-#define LED_PIN             21
-#define LED_STATE_ON        1
+#define NEOPIXEL_NUMBER       1
 
 //--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
 
-#define USB_VID             0x239A
-#define USB_PID             0x00C5
-#define USB_MANUFACTURER    "MicroDev"
-#define USB_PRODUCT         "microS2"
+#define USB_VID           0x239A
+#define USB_PID           0x0111
+#define USB_MANUFACTURER  "Adafruit"
+#define USB_PRODUCT       "QT Py ESP32-S2"
 
-#define UF2_PRODUCT_NAME    USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID        "ESP32S2-MICROS2-V1"
-#define UF2_VOLUME_LABEL    "MICROS2BOOT"
-#define UF2_INDEX_URL       "https://github.com/microDev1/microS2/wiki"
+#define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
+#define UF2_BOARD_ID      "ESP32S2-QTPY-revB"
+#define UF2_VOLUME_LABEL  "QTPYS2BOOT"
+#define UF2_INDEX_URL     "https://www.adafruit.com/product/5325" // TODO update link
 
-#endif //MICRODEV_MICROS2_H_
+#endif

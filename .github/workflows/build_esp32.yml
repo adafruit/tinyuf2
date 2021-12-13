@@ -25,13 +25,17 @@ jobs:
         - 'adafruit_funhouse_esp32s2'
         - 'adafruit_magtag_29gray'
         - 'adafruit_metro_esp32s2'
+        - 'adafruit_qtpy_esp32s2'
         - 'artisense_rd00'
         - 'atmegazero_esp32s2'
+        - 'espressif_hmi_1'
         - 'espressif_kaluga_1'
         - 'espressif_saola_1_wroom'
         - 'espressif_saola_1_wrover'
         - 'gravitech_cucumberRIS_v1.1'
         - 'lilygo_ttgo_t8_s2_st7789'
+        - 'lolin_s2_mini'
+        - 'lolin_s2-pico'
         - 'microdev_micro_s2'
         - 'morpheans_morphesp-240'
         - 'muselab_nanoesp32-s2_wroom'
@@ -47,7 +51,7 @@ jobs:
       uses: actions/setup-python@v2
 
     - name: Pull ESP-IDF docker
-      run: docker pull espressif/idf:release-v4.3
+      run: docker pull espressif/idf:release-v4.4
 
     - name: Checkout
       uses: actions/checkout@v2
