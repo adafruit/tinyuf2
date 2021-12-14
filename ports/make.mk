@@ -108,7 +108,7 @@ SRC_C += \
 	$(TINYUSB_DIR)/class/usbtmc/usbtmc_device.c \
 	$(TINYUSB_DIR)/class/vendor/vendor_device.c
 
-#	$(TINYUSB_DIR)/class/net/net_device.c 
+#	removed $(TINYUSB_DIR)/class/net/net_device.c 
 
 INC += $(TOP)/$(TINYUSB_DIR)
 
