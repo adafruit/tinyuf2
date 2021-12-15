@@ -50,6 +50,10 @@ void board_init(void)
   PORT_SetPinMux(LED_PORT, LED_PIN, kPORT_MuxAsGpio);  
 #endif
 
+#ifdef KUIIC_RGB_LED
+  kuiic_rgb_init();
+#endif
+
 #ifdef BUTTON_PIN
   CLOCK_EnableClock(BUTTON_CLK_PORT);
   gpio_pin_config_t button_config = { kGPIO_DigitalInput, 0 };
@@ -177,12 +181,18 @@ uint8_t board_usb_get_serial(uint8_t serial_id[16])
 
 void board_led_write(uint32_t state)
 {
+  (void) state;
+#ifdef LED_PIN
   GPIO_PinWrite(LED_GPIO, LED_PIN, ((state)? LED_STATE_ON : (1-LED_STATE_ON)));
+#endif
 }
 
 void board_rgb_write(uint8_t const rgb[])
 {
   (void) rgb;
+#ifdef KUIIC_RGB_LED
+  kuiic_rgb_write(rgb);
+#endif
 }
 
 //--------------------------------------------------------------------+
@@ -203,6 +213,9 @@ void board_timer_stop(void)
 void SysTick_Handler (void)
 {
   board_timer_handler();
+#ifdef KUIIC_RGB_LED
+  kuiic_rgb_tick();
+#endif
 }
 
 

@@ -62,8 +62,9 @@
 // USB UF2
 //--------------------------------------------------------------------+
 
+// 0x1FC9, 0x0154 is reserved for TinyUF2 usage
 #define USB_VID           0x1FC9
-#define USB_PID           0xDA7A
+#define USB_PID           0x0154
 #define USB_MANUFACTURER  "NXP"
 #define USB_PRODUCT       "FRDM-K32L2B3"
 

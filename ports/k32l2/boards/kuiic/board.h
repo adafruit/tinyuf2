@@ -25,6 +25,8 @@
 #ifndef BOARD_H_
 #define BOARD_H_
 
+#include "kuiic_rgb.h"
+
 //--------------------------------------------------------------------+
 // Flash
 //--------------------------------------------------------------------+
@@ -32,14 +34,10 @@
 #define BOARD_FLASH_SIZE      0x40000U
 
 //--------------------------------------------------------------------+
-// LED
+// KUIIC RGB LED
 //--------------------------------------------------------------------+
 
-#define LED_GPIO              GPIOA
-#define LED_PORT              PORTA
-#define LED_CLK_PORT          kCLOCK_PortA
-#define LED_PIN               1
-#define LED_STATE_ON          0
+#define KUIIC_RGB_LED         1
 
 //--------------------------------------------------------------------+
 // Neopixel
@@ -52,8 +50,9 @@
 // USB UF2
 //--------------------------------------------------------------------+
 
+// 0x1FC9, 0x0154 is reserved for TinyUF2 usage
 #define USB_VID           0x1FC9
-#define USB_PID           0xB007
+#define USB_PID           0x0154
 #define USB_MANUFACTURER  "NXP"
 #define USB_PRODUCT       "KUIIC"
 
