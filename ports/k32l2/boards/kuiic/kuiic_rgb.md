@@ -7,7 +7,7 @@ The KUIIC board uses two timer capable pins to drive an RGB LED.  This was done 
 The three LEDS are connected in the following order:
 
 ```
-         red            blue           green 
+         red  B/R#      blue G/B#      green 
 3V3 - 2k ->|- PTA1 - 1k -|<- PTA2 - 2k ->|- GND
 ```
 
