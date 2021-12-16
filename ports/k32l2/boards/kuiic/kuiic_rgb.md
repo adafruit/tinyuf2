@@ -8,12 +8,12 @@ The three LEDS are connected in the following order:
 
 ```
          red  B/R#      blue G/B#      green 
-3V3 - 2k ->|- PTA1 - 1k -|<- PTA2 - 2k ->|- GND
+3V3 - 2k ->|- PTA1 - 1k ->|- PTA2 - 2k ->|- GND
 ```
 
 The state of the LEDs is described in the following truth table:
 
- PTA1  | PTA2  |  R  |  G  |  B  | Color
+ B/R#  | G/B#  |  R  |  G  |  B  | Color
 -------|-------|-----|-----|-----|-------
    Z   |   Z   | off | off | off | black
    0   |   0   | ON  | off | off | red
