@@ -69,12 +69,15 @@
 #define DISPLAY_PIN_MOSI      35
 #define DISPLAY_PIN_SCK       36
 
-#define DISPLAY_PIN_CS        21
+#define DISPLAY_PIN_CS         7
 #define DISPLAY_PIN_DC        39
 #define DISPLAY_PIN_RST       40
 
-#define DISPLAY_PIN_BL       45
-#define DISPLAY_BL_ON         1  // GPIO state to enable back light
+#define DISPLAY_PIN_BL        45
+#define DISPLAY_BL_ON          1  // GPIO state to enable back light
+
+#define DISPLAY_PIN_POWER     21
+#define DISPLAY_POWER_ON       1  // GPIO state to enable TFT
 
 #define DISPLAY_WIDTH         240
 #define DISPLAY_HEIGHT        135
