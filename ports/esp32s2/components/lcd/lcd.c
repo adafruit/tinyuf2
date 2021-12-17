@@ -248,6 +248,12 @@ esp_err_t lcd_init(spi_device_handle_t spi)
     gpio_set_direction(DISPLAY_PIN_RST, GPIO_MODE_OUTPUT);
     gpio_set_direction(DISPLAY_PIN_BL, GPIO_MODE_OUTPUT);
 
+#ifdef DISPLAY_PIN_POWER
+    /*!< /Enable display */
+    gpio_set_direction(DISPLAY_PIN_POWER, GPIO_MODE_OUTPUT);
+    gpio_set_level(DISPLAY_PIN_POWER, DISPLAY_POWER_ON);
+#endif
+
     /*!<  Reset the display */
     gpio_set_level(DISPLAY_PIN_RST, 0);
     vTaskDelay(100 / portTICK_RATE_MS);
