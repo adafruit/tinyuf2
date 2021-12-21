@@ -30,6 +30,7 @@ SRC_C += \
 	$(SDK_DIR)/drivers/ocotp/fsl_ocotp.c \
 	$(SDK_DIR)/drivers/pwm/fsl_pwm.c \
 	$(SDK_DIR)/drivers/xbara/fsl_xbara.c \
+	$(BOARD_DIR)/clock_config.c 
 
 # It seems that only RT1011 does not have ROM API
 ifneq ($(MCU),MIMXRT1011)
