@@ -12,7 +12,6 @@ target_sources(${COMPONENT_TARGET} PUBLIC
   "${TOP}/lib/tinyusb/src/class/hid/hid_device.c"
   "${TOP}/lib/tinyusb/src/class/midi/midi_device.c"
   "${TOP}/lib/tinyusb/src/class/msc/msc_device.c"
-  "${TOP}/lib/tinyusb/src/class/net/net_device.c"
   "${TOP}/lib/tinyusb/src/class/usbtmc/usbtmc_device.c"
   "${TOP}/lib/tinyusb/src/class/vendor/vendor_device.c"
   "${TOP}/lib/tinyusb/src/portable/espressif/esp32sx/dcd_esp32sx.c"

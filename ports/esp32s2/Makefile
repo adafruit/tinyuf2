@@ -1,5 +1,8 @@
 # Espressif IDF use CMake build system, this add wrapper target to call idf.py
 
+UF2_FAMILY_ID_S2 = 0xbfdd4eee
+UF2_FAMILY_ID_S3 = 0xc47e5767
+
 .PHONY: all build clean flash monitor erase
 .DEFAULT_GOAL := all
 

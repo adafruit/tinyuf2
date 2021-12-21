@@ -18,7 +18,6 @@
 #include "bootloader_common.h"
 #include "bootloader_hooks.h"
 
-#include "esp32s2/rom/gpio.h"
 #include "soc/cpu.h"
 #include "hal/gpio_ll.h"
 #include "esp_rom_sys.h"
@@ -28,15 +27,15 @@
 #include "board.h"
 
 #ifdef TCA9554_ADDR
-#include "hal/i2c_types.h"
+  #include "hal/i2c_types.h"
 
-// Using GPIO expander requires long reset delay (somehow)
-#define NEOPIXEL_RESET_DELAY      ns2cycle(1000*1000)
+  // Using GPIO expander requires long reset delay (somehow)
+  #define NEOPIXEL_RESET_DELAY      ns2cycle(1000*1000)
 #endif
 
 #ifndef NEOPIXEL_RESET_DELAY
-// Need at least 200 us for initial delay although Neopixel reset time is only 50 us
-#define NEOPIXEL_RESET_DELAY      ns2cycle(200*1000)
+  // Need at least 200 us for initial delay although Neopixel reset time is only 50 us
+  #define NEOPIXEL_RESET_DELAY      ns2cycle(200*1000)
 #endif
 
 
@@ -211,29 +210,29 @@ static int selected_boot_partition(const bootloader_state_t *bs)
 #ifdef PIN_DOUBLE_RESET_RC
           // Double reset detect if board implements 1-bit memory with RC components
           PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[PIN_DOUBLE_RESET_RC]);
-          if ( GPIO_INPUT_GET(PIN_DOUBLE_RESET_RC) == 1 )
+          if ( gpio_ll_get_level(&GPIO, PIN_DOUBLE_RESET_RC) == 1 )
           {
             ESP_LOGI(TAG, "Detect double reset using RC on GPIO %d to enter UF2 bootloader", PIN_DOUBLE_RESET_RC);
             boot_index = FACTORY_INDEX;
           }
           else
           {
-            GPIO_OUTPUT_SET(PIN_DOUBLE_RESET_RC, 1);
+            gpio_ll_set_level(&GPIO, PIN_DOUBLE_RESET_RC, 1);
           }
 #endif
 
           if ( boot_index != FACTORY_INDEX )
           {
-            gpio_pad_select_gpio(PIN_BUTTON_UF2);
+            esp_rom_gpio_pad_select_gpio(PIN_BUTTON_UF2);
             if (GPIO_PIN_MUX_REG[PIN_BUTTON_UF2]) {
               PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[PIN_BUTTON_UF2]);
             }
-            gpio_pad_pullup(PIN_BUTTON_UF2);
+            esp_rom_gpio_pad_pullup_only(PIN_BUTTON_UF2);
 
             uint32_t tm_start = esp_log_early_timestamp();
             while (UF2_DETECTION_DELAY_MS > (esp_log_early_timestamp() - tm_start) )
             {
-              if ( GPIO_INPUT_GET(PIN_BUTTON_UF2) == 0 )
+              if ( gpio_ll_get_level(&GPIO, PIN_BUTTON_UF2) == 0 )
               {
                 ESP_LOGI(TAG, "Detect GPIO %d active to enter UF2 bootloader", PIN_BUTTON_UF2);
 
@@ -245,7 +244,7 @@ static int selected_boot_partition(const bootloader_state_t *bs)
           }
 
 #if PIN_DOUBLE_RESET_RC
-          GPIO_OUTPUT_SET(PIN_DOUBLE_RESET_RC, 0);
+          gpio_ll_set_level(&GPIO, PIN_DOUBLE_RESET_RC, 0);
 #endif
 
           board_led_off();
@@ -271,8 +270,16 @@ struct _reent *__getreent(void)
 
 static inline uint32_t ns2cycle(uint32_t ns)
 {
-  extern uint32_t g_ticks_per_us_pro; // e.g 80 for 80 Mhz
-  return (g_ticks_per_us_pro*ns) / 1000;
+  uint32_t tick_per_us;
+
+#if CONFIG_IDF_TARGET_ESP32S3
+  tick_per_us = ets_get_cpu_frequency();
+#else // ESP32S2
+  extern uint32_t g_ticks_per_us_pro;
+  tick_per_us = g_ticks_per_us_pro;
+#endif
+
+  return (tick_per_us*ns) / 1000;
 }
 
 static inline uint32_t delay_cycle(uint32_t cycle)
@@ -449,7 +456,7 @@ void sw_i2c_end()
 // Initialize I2C pins
 void sw_i2c_init()
 {
-  gpio_pad_select_gpio(I2C_MASTER_SDA_IO);
+  esp_rom_gpio_pad_select_gpio(I2C_MASTER_SDA_IO);
   gpio_ll_input_enable(&GPIO, I2C_MASTER_SDA_IO);
   gpio_ll_output_enable(&GPIO, I2C_MASTER_SDA_IO);
   gpio_ll_od_enable(&GPIO, I2C_MASTER_SDA_IO);
@@ -458,7 +465,7 @@ void sw_i2c_init()
   gpio_ll_intr_disable(&GPIO, I2C_MASTER_SDA_IO);
   gpio_ll_set_level(&GPIO, I2C_MASTER_SDA_IO, HIGH);
 
-  gpio_pad_select_gpio(I2C_MASTER_SCL_IO);
+  esp_rom_gpio_pad_select_gpio(I2C_MASTER_SCL_IO);
   gpio_ll_input_disable(&GPIO, I2C_MASTER_SCL_IO);
   gpio_ll_output_enable(&GPIO, I2C_MASTER_SCL_IO);
   gpio_ll_od_enable(&GPIO, I2C_MASTER_SCL_IO);
@@ -498,13 +505,13 @@ static void board_led_on(void)
   #endif
   
   #ifdef NEOPIXEL_POWER_PIN
-  gpio_pad_select_gpio(NEOPIXEL_POWER_PIN);
+  esp_rom_gpio_pad_select_gpio(NEOPIXEL_POWER_PIN);
   gpio_ll_input_disable(&GPIO, NEOPIXEL_POWER_PIN);
   gpio_ll_output_enable(&GPIO, NEOPIXEL_POWER_PIN);
   gpio_ll_set_level(&GPIO, NEOPIXEL_POWER_PIN, NEOPIXEL_POWER_STATE);
   #endif
 
-  gpio_pad_select_gpio(NEOPIXEL_PIN);
+  esp_rom_gpio_pad_select_gpio(NEOPIXEL_PIN);
   gpio_ll_input_disable(&GPIO, NEOPIXEL_PIN);
   gpio_ll_output_enable(&GPIO, NEOPIXEL_PIN);
   gpio_ll_set_level(&GPIO, NEOPIXEL_PIN, 0);
@@ -516,18 +523,18 @@ static void board_led_on(void)
 #endif
 
 #ifdef DOTSTAR_PIN_DATA
-  gpio_pad_select_gpio(DOTSTAR_PIN_DATA);
+  esp_rom_gpio_pad_select_gpio(DOTSTAR_PIN_DATA);
   gpio_ll_input_disable(&GPIO, DOTSTAR_PIN_DATA);
   gpio_ll_output_enable(&GPIO, DOTSTAR_PIN_DATA);
   gpio_ll_set_level(&GPIO, DOTSTAR_PIN_DATA, 0);
 
-  gpio_pad_select_gpio(DOTSTAR_PIN_SCK);
+  esp_rom_gpio_pad_select_gpio(DOTSTAR_PIN_SCK);
   gpio_ll_input_disable(&GPIO, DOTSTAR_PIN_SCK);
   gpio_ll_output_enable(&GPIO, DOTSTAR_PIN_SCK);
   gpio_ll_set_level(&GPIO, DOTSTAR_PIN_SCK, 0);
 
   #ifdef DOTSTAR_PIN_PWR
-  gpio_pad_select_gpio(DOTSTAR_PIN_PWR);
+  esp_rom_gpio_pad_select_gpio(DOTSTAR_PIN_PWR);
   gpio_ll_input_disable(&GPIO, DOTSTAR_PIN_PWR);
   gpio_ll_output_enable(&GPIO, DOTSTAR_PIN_PWR);
   gpio_ll_set_level(&GPIO, DOTSTAR_PIN_PWR, DOTSTAR_POWER_STATE);
@@ -537,7 +544,7 @@ static void board_led_on(void)
 #endif
 
 #ifdef LED_PIN
-  gpio_pad_select_gpio(LED_PIN);
+  esp_rom_gpio_pad_select_gpio(LED_PIN);
   gpio_ll_input_disable(&GPIO, LED_PIN);
   gpio_ll_output_enable(&GPIO, LED_PIN);
 
