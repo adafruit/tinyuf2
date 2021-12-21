@@ -22,7 +22,6 @@ CFLAGS += -Wno-error=unused-parameter
 # Port source
 SRC_C += \
 	$(MCU_DIR)/system_$(MCU).c \
-	$(MCU_DIR)/project_template/clock_config.c \
 	$(MCU_DIR)/drivers/fsl_clock.c \
 	$(SDK_DIR)/drivers/cache/armv7-m7/fsl_cache.c \
 	$(SDK_DIR)/drivers/common/fsl_common.c \
@@ -49,7 +48,6 @@ INC += \
   $(TOP)/$(BOARD_DIR) \
 	$(TOP)/$(SDK_DIR)/CMSIS/Include \
 	$(TOP)/$(MCU_DIR) \
-	$(TOP)/$(MCU_DIR)/project_template \
 	$(TOP)/$(MCU_DIR)/xip \
 	$(TOP)/$(MCU_DIR)/drivers \
 	$(TOP)/$(SDK_DIR)/drivers/cache/armv7-m7 \
