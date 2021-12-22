@@ -53,9 +53,6 @@ jobs:
     - name: Setup Python
       uses: actions/setup-python@v2
 
-    - name: Pull ESP-IDF docker
-      run: docker pull espressif/idf:release-v4.4
-
     - name: Checkout
       uses: actions/checkout@v2
 
@@ -63,7 +60,7 @@ jobs:
       run: git submodule update --init lib/tinyusb lib/uf2
 
     - name: Build
-      run: docker run --rm -v $PWD:/project -w /project espressif/idf:release-v4.3 make -C ports/esp32s2/ BOARD=${{ matrix.board }} all self-update copy-artifact
+      run: docker run --rm -v $PWD:/project -w /project espressif/idf:release-v4.4 make -C ports/esp32s2/ BOARD=${{ matrix.board }} all self-update copy-artifact
 
     - uses: actions/upload-artifact@v2
       with:
