@@ -23,6 +23,13 @@
 #include "esp_rom_sys.h"
 #include "esp_rom_gpio.h"
 
+#if CONFIG_IDF_TARGET_ESP32S2
+  #include "esp32s2/rom/rtc.h"
+#elif CONFIG_IDF_TARGET_ESP32S3
+  #include "esp32s3/rom/rtc.h"
+#endif
+
+
 // Specific board header specified with -DBOARD=
 #include "board.h"
 
@@ -63,7 +70,8 @@ static void board_led_off(void);
 // Get Reset Reason Hint requested by Application to enter UF2
 //--------------------------------------------------------------------+
 
-// copied from esp_system/port/soc/esp32s2/reset_reason.c
+// copied from components/esp_system/port/soc/esp32s2/reset_reason.c
+// since esp_system is not included with bootloader build
 #define RST_REASON_BIT  0x80000000
 #define RST_REASON_MASK 0x7FFF
 #define RST_REASON_SHIFT 16
