@@ -19,7 +19,7 @@ jobs:
       fail-fast: false
       matrix:
         board:
-        # Alphabetical order
+        # S2 Alphabetical order
         - 'adafruit_feather_esp32s2'
         - 'adafruit_feather_esp32s2_tft'
         - 'adafruit_funhouse_esp32s2'
@@ -46,6 +46,9 @@ jobs:
         - 'unexpectedmaker_feathers2'
         - 'unexpectedmaker_feathers2_neo'
         - 'unexpectedmaker_tinys2'
+        # S3 Alphabetical order
+        - 'espressif_esp32s3_devkitc_1'
+        - 'espressif_esp32s3_devkitm_1'
     steps:
     - name: Setup Python
       uses: actions/setup-python@v2
