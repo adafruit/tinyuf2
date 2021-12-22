@@ -18,8 +18,7 @@
 #include "bootloader_common.h"
 #include "bootloader_hooks.h"
 
-#include "soc/cpu.h"
-#include "hal/gpio_ll.h"
+// components/esp_rom
 #include "esp_rom_sys.h"
 #include "esp_rom_gpio.h"
 
@@ -29,6 +28,8 @@
   #include "esp32s3/rom/rtc.h"
 #endif
 
+#include "soc/cpu.h"
+#include "hal/gpio_ll.h"
 
 // Specific board header specified with -DBOARD=
 #include "board.h"
