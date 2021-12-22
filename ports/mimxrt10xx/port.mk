@@ -38,7 +38,7 @@ SRC_C += $(MCU_DIR)/drivers/fsl_romapi.c
 endif
 
 ifndef BUILD_NO_TINYUSB
-SRC_C += lib/tinyusb/src/portable/nxp/transdimension/dcd_transdimension.c
+SRC_C += lib/tinyusb/src/portable/chipidea/ci_hs/dcd_ci_hs.c
 endif
 
 SRC_S += $(MCU_DIR)/gcc/startup_$(MCU).S
