@@ -23,37 +23,12 @@ all:
 
 build: all
 
-app:
-	idf.py -B$(BUILD) -DBOARD=$(BOARD) app
-
-clean:
-	idf.py -B$(BUILD) -DBOARD=$(BOARD) clean
-	@rm -rf $(BIN)
-
 fullclean:
 	idf.py -B$(BUILD) -DBOARD=$(BOARD) fullclean
 	@rm -rf $(BIN)
 
-flash:
-	idf.py -B$(BUILD) -DBOARD=$(BOARD) $(SERIAL_OPT) flash
-
-bootloader-flash:
-	idf.py -B$(BUILD) -DBOARD=$(BOARD) $(SERIAL_OPT) bootloader-flash
-
-app-flash:
-	idf.py -B$(BUILD) -DBOARD=$(BOARD) $(SERIAL_OPT) app-flash
-
-erase:
-	idf.py -B$(BUILD) -DBOARD=$(BOARD) erase_flash
-
-monitor:
-	idf.py -B$(BUILD) -DBOARD=$(BOARD) monitor
-
-size-components:
-	idf.py -B$(BUILD) -DBOARD=$(BOARD) size-components
-
-size-files:
-	idf.py -B$(BUILD) -DBOARD=$(BOARD) size-files
+app bootloader clean flash bootloader-flash app-flash erase monitor dfu-flash dfu size size-components size-files:
+	idf.py -B$(BUILD) -DBOARD=$(BOARD) $(SERIAL_OPT) $@
 
 $(BUILD)/combined.bin: app
 	UF2_OFFSET=`awk '{if(FNR==2)print $$1}' $(BUILD)/app-flash_args)`; \
