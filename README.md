@@ -9,7 +9,7 @@ This repo is cross-platform UF2 Bootloader projects for MCUs based on [TinyUSB](
 ├── apps              # Useful applications such as self-update, erase firmware
 ├── lib               # Sources from 3rd party such as tinyusb, mcu drivers ...
 ├── ports             # Port/family specific sources
-│   ├── esp32s2       
+│   ├── espressif
 │   │   └── boards/   # Board specific sources
 │   │   └── Makefile  # Makefile for this port
 │   └── mimxrt10xx         
@@ -20,7 +20,7 @@ This repo is cross-platform UF2 Bootloader projects for MCUs based on [TinyUSB](
 
 TODO more docs later
 
-- Support ESP32-S2, iMXRT10xx, LPC55xx, STM32F3, STM32F4
+- Support ESP32-S2, ESP32-S3, iMXRT10xx, LPC55xx, STM32F3, STM32F4
 - Self update with update file in uf2 format
 - Indicator: LED, RGB
 - Debug log with uart/swd

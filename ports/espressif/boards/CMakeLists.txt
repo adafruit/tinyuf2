@@ -9,5 +9,5 @@ target_include_directories(${COMPONENT_TARGET} PUBLIC
   "${FREERTOS_ORIG_INCLUDE_PATH}"
   "${TOP}/src"
   "${TOP}/lib/tinyusb/src"
-  "${TOP}/ports/esp32s2"
+  "${TOP}/ports/espressif"
 )
