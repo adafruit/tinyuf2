@@ -40,8 +40,6 @@
   #define CFG_TUSB_MCU               OPT_MCU_ESP32S2
 #elif CONFIG_IDF_TARGET_ESP32S3
   #define CFG_TUSB_MCU               OPT_MCU_ESP32S3
-#else
-  #error unsupported MCUs
 #endif
 
 #define CFG_TUSB_RHPORT0_MODE      OPT_MODE_DEVICE

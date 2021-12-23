@@ -29,10 +29,18 @@
  extern "C" {
 #endif
 
+#include "sdkconfig.h"
 #include "board.h"
 
 // Family ID for updating Application
-#define BOARD_UF2_FAMILY_ID     0xbfdd4eee
+#if CONFIG_IDF_TARGET_ESP32S2
+  #define BOARD_UF2_FAMILY_ID     0xbfdd4eee
+#elif CONFIG_IDF_TARGET_ESP32S3
+  #define BOARD_UF2_FAMILY_ID     0xc47e5767
+#else
+  #error unsupported MCUs
+#endif
+
 
 // Flash Start Address of Application
 #define BOARD_FLASH_APP_START   0
