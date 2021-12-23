@@ -103,10 +103,7 @@ SRC_C += \
 	$(TINYUSB_DIR)/class/cdc/cdc_device.c \
 	$(TINYUSB_DIR)/class/dfu/dfu_rt_device.c \
 	$(TINYUSB_DIR)/class/hid/hid_device.c \
-	$(TINYUSB_DIR)/class/midi/midi_device.c \
 	$(TINYUSB_DIR)/class/msc/msc_device.c \
-	$(TINYUSB_DIR)/class/net/net_device.c \
-	$(TINYUSB_DIR)/class/usbtmc/usbtmc_device.c \
 	$(TINYUSB_DIR)/class/vendor/vendor_device.c
 
 INC += $(TOP)/$(TINYUSB_DIR)

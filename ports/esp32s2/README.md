@@ -69,13 +69,15 @@ There are a few ways to enter UF2 mode:
 
 ## Convert Binary to UF2
 
-To create your own UF2 file, simply use the [Python conversion script](https://github.com/Microsoft/uf2/blob/master/utils/uf2conv.py) on a .bin file, specifying the family as **0xbfdd4eee**. Note you must specify application address of 0x00 with the -b switch, the bootloader will use it as offset to write to ota partition.
-
-To create a UF2 image from a .bin file using family option `ESP32S2` or its magic number as followss:
+To create your own UF2 file, simply use the [Python conversion script](https://github.com/Microsoft/uf2/blob/master/utils/uf2conv.py) on a .bin file, specifying the family id as `ESP32S2`, ``ESP32S3` or their magic number as follows. Note you must specify application address of 0x00 with the -b switch, the bootloader will use it as offset to write to ota partition.
 
 ```
 uf2conv.py firmware.bin -c -b 0x00 -f ESP32S2
 uf2conv.py firmware.bin -c -b 0x00 -f 0xbfdd4eee
+
+uf2conv.py firmware.bin -c -b 0x00 -f ESP32S3
+uf2conv.py firmware.bin -c -b 0x00 -f 0xc47e5767
+
 ```
 
 ## 2nd Stage Bootloader

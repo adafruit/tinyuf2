@@ -15,6 +15,8 @@ if(NOT (DEFINED BOARD AND EXISTS "${CMAKE_SOURCE_DIR}/boards/${BOARD}/board.h") 
   message(FATAL_ERROR "Invalid BOARD specified")
 endif()
 
+include(${CMAKE_SOURCE_DIR}/boards/${BOARD}/board.cmake)
+
 # TOP is absolute path to root directory
 set(TOP "../..")
 get_filename_component(TOP "${TOP}" REALPATH)
@@ -25,7 +27,6 @@ set(SDKCONFIG_DEFAULTS sdkconfig.defaults boards/${BOARD}/sdkconfig)
 set(SDKCONFIG ${CMAKE_BINARY_DIR}/sdkconfig)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-set(SUPPORTED_TARGETS esp32s2)
 
 execute_process(COMMAND git describe --dirty --always --tags
                 OUTPUT_VARIABLE GIT_VERSION

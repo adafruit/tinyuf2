@@ -19,7 +19,7 @@ jobs:
       fail-fast: false
       matrix:
         board:
-        # Alphabetical order
+        # S2 Alphabetical order
         - 'adafruit_feather_esp32s2'
         - 'adafruit_feather_esp32s2_tft'
         - 'adafruit_feather_esp32s2_reverse_tft'
@@ -47,12 +47,12 @@ jobs:
         - 'unexpectedmaker_feathers2'
         - 'unexpectedmaker_feathers2_neo'
         - 'unexpectedmaker_tinys2'
+        # S3 Alphabetical order
+        - 'espressif_esp32s3_devkitc_1'
+        - 'espressif_esp32s3_devkitm_1'
     steps:
     - name: Setup Python
       uses: actions/setup-python@v2
-
-    - name: Pull ESP-IDF docker
-      run: docker pull espressif/idf:release-v4.4
 
     - name: Checkout
       uses: actions/checkout@v2
@@ -61,7 +61,7 @@ jobs:
       run: git submodule update --init lib/tinyusb lib/uf2
 
     - name: Build
-      run: docker run --rm -v $PWD:/project -w /project espressif/idf:release-v4.3 make -C ports/esp32s2/ BOARD=${{ matrix.board }} all self-update copy-artifact
+      run: docker run --rm -v $PWD:/project -w /project espressif/idf:release-v4.4 make -C ports/esp32s2/ BOARD=${{ matrix.board }} all self-update copy-artifact
 
     - uses: actions/upload-artifact@v2
       with:
