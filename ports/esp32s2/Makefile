@@ -64,9 +64,13 @@ $(BUILD)/combined.bin: app
 SELF_BUILD = apps/self_update/$(BUILD)
 
 $(SELF_BUILD)/update-tinyuf2.bin: app
-	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py --carray $(BUILD)/tinyuf2.bin -o $(TOP)/apps/self_update/bootloader_bin.c
+	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py --carray $(BUILD)/tinyuf2.bin -o $(TOP)/apps/self_update/tinyuf2_bin.c
+	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py --carray $(BUILD)/bootloader/bootloader.bin -o boards/boot2_bin.h
+	# rename variable in boot2_bin to avoid conflict
+	@sed -i 's/bindata/binboot2/g' boards/boot2_bin.h
 	idf.py -C apps/self_update/ -B$(SELF_BUILD) -DBOARD=$(BOARD) app
-	@rm $(TOP)/apps/self_update/bootloader_bin.c
+	@rm $(TOP)/apps/self_update/tinyuf2_bin.c
+	@rm boards/boot2_bin.h
 
 $(SELF_BUILD)/update-tinyuf2.uf2: $(SELF_BUILD)/update-tinyuf2.bin
 	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py -f 0xbfdd4eee -b 0x0000 -c -o $@ $^

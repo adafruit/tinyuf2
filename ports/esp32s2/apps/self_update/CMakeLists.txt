@@ -25,5 +25,6 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 set(SUPPORTED_TARGETS esp32s2)
 
 add_compile_definitions(TINYUF2_SELF_UPDATE)
+add_compile_definitions(CONFIG_SPI_FLASH_DANGEROUS_WRITE_ALLOWED)
 
 project(update-tinyuf2)

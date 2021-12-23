@@ -127,27 +127,115 @@ void board_flash_write (uint32_t addr, void const *data, uint32_t len)
 //--------------------------------------------------------------------+
 
 #ifdef TINYUF2_SELF_UPDATE
+
+// boot2 binary converted by uf2conv.py
+#include "boot2_bin.h"
+
+static inline uint32_t uf2_min32(uint32_t x, uint32_t y)
+{
+  return (x < y) ? x : y;
+}
+
+// Erase and update boot stage2
+static void update_boot2(const uint8_t * data, uint32_t datalen)
+{
+  // boot2 is always at 0x1000
+  enum { BOOT2_ADDR = 0x1000 };
+
+  // max size of boot2 is 28KB
+  if ( datalen > 24*1024u ) return;
+
+  esp_flash_t * flash_chip = esp_flash_default_chip;
+  assert(flash_chip != NULL);
+
+  //------------- Verify if content matches -------------//
+  uint8_t* verify_buf = _fl_buf;
+  bool content_matches = true;
+
+  for(uint32_t count = 0; count < datalen; count += FLASH_CACHE_SIZE)
+  {
+    uint32_t const verify_len = uf2_min32(datalen - count, FLASH_CACHE_SIZE);
+    esp_flash_read(flash_chip, verify_buf, BOOT2_ADDR + count, verify_len);
+
+    if ( 0 != memcmp(data + count, verify_buf, verify_len) )
+    {
+      content_matches = false;
+      break;
+    }
+  }
+
+  PRINT_INT(content_matches);
+
+  // nothing to do
+  if (content_matches) return;
+
+  //------------- Erase & Flash -------------//
+  enum { SECTOR_SZ = 4096UL };
+
+  // make len aligned to 4K (round div)
+  uint32_t const erase_sz = (datalen + SECTOR_SZ - 1) / SECTOR_SZ;
+
+  // erase
+  esp_flash_erase_region(flash_chip, BOOT2_ADDR, erase_sz);
+
+  // flash
+  esp_flash_write(flash_chip, data, BOOT2_ADDR, datalen);
+}
+
+// Erase and write tinyuf2 partition
+static void update_tinyuf2(const uint8_t * data, uint32_t datalen)
+{
+  esp_partition_t const * part_uf2 = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_FACTORY, NULL);
+  assert(part_uf2 != NULL);
+
+  // Set UF2 as next boot regardless of flashing resule to prevent running this app again
+  esp_ota_set_boot_partition(part_uf2);
+
+  //------------- Verify if content matches -------------//
+  uint8_t* verify_buf = _fl_buf;
+  bool content_matches = true;
+
+  for(uint32_t count = 0; count < datalen; count += FLASH_CACHE_SIZE)
+  {
+    uint32_t const verify_len = uf2_min32(datalen - count, FLASH_CACHE_SIZE);
+    esp_partition_read(part_uf2, count, verify_buf, verify_len);
+
+    if ( 0 != memcmp(data + count, verify_buf, verify_len) )
+    {
+      content_matches = false;
+      break;
+    }
+  }
+
+  // nothing to do
+  if (!content_matches) return;
+
+  //------------- Erase & Flash -------------//
+  enum { SECTOR_SZ = 4096UL };
+
+  // make len aligned to 4K (round div)
+  uint32_t const erase_sz = (datalen + SECTOR_SZ - 1) / SECTOR_SZ;
+
+  // Erase partition
+  esp_partition_erase_range(part_uf2, 0, erase_sz);
+
+  // Write new data
+  esp_partition_write(part_uf2, 0, data, datalen);
+
+  // Set UF2 as next boot
+  esp_ota_set_boot_partition(part_uf2);
+}
+
 void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
 {
-  enum { SECTOR_SZ = 4096UL };
-  esp_partition_t const * _part_uf2;
+  // Update TinyUF2 partition
+  update_tinyuf2(bootloader_bin, bootloader_len);
 
-  _part_uf2 = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_FACTORY, NULL);
-  assert(_part_uf2 != NULL);
+  // Update boot2 stage partition
+  update_boot2(binboot2, binboot2_len);
 
-  // make len aligned to 4K
-  uint32_t erase_sz = (bootloader_len & ~(SECTOR_SZ-1));
-  if (bootloader_len & (SECTOR_SZ-1)) erase_sz += SECTOR_SZ;
-
-  // Erase old bootloader
-  esp_partition_erase_range(_part_uf2, 0, erase_sz);
-
-  // Write new bootloader
-  esp_partition_write(_part_uf2, 0, bootloader_bin, bootloader_len);
-
-  // Set UF2 as next boot and restart
-  esp_ota_set_boot_partition(_part_uf2);
+  // all done restart
   esp_restart();
 }
-#endif
 
+#endif
