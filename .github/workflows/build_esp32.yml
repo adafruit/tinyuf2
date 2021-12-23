@@ -13,7 +13,7 @@ jobs:
   # ---------------------------------------
   # Build ESP32SX family
   # ---------------------------------------
-  ESP32-S2:
+  ESP:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
