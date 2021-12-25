@@ -20,6 +20,7 @@ jobs:
       matrix:
         board:
         # S2 Alphabetical order
+        - 'adafruit_camera_esp32s2'
         - 'adafruit_feather_esp32s2'
         - 'adafruit_feather_esp32s2_tft'
         - 'adafruit_feather_esp32s2_reverse_tft'
