@@ -10,4 +10,6 @@ _ocram_size = 256K;
 /* Reference Manual suggests avoiding addresses 0x0 through 0x3 */ 
 /* in section 9.6.1.2, so start at 0x1000 */
 _fcfb_origin = 0x1000;
-_fcfb_length = 0x1000;
+
+/* must be 4K aligned */
+_ivt_origin = 0x2000;

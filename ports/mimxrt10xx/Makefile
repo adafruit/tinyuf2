@@ -25,43 +25,39 @@ include ../rules.mk
 #---------------------------------------------------------
 # Load to SRAM using sdphost
 # Note: you may need to give the sdphost binary executable permission first.
+#
 # SDP loads the image into the RAM locations specified in the .ld files.
-# SDP Write Address must equal _fcfb_origin value
-# SDP Jump Address must equal _ivt_origin = _fcfb_origin + _fcfb_length
-# TinyUF2 will copy itself to the correct location in flash
-# UF2 Write Address shows where the image will reside in flash if you 
+#  - "SDP Write Address" must equal _fcfb_origin
+#  - "SDP Jump Address" must equal _ivt_origin
+#
+# TinyUF2 will copy itself to the correct location in flash.
+# "UF2 Write Address" shows where the image will reside in flash if you 
 # want to use a tool like pyocd to write the binary into flash through SWD
 # Note: The .elf file cannot be written directly to flash since the target 
 # is RAM and the addresses need to be translated.
 #---------------------------------------------------------
 SDP_MIMXRT1011_PID = 0x0145
-SDP_MIMXRT1011_WRITE_ADDR = 0x20206400
-SDP_MIMXRT1011_JUMP_ADDR  = 0x20207000
 UF2_MIMXRT1011_WRITE_ADDR = 0x60000400
 
 # RT1015, 1050 pid is also 0x0130
 SDP_MIMXRT1021_PID = 0x0130
-SDP_MIMXRT1021_WRITE_ADDR = 0x0400
-SDP_MIMXRT1021_JUMP_ADDR  = 0x1000
 UF2_MIMXRT1021_WRITE_ADDR = 0x60000400
 
 SDP_MIMXRT1024_PID = 0x0130
-SDP_MIMXRT1024_WRITE_ADDR = 0x0400
-SDP_MIMXRT1024_JUMP_ADDR  = 0x1000
 UF2_MIMXRT1024_WRITE_ADDR = 0x60000400
 
 SDP_MIMXRT1062_PID = 0x0135
-SDP_MIMXRT1062_WRITE_ADDR = 0x1000
-SDP_MIMXRT1062_JUMP_ADDR  = 0x2000
 UF2_MIMXRT1062_WRITE_ADDR = 0x60000000
 
 SDP_MIMXRT1064_PID = 0x0135
-SDP_MIMXRT1064_WRITE_ADDR = 0x1000
-SDP_MIMXRT1064_JUMP_ADDR  = 0x2000
 UF2_MIMXRT1064_WRITE_ADDR = 0x70000000
 
 DBL_TAP_MAGIC_ERASE_APP = 0xf5e80ab4
 DBL_TAP_REG_ADDR = 0x400D410C
+
+# extract _fcfb_origin and _ivt_origin from linker file
+SDP_WRITE_ADDR := $(shell sed -n 's/_fcfb_origin.*\(0x.*\);/\1/p' $(TOP)/$(PORT_DIR)/linker/$(MCU)_ram.ld)
+SDP_JUMP_ADDR := $(shell sed -n 's/_ivt_origin.*\(0x.*\);/\1/p' $(TOP)/$(PORT_DIR)/linker/$(MCU)_ram.ld)
 
 ifeq ($(OS),Windows_NT)
 	SDPHOST = sdphost/win/sdphost.exe
@@ -84,8 +80,8 @@ endif
 
 flash-sdp: $(BUILD)/$(OUTNAME).bin
 	@if [ -z "$(SDPHOST)" ]; then echo SDPHOST is not found for this machine; exit 1; fi
-	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- write-file $(SDP_$(MCU)_WRITE_ADDR) $<
-	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- jump-address $(SDP_$(MCU)_JUMP_ADDR)
+	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- write-file $(SDP_WRITE_ADDR) $<
+	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- jump-address $(SDP_JUMP_ADDR)
 
 # TODO write-register doesn't work
 erase-app: $(BUILD)/$(OUTNAME).bin

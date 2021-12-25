@@ -1,5 +1,4 @@
-/* offset 0x1000 */
-_ivt_origin = _fcfb_origin + _fcfb_length;
+_fcfb_length = _ivt_origin - _fcfb_origin;
 _ivt_length = 0x0400;
 
 /* offset 0x1400 */

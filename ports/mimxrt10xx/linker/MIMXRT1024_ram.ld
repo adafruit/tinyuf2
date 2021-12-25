@@ -7,5 +7,7 @@ _dtcm_size  = 64K;
 _ocram_base = 0x20200000;
 _ocram_size = 128K;
 
-_fcfb_origin = 0x00000400;
-_fcfb_length = 0x0C00;
+_fcfb_origin = 0x0400;
+
+/* must be 4K aligned */
+_ivt_origin = 0x1000;
