@@ -25,6 +25,14 @@ include ../rules.mk
 #---------------------------------------------------------
 # Load to SRAM using sdphost
 # Note: you may need to give the sdphost binary executable permission first.
+# SDP loads the image into the RAM locations specified in the .ld files.
+# SDP Write Address must equal _fcfb_origin value
+# SDP Jump Address must equal _ivt_origin = _fcfb_origin + _fcfb_length
+# TinyUF2 will copy itself to the correct location in flash
+# UF2 Write Address shows where the image will reside in flash if you 
+# want to use a tool like pyocd to write the binary into flash through SWD
+# Note: The .elf file cannot be written directly to flash since the target 
+# is RAM and the addresses need to be translated.
 #---------------------------------------------------------
 SDP_MIMXRT1011_PID = 0x0145
 SDP_MIMXRT1011_WRITE_ADDR = 0x20206400
@@ -43,13 +51,13 @@ SDP_MIMXRT1024_JUMP_ADDR  = 0x1000
 UF2_MIMXRT1024_WRITE_ADDR = 0x60000400
 
 SDP_MIMXRT1062_PID = 0x0135
-SDP_MIMXRT1062_WRITE_ADDR = 0x20208000
-SDP_MIMXRT1062_JUMP_ADDR  = 0x20209000
+SDP_MIMXRT1062_WRITE_ADDR = 0x1000
+SDP_MIMXRT1062_JUMP_ADDR  = 0x2000
 UF2_MIMXRT1062_WRITE_ADDR = 0x60000000
 
 SDP_MIMXRT1064_PID = 0x0135
-SDP_MIMXRT1064_WRITE_ADDR = 0x20208000
-SDP_MIMXRT1064_JUMP_ADDR  = 0x20209000
+SDP_MIMXRT1064_WRITE_ADDR = 0x1000
+SDP_MIMXRT1064_JUMP_ADDR  = 0x2000
 UF2_MIMXRT1064_WRITE_ADDR = 0x70000000
 
 DBL_TAP_MAGIC_ERASE_APP = 0xf5e80ab4
