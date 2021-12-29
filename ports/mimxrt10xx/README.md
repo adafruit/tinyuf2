@@ -19,9 +19,14 @@ make BOARD=metro_m7_1011 flash-jlink-bin
 iMXRT has built-in BootROM that implements the Serial Download Protocol (SDP), which can be used to load & execute TinyUF2 to SRAM with `spdhost` tool via USB. You need to
 
 1. Instal the NXP SPSDK as described in the [SPSDK Installation Guide](https://spsdk.readthedocs.io/en/latest/usage/installation.html).  
+
     a. Be sure to activate the venv before running sdphost.
-    b. If you are running linux, make sure your user has permission for accessing `hidraw` (more details below)
+
+    b. If you are running linux, make sure your user has permission for
+    accessing `hidraw` (more details below)
+
 2. Power up your board with the Boot Mode switch set to `BOOT_MODE[1:0]=01` to enter Serial Download mode. Note: Serial Download mode also automatically run with blank flash, therefore you don't have to manual change it in your production run.
+
 3. Run `flash-sdp` make target which in turn uses the `sdphost` with correct address and arguments to load and execute TinyUF2. While running, TinyUF2 will program the external flash with its SRAM's image.
 
   ```
@@ -49,7 +54,9 @@ Linux requires setting permissions for accessing hidraw devices.  This is done b
   ```
   KERNEL=="hidraw*", ATTRS{idVendor}=="1fc9", MODE="0666"
   ```
+
 2. Copy `50-nxp.rules` to `/etc/udev/rules.d/50-nxp.rules`
+
 3. Reload the rules:
   ```
   sudo udevadm control --reload-rules
