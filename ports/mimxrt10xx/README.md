@@ -18,16 +18,22 @@ make BOARD=metro_m7_1011 flash-jlink-bin
 
 iMXRT has built-in BootROM that implements the Serial Download Protocol (SDP), which can be used to load & execute TinyUF2 to SRAM with `spdhost` tool via USB. You need to
 
-1. Power up your board with the Boot Mode switch set to `BOOT_MODE[1:0]=01` to enter Serial Download mode. Note: Serial Download mode also automatically run with blank flash, therefore you don't have to manual change it in your production run.
-2. Run `flash-sdp` make target which in turn uses the `sdphost` with correct address and arguments to load and execute TinyUF2. While running, TinyUF2 will program the external flash with its SRAM's image.
+1. Instal the NXP SPSDK as described in the [SPSDK Installation Guide](https://spsdk.readthedocs.io/en/latest/usage/installation.html).  
+
+    a. Be sure to activate the venv before running sdphost.
+
+    b. If you are running linux, make sure your user has permission for
+    accessing `hidraw` (more details below)
+
+2. Power up your board with the Boot Mode switch set to `BOOT_MODE[1:0]=01` to enter Serial Download mode. Note: Serial Download mode also automatically run with blank flash, therefore you don't have to manual change it in your production run.
+
+3. Run `flash-sdp` make target which in turn uses the `sdphost` with correct address and arguments to load and execute TinyUF2. While running, TinyUF2 will program the external flash with its SRAM's image.
 
   ```
   make BOARD=imxrt1010_evk flash-sdp
   ```
 
-Note: `sdphost` executable binaries for common platforms (windows/mac/linux/arm32) are included in sdphost folder. If you have issue with executable permission, just manually give it permission to run. Should binaries for your host platform is not included (e.g ARM, RISC-V etc ...), you could build it from source using [apexrtos/nxp_blhost_sdphost](https://github.com/apexrtos/nxp_blhost_sdphost).
-
-Note2: Since SDP with BootROM doesn't requires external debugger and always exists regardless of the external flash, this method can also be used to de-brick your board should it be needed.
+Note: Since SDP with BootROM doesn't requires external debugger and always exists regardless of the external flash, this method can also be used to de-brick your board should it be needed.
 
 ## Update to newer version
 
@@ -39,3 +45,20 @@ Double tap to enter bootloader mode, then simply drag & drop `update-tinyuf2_BOA
 - [MIMX RT1010 Evaluation Kit](https://www.nxp.com/design/development-boards/i.mx-evaluation-and-development-boards/i.mx-rt1010-evaluation-kit:MIMXRT1010-EVK)
 - [MIMX RT1020 Evaluation Kit](https://www.nxp.com/design/development-boards/i.mx-evaluation-and-development-boards/i.mx-rt1020-evaluation-kit:MIMXRT1020-EVK)
 - [MIMX RT1060 Evaluation Kit](https://www.nxp.com/design/development-boards/i.mx-evaluation-and-development-boards/mimxrt1060-evk-i.mx-rt1060-evaluation-kit:MIMXRT1060-EVK)
+
+## Linux hidraw access
+
+Linux requires setting permissions for accessing hidraw devices.  This is done by adding udev rules.  Follow these instructions to add permission.
+
+1. Create file named `50-nxp.rules` with these contents:
+  ```
+  KERNEL=="hidraw*", ATTRS{idVendor}=="1fc9", MODE="0666"
+  ```
+
+2. Copy `50-nxp.rules` to `/etc/udev/rules.d/50-nxp.rules`
+
+3. Reload the rules:
+  ```
+  sudo udevadm control --reload-rules
+  sudo udevadm trigger
+  ```

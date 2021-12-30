@@ -58,25 +58,8 @@ DBL_TAP_REG_ADDR = 0x400D410C
 # extract _fcfb_origin and _ivt_origin from linker file
 SDP_WRITE_ADDR := $(shell sed -n 's/_fcfb_origin.*\(0x.*\);/\1/p' $(TOP)/$(PORT_DIR)/linker/$(MCU)_ram.ld)
 SDP_JUMP_ADDR := $(shell sed -n 's/_ivt_origin.*\(0x.*\);/\1/p' $(TOP)/$(PORT_DIR)/linker/$(MCU)_ram.ld)
-
-ifeq ($(OS),Windows_NT)
-	SDPHOST = sdphost/win/sdphost.exe
-else
-	UNAME_S := $(shell uname -s)
-	UNAME_M := $(shell uname -m)
-
-	ifeq ($(UNAME_S),Darwin)
-		SDPHOST = sdphost/mac/sdphost
-	endif
-
-	ifeq ($(UNAME_S),Linux)
-		SDPHOST_x86_64 = amd64
-		SDPHOST_i386 = i386
-		SDPHOST_armv7l = arm32
-
-		SDPHOST = sdphost/linux/$(SDPHOST_$(UNAME_M))/sdphost
-	endif
-endif
+# SDPHOST is a variable if you need to change the path
+SDPHOST = sdphost
 
 flash-sdp: $(BUILD)/$(OUTNAME).bin
 	@if [ -z "$(SDPHOST)" ]; then echo SDPHOST is not found for this machine; exit 1; fi
