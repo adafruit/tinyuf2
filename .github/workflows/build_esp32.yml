@@ -37,7 +37,7 @@ jobs:
         - 'gravitech_cucumberRIS_v1.1'
         - 'lilygo_ttgo_t8_s2_st7789'
         - 'lolin_s2_mini'
-        - 'lolin_s2-pico'
+        - 'lolin_s2_pico'
         - 'microdev_micro_s2'
         - 'morpheans_morphesp-240'
         - 'muselab_nanoesp32-s2_wroom'
