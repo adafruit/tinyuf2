@@ -212,6 +212,7 @@ static int selected_boot_partition(const bootloader_state_t *bs)
 
 #ifdef PIN_DOUBLE_RESET_RC
           // Double reset detect if board implements 1-bit memory with RC components
+          esp_rom_gpio_pad_select_gpio(PIN_DOUBLE_RESET_RC);
           PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[PIN_DOUBLE_RESET_RC]);
           if ( gpio_ll_get_level(&GPIO, PIN_DOUBLE_RESET_RC) == 1 )
           {
@@ -220,6 +221,7 @@ static int selected_boot_partition(const bootloader_state_t *bs)
           }
           else
           {
+            gpio_ll_output_enable(&GPIO, PIN_DOUBLE_RESET_RC);
             gpio_ll_set_level(&GPIO, PIN_DOUBLE_RESET_RC, 1);
           }
 #endif
@@ -227,9 +229,7 @@ static int selected_boot_partition(const bootloader_state_t *bs)
           if ( boot_index != FACTORY_INDEX )
           {
             esp_rom_gpio_pad_select_gpio(PIN_BUTTON_UF2);
-            if (GPIO_PIN_MUX_REG[PIN_BUTTON_UF2]) {
-              PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[PIN_BUTTON_UF2]);
-            }
+            PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[PIN_BUTTON_UF2]);
             esp_rom_gpio_pad_pullup_only(PIN_BUTTON_UF2);
 
             uint32_t tm_start = esp_log_early_timestamp();
@@ -248,6 +248,7 @@ static int selected_boot_partition(const bootloader_state_t *bs)
 
 #if PIN_DOUBLE_RESET_RC
           gpio_ll_set_level(&GPIO, PIN_DOUBLE_RESET_RC, 0);
+          gpio_ll_output_disable(&GPIO, PIN_DOUBLE_RESET_RC);
 #endif
 
           board_led_off();
