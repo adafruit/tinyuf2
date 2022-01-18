@@ -15,6 +15,18 @@ ifdef SERIAL
 SERIAL_OPT = --port $(SERIAL)
 endif
 
+UF2_FAMILY_ID_esp32s2 = 0xbfdd4eee
+UF2_FAMILY_ID_esp32s3 = 0xc47e5767
+
+BOARD_CMAKE := $(file < boards/$(BOARD)/board.cmake)
+ifneq ($(findstring esp32s2,$(BOARD_CMAKE)),)
+	IDF_TARGET = esp32s2
+else
+ifneq ($(findstring esp32s3,$(BOARD_CMAKE)),)
+	IDF_TARGET = esp32s3
+endif
+endif
+
 all:
 	idf.py -B$(BUILD) -DBOARD=$(BOARD) build
 
@@ -28,28 +40,17 @@ fullclean:
 app bootloader clean flash bootloader-flash app-flash erase monitor dfu-flash dfu size size-components size-files:
 	idf.py -B$(BUILD) -DBOARD=$(BOARD) $(SERIAL_OPT) $@
 
+combined.bin: $(BUILD)/combined.bin
+
 $(BUILD)/combined.bin: app
-	UF2_OFFSET=`awk '{if(FNR==2)print $$1}' $(BUILD)/app-flash_args)`; \
-	esptool.py --chip esp32s2 merge_bin --output $@ \
-		0x1000 $(BUILD)/bootloader/bootloader.bin \
-		0x8000 $(BUILD)/partition_table/partition-table.bin \
-		0xe000 $(BUILD)/ota_data_initial.bin \
-		$$UF2_OFFSET $(BUILD)/tinyuf2.bin
+	cd $(BUILD); \
+	esptool.py --chip $(IDF_TARGET) merge_bin --output combined.bin $(strip $(file < $(BUILD)/flash_args))
+
+combined-flash: $(BUILD)/combined.bin
+	esptool.py --chip $(IDF_TARGET) write_flash 0x0 $<
 
 #-------------- Self Update --------------
 SELF_BUILD = apps/self_update/$(BUILD)
-
-UF2_FAMILY_ID_S2 = 0xbfdd4eee
-UF2_FAMILY_ID_S3 = 0xc47e5767
-
-BOARD_CMAKE := $(file < boards/$(BOARD)/board.cmake)
-ifneq ($(findstring esp32s2,$(BOARD_CMAKE)),)
-	UF2_FAMILY_ID := $(UF2_FAMILY_ID_S2)
-else
-  ifneq ($(findstring esp32s3,$(BOARD_CMAKE)),)
-  UF2_FAMILY_ID := $(UF2_FAMILY_ID_S3)
-  endif
-endif
 
 $(SELF_BUILD)/update-tinyuf2.bin: app
 	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py --carray $(BUILD)/tinyuf2.bin -o $(TOP)/apps/self_update/bootloader_bin.c
@@ -57,7 +58,7 @@ $(SELF_BUILD)/update-tinyuf2.bin: app
 	@rm $(TOP)/apps/self_update/bootloader_bin.c
 
 $(SELF_BUILD)/update-tinyuf2.uf2: $(SELF_BUILD)/update-tinyuf2.bin
-	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py -f $(UF2_FAMILY_ID) -b 0x0000 -c -o $@ $^
+	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py -f $(UF2_FAMILY_ID_$(IDF_TARGET)) -b 0x0000 -c -o $@ $^
 
 self-update: $(SELF_BUILD)/update-tinyuf2.uf2
 

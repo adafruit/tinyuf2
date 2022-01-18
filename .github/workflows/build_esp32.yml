@@ -28,7 +28,6 @@ jobs:
         - 'adafruit_magtag_29gray'
         - 'adafruit_metro_esp32s2'
         - 'adafruit_qtpy_esp32s2'
-        - 'adafruit_qtpy_esp32s3'
         - 'artisense_rd00'
         - 'atmegazero_esp32s2'
         - 'espressif_hmi_1'
@@ -51,6 +50,7 @@ jobs:
         - 'unexpectedmaker_feathers2_neo'
         - 'unexpectedmaker_tinys2'
         # S3 Alphabetical order
+        - 'adafruit_qtpy_esp32s3'
         - 'espressif_esp32s3_devkitc_1'
         - 'espressif_esp32s3_devkitm_1'
     steps:
@@ -73,9 +73,7 @@ jobs:
 
     - name: Create Release Asset
       if: ${{ github.event_name == 'release' }}
-      run: |
-        #for f in ports/espressif/_bin/${{ matrix.board }}/*; do mv $f ${f%.*}-${{ github.event.release.tag_name }}."${f#*.}"; done
-        zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ports/espressif/_bin/${{ matrix.board }}
+      run: zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ports/espressif/_bin/${{ matrix.board }}
 
     - name: Upload Release Asset
       uses: actions/upload-release-asset@v1
