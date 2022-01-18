@@ -28,6 +28,7 @@ jobs:
         - 'adafruit_magtag_29gray'
         - 'adafruit_metro_esp32s2'
         - 'adafruit_qtpy_esp32s2'
+        - 'adafruit_qtpy_esp32s3'
         - 'artisense_rd00'
         - 'atmegazero_esp32s2'
         - 'espressif_hmi_1'
