@@ -38,6 +38,12 @@
 
 #define STATIC_ASSERT(_exp) _Static_assert(_exp, "static assert failed")
 
+#define STR0(x) #x
+#define STR(x) STR0(x)
+
+#define UF2_ARRAY_SIZE(_arr)    ( sizeof(_arr) / sizeof(_arr[0]) )
+#define UF2_DIV_CEIL(_v, _d)    ( ((_v) + (_d) - 1) / (_d) )
+
 typedef struct {
     uint8_t JumpInstruction[3];
     uint8_t OEMInfo[8];
@@ -81,6 +87,7 @@ STATIC_ASSERT(sizeof(DirEntry) == 32);
 struct TextFile {
   char const name[11];
   char const *content;
+  uint32_t size;
 };
 
 
@@ -98,10 +105,8 @@ struct TextFile {
 #define FAT_ENTRY_SIZE            (2)
 #define FAT_ENTRIES_PER_SECTOR    (BPB_SECTOR_SIZE / FAT_ENTRY_SIZE)
 // NOTE: MS specification explicitly allows FAT to be larger than necessary
-#define TOTAL_CLUSTERS_ROUND_UP   ( (BPB_TOTAL_SECTORS / BPB_SECTORS_PER_CLUSTER) + \
-                                   ((BPB_TOTAL_SECTORS % BPB_SECTORS_PER_CLUSTER) ? 1 : 0))
-#define BPB_SECTORS_PER_FAT       ( (TOTAL_CLUSTERS_ROUND_UP / FAT_ENTRIES_PER_SECTOR) + \
-                                   ((TOTAL_CLUSTERS_ROUND_UP % FAT_ENTRIES_PER_SECTOR) ? 1 : 0))
+#define TOTAL_CLUSTERS_ROUND_UP   UF2_DIV_CEIL(BPB_TOTAL_SECTORS, BPB_SECTORS_PER_CLUSTER)
+#define BPB_SECTORS_PER_FAT       UF2_DIV_CEIL(TOTAL_CLUSTERS_ROUND_UP, FAT_ENTRIES_PER_SECTOR)
 #define DIRENTRIES_PER_SECTOR     (BPB_SECTOR_SIZE/sizeof(DirEntry))
 #define ROOT_DIR_SECTOR_COUNT     (BPB_ROOT_DIR_ENTRIES/DIRENTRIES_PER_SECTOR)
 #define BPB_BYTES_PER_CLUSTER     (BPB_SECTOR_SIZE * BPB_SECTORS_PER_CLUSTER)
@@ -115,12 +120,7 @@ STATIC_ASSERT(BPB_ROOT_DIR_ENTRIES % DIRENTRIES_PER_SECTOR ==         0); // FAT
 STATIC_ASSERT(BPB_BYTES_PER_CLUSTER                        <= (32*1024)); // FAT requirement (64k+ has known compatibility problems)
 STATIC_ASSERT(FAT_ENTRIES_PER_SECTOR                       ==       256); // FAT requirement
 
-#define STR0(x) #x
-#define STR(x) STR0(x)
-
-#define UF2_ARRAY_SIZE(_arr)    ( sizeof(_arr) / sizeof(_arr[0]) )
-
-char infoUf2File[] =
+const char infoUf2File[] =
     "TinyUF2 Bootloader " UF2_VERSION "\r\n"
     "Model: " UF2_PRODUCT_NAME "\r\n"
     "Board-ID: " UF2_BOARD_ID "\r\n"
@@ -136,20 +136,29 @@ const char indexFile[] =
     "</body>"
     "</html>\n";
 
-static struct TextFile const info[] = {
-    {.name = "INFO_UF2TXT", .content = infoUf2File},
-    {.name = "INDEX   HTM", .content = indexFile},
+#if TINYUF2_FAVICON
+#include "favicon.h"
+const char autorunFile[] = "[Autorun]\r\nIcon=FAVICON.ICO";
 
+#endif
+
+static struct TextFile const info[] = {
+    {.name = "INFO_UF2TXT", .content = infoUf2File, .size = sizeof(infoUf2File) - 1},
+    {.name = "INDEX   HTM", .content = indexFile  , .size = sizeof(indexFile  ) - 1},
+#if TINYUF2_FAVICON
+    {.name = "AUTORUN INF", .content = autorunFile, .size = sizeof(autorunFile) - 1},
+    {.name = "FAVICON ICO", .content = (char const *) favicon_data, .size = favicon_len},
+#endif
     // current.uf2 must be the last element and its content must be NULL
-    {.name = "CURRENT UF2", .content = NULL},
+    {.name = "CURRENT UF2", .content = NULL       , .size = 0},
 };
 STATIC_ASSERT(UF2_ARRAY_SIZE(infoUf2File) < BPB_BYTES_PER_CLUSTER); // GhostFAT requires files to fit in one cluster
 STATIC_ASSERT(UF2_ARRAY_SIZE(indexFile)   < BPB_BYTES_PER_CLUSTER); // GhostFAT requires files to fit in one cluster
 
 #define NUM_FILES          (UF2_ARRAY_SIZE(info))
 #define NUM_DIRENTRIES     (NUM_FILES + 1) // Code adds volume label as first root directory entry
-#define REQUIRED_ROOT_DIRECTORY_SECTORS ( ((NUM_DIRENTRIES+1) / DIRENTRIES_PER_SECTOR) + \
-                                         (((NUM_DIRENTRIES+1) % DIRENTRIES_PER_SECTOR) ? 1 : 0))
+#define REQUIRED_ROOT_DIRECTORY_SECTORS UF2_DIV_CEIL(NUM_DIRENTRIES+1, DIRENTRIES_PER_SECTOR)
+
 STATIC_ASSERT(ROOT_DIR_SECTOR_COUNT >= REQUIRED_ROOT_DIRECTORY_SECTORS);         // FAT requirement -- Ensures BPB reserves sufficient entries for all files
 STATIC_ASSERT(NUM_DIRENTRIES < (DIRENTRIES_PER_SECTOR * ROOT_DIR_SECTOR_COUNT)); // FAT requirement -- end directory with unused entry
 STATIC_ASSERT(NUM_DIRENTRIES < BPB_ROOT_DIR_ENTRIES);                            // FAT requirement -- Ensures BPB reserves sufficient entries for all files
@@ -167,16 +176,15 @@ STATIC_ASSERT( CLUSTER_COUNT >= 0x1015 && CLUSTER_COUNT < 0xFFD5 );
 
 #define UF2_FIRMWARE_BYTES_PER_SECTOR 256
 #define UF2_SECTOR_COUNT   (_flash_size / UF2_FIRMWARE_BYTES_PER_SECTOR)
-#define UF2_CLUSTER_COUNT  ( (UF2_SECTOR_COUNT / BPB_SECTORS_PER_CLUSTER) + \
-                            ((UF2_SECTOR_COUNT % BPB_SECTORS_PER_CLUSTER) ? 1 : 0))
+#define UF2_CLUSTER_COUNT  UF2_DIV_CEIL(UF2_SECTOR_COUNT, BPB_SECTORS_PER_CLUSTER)
 #define UF2_BYTE_COUNT     (UF2_SECTOR_COUNT * BPB_SECTOR_SIZE) // always a multiple of sector size, per UF2 spec
 
 // NOTE: First cluster number of the UF2 file calculation is:
 //       Starts with NUM_FILES because each non-UF2 file is limited to a single cluster in size
 //       -1 because NUM_FILES includes UF2 entry is included in that array, which is zero-indexed
 //       +2 because FAT decided first data sector would be in cluster number 2, rather than zero
-#define UF2_FIRST_CLUSTER_NUMBER ((NUM_FILES -1) + 2)
-#define UF2_LAST_CLUSTER_NUMBER  (UF2_FIRST_CLUSTER_NUMBER + UF2_CLUSTER_COUNT - 1)
+#define UF2_FIRST_CLUSTER_NUMBER  ((NUM_FILES -1) + 2)
+#define UF2_LAST_CLUSTER_NUMBER   (UF2_FIRST_CLUSTER_NUMBER + UF2_CLUSTER_COUNT - 1)
 
 #define FS_START_FAT0_SECTOR      BPB_RESERVED_SECTORS
 #define FS_START_FAT1_SECTOR      (FS_START_FAT0_SECTOR + BPB_SECTORS_PER_FAT)
@@ -266,31 +274,35 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
     // second FAT is same as the first...
     if ( sectionRelativeSector >= BPB_SECTORS_PER_FAT ) sectionRelativeSector -= BPB_SECTORS_PER_FAT;
 
+    uint16_t* data16 = (uint16_t*) (void*) data;
+
     if ( sectionRelativeSector == 0 )
     {
       // first FAT entry must match BPB MediaDescriptor
       data[0] = BPB_MEDIA_DESCRIPTOR_BYTE;
+      data[1] = 0xff;
+
       // WARNING -- code presumes only one NULL .content for .UF2 file
       //            and all non-NULL .content fit in one sector
       //            and requires it be the last element of the array
-      uint32_t const end = (NUM_FILES * FAT_ENTRY_SIZE) + (2 * FAT_ENTRY_SIZE);
-      for ( uint32_t i = 1; i < end; ++i ) data[i] = 0xff;
+      for (uint32_t i=0; i<NUM_FILES; i++) data16[1+i] = 0xffff;
     }
 
-    // Generate the FAT chain for the firmware "file"
+    // Generate the FAT chain for the CURRENT.UF2 "file"
     for ( uint32_t i = 0; i < FAT_ENTRIES_PER_SECTOR; ++i )
     {
       // `i` here is the sector-relative array index into this sector of the FAT
       // `v` here is the overall array index into the FAT, which corresponds to
       //     where the next cluster in the chain is stored.
       uint32_t v = (sectionRelativeSector * FAT_ENTRIES_PER_SECTOR) + i;
+
       if ( UF2_FIRST_CLUSTER_NUMBER <= v && v < UF2_LAST_CLUSTER_NUMBER )
       {
-        ((uint16_t*) (void*) data)[i] = v + 1; // contiguous file, so point to next cluster number
+        data16[i] = v + 1; // contiguous file, so point to next cluster number
       }
       else if ( v == UF2_LAST_CLUSTER_NUMBER)
       {
-        ((uint16_t*) (void*) data)[i] = 0xffff; // end of file marker in FAT16
+        data16[i] = 0xffff; // end of file marker in FAT16
       }
     }
   }
@@ -303,6 +315,8 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
     DirEntry *d = (void*) data;                   // pointer to next free DirEntry this sector
     int remainingEntries = DIRENTRIES_PER_SECTOR; // remaining count of DirEntries this sector
 
+    uint32_t startingFileIndex;
+
     if ( sectionRelativeSector == 0 )
     {
       // volume label first
@@ -311,12 +325,13 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
       d->attrs = 0x28;
       d++;
       remainingEntries--;
-    }
 
-    uint32_t startingFileIndex =
-      (sectionRelativeSector == 0) ?
-      0 :
-      (DIRENTRIES_PER_SECTOR * sectionRelativeSector) - 1; // -1 to account for volume label in first sector
+      startingFileIndex = 0;
+    }else
+    {
+      // -1 to account for volume label in first sector
+      startingFileIndex = DIRENTRIES_PER_SECTOR * sectionRelativeSector - 1;
+    }
 
     for ( uint32_t fileIndex = startingFileIndex;
           remainingEntries > 0 && fileIndex < NUM_FILES; // while space remains in buffer and more files to add...
@@ -338,7 +353,7 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
       d->updateTime = COMPILE_DOS_TIME;
       d->updateDate = COMPILE_DOS_DATE;
       d->startCluster = startCluster & 0xFFFF;
-      d->size = (inf->content ? strlen(inf->content) : UF2_BYTE_COUNT);
+      d->size = (inf->content ? inf->size : UF2_BYTE_COUNT);
     }
   }
   else if ( block_no < BPB_TOTAL_SECTORS )
@@ -351,7 +366,7 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
       // WARNING -- code presumes first data cluster == first file, second data cluster == second file, etc.
       struct TextFile const * inf = &info[ sectionRelativeSector / BPB_SECTORS_PER_CLUSTER ];
       size_t fileContentStartOffset = (sectionRelativeSector % BPB_SECTORS_PER_CLUSTER) * BPB_SECTOR_SIZE;
-      size_t fileContentLength = strlen(inf->content);
+      size_t fileContentLength = inf->size;
 
       // nothing to copy if already past the end of the file (only when >1 sector per cluster)
       if (fileContentLength > fileContentStartOffset) {
