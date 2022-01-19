@@ -25,6 +25,9 @@
 #ifndef ESPRESSIF_SAOLA_1_WROVER_H_
 #define ESPRESSIF_SAOLA_1_WROVER_H_
 
+// Use favicon
+#define TINYUF2_FAVICON       1
+
 //--------------------------------------------------------------------+
 // Button
 //--------------------------------------------------------------------+
