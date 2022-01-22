@@ -34,7 +34,6 @@
 #include "uf2.h"
 
 // use as: GF_DEBUG_PRINT(("foo %d", x));
-#define DEBUG 1
 #if defined(DEBUG)
   #define GF_DEBUG_PRINT(x) do { printf x; fflush(stdout); } while (0)
 #else
@@ -315,102 +314,11 @@ static uint32_t info_index_of(uint32_t cluster)
   return DEFAULT_FID_RESULT;
 }
 
-static uint32_t old_info_cluster_start(uint32_t fid)
-{
-  // +2 because FAT decided first data sector would be in cluster number 2, rather than zero
-  uint32_t start_cluster = 2;
-  for(uint32_t i=0; i<fid; ++i)
-  {
-    start_cluster += info_cluster_count(i);
-  }
-  return start_cluster;
-}
-static uint32_t old_info_index_of(uint32_t cluster)
-{
-  cluster -= 2; // first cluster data is 2
-
-  for(uint32_t i=0; i<NUM_FILES; ++i)
-  {
-    uint32_t count = info_cluster_count(i);
-    if (cluster < count) return i;
-    cluster -= count;
-  }
-  return NUM_FILES-1;
-}
-
-
 void uf2_init(void)
 {
-  GF_DEBUG_PRINT(("UF2 Initialization started:\n"));
-
   // TODO maybe limit to application size only if possible board_flash_app_size()
   _flash_size = board_flash_size();
   init_info2();
-
-#if defined(DEBUG)
-
-  GF_DEBUG_PRINT(("----------------------------------------------------------------------\n"));
-  GF_DEBUG_PRINT(("File system clusters:\n"));
-  uint32_t start = 0;
-  uint32_t end   = 0;
-  GF_DEBUG_PRINT(("  %-10s = 0x%04" PRIx32 " .. 0x%04" PRIx32 "(%5" PRId32 " .. %5" PRId32 ")\n", "BPB", start, end, start, end ));
-
-  start = 1;
-  end = 1 + BPB_SECTORS_PER_FAT - 1;
-  GF_DEBUG_PRINT(("  %-10s = 0x%04" PRIx32 " .. 0x%04" PRIx32 "(%5" PRId32 " .. %5" PRId32 ")\n", "FAT0", start, end, start, end ));
-
-  start += BPB_SECTORS_PER_FAT;
-  end   += BPB_SECTORS_PER_FAT;
-  GF_DEBUG_PRINT(("  %-10s = 0x%04" PRIx32 " .. 0x%04" PRIx32 "(%5" PRId32 " .. %5" PRId32 ")\n", "FAT1", start, end, start, end ));
-
-  start = FS_START_ROOTDIR_SECTOR;
-  end   = FS_START_CLUSTERS_SECTOR - 1;
-  GF_DEBUG_PRINT(("  %-10s = 0x%04" PRIx32 " .. 0x%04" PRIx32 "(%5" PRId32 " .. %5" PRId32 ")\n", "DIRENTRIES", start, end, start, end ));
-
-  GF_DEBUG_PRINT(("  --------------------------------------------------------------------\n"));
-  for (uint32_t i = 0; i < NUM_FILES; i++) {
-    FileContent_t const * inf = info + i;
-    uint16_t startC = info_cluster_start(i);
-    uint16_t lastC  = info_cluster_last_of_file(i);
-    GF_DEBUG_PRINT((
-      "  File %c%c%c%c%c%c%c%c%c%c%c: Clusters [0x%04" PRIx16 " .. 0x%04" PRIx16 "] ([%" PRId16 " .. %" PRId16 "])\n",
-      inf->name[0], inf->name[1], inf->name[2], inf->name[3],
-      inf->name[4], inf->name[5], inf->name[6], inf->name[7],
-      inf->name[8], inf->name[9], inf->name[10],
-      startC, lastC, startC, lastC));
-  }
-  do {
-    uint16_t startC = info_cluster_start(NUM_FILES);
-    uint16_t lastC  = info_cluster_last_of_file(NUM_FILES);
-    GF_DEBUG_PRINT((
-      "  Unused  Clusters: Clusters [0x%04" PRIx16 " .. 0x%04" PRIx16 "] ([%" PRId16 " .. %" PRId16 "])\n",
-      startC, lastC, startC, lastC));
-  } while (0);
-  GF_DEBUG_PRINT(("----------------------------------------------------------------------\n"));
-
-  GF_DEBUG_PRINT(("Comparing old vs. new  info_cluster_start() function\n"));
-  for (uint32_t f = 0; f <= NUM_FILES; f++) {
-    uint32_t oldStart = old_info_cluster_start(f);
-    uint32_t newStart = info_cluster_start(f);
-    if (newStart != oldStart) {
-      GF_DEBUG_PRINT(("Start of FID mismatch (%" PRId32 "):  Old 0x%04" PRIx32 "  New 0x%04 " PRIx32 "\n", f, oldStart, newStart));
-    }
-  }
-  GF_DEBUG_PRINT(("----------------------------------------------------------------------\n"));
-
-  GF_DEBUG_PRINT(("Comparing old vs. new  old_info_index_of() function\n"));
-  for (uint32_t c = 0; c < BPB_TOTAL_SECTORS; c++) {
-    uint32_t oldFileIndexForCluster = old_info_index_of(c);
-    uint32_t fileIndexForCluster = info_index_of(c);
-    if (fileIndexForCluster != oldFileIndexForCluster) {
-      GF_DEBUG_PRINT(("FID lookup by cluster mismatch (0x%04" PRIx32 "):  Old 0x%04" PRIx32 "  New 0x%04" PRIx32 "\n", c, oldFileIndexForCluster, fileIndexForCluster));
-    }
-  }
-  GF_DEBUG_PRINT(("----------------------------------------------------------------------\n"));
-
-  GF_DEBUG_PRINT(("UF2 Initialization complete\n"));
-#endif // defined(DEBUG)
-
 }
 
 /*------------------------------------------------------------------*/
