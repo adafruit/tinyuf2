@@ -29,7 +29,7 @@ jobs:
         - 'imxrt1020_evk'
         - 'imxrt1060_evk'
         - 'metro_m7_1011'
-        #stm32f3
+        # stm32f3
         - 'stm32f303disco'
         # stm32f4
         - 'feather_stm32f405_express'
