@@ -373,11 +373,14 @@ int main(void)
 {
     int r;
 
+    printf("initializing UF2\n"); fflush(stdout);
     uf2_init();
 
+    printf("generating new disk image\n"); fflush(stdout);
     r = DumpDiskImage();
     if (r) { goto errorExit; }
 
+    printf("comparing against known good disk image\n"); fflush(stdout);
     r = CompareDiskImages();
     if (r) { goto errorExit; }
 
@@ -385,7 +388,7 @@ int main(void)
     return ERR_NONE;
 
 errorExit:
-    printf("Failed -- %s\n", GetErrorString(r));
+    printf("FAIL: (%d) %s\n", r, GetErrorString(r));
     return r;
 }
 
