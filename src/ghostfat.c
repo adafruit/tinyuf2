@@ -255,7 +255,7 @@ static uint16_t info_cluster_count(uint32_t fid)
 // cache the cluster start offset for each file
 // this allows more flexible algorithms w/o O(n) time
 static uint16_t _file_starting_clusters[NUM_FILES+1];
-static void init_info2(void) {
+static void init_starting_clusters(void) {
   // +2 because FAT decided first data sector would be in cluster number 2, rather than zero
   uint16_t start_cluster = 2;
   for (uint16_t i = 0; i < NUM_FILES; i++) {
@@ -315,7 +315,7 @@ void uf2_init(void)
 {
   // TODO maybe limit to application size only if possible board_flash_app_size()
   _flash_size = board_flash_size();
-  init_info2();
+  init_starting_clusters();
 }
 
 /*------------------------------------------------------------------*/
