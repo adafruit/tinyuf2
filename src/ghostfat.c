@@ -102,9 +102,6 @@ typedef struct FileContent {
   uint32_t   size;       // OK to use uint32_T b/c FAT32 limits filesize to (4GiB - 2)
 } FileContent_t;
 
-// ota0 partition size
-static uint32_t _flash_size;
-
 //--------------------------------------------------------------------+
 //
 //--------------------------------------------------------------------+
