@@ -27,6 +27,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <assert.h>
+#include <inttypes.h>
 
 #include "compile_date.h"
 #include "board_api.h"
@@ -350,21 +351,21 @@ void uf2_init(void)
 
   GF_DEBUG_PRINT(("----------------------------------------------------------------------\n"));
   GF_DEBUG_PRINT(("File system clusters:\n"));
-  int start = 0;
-  int end   = 0;
-  GF_DEBUG_PRINT(("  %-10s = 0x%04x .. 0x%04x (%5d .. %5d)\n", "BPB", start, end, start, end ));
+  uint32_t start = 0;
+  uint32_t end   = 0;
+  GF_DEBUG_PRINT(("  %-10s = 0x%04" PRIx32 " .. 0x%04" PRIx32 "(%5" PRId32 " .. %5" PRId32 ")\n", "BPB", start, end, start, end ));
 
   start = 1;
   end = 1 + BPB_SECTORS_PER_FAT - 1;
-  GF_DEBUG_PRINT(("  %-10s = 0x%04x .. 0x%04x (%5d .. %5d)\n", "FAT0", start, end, start, end ));
+  GF_DEBUG_PRINT(("  %-10s = 0x%04" PRIx32 " .. 0x%04" PRIx32 "(%5" PRId32 " .. %5" PRId32 ")\n", "FAT0", start, end, start, end ));
 
   start += BPB_SECTORS_PER_FAT;
   end   += BPB_SECTORS_PER_FAT;
-  GF_DEBUG_PRINT(("  %-10s = 0x%04x .. 0x%04x (%5d .. %5d)\n", "FAT1", start, end, start, end ));
+  GF_DEBUG_PRINT(("  %-10s = 0x%04" PRIx32 " .. 0x%04" PRIx32 "(%5" PRId32 " .. %5" PRId32 ")\n", "FAT1", start, end, start, end ));
 
   start = FS_START_ROOTDIR_SECTOR;
   end   = FS_START_CLUSTERS_SECTOR - 1;
-  GF_DEBUG_PRINT(("  %-10s = 0x%04x .. 0x%04x (%5d .. %5d)\n", "DIRENTRIES", start, end, start, end ));
+  GF_DEBUG_PRINT(("  %-10s = 0x%04" PRIx32 " .. 0x%04" PRIx32 "(%5" PRId32 " .. %5" PRId32 ")\n", "DIRENTRIES", start, end, start, end ));
 
   GF_DEBUG_PRINT(("  --------------------------------------------------------------------\n"));
   for (uint32_t i = 0; i < NUM_FILES; i++) {
@@ -372,7 +373,7 @@ void uf2_init(void)
     uint16_t startC = info_cluster_start(i);
     uint16_t lastC  = info_cluster_last_of_file(i);
     GF_DEBUG_PRINT((
-      "  File %c%c%c%c%c%c%c%c%c%c%c: Clusters [0x%04x .. 0x%04x] ([%d .. %d])\n",
+      "  File %c%c%c%c%c%c%c%c%c%c%c: Clusters [0x%04" PRIx16 " .. 0x%04" PRIx16 "] ([%" PRId16 " .. %" PRId16 "])\n",
       inf->name[0], inf->name[1], inf->name[2], inf->name[3],
       inf->name[4], inf->name[5], inf->name[6], inf->name[7],
       inf->name[8], inf->name[9], inf->name[10],
@@ -382,7 +383,7 @@ void uf2_init(void)
     uint16_t startC = info_cluster_start(NUM_FILES);
     uint16_t lastC  = info_cluster_last_of_file(NUM_FILES);
     GF_DEBUG_PRINT((
-      "  Unused  Clusters: Clusters [0x%04x .. 0x%04x] ([%d .. %d])\n",
+      "  Unused  Clusters: Clusters [0x%04" PRIx16 " .. 0x%04" PRIx16 "] ([%" PRId16 " .. %" PRId16 "])\n",
       startC, lastC, startC, lastC));
   } while (0);
   GF_DEBUG_PRINT(("----------------------------------------------------------------------\n"));
@@ -392,7 +393,7 @@ void uf2_init(void)
     uint32_t oldStart = old_info_cluster_start(f);
     uint32_t newStart = info_cluster_start(f);
     if (newStart != oldStart) {
-      GF_DEBUG_PRINT(("Start of FID mismatch (%d):  Old 0x%04x  New 0x%04x\n", f, oldStart, newStart));
+      GF_DEBUG_PRINT(("Start of FID mismatch (%" PRId32 "):  Old 0x%04" PRIx32 "  New 0x%04 " PRIx32 "\n", f, oldStart, newStart));
     }
   }
   GF_DEBUG_PRINT(("----------------------------------------------------------------------\n"));
@@ -402,7 +403,7 @@ void uf2_init(void)
     uint32_t oldFileIndexForCluster = old_info_index_of(c);
     uint32_t fileIndexForCluster = info_index_of(c);
     if (fileIndexForCluster != oldFileIndexForCluster) {
-      GF_DEBUG_PRINT(("FID lookup by cluster mismatch (0x%04x):  Old 0x%04x  New 0x%04x\n", c, oldFileIndexForCluster, fileIndexForCluster));
+      GF_DEBUG_PRINT(("FID lookup by cluster mismatch (0x%04" PRIx32 "):  Old 0x%04" PRIx32 "  New 0x%04" PRIx32 "\n", c, oldFileIndexForCluster, fileIndexForCluster));
     }
   }
   GF_DEBUG_PRINT(("----------------------------------------------------------------------\n"));
