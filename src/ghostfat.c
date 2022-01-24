@@ -33,9 +33,9 @@
 #include "board_api.h"
 #include "uf2.h"
 
-// use as: GF_DEBUG_PRINT(("foo %d", x));
+// use as: GF_DEBUG_PRINT("foo %d", x);
 #if defined(DEBUG)
-  #define GF_DEBUG_PRINT(x) do { printf x; fflush(stdout); } while (0)
+  #define GF_DEBUG_PRINT(x) do { printf(x); fflush(stdout); } while (0)
 #else
   #define GF_DEBUG_PRINT(x)
 #endif
@@ -54,7 +54,7 @@ static uint32_t _flash_size;
 #define STR(x) STR0(x)
 
 #define UF2_ARRAY_SIZE(_arr)    ( sizeof(_arr) / sizeof(_arr[0]) )
-#define UF2_DIV_CEIL(_v, _d)    ( ((_v) / (_d)) + ((_v) % (_d) ? 1 : 0)) // avoid overflow
+#define UF2_DIV_CEIL(_v, _d)    ( ((_v) / (_d)) + ((_v) % (_d) ? 1 : 0) )
 
 typedef struct {
     uint8_t JumpInstruction[3];
@@ -99,7 +99,11 @@ STATIC_ASSERT(sizeof(DirEntry) == 32);
 typedef struct FileContent {
   char const name[11];
   void const * content;
-  uint32_t   size;       // OK to use uint32_T b/c FAT32 limits filesize to (4GiB - 2)
+  uint32_t size;       // OK to use uint32_T b/c FAT32 limits filesize to (4GiB - 2)
+
+  // computing fields based on index and size
+  uint16_t cluster_start;
+  uint16_t cluster_end;
 } FileContent_t;
 
 //--------------------------------------------------------------------+
@@ -133,12 +137,9 @@ STATIC_ASSERT(BPB_ROOT_DIR_ENTRIES % DIRENTRIES_PER_SECTOR ==         0); // FAT
 STATIC_ASSERT(BPB_BYTES_PER_CLUSTER                        <= (32*1024)); // FAT requirement (64k+ has known compatibility problems)
 STATIC_ASSERT(FAT_ENTRIES_PER_SECTOR                       ==       256); // FAT requirement
 
-#define UF2_FIRMWARE_BYTES_PER_SECTOR 256
-#define UF2_SECTOR_COUNT   (_flash_size / UF2_FIRMWARE_BYTES_PER_SECTOR)
-#define UF2_CLUSTER_COUNT  UF2_DIV_CEIL(UF2_SECTOR_COUNT, BPB_SECTORS_PER_CLUSTER)
-#define UF2_BYTE_COUNT     (UF2_SECTOR_COUNT * BPB_SECTOR_SIZE) // always a multiple of sector size, per UF2 spec
-#define UF2_FIRST_CLUSTER_NUMBER  info_cluster_start(NUM_FILES -1)
-#define UF2_LAST_CLUSTER_NUMBER   (UF2_FIRST_CLUSTER_NUMBER + UF2_CLUSTER_COUNT - 1)
+#define UF2_FIRMWARE_BYTES_PER_SECTOR   256
+#define UF2_SECTOR_COUNT                (_flash_size / UF2_FIRMWARE_BYTES_PER_SECTOR)
+#define UF2_BYTE_COUNT                  (UF2_SECTOR_COUNT * BPB_SECTOR_SIZE) // always a multiple of sector size, per UF2 spec
 
 
 const char infoUf2File[] =
@@ -163,7 +164,7 @@ const char autorunFile[] = "[Autorun]\r\nIcon=FAVICON.ICO\r\n";
 #endif
 
 // size of CURRENT.UF2:
-static FileContent_t const info[] = {
+static FileContent_t info[] = {
     {.name = "INFO_UF2TXT", .content = infoUf2File , .size = sizeof(infoUf2File) - 1},
     {.name = "INDEX   HTM", .content = indexFile   , .size = sizeof(indexFile  ) - 1},
 #if TINYUF2_FAVICON
@@ -174,8 +175,11 @@ static FileContent_t const info[] = {
     {.name = "CURRENT UF2", .content = NULL       , .size = 0                       },
 };
 
+enum {
+  NUM_FILES = sizeof(info) / sizeof(info[0]),
+  FID_UF2 = NUM_FILES-1,
+};
 
-#define NUM_FILES          (UF2_ARRAY_SIZE(info))
 #define NUM_DIRENTRIES     (NUM_FILES + 1) // Code adds volume label as first root directory entry
 #define REQUIRED_ROOT_DIRECTORY_SECTORS UF2_DIV_CEIL(NUM_DIRENTRIES+1, DIRENTRIES_PER_SECTOR)
 
@@ -238,50 +242,22 @@ static inline bool is_uf2_block (UF2_Block const *bl)
          !(bl->flags & UF2_FLAG_NOFLASH);
 }
 
-// get number of clusters of a file index
-static uint16_t info_cluster_count(uint32_t fid)
-{
-  if (info[fid].size)
-  {
-    return UF2_DIV_CEIL(info[fid].size, BPB_SECTOR_SIZE*BPB_SECTORS_PER_CLUSTER);
-  }
-  else
-  {
-    // CURRENT.UF2
-    return UF2_CLUSTER_COUNT;
-  }
-}
-
 // cache the cluster start offset for each file
 // this allows more flexible algorithms w/o O(n) time
-static uint16_t _file_starting_clusters[NUM_FILES+1];
-static void init_starting_clusters(void) {
+static void init_starting_clusters(void)
+{
   // +2 because FAT decided first data sector would be in cluster number 2, rather than zero
   uint16_t start_cluster = 2;
-  for (uint16_t i = 0; i < NUM_FILES; i++) {
-    _file_starting_clusters[i] = start_cluster;
-    start_cluster += info_cluster_count(i);
-  }
-  _file_starting_clusters[NUM_FILES] = start_cluster;
-  return;
-}
 
-// get starting cluster of a file index
-static uint16_t info_cluster_start(uint32_t fid)
-{
-  // return cached information
-  // note extra information at index NUM_FILES ...
-  // this indicates the first cluster *AFTER* CURRENT.UF2.
-  return _file_starting_clusters[ (fid < NUM_FILES) ? fid : NUM_FILES ];
-}
-
-static uint16_t info_cluster_last_of_file(uint32_t fid)
-{
-  if (fid >= NUM_FILES)
+  for (uint16_t i = 0; i < NUM_FILES; i++)
   {
-    return CLUSTER_COUNT;
+    info[i].cluster_start = start_cluster;
+    info[i].cluster_end = start_cluster + UF2_DIV_CEIL(info[i].size, BPB_SECTOR_SIZE*BPB_SECTORS_PER_CLUSTER) - 1;
+
+    start_cluster = info[i].cluster_end + 1;
   }
-  return _file_starting_clusters[fid+1] - 1;
+
+  return;
 }
 
 // get file index for file that uses the cluster
@@ -294,27 +270,27 @@ static uint16_t info_cluster_last_of_file(uint32_t fid)
 static uint32_t info_index_of(uint32_t cluster)
 {
   // default results for invalid requests is the index of the last file (CURRENT.UF2)
-  static const uint32_t DEFAULT_FID_RESULT = NUM_FILES - 1;
+  if (cluster >= 0xFFF0) return FID_UF2;
 
-  if (cluster >= 0xFFF0) {
-    return DEFAULT_FID_RESULT;
-  }
-  for (uint32_t i = 0; i < NUM_FILES; i++) {
-    if (cluster < info_cluster_start(i)) {
-      continue; // before this file's first cluster
+  for (uint32_t i = 0; i < NUM_FILES; i++)
+  {
+    if ( (info[i].cluster_start <= cluster) && (cluster <= info[i].cluster_end) )
+    {
+      return i;
     }
-    if (cluster > info_cluster_last_of_file(i)) {
-      continue; // past this file's last used cluster
-    }
-    return i;
   }
-  return DEFAULT_FID_RESULT;
+
+  return FID_UF2;
 }
 
 void uf2_init(void)
 {
   // TODO maybe limit to application size only if possible board_flash_app_size()
   _flash_size = board_flash_size();
+
+  // update CURRENT.UF2 file size
+  info[FID_UF2].size = UF2_BYTE_COUNT;
+
   init_starting_clusters();
 }
 
@@ -339,16 +315,16 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
   memset(data, 0, BPB_SECTOR_SIZE);
   uint32_t sectionRelativeSector = block_no;
 
-  if ( block_no == 0 ) // aka requesting boot block
+  if ( block_no == 0 )
   {
-    // Requested boot block
+    // Request Boot block
     memcpy(data, &BootBlock, sizeof(BootBlock));
     data[510] = 0x55;    // Always at offsets 510/511, even when BPB_SECTOR_SIZE is larger
     data[511] = 0xaa;    // Always at offsets 510/511, even when BPB_SECTOR_SIZE is larger
   }
-  else if ( block_no < FS_START_ROOTDIR_SECTOR ) // aka requesting sector of FAT tables
+  else if ( block_no < FS_START_ROOTDIR_SECTOR )
   {
-    // Requested FAT table sector
+    // Request FAT table sector
     sectionRelativeSector -= FS_START_FAT0_SECTOR;
 
     // second FAT is same as the first... use sectionRelativeSector to write data
@@ -360,7 +336,7 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
     uint16_t* data16 = (uint16_t*) (void*) data;
 
     uint32_t sectorFirstCluster = sectionRelativeSector * FAT_ENTRIES_PER_SECTOR;
-    uint32_t firstUnusedCluster = info_cluster_start(NUM_FILES);
+    uint32_t firstUnusedCluster = info[FID_UF2].cluster_end + 1;
 
     // OPTIMIZATION:
     // Because all files are contiguous, the FAT CHAIN entries
@@ -398,7 +374,7 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
     // Exception #2: the final cluster of each file must be set to END_OF_CHAIN
     for (uint32_t i = 0; i < NUM_FILES; i++)
     {
-      uint32_t lastClusterOfFile = info_cluster_last_of_file(i);
+      uint32_t lastClusterOfFile = info[i].cluster_end;
       if (lastClusterOfFile >= sectorFirstCluster)
       {
         uint32_t idx = lastClusterOfFile - sectorFirstCluster;
@@ -410,9 +386,9 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
       }
     }
   }
-  else if ( block_no < FS_START_CLUSTERS_SECTOR ) // aka requesting root directory sector(s)
+  else if ( block_no < FS_START_CLUSTERS_SECTOR )
   {
-    // Requested (root) directory sector .. because not supporting subdirectories (yet)
+    // Request (root) directory sector .. because not supporting subdirectories (yet)
     sectionRelativeSector -= FS_START_ROOTDIR_SECTOR;
 
     DirEntry *d = (void*) data;                   // pointer to next free DirEntry this sector
@@ -422,7 +398,6 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
 
     if ( sectionRelativeSector == 0 )
     {
-      // volume label first
       // volume label is first directory entry
       padded_memcpy(d->name, (char const*) BootBlock.VolumeLabel, 11);
       d->attrs = 0x28;
@@ -441,38 +416,35 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
           fileIndex++, d++ )
     {
       // WARNING -- code presumes all files take exactly one directory entry (no long file names!)
-      uint32_t const startCluster = info_cluster_start(fileIndex);
+      uint32_t const startCluster = info[fileIndex].cluster_start;
 
       FileContent_t const *inf = &info[fileIndex];
       padded_memcpy(d->name, inf->name, 11);
-      d->createTimeFine = COMPILE_SECONDS_INT % 2 * 100;
-      d->createTime = COMPILE_DOS_TIME;
-      d->createDate = COMPILE_DOS_DATE;
-      d->lastAccessDate = COMPILE_DOS_DATE;
+      d->createTimeFine   = COMPILE_SECONDS_INT % 2 * 100;
+      d->createTime       = COMPILE_DOS_TIME;
+      d->createDate       = COMPILE_DOS_DATE;
+      d->lastAccessDate   = COMPILE_DOS_DATE;
       d->highStartCluster = startCluster >> 16;
-      d->updateTime = COMPILE_DOS_TIME;
-      d->updateDate = COMPILE_DOS_DATE;
-      d->startCluster = startCluster & 0xFFFF;
-      d->size = (inf->content ? inf->size : UF2_BYTE_COUNT);
+      d->updateTime       = COMPILE_DOS_TIME;
+      d->updateDate       = COMPILE_DOS_DATE;
+      d->startCluster     = startCluster & 0xFFFF;
+      d->size             = (inf->content ? inf->size : UF2_BYTE_COUNT);
     }
   }
-  else if ( block_no < BPB_TOTAL_SECTORS ) // aka read from the data area (files, unused space, ...)
+  else if ( block_no < BPB_TOTAL_SECTORS )
   {
-
+    // aka read from the data area (files, unused space, ...)
     sectionRelativeSector -= FS_START_CLUSTERS_SECTOR;
 
     // plus 2 for first data cluster offset
-    uint32_t const cluster_num = 2 + sectionRelativeSector / BPB_SECTORS_PER_CLUSTER;
+    uint32_t fid = info_index_of(2 + sectionRelativeSector / BPB_SECTORS_PER_CLUSTER);
+    FileContent_t const * inf = &info[fid];
 
-    if ( cluster_num < UF2_FIRST_CLUSTER_NUMBER )
+    sectionRelativeSector -= (info[fid].cluster_start-2) * BPB_SECTORS_PER_CLUSTER;
+
+    if ( fid != FID_UF2 )
     {
       // Handle all files other than CURRENT.UF2
-      // first data cluster == first file
-      uint32_t fid = info_index_of(cluster_num);
-      FileContent_t const * inf = &info[fid];
-
-      sectionRelativeSector -= (info_cluster_start(fid)-2) * BPB_SECTORS_PER_CLUSTER;
-
       size_t fileContentStartOffset = sectionRelativeSector * BPB_SECTOR_SIZE;
       size_t fileContentLength = inf->size;
 
@@ -492,7 +464,6 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
     else
     {
       // CURRENT.UF2: generate data on-the-fly
-      sectionRelativeSector -= (UF2_FIRST_CLUSTER_NUMBER-2) * BPB_SECTORS_PER_CLUSTER;
       uint32_t addr = BOARD_FLASH_APP_START + (sectionRelativeSector * UF2_FIRMWARE_BYTES_PER_SECTOR);
       if ( addr < _flash_size ) // TODO abstract this out
       {
