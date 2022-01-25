@@ -307,14 +307,14 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
 
   if ( block_no == 0 )
   {
-    // Request Boot block
+    // Request was for the Boot block
     memcpy(data, &BootBlock, sizeof(BootBlock));
     data[510] = 0x55;    // Always at offsets 510/511, even when BPB_SECTOR_SIZE is larger
     data[511] = 0xaa;    // Always at offsets 510/511, even when BPB_SECTOR_SIZE is larger
   }
   else if ( block_no < FS_START_ROOTDIR_SECTOR )
   {
-    // Request FAT table sector
+    // Request was for a FAT table sector
     sectionRelativeSector -= FS_START_FAT0_SECTOR;
 
     // second FAT is same as the first... use sectionRelativeSector to write data
@@ -378,7 +378,7 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
   }
   else if ( block_no < FS_START_CLUSTERS_SECTOR )
   {
-    // Request (root) directory sector .. because not supporting subdirectories (yet)
+    // Request was for a (root) directory sector .. root because not supporting subdirectories (yet)
     sectionRelativeSector -= FS_START_ROOTDIR_SECTOR;
 
     DirEntry *d = (void*) data;                   // pointer to next free DirEntry this sector
@@ -423,7 +423,7 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
   }
   else if ( block_no < BPB_TOTAL_SECTORS )
   {
-    // aka read from the data area (files, unused space, ...)
+    // Request was to read from the data area (files, unused space, ...)
     sectionRelativeSector -= FS_START_CLUSTERS_SECTOR;
 
     // plus 2 for first data cluster offset
