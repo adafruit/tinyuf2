@@ -48,11 +48,13 @@ SOFTWARE.
 #ifndef CFG_UF2_FLASH_SIZE
     #define CFG_UF2_FLASH_SIZE          (4*1024*1024)
 #endif
+
 // Number of 512-byte blocks in the exposed filesystem, default is just under 32MB
 // The filesystem needs space for the current file, text files, uploaded file, and FAT
 #ifndef CFG_UF2_NUM_BLOCKS
     #define CFG_UF2_NUM_BLOCKS          (0x10109)
 #endif
+
 // Sectors per FAT cluster, must be increased proportionally for larger filesystems
 #ifndef CFG_UF2_SECTORS_PER_CLUSTER
     #define CFG_UF2_SECTORS_PER_CLUSTER (1)

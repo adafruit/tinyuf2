@@ -54,6 +54,13 @@
 #define TINYUF2_DISPLAY 0
 #endif
 
+// Use favicon.ico + autorun.inf (only works with windows)
+// define TINYUF2_FAVICON_HEADER to enable this feature
+
+//--------------------------------------------------------------------+
+// Constant
+//--------------------------------------------------------------------+
+
 #define DBL_TAP_MAGIC            0xf01669ef // Enter DFU magic
 #define DBL_TAP_MAGIC_QUICK_BOOT 0xf02669ef // Skip double tap delay detection
 #define DBL_TAP_MAGIC_ERASE_APP  0xf5e80ab4 // Erase entire application !!

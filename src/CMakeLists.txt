@@ -1,5 +1,5 @@
 idf_component_register(SRCS ghostfat.c images.c main.c msc.c screen.c usb_descriptors.c
-                    INCLUDE_DIRS "."
+                    INCLUDE_DIRS "." "favicon"
                     REQUIRES boards)
 
 target_sources(${COMPONENT_TARGET} PUBLIC

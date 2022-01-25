@@ -64,14 +64,17 @@
 // USB UF2
 //--------------------------------------------------------------------+
 
-#define USB_VID           0x239A
-#define USB_PID           0x00E5
-#define USB_MANUFACTURER  "Adafruit"
-#define USB_PRODUCT       "MagTag 2.9 Grayscale"
+#define USB_VID                  0x239A
+#define USB_PID                  0x00E5
+#define USB_MANUFACTURER         "Adafruit"
+#define USB_PRODUCT              "MagTag 2.9 Grayscale"
 
-#define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "ESP32S2-MagTag_29gray-revC"
-#define UF2_VOLUME_LABEL  "MAGTAGBOOT"
-#define UF2_INDEX_URL     "https://www.adafruit.com/product/4800"
+#define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
+#define UF2_BOARD_ID             "ESP32S2-MagTag_29gray-revC"
+#define UF2_VOLUME_LABEL         "MAGTAGBOOT"
+#define UF2_INDEX_URL            "https://www.adafruit.com/product/4800"
+
+// Use favicon
+#define TINYUF2_FAVICON_HEADER   "favicon_adafruit_256.h"
 
 #endif

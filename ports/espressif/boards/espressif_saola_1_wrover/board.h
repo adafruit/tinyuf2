@@ -73,4 +73,7 @@
 #define UF2_VOLUME_LABEL  "SAOLA1RBOOT"
 #define UF2_INDEX_URL     "https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-saola-1-v1.2.html"
 
+// Use favicon
+#define TINYUF2_FAVICON_HEADER       "favicon_adafruit_256.h"
+
 #endif
