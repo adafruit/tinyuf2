@@ -436,12 +436,12 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
     uint32_t fid = info_index_of(2 + sectionRelativeSector / BPB_SECTORS_PER_CLUSTER);
     FileContent_t const * inf = &info[fid];
 
-    sectionRelativeSector -= (info[fid].cluster_start-2) * BPB_SECTORS_PER_CLUSTER;
+    uint32_t fileRelativeSector -= (info[fid].cluster_start-2) * BPB_SECTORS_PER_CLUSTER;
 
     if ( fid != FID_UF2 )
     {
       // Handle all files other than CURRENT.UF2
-      size_t fileContentStartOffset = sectionRelativeSector * BPB_SECTOR_SIZE;
+      size_t fileContentStartOffset = fileRelativeSector * BPB_SECTOR_SIZE;
       size_t fileContentLength = inf->size;
 
       // nothing to copy if already past the end of the file (only when >1 sector per cluster)
@@ -460,7 +460,7 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
     else
     {
       // CURRENT.UF2: generate data on-the-fly
-      uint32_t addr = BOARD_FLASH_APP_START + (sectionRelativeSector * UF2_FIRMWARE_BYTES_PER_SECTOR);
+      uint32_t addr = BOARD_FLASH_APP_START + (fileRelativeSector * UF2_FIRMWARE_BYTES_PER_SECTOR);
       if ( addr < _flash_size ) // TODO abstract this out
       {
         UF2_Block *bl = (void*) data;
