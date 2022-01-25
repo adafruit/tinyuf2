@@ -431,7 +431,7 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
     FileContent_t const * inf = &info[fid];
 
     uint32_t fileRelativeSector = sectionRelativeSector - (info[fid].cluster_start-2) * BPB_SECTORS_PER_CLUSTER;
-
+    
     if ( fid != FID_UF2 )
     {
       // Handle all files other than CURRENT.UF2
@@ -461,7 +461,7 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
         bl->magicStart0 = UF2_MAGIC_START0;
         bl->magicStart1 = UF2_MAGIC_START1;
         bl->magicEnd = UF2_MAGIC_END;
-        bl->blockNo = sectionRelativeSector;
+        bl->blockNo = fileRelativeSector;
         bl->numBlocks = UF2_SECTOR_COUNT;
         bl->targetAddr = addr;
         bl->payloadSize = UF2_FIRMWARE_BYTES_PER_SECTOR;
