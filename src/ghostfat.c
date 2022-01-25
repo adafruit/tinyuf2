@@ -436,7 +436,7 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
     uint32_t fid = info_index_of(2 + sectionRelativeSector / BPB_SECTORS_PER_CLUSTER);
     FileContent_t const * inf = &info[fid];
 
-    uint32_t fileRelativeSector -= (info[fid].cluster_start-2) * BPB_SECTORS_PER_CLUSTER;
+    uint32_t fileRelativeSector = sectionRelativeSector - (info[fid].cluster_start-2) * BPB_SECTORS_PER_CLUSTER;
 
     if ( fid != FID_UF2 )
     {
