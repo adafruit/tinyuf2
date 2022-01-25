@@ -60,14 +60,17 @@
 // USB UF2
 //--------------------------------------------------------------------+
 
-#define USB_VID           0x239A
-#define USB_PID           0x00DF
-#define USB_MANUFACTURER  "Adafruit"
-#define USB_PRODUCT       "Metro ESP32-S2"
+#define USB_VID                  0x239A
+#define USB_PID                  0x00DF
+#define USB_MANUFACTURER         "Adafruit"
+#define USB_PRODUCT              "Metro ESP32-S2"
 
-#define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "ESP32S2-Metro-revC"
-#define UF2_VOLUME_LABEL  "METROS2BOOT"
-#define UF2_INDEX_URL     "https://www.adafruit.com/product/4775"
+#define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
+#define UF2_BOARD_ID             "ESP32S2-Metro-revC"
+#define UF2_VOLUME_LABEL         "METROS2BOOT"
+#define UF2_INDEX_URL            "https://www.adafruit.com/product/4775"
+
+// Use favicon
+#define TINYUF2_FAVICON_HEADER   "favicon_adafruit_256.h"
 
 #endif
