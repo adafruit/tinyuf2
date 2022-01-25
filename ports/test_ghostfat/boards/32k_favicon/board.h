@@ -39,7 +39,4 @@
 #define UF2_VOLUME_LABEL  "32k_fav"
 #define UF2_INDEX_URL     "https://www.adafruit.com"
 
-// Use favicon
-#define TINYUF2_FAVICON_HEADER   "favicon_adafruit_256.h"
-
 #endif
