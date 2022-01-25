@@ -178,15 +178,11 @@ static FileContent_t info[] = {
 enum {
   NUM_FILES = sizeof(info) / sizeof(info[0]),
   FID_UF2 = NUM_FILES-1,
+  NUM_DIRENTRIES = NUM_FILES + 1 // including volume label as first root directory entry
 };
 
-#define NUM_DIRENTRIES     (NUM_FILES + 1) // Code adds volume label as first root directory entry
-#define REQUIRED_ROOT_DIRECTORY_SECTORS UF2_DIV_CEIL(NUM_DIRENTRIES+1, DIRENTRIES_PER_SECTOR)
-
-STATIC_ASSERT(ROOT_DIR_SECTOR_COUNT >= REQUIRED_ROOT_DIRECTORY_SECTORS);         // FAT requirement -- Ensures BPB reserves sufficient entries for all files
-STATIC_ASSERT(NUM_DIRENTRIES < (DIRENTRIES_PER_SECTOR * ROOT_DIR_SECTOR_COUNT)); // FAT requirement -- end directory with unused entry
-STATIC_ASSERT(NUM_DIRENTRIES < BPB_ROOT_DIR_ENTRIES);                            // FAT requirement -- Ensures BPB reserves sufficient entries for all files
-STATIC_ASSERT(NUM_DIRENTRIES < DIRENTRIES_PER_SECTOR); // GhostFAT bug workaround -- else, code overflows buffer
+STATIC_ASSERT(NUM_DIRENTRIES <= BPB_ROOT_DIR_ENTRIES);  // FAT requirement -- Ensures BPB reserves sufficient entries for all files
+STATIC_ASSERT(NUM_DIRENTRIES <= DIRENTRIES_PER_SECTOR); // GhostFAT bug workaround -- else, code overflows buffer
 
 #define NUM_SECTORS_IN_DATA_REGION (BPB_TOTAL_SECTORS - BPB_RESERVED_SECTORS - (BPB_NUMBER_OF_FATS * BPB_SECTORS_PER_FAT) - ROOT_DIR_SECTOR_COUNT)
 #define CLUSTER_COUNT              (NUM_SECTORS_IN_DATA_REGION / BPB_SECTORS_PER_CLUSTER)
