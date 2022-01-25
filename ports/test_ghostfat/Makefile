@@ -29,6 +29,7 @@ SRC_S +=
 # Port include
 INC += \
   $(TOP)/src \
+  $(TOP)/favicon \
   $(TOP)/$(PORT_DIR) \
   $(TOP)/$(BOARD_DIR) \
 
