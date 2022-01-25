@@ -181,8 +181,8 @@ enum {
   NUM_DIRENTRIES = NUM_FILES + 1 // including volume label as first root directory entry
 };
 
-STATIC_ASSERT(NUM_DIRENTRIES <= BPB_ROOT_DIR_ENTRIES);  // FAT requirement -- Ensures BPB reserves sufficient entries for all files
-STATIC_ASSERT(NUM_DIRENTRIES <= DIRENTRIES_PER_SECTOR); // GhostFAT bug workaround -- else, code overflows buffer
+STATIC_ASSERT(NUM_DIRENTRIES < BPB_ROOT_DIR_ENTRIES);  // FAT requirement -- Ensures BPB reserves sufficient entries for all files
+STATIC_ASSERT(NUM_DIRENTRIES < DIRENTRIES_PER_SECTOR); // GhostFAT bug workaround -- else, code overflows buffer
 
 #define NUM_SECTORS_IN_DATA_REGION (BPB_TOTAL_SECTORS - BPB_RESERVED_SECTORS - (BPB_NUMBER_OF_FATS * BPB_SECTORS_PER_FAT) - ROOT_DIR_SECTOR_COUNT)
 #define CLUSTER_COUNT              (NUM_SECTORS_IN_DATA_REGION / BPB_SECTORS_PER_CLUSTER)
