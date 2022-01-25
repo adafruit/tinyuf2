@@ -74,12 +74,18 @@ else
 
 # Bootloader src, board folder and TinyUSB stack
 SRC_C += \
-  $(subst $(TOP)/,,$(wildcard $(TOP)/src/*.c)) \
+  src/ghostfat.c \
+  src/images.c \
+  src/main.c \
+  src/msc.c \
+  src/screen.c \
+  src/usb_descriptors.c \
   $(subst $(TOP)/,,$(wildcard $(TOP)/$(BOARD_DIR)/*.c))
 
 # Include
 INC += \
   $(TOP)/src \
+  $(TOP)/src/favicon \
   $(TOP)/$(PORT_DIR) \
   $(TOP)/$(BOARD_DIR)
 
