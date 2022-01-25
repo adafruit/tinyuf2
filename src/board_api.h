@@ -55,9 +55,7 @@
 #endif
 
 // Use favicon.ico + autorun.inf (only works with windows)
-#ifndef TINYUF2_FAVICON
-#define TINYUF2_FAVICON 0
-#endif
+// define TINYUF2_FAVICON_HEADER to enable this feature
 
 //--------------------------------------------------------------------+
 // Constant

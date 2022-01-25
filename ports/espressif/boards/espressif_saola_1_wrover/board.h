@@ -26,7 +26,7 @@
 #define ESPRESSIF_SAOLA_1_WROVER_H_
 
 // Use favicon
-#define TINYUF2_FAVICON       1
+#define TINYUF2_FAVICON_HEADER       "favicon_adafruit_256.h"
 
 //--------------------------------------------------------------------+
 // Button

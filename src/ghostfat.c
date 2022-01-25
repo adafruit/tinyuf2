@@ -158,8 +158,8 @@ const char indexFile[] =
     "</body>"
     "</html>\n";
 
-#if TINYUF2_FAVICON
-#include "favicon.h"
+#ifdef TINYUF2_FAVICON_HEADER
+#include TINYUF2_FAVICON_HEADER
 const char autorunFile[] = "[Autorun]\r\nIcon=FAVICON.ICO\r\n";
 #endif
 
@@ -167,7 +167,7 @@ const char autorunFile[] = "[Autorun]\r\nIcon=FAVICON.ICO\r\n";
 static FileContent_t info[] = {
     {.name = "INFO_UF2TXT", .content = infoUf2File , .size = sizeof(infoUf2File) - 1},
     {.name = "INDEX   HTM", .content = indexFile   , .size = sizeof(indexFile  ) - 1},
-#if TINYUF2_FAVICON
+#ifdef TINYUF2_FAVICON_HEADER
     {.name = "AUTORUN INF", .content = autorunFile , .size = sizeof(autorunFile) - 1},
     {.name = "FAVICON ICO", .content = favicon_data, .size = favicon_len            },
 #endif
