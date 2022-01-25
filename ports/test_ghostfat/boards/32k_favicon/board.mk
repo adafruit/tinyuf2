@@ -1,5 +1,5 @@
 CFLAGS += \
-  -DTINYUF2_FAVICON=\"favicon_adafruit_256.h\"
+  -DTINYUF2_FAVICON=\"favicon_adafruit_256.h\" \
   -DCFG_UF2_NUM_BLOCKS=265000 \
   -DCFG_UF2_SECTORS_PER_CLUSTER=64 \
   -DCOMPILE_DATE=\"Mar\ 11\ 2020\" \
