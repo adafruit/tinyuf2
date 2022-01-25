@@ -155,6 +155,11 @@ void board_flash_erase_app(void)
   // TODO implement later
 }
 
+void board_flash_protect_bootloader(void)
+{
+  // TODO implement later
+}
+
 uint8_t board_usb_get_serial(uint8_t serial_id[16])
 {
   FFR_GetUUID(&_flash_config, serial_id);
