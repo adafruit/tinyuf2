@@ -223,8 +223,6 @@ void board_app_jump(void)
   SysTick->LOAD = 0;
   SysTick->VAL = 0;
 
-  // TODO protect bootloader region
-
   /* switch exception handlers to the application */
   SCB->VTOR = (uint32_t) BOARD_FLASH_APP_START;
 

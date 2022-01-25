@@ -33,7 +33,10 @@
 //#define FLASH_CACHE_SIZE          4096
 //#define FLASH_CACHE_INVALID_ADDR  0xffffffff
 
-#define FLASH_BASE_ADDR  0x08000000
+#define FLASH_BASE_ADDR 0x08000000
+// TinyUF2 resides in the first 2 flash sectors on STM32F4s, therefore these are
+// write protected
+#define BOOTLOADER_SECTOR_MASK 0x3UL
 
 /* flash parameters that we should not really know */
 static const uint32_t sector_size[] =
@@ -165,7 +168,9 @@ static void flash_write(uint32_t dst, const uint8_t *src, int len)
 //--------------------------------------------------------------------+
 void board_flash_init(void)
 {
-
+#if PROTECT_BOOTLOADER
+  board_flash_protect_bootloader();
+#endif
 }
 
 uint32_t board_flash_size(void)
@@ -194,6 +199,28 @@ void board_flash_write (uint32_t addr, void const *data, uint32_t len)
 void board_flash_erase_app(void)
 {
   // TODO implement later
+}
+
+void board_flash_protect_bootloader(void) {
+  HAL_StatusTypeDef status = HAL_FLASH_OB_Unlock();
+
+  FLASH_OBProgramInitTypeDef ob_current = {0};
+  HAL_FLASHEx_OBGetConfig(&ob_current);
+
+  // Flash sectors are protected if the bit is cleared
+  if (ob_current.WRPSector & BOOTLOADER_SECTOR_MASK) {
+    FLASH_OBProgramInitTypeDef ob_update = {0};
+    ob_update.WRPState = OB_WRPSTATE_ENABLE;
+    ob_update.OptionType = OPTIONBYTE_WRP;
+    ob_update.Banks = FLASH_BANK_1;
+    ob_update.WRPSector = BOOTLOADER_SECTOR_MASK;
+    status |= HAL_FLASHEx_OBProgram(&ob_update);
+    if (status == HAL_OK) {
+      HAL_FLASH_OB_Launch();
+    }
+  }
+
+  HAL_FLASH_OB_Lock();
 }
 
 #ifdef TINYUF2_SELF_UPDATE
