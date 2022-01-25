@@ -33,12 +33,6 @@
 #include "board_api.h"
 #include "uf2.h"
 
-// use as: GF_DEBUG_PRINT("foo %d", x);
-#if defined(DEBUG)
-  #define GF_DEBUG_PRINT(x) do { printf(x); fflush(stdout); } while (0)
-#else
-  #define GF_DEBUG_PRINT(x)
-#endif
 
 
 //--------------------------------------------------------------------+
