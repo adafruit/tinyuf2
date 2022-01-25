@@ -139,6 +139,9 @@ void board_flash_flush(void);
 // Erase application
 void board_flash_erase_app(void);
 
+// Protect bootloader in flash
+void board_flash_protect_bootloader(void);
+
 //--------------------------------------------------------------------+
 // Dispaly API
 //--------------------------------------------------------------------+
