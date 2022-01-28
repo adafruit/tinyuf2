@@ -53,6 +53,9 @@ jobs:
         - 'adafruit_qtpy_esp32s3'
         - 'espressif_esp32s3_devkitc_1'
         - 'espressif_esp32s3_devkitm_1'
+        - 'unexpectedmaker_feathers3'
+        - 'unexpectedmaker_pros3'
+        - 'unexpectedmaker_tinys3'
     steps:
     - name: Setup Python
       uses: actions/setup-python@v2
