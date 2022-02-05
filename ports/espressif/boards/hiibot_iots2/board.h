@@ -57,7 +57,7 @@
 // TFT Display ST7789
 //--------------------------------------------------------------------+
 // #undef  CONFIG_LCD_TYPE_AUTO
-/*
+
 #define CONFIG_LCD_TYPE_ST7789V
 
 #define DISPLAY_PIN_MISO    -1              //No MISO connected to display.
@@ -78,13 +78,13 @@
 #define DISPLAY_COL_OFFSET  53
 #define DISPLAY_ROW_OFFSET  40
 
-#define DISPLAY_TITLE        "IOTS2"
-*/
+#define DISPLAY_TITLE        "IoTS2"
+
 //--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
 
-#define USB_VID           0x303A            // Espressif VID
+#define USB_VID           0x80E7            // Espressif VID
 #define USB_PID           0x8111            // Espressif assigned PID
 #define USB_MANUFACTURER  "HIIBOT"
 #define USB_PRODUCT       "HiiBot IoTs2"
