@@ -36,6 +36,7 @@ jobs:
         - 'stm32f411ve_discovery'
         - 'stm32f411ce_blackpill'
         - 'stm32f401_blackpill'
+        - 'sparkfun_stm32_thing_plus'
 
     steps:
     - name: Setup Python
