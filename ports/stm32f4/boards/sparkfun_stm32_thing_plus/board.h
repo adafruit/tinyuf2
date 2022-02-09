@@ -56,7 +56,7 @@
 //--------------------------------------------------------------------+
 
 #define USB_VID           0x1B4F
-#define USB_PID           0x0028
+#define USB_PID           0x002C
 #define USB_MANUFACTURER  "SparkFun"
 #define USB_PRODUCT       "Thing Plus - STM32"
 
