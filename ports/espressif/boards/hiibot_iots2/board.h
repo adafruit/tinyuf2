@@ -90,6 +90,6 @@
 #define USB_PRODUCT       "HiiBot IoTs2"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "HiiBoT-IoTs2"
+#define UF2_BOARD_ID      "ESP32S2-IOTS2-v1"
 #define UF2_VOLUME_LABEL  "IOTS2BOOT"
 #define UF2_INDEX_URL     "https://www.tindie.com/products/bradchan/hiibot-iots2/"
