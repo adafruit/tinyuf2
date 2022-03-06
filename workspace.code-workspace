@@ -1,0 +1,21 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"terminal.integrated.shell.windows" : "cmd.exe",
+		"terminal.integrated.shellArgs.windows" : [
+			"/k",
+			"lib\\esp-idf\\export.bat"
+		],
+		"files.associations": {
+			"*.mk": "makefile",
+			"sdkconfig.h": "c",
+			"xtr1common": "cpp",
+			"gpio_ll.h": "c",
+			"gpio.h": "c"
+		}
+	}
+}

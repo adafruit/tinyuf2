@@ -1,4 +1,4 @@
-idf_component_register(SRCS "bootloader_start.c"
+idf_component_register(SRCS
                     INCLUDE_DIRS "../../../../boards/${BOARD}"
                     REQUIRES bootloader bootloader_support hal)
 
