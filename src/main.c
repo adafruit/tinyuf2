@@ -186,9 +186,15 @@ void tud_umount_cb(void) {
 static uint32_t indicator_state = STATE_BOOTLOADER_STARTED;
 static uint8_t indicator_rgb[3];
 
-void indicator_set(uint32_t state) {
-  indicator_state = state;
-  switch (state) {
+void indicator_set(uint32_t state)
+{
+  #ifdef CUSTOM_LED
+  board_rgb_state(state);
+  return;
+  #else
+  _indicator_state = state;
+  switch(state)
+  {
     case STATE_USB_UNPLUGGED:
       board_timer_start(1);
       memcpy(indicator_rgb, RGB_USB_UNMOUNTED, 3);
@@ -214,9 +220,12 @@ void indicator_set(uint32_t state) {
     default:
       break; // nothing to do
   }
+  #endif
 }
 
-void board_timer_handler(void) {
+#ifndef CUSTOM_LED
+void board_timer_handler(void)
+{
   _timer_count++;
 
   switch (indicator_state) {
@@ -250,6 +259,7 @@ void board_timer_handler(void) {
       break; // nothing to do
   }
 }
+#endif
 
 //--------------------------------------------------------------------+
 // Logger newlib retarget

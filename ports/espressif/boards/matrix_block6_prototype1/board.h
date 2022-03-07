@@ -27,6 +27,7 @@
 
 #define MATRIX
 #define FASTBOOT
+#define CUSTOM_LED
 
 //--------------------------------------------------------------------+
 // Button
