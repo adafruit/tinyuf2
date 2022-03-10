@@ -22,8 +22,8 @@
  * THE SOFTWARE.
  */
 
-#ifndef ESPRESSIF_S3_DEVKITC_H_
-#define ESPRESSIF_S3_DEVKITC_H_
+#ifndef BANANAPI_BPI_LEAF_S3_H_
+#define BANANAPI_BPI_LEAF_S3_H_
 
 //--------------------------------------------------------------------+
 // Button
