@@ -47,6 +47,7 @@
 
 // Brightness percentage from 1 to 255
 #define NEOPIXEL_BRIGHTNESS   0x10
+#define NEOPIXEL_RESET_DELAY  ns2cycle(400*1000)
 
 // Number of neopixels
 #define NEOPIXEL_NUMBER       1
@@ -67,7 +68,7 @@
 #define USB_PRODUCT       "BPI-Leaf-S3"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "ESP32S3-BPI-Leaf-S3-v1.0"
+#define UF2_BOARD_ID      "ESP32S3-BPI-Leaf-S3"
 #define UF2_VOLUME_LABEL  "LEAFS3BOOT"
 #define UF2_INDEX_URL     "https://banana-pi.org/"
 
