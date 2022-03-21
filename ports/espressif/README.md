@@ -11,6 +11,7 @@ Following boards are supported:
 - [Espressif Saola 1R (WROVER) and 1M (WROOM)](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-saola-1-v1.2.html)
 - [Gravitech Cucumber RIS ESP32-S2 w/Sensors ](https://www.gravitech.us/curisdebowis.html)
 - [LILYGO® TTGO T8 ESP32-S2 V1.1 ST7789 ](http://www.lilygo.cn/prod_view.aspx?TypeId=50033&Id=1321&FId=t3:50033:3)
+- [LILYGO® TTGO T8 ESP32-S2-WROOM](http://www.lilygo.cn/prod_view.aspx?TypeId=50063&Id=1320&FId=t3:50063:3)
 - [LOLIN Wemos® S2 Pico](https://www.wemos.cc/en/latest/s2/s2_pico.html)
 - [MicroDev microS2](https://github.com/microDev1/microS2/wiki)
 - [Morpheans MorphESP-240](https://github.com/ccadic/ESP32-S2-DevBoardTFT) or  [MorphESP CrowdSupply](https://www.crowdsupply.com/morpheans/morphesp-240)
