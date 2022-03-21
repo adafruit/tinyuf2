@@ -38,6 +38,7 @@ jobs:
         - 'gravitech_cucumberRIS_v1.1'
         - 'hexky_s2'
         - 'lilygo_ttgo_t8_s2_st7789'
+        - 'lilygo_ttgo_t8_s2_wroom'
         - 'lolin_s2_mini'
         - 'lolin_s2_pico'
         - 'microdev_micro_s2'
