@@ -31,6 +31,8 @@ jobs:
         - 'adafruit_qtpy_esp32s2'
         - 'artisense_rd00'
         - 'atmegazero_esp32s2'
+        - 'bpi_bit_s2'
+        - 'bpi_leaf_s2'
         - 'espressif_hmi_1'
         - 'espressif_kaluga_1'
         - 'espressif_saola_1_wroom'
@@ -52,6 +54,7 @@ jobs:
         - 'unexpectedmaker_tinys2'
         # S3 Alphabetical order
         - 'adafruit_qtpy_esp32s3'
+        - 'bpi_leaf_s3'
         - 'espressif_esp32s3_devkitc_1'
         - 'espressif_esp32s3_devkitm_1'
         - 'unexpectedmaker_feathers3'
