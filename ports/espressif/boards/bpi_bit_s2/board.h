@@ -64,12 +64,12 @@
 
 #define USB_VID           0x303A
 #define USB_PID           0x80E4
-#define USB_MANUFACTURER  "Bpi"
+#define USB_MANUFACTURER  "Banana Pi"
 #define USB_PRODUCT       "BPI-BIT-S2"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "WEBBIT-V2"
-#define UF2_VOLUME_LABEL  "BPIBITBOOT"
+#define UF2_BOARD_ID      "ESP32S2-BPI-BIT-v2"
+#define UF2_VOLUME_LABEL  "BITS2BOOT"
 #define UF2_INDEX_URL     "https://banana-pi.org/"
 
 #endif
