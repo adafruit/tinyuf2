@@ -46,6 +46,7 @@
 
 #define NEOPIXEL_PORT         GPIOC
 #define NEOPIXEL_PIN          GPIO_PIN_0
+#define NEOPIXEL_PIN_MODE     GPIO_MODE_OUTPUT_PP
 
 //--------------------------------------------------------------------+
 // Flash

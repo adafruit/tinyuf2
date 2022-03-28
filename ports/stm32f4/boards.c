@@ -71,7 +71,7 @@ void board_init(void)
 
 #if NEOPIXEL_NUMBER
   GPIO_InitStruct.Pin = NEOPIXEL_PIN;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Mode = NEOPIXEL_PIN_MODE;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   GPIO_InitStruct.Speed = GPIO_SPEED_FAST;
   HAL_GPIO_Init(NEOPIXEL_PORT, &GPIO_InitStruct);
@@ -261,46 +261,54 @@ static inline uint8_t apply_percentage(uint8_t brightness)
   return (uint8_t) ((brightness*NEOPIXEL_BRIGHTNESS) >> 8);
 }
 
-void board_rgb_write(uint8_t const rgb[])
-{
-  // neopixel color order is GRB
-  uint8_t const pixels[3] = { apply_percentage(rgb[1]), apply_percentage(rgb[0]), apply_percentage(rgb[2]) };
-  uint32_t const numBytes = 3;
-
-  uint8_t const *p = pixels, *end = p + numBytes;
-  uint8_t pix = *p++, mask = 0x80;
-  uint32_t start = 0;
-  uint32_t cyc = 0;
-
-  //assumes 800_000Hz frequency
-  //Theoretical values here are 800_000 -> 1.25us, 2500000->0.4us, 1250000->0.8us
-  //TODO: try to get dynamic weighting working again
+void board_rgb_write(uint8_t const rgb[]) {
+  // assumes 800_000Hz frequency
+  // Theoretical values here are 800_000 -> 1.25us, 2500000->0.4us,
+  // 1250000->0.8us
   uint32_t const sys_freq = HAL_RCC_GetSysClockFreq();
-  uint32_t const interval = sys_freq/MAGIC_800_INT;
-  uint32_t const t0       = sys_freq/MAGIC_800_T0H;
-  uint32_t const t1       = sys_freq/MAGIC_800_T1H;
+  uint32_t const interval = sys_freq / MAGIC_800_INT;
+  uint32_t const t0 = sys_freq / MAGIC_800_T0H;
+  uint32_t const t1 = sys_freq / MAGIC_800_T1H;
+
+  // neopixel color order is GRB
+  uint8_t const colors[3] = {apply_percentage(rgb[1]), apply_percentage(rgb[0]),
+                             apply_percentage(rgb[2])};
 
   __disable_irq();
+  uint32_t start;
+  uint32_t cyc;
 
-  // Enable DWT in debug core. Useable when interrupts disabled, as opposed to Systick->VAL
+  // Enable DWT in debug core. Useable when interrupts disabled, as opposed to
+  // Systick->VAL
   CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
   DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
   DWT->CYCCNT = 0;
 
-  for(;;) {
-    cyc = (pix & mask) ? t1 : t0;
-    start = DWT->CYCCNT;
+  for (uint32_t i = 0; i < NEOPIXEL_NUMBER; i++) {
+    uint8_t const *color_pointer = colors;
+    uint8_t const *const color_pointer_end = color_pointer + 3;
+    uint8_t color = *color_pointer++;
+    uint8_t color_mask = 0x80;
 
-    HAL_GPIO_WritePin(NEOPIXEL_PORT, NEOPIXEL_PIN, 1);
-    while((DWT->CYCCNT - start) < cyc);
+    while (true) {
+      cyc = (color & color_mask) ? t1 : t0;
+      start = DWT->CYCCNT;
 
-    HAL_GPIO_WritePin(NEOPIXEL_PORT, NEOPIXEL_PIN, 0);
-    while((DWT->CYCCNT - start) < interval);
+      HAL_GPIO_WritePin(NEOPIXEL_PORT, NEOPIXEL_PIN, 1);
+      while ((DWT->CYCCNT - start) < cyc)
+        ;
 
-    if(!(mask >>= 1)) {
-      if(p >= end) break;
-      pix  = *p++;
-      mask = 0x80;
+      HAL_GPIO_WritePin(NEOPIXEL_PORT, NEOPIXEL_PIN, 0);
+      while ((DWT->CYCCNT - start) < interval)
+        ;
+
+      if (!(color_mask >>= 1)) {
+        if (color_pointer >= color_pointer_end) {
+          break;
+        }
+        color = *color_pointer++;
+        color_mask = 0x80;
+      }
     }
   }
 
