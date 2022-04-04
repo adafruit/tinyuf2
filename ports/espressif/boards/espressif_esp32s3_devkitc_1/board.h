@@ -69,6 +69,6 @@
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID      "ESP32S3-DevKitC-v1.0"
 #define UF2_VOLUME_LABEL  "S3DKC1BOOT"
-#define UF2_INDEX_URL     "https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/hw-reference/esp32s3/user-guide-devkitm-1.html"
+#define UF2_INDEX_URL     "https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/hw-reference/esp32s3/user-guide-devkitc-1.html"
 
 #endif
