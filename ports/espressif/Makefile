@@ -37,7 +37,7 @@ fullclean:
 	@rm -rf $(BIN)
 	@rm -rf $(SELF_BUILD)
 
-app bootloader clean flash bootloader-flash app-flash erase monitor dfu-flash dfu size size-components size-files:
+app bootloader clean flash bootloader-flash app-flash erase-flash monitor dfu-flash dfu size size-components size-files:
 	idf.py -B$(BUILD) -DBOARD=$(BOARD) $(SERIAL_OPT) $@
 
 combined.bin: $(BUILD)/combined.bin
