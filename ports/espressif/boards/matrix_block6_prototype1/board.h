@@ -76,4 +76,7 @@
 #define UF2_VOLUME_LABEL  "MATRIXDFU"
 #define UF2_INDEX_URL     "https://203.io"
 
+// Use favicon
+#define TINYUF2_FAVICON_HEADER   "favicon_matrix_256.h"
+
 #endif

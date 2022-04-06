@@ -8,7 +8,7 @@ make.exe all --print-data-base --no-builtin-variables --no-builtin-rules --quest
 # This program built for i386-pc-mingw32
  
 
-# Make data base, printed on Sun Mar 06 18:05:13 2022
+# Make data base, printed on Wed Apr 06 01:03:43 2022
 
 # Variables
 
@@ -20,18 +20,18 @@ POWERSHELL_DISTRIBUTION_CHANNEL = MSI:Windows 10 Pro for Workstations
 <D = $(patsubst %/,%,$(dir $<))
 # environment
 CUDA_PATH_V11_6 = C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.6
+# environment
+ELECTRON_NO_ATTACH_CONSOLE = 1
 # makefile
 MAKEFLAGS = Rrqp
 # environment
 VSCODE_LOG_NATIVE = false
 # automatic
 ?D = $(patsubst %/,%,$(dir $?))
-# environment
-PLATFORMIO_IDE = 2.4.2
 # automatic
-@D = $(patsubst %/,%,$(dir $@))
-# e 
-nvironment
+@D = $(patsubst %/,%,$(dir  
+$@))
+# environment
 HOMEDRIVE = C:
 # automatic
 @F = $(notdir $@)
@@ -66,11 +66,11 @@ SCE_ROOT_DIR = C:\Program Files (x86)\SCE
 # environment
 PROGRAMDATA = C:\ProgramData
 # environment
-VSCODE_IPC_HOOK_EXTHOST = \\.\pipe\vscode-ipc-f04d7f65-ab7a-41ad-9419-75144d79db66-sock
+VSCODE_IPC_HOOK_EXTHOST = \\.\pipe\vscode-ipc-0ac20956-2410-40e1-9545-ccb3c03d1d72-sock
 # environment
-VSCODE_CWD = C:\Users\caine\Documents\GitHub\Matrix-Bootloader
+VSCODE_CWD = C:\Windows\system32
 # environment
-NO_PROXY = 127.0.0.1
+PATH = C:\Program Files\Google\Chrome\Application;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.6\bin;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.6\libnvvp;C:\Program Files\Common Files\Oracle\Java\javapath;c:\program files (x86)\common files\oracle\java\javapath;c:\program files (x86)\common files\intel\shared libraries\redist\intel64\compiler;c:\windows\system32;c:\windows;c:\windows\system32\wbem;c:\windows\system32\windowspowershell\v1.0\;c:\windows\system32\openssh\;c:\program files\nvidia corporation\nvidia nvdlisr;c:\program files\dotnet\;c:\program files\powershell\7\;c:\program files\010 editor;c:\program files (x86)\stmicroelectronics\stm32 st-link utility\st-link utility;c:\program files\git\cmd;c:\program files\cmake\bin;C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common;C:\Program Files\Microsoft SQL Server\Client SDK\ODBC\110\Tools\Binn\;C:\Program Files (x86)\Microsoft SQL Server\120\Tools\Binn\;C:\Program Files\Microsoft SQL Server\120\Tools\Binn\;C:\Program Files\Microsoft SQL Server\120\DTS\Binn\;C:\Program Files (x86)\Windows Kits\8.1\Windows Performance Toolkit\;C:\ProgramData\chocolatey\bin;C:\Program Files\nodejs\;C:\Strawberry\c\bin;C:\Strawberry\perl\site\bin;C:\Strawberry\perl\bin;C:\Program Files\MATLAB\R2021b\bin;C:\Program Files\NVIDIA Corporation\Nsight Compute 2022.1.0\;C:\Program Files (x86)\GNU Arm Embedded Toolchain\10 2020-q4-major\bin;C:\Users\caine\AppData\Local\Microsoft\WindowsApps;C:\Users\caine\AppData\Local\Programs\Microsoft VS Code\bin;C:\Program Files\Bandizip\;C:\Users\caine\AppData\Local\GitHubDesktop\bin;C:\Users\caine\.dotnet\tools;C:\Program Files (x86)\GnuWin32\bin;C:\Program Files (x86)\GNU Arm Embedded Toolchain\10 2021.10\bin;C:\Program Files\JetBrains\PyCharm Community Edition 2021.1.3\bin;;C:\Program Files\STMicroelectronics\STM32Cube\STM32CubeProgrammer\bin;C:\Program Files\openocd\bin;C:\Program Files (x86)\dfu-util;C:\esp-idf\tools;C:\Program Files\qemu;C:\Users\caine\AppData\Roaming\npm;
 # environment
 SW_SIM_HYDRA = C:\Program Files\Common Files\SolidWorks Shared\Simulation Worker Agent\
 # environment
@@ -88,7 +88,8 @@ ALLUSERSPROFILE = C:\ProgramData
 # environment
 DOKANLIBRARY1 = C:\Program Files\Dokan\DokanLibrary-1.5.0\
 # environment
-VSCODE_LOG_STACK = false
+VS 
+CODE_LOG_STACK = false
 # environment
 NUMBER_OF_PROCESSORS = 32
 # environment
@@ -100,7 +101,7 @@ NVTOOLSEXT_PATH = C:\Program Files\NVIDIA Corporation\NvToolsExt\
 # automatic
 %F = $(notdir $%)
 # environment
-CHROME_CRASHPAD_PIPE_NAME = \\.\pipe\crashpad_13620_RNLRJOSKGWFTRQKX
+CHROME_CRASHPAD_PIPE_NAME = \\.\pipe\crashpad_70584_TAPFBXLTQOBMYXDL
 # environment
 VSCODE_PIPE_LOGGING = true
 # environment
@@ -118,11 +119,13 @@ USERNAME = caine
 # environment
 PUBLIC = C:\Users\Public
 # environment
-VSCODE_AMD_ENTRYPOINT = vs/workbench/services/extensions/node/extensionHostProcess
+VSCODE_AMD_ENTRYPOINT = vs/workbench/api/node/extensionHostProcess
 # environment
-VSCODE_CODE_CACHE_PATH = C:\Users\caine\AppData\Roaming\Code\CachedData\f80445acd5a3dadef24aa209168452a3d97cc326
+VSCODE_CLI = 1
 # environment
-APPLICATION_INSIGHTS_NO_DIAGNOSTIC_CHANNEL = true
+VSCODE_CODE_CACHE_PATH = C:\Users\caine\AppData\Roaming\Code\CachedData\e18005f0f1b33c29e81d732535d8c0e47cafb0b5
+# environment
+APPLICATION_INSIGHTS_NO_DIAGNOSTIC_CHANNEL = 1
 # environment
 COMMONPROGRAMFILES = C:\Program Files (x86)\Common Files
 # environment
@@ -135,14 +138,13 @@ VSCODE_HANDLES_UNCAUGHT_ERRORS = true
 USERDOMAIN = WORKSTATION
 # environment
 MIC_LD_LIBRARY_PATH = C:\Program Files (x86)\Common Files\Intel\Shared Libraries\compiler\lib\mic
-# environment
-PLATFORMIO_PATH = C:\Users\caine\.platformio\python3;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.6\bin;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.6\libnvvp;C:\Program Files\Common Files\Oracle\Java\javapath;c:\program files (x86)\common files\oracle\java\javapath;c:\program files (x86)\common files\intel\shared libraries\redist\intel64\compiler;c:\windows\system32;c:\windows;c:\windows\system32\wbem;c:\windows\system32\windowspowershell\v1.0\;c:\windows\system32\openssh\;c:\program files\nvidia corporation\nvidia nvdlisr;c:\program files\dotnet\;c:\program files\powershell\7\;c:\program files\010 editor;c:\program files (x86)\stmicroelectronics\stm32 st-link utility\st-link utility;c:\program files\git\cmd;c:\program files\cmake\bin;C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common;C:\Program Files\Microsoft SQL Server\Client SDK\ODBC\110\Tools\Binn\;C:\Program Files (x86)\Microsoft SQL Server\120\Tools\Binn\;C:\Program Files\Microsoft SQL Server\120\Tools\Binn\;C:\Program Files\Microsoft SQL Server\120\DTS\Binn\;C:\Program Files (x86)\Windows Kits\8.1\Windows Performance Toolkit\;C:\ProgramData\chocolatey\bin;C:\Program Files\nodejs\;C:\Strawberry\c\bin;C:\Strawberry\perl\site\bin;C:\Strawberry\perl\bin;C:\Program Files\MATLAB\R2021b\bin;C:\Program Files\NVIDIA Corporation\Nsight Compute 2022.1.0\;C:\Program Files (x86)\GNU Arm Embedded Toolchain\10 2020-q4-major\bin;C:\Users\caine\AppData\Local\Microsoft\WindowsApps;C:\Users\caine\AppData\Local\Programs\Microsoft VS Code\bin;C:\Program Files\Bandizip\;C:\Users\caine\AppData\Local\GitHubDesktop\bin;C:\Users\caine\.dotnet\tools;C:\Program Files (x86)\GnuWin32\bin;C:\Program Files (x86)\GNU Arm Embedded Toolchain\10 2021.10\bin;C:\Program Files\JetBrains\PyCharm Community Edition 2021.1.3\bin;;C:\Program Files\STMicroelectronics\STM32Cube\STM32CubeProgrammer\bin;C:\Program Files\openocd\bin;C:\Program Files (x86)\dfu-util;C:\esp-idf\tools;C:\Program Files\qemu;C:\Users\caine\AppData\Roaming\npm;;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.6\bin;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.6\libnvvp;C:\Program Files\Common Files\Oracle\Java\javapath;c:\program files (x86)\common files\oracle\java\javapath;c:\program files (x86)\common files\intel\shared libraries\redist\intel64\compiler;c:\windows\system32;c:\windows;c:\windows\system32\wbem;c:\windows\system32\windowspowershell\v1.0\;c:\windows\system32\openssh\;c:\program files\nvidia corporation\nvidia nvdlisr;c:\program files\dotnet\;c:\program files\powershell\7\;c:\program files\010 editor;c:\program files (x86)\stmicroelectronics\stm32 st-link utility\st-link utility;c:\program files\git\cmd;c:\program files\cmake\bin;C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common;C:\Program Files\Microsoft SQL Server\Client SDK\ODBC\110\Tools\Binn\;C:\Program Files (x86)\Microsoft SQL Server\120\Tools\Binn\;C:\Program Files\Microsoft SQL Server\120\Tools\Binn\;C:\Program Files\Microsoft SQL Server\120\DTS\Binn\;C:\Program Files (x86)\Windows Kits\8.1\Windows Performance Toolkit\;C:\ProgramData\chocolatey\bin;C:\Program Files\nodejs\;C:\Strawberry\c\bin;C:\Strawberry\perl\site\bin;C:\Strawberry\perl\bin;C:\Program Files\MATLAB\R2021b\bin;C:\Program Files\NVIDIA Corporation\Nsight Compute 2022.1.0\;C:\Program Files (x86)\GNU Arm Embedded Toolchain\10 2020-q4-major\bin;C:\Users\caine\AppData\Local\Microsoft\WindowsApps;C:\Users\caine\AppData\Local\Programs\Microsoft VS Code\bin;C:\Program Files\Bandizip\;C:\Users\caine\AppData\Local\GitHubDesktop\bin;C:\Users\caine\.dotnet\tools;C:\Program Files (x86)\GnuWin32\bin;C:\Program Files (x86)\GNU Arm Embedded Toolchain\10 2021.10\bin;C:\Program Files\JetBrains\PyCharm Community Edition 2021.1.3\bin;;C:\Program Files\STMicroelectronics\STM32Cube\STM32CubeProgrammer\bin;C:\Program Files\openocd\bin;C:\Program Files (x86)\dfu-util;C:\esp-idf\tools;C:\Program Files\qemu;C:\Users\caine\AppData\Roaming\npm;
 # default
 MAKE = $(MAKE_COMMAND)
 # default
 MAKECMDGOALS := all
 # environment
-PATH = C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.6\bin;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.6\libnvvp;C:\Program Files\Common Files\Oracle\Java\javapath;c:\program files (x86)\common files\oracle\java\javapath;c:\program files (x86)\common files\intel\shared libraries\redist\intel64\compiler;c:\windows\system32;c:\windows;c:\windows\system32\wbem;c:\windows\system32\windowspowershell\v1.0\;c:\windows\system32\openssh\;c:\program files\nvidia corporation\nvidia nvdlisr;c:\program files\dotnet\;c:\program files\powershell\7\;c:\program files\010 editor;c:\program files (x86)\stmicroelectronics\stm32 st-link utility\st-link utility;c:\program files\git\cmd;c:\program files\cmake\bin;C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common;C:\Program Files\Microsoft SQL Server\Client SDK\ODBC\110\Tools\Binn\;C:\Program Files (x86)\Microsoft SQL Server\120\Tools\Binn\;C:\Program Files\Microsoft SQL Server\120\Tools\Binn\;C:\Program Files\Microsoft SQL Server\120\DTS\Binn\;C:\Program Files (x86)\Windows Kits\8.1\Windows Performance Toolkit\;C:\ProgramData\chocolatey\bin;C:\Program Files\nodejs\;C:\Strawberry\c\bin;C:\Strawberry\perl\site\bin;C:\Strawberry\perl\bin;C:\Program Files\MATLAB\R2021b\bin;C:\Program Files\NVIDIA Corporation\Nsight Compute 2022.1.0\;C:\Program Files (x86)\GNU Arm Embedded Toolchain\10 2020-q4-major\bin;C:\Users\caine\AppData\Local\Microsoft\WindowsApps;C:\Users\caine\AppData\Local\Programs\Microsoft VS Code\bin;C:\Program Files\Bandizip\;C:\Users\caine\AppData\Local\GitHubDesktop\bin;C:\Users\caine\.dotnet\tools;C:\Program Files (x86)\GnuWin32\bin;C:\Program Files (x86)\GNU Arm Embedded Toolchain\10 2021.10\bin;C:\Program Files\JetBrains\PyCharm Community Edition 2021.1.3\bin;;C:\Program Files\STMicroelectronics\STM32Cube\STM32CubeProgrammer\bin;C:\Program Files\openocd\bin;C:\Program Files (x86)\dfu-util;C:\esp-idf\tools;C:\Program Files\qemu;C:\Users\caine\AppData\Roaming\npm;
+LOCAL_GIT_DIRECTORY = C:\Users\caine\AppDat 
+a\Local\GitHubDesktop\app-2.9.12\resources\app\git
 # default
 MAKE_VERSION := 3.81
 # makefile
@@ -170,7 +172,7 @@ PROCESSOR_IDENTIFIER = AMD64 Family 25 Model 33 Stepping 0, AuthenticAMD
 # environment
 OS = Windows_NT
 # environment
-VSCODE_IPC_HOOK = \\.\pipe\880fbc79ab1c405137638b8e99e7aab6-1.64.2-main-sock
+VSCODE_IPC_HOOK = \\.\pipe\880fbc79ab1c405137638b8e99e7aab6-1.66.0-main-sock
 # environment
 HOMEPATH = \Users\caine
 # environment
@@ -196,7 +198,8 @@ APPDATA = C:\Users\caine\AppData\Roaming
 # environment
 TEMP = C:\Users\caine\AppData\Local\Temp
 # environment
-AMDRMPATH = C:\Program Files\AMD\RyzenMaster\
+AMDRMPATH = C:\Program Files\AMD\Ryzen 
+Master\
 # environment
 COMSPEC = C:\Windows\system32\cmd.exe
 # default
@@ -205,8 +208,6 @@ MAKEFILES :=
 IDF_TOOLS_PATH = C:\Users\caine\.espressif
 # automatic
 <F = $(notdir $<)
-# environment
-PLATFORMIO_CALLER = vscode
 # environment
 LC_ALL = C
 # environment
@@ -223,7 +224,8 @@ SYSTEMDRIVE = C:
 SESSIONNAME = Console
 # environment
 PROCESSOR_REVISION = 2100
-# environment
+#  
+environment
 SW_SIM_MPIT = INTELMPI
 # environment
 MAKELEVEL := 0
@@ -234,11 +236,13 @@ PROCESSOR_LEVEL = 25
 # environment
 FPS_BROWSER_APP_PROFILE_STRING = Internet Explorer
 # environment
-VSCODE_PID = 13620
+VSCODE_PID = 70584
+# environment
+CHROME_RESTART = Google Chrome|Whoa! Google Chrome has crashed. Relaunch now?|LEFT_TO_RIGHT
 # environment
 USERDOMAIN_ROAMINGPROFILE = WORKSTATION
 # variable set hash-table stats:
-# Load=112/1024=11%, Rehash=0, Collisions=13/129=10%
+# Load=112/1024=11%, Rehash=0, Collisions=10/129=8%
 
 # Pattern-specific Variable Values
 
@@ -247,58 +251,65 @@ USERDOMAIN_ROAMINGPROFILE = WORKSTATION
 # Directories
 
 # : could not be stat'd.
-# C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.6\bin (key C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.6/bin, mtime 1642312228): 45 files, no impossibilities.
-# c:\program files (x86)\common files\in 
-tel\shared libraries\redist\intel64\compiler (key c:/program files (x86)/common files/intel/shared libraries/redist/intel64/compiler, mtime 1621268371): 17 files, no impossibilities.
-# C:\Program Files\Bandizip\ (key C:/Program Files/Bandizip/, mtime 1626813516): 22 files, no impossibilities.
-# C:\Program Files\qemu (key C:/Program Files/qemu, mtime 1628319419): 126 files, no impossibilities.
-# C:\Program Files\openocd\bin (key C:/Program Files/openocd/bin, mtime 1615823137): 6 files, no impossibilities.
-# c:\windows\system32\windowspowershell\v1.0\ (key c:/windows/system32/windowspowershell/v1.0/, mtime 1632808415): 26 files, no impossibilities.
-# c:\windows\system32\wbem (key c:/windows/system32/wbem, mtime 1644654272): 170 files, no impossibilities.
-# . (key c:/Users/caine/Documents/GitHub/Matrix-Bootloader, mtime 1646607563): 15 files, no impossibilities.
-# C:\Program Files (x86)\Windows Kits\8.1\Windows Performance Toolkit\ (key C:/Program Files (x86)/Windows Kits/8.1/Windows Performance Toolkit/, mtime 1631370320): 73 files, no impossibilities.
-# c:\program files (x86)\stmicroelectronics\stm32 st-link utility\st-link utility (key c:/program files (x86)/stmicroelectronics/stm32 st-link utility/st-link utility, mtime 1632549178): 12 files, no impossibilities.
-# C:\Program Files\nodejs\ (key C:/Program Files/nodejs/, mtime 1636695112): 13 files, no impossibilities.
-# C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common (key C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common, mtime 1631370378): 11 files, no impossibilities.
-# C:\Program Files (x86)\Microsoft SQL Server\120\Tools\Binn\ (key C:/Program Files (x86)/Microsoft SQL Server/120/Tools/Binn/, mtime 1631370264): 12 files, no impossibilities.
+# C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.6\bin (key C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.6/bin, mtime 1642315828): 45 files, no impossibilities.
+# c:\program files (x86)\common files\intel\shared libraries\redist\intel64\compiler (key c:/program files (x86)/common files/intel/shared libraries/redist/intel64/compiler, mtime 1621271971): 17 files, no impossibilities.
+# C:\Program Files\Bandizip\ (key C:/Program Files/Bandizip/, mtime 1626817116): 22 files, no impossibilities.
+# C:\Program Files\qemu (key C:/Program Files/qemu, mtime 1628323019): 126 files, no impossibilities.
+# C:\Program Files\openocd\bin (key C:/Program Files/openocd/bin, mtime 1615826737): 6 files, no impossibilities.
+# c:\windows\system32\windowspowershell\v1.0\ (key c:/windows/system32/windowspowershell/v1.0/, mtime 1632812015): 26 files, no impossibilities.
+# c:\windows\system32\wbem (key c:/windows/system32/wbem, mtime 1646990936): 170 
+ files, no impossibilities.
+# . (key c:/Users/caine/Documents/GitHub/Matrix-Bootloader, mtime 1646611163): 15 files, no impossibilities.
+# C:\Program Files (x86)\Windows Kits\8.1\Windows Performance Toolkit\ (key C:/Program Files (x86)/Windows Kits/8.1/Windows Performance Toolkit/, mtime 1631373920): 73 files, no impossibilities.
+# c:\program files (x86)\stmicroelectronics\stm32 st-link utility\st-link utility (key c:/program files (x86)/stmicroelectronics/stm32 st-link utility/st-link utility, mtime 163255 
+2778): 12 files, no impossibilities.
+# C:\Program Files\nodejs\ (key C:/Program Files/nodejs/, mtime 1636698712): 13 files, no impossibilities.
+# C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common (key C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common, mtime 1631373978): 11 files, no impossibilities.
+# C:\Program Files (x86)\Microsoft SQL Server\120\Tools\Binn\ (key C:/Program Files (x86)/Microsoft SQL Server/120/Tools/Binn/, mtime 1631373864): 12 files, no impossibilities.
 # C:\esp-idf\tools: could not be stat'd.
-# C:\Program Files\Microsoft SQL Server\120\DTS\Binn\ (key C:/Program Files/Microsoft SQL Server/120/DTS/Binn/, mtime 1631370273): 38 files, no impossibilities.
-# C:\ProgramData\chocolatey\bin (key C:/ProgramData/chocolatey/bin, mtime 1632808091): 13 files, no impossibilities.
-# C:\Program Files (x86)\GNU Arm Embedded Toolchain\10 2021.10\bin (key C:/Program Files (x86)/GNU Arm Embedded Toolchain/10 2021.10/bin, mtime 1638348873): 35 files, no impossibilities.
-# c:\program files\dotnet\ (key c:/program files/dotnet/, mtime 1638164495): 11 files, no impossibilities.
-# c:\program files\010 editor (key c:/program files/010 editor, mtime 1621216312): 36 files, no impossibilities.
-# c:\program files\powershell\7\ (key c:/program files/powershell/7/, mtime 1621171401): 471 files, no impossibilities.
-# C:\Users\caine\AppData\Local\Programs\Microsoft VS Code\bin (key C:/Users/caine/AppData/Local/Programs/Microsoft VS Code/bin, mtime 1645735988): 4 files, no impossibilities.
-# C:\Program Files\Microsoft SQL Server\Client SDK\ODBC\110\Tools\Binn\ (key C:/Program Files/Microsoft SQL Server/Client SDK/ODBC/110/Tools/Binn/, mtime 1631370273): 6 files, no impossibilities.
+# C:\Program Files\Microsoft SQL Server\120\DTS\Binn\ (key C:/Program Files/Microsoft SQL Server/120/DTS/Binn/, mtime 1631373873): 38 files, no impossibilities.
+# C:\ProgramData\chocolatey\bin (key C:/ProgramData/chocolatey/bin, mtime 1632811691): 13 files, no impossibilities.
+# C:\Program Files (x86)\GNU Arm Embedded Toolchain\10 2021.10\bin (key C:/Program Files (x86)/GNU Arm Embedded Toolchain/10 2021.10/bin, mtime 1638352473): 35 files, no impossibilities.
+# c:\program files\dotnet\ (ke 
+y c:/program files/dotnet/, mtime 1638168095): 11 files, no impossibilities.
+# c:\program files\010 editor (key c:/program files/010 editor, mtime 1621219912): 36 files, no impossibilities.
+# C:\Program Files\Google\Chrome\Application (key C:/Program Files/Google/Chrome/Application, mtime 1649041893): 10 files, no impossibilities.
+# c:\program files\powershell\7\ (key c:/program files/powershell/7/, mtime 1621175001): 471 files, no impossibilities.
+# C:\Users\caine\AppData\Local\Programs\Microsoft VS Code\bin (key C:/Users/caine/AppData/Local/Programs/Microsoft VS Code/bin, mtime 1648756162): 4 files, no impossibilities.
+# C:\Program Files\Microsoft SQL Server\Client SDK\ODBC\110\Tools\Binn\ (key C:/Program Files/Microsoft SQL Server/Client SDK/ODBC/110/Tools/Binn/, mtime 1631373873): 6 files, no impossibilities.
 # c:\windows\system32\openssh\: could not be stat'd.
-# C:\Strawberry\c\bin (key C:/Strawberry/c/bin, mtime 1639255860): 115 files, no impossibilities.
-# c:\program files (x86)\common files\oracle\java\javapath (key c:/program files (x86)/common files/oracle/java/javapath, mtime 1623893235): 5 files, no impossibilities.
-# C:\Program Files (x86)\dfu-util (key C:/Program Files (x86)/dfu-util, mtime 1628226507): 4 files, no impossibilities.
-# C:\Users\caine\AppData\Roaming\npm (key C:/Users/caine/AppData/Roaming/npm, mtime 1636696104): 9 files, no impossibilities.
+# C:\Strawberry\c\bin (key C:/Strawberry/c/bin, mtime 1639259460): 115 files, no impossibilities.
+# c:\program files (x86)\common files\oracle\jav 
+a\javapath (key c:/program files (x86)/common files/oracle/java/javapath, mtime 1623896835): 5 files, no impossibilities.
+# C:\Program Files (x86)\dfu-util (key C:/Program Files (x86)/dfu-util, mtime 1628230107): 4 files, no impossibilities.
+# C:\Users\caine\AppData\Roaming\npm (key C:/Users/caine/AppData/Roaming/npm, mtime 1636699704): 9 files, no impossibilities.
 # C:\Users\caine\.dotnet\tools: could not be stat'd.
-# C:\Strawberry\perl\bin (key C:/Strawberry/perl/bin, mtime 1639255879): 184 files, no impossibilities.
-# c:\windows (key c:/windows, mtime 1645259324): 119 files, no impossibilities.
+# C:\Strawberry\perl\bin (key C:/Strawberry/perl/bin, mtime 1639259479): 184 files, no impo 
+ssibilities.
+# c:\windows (key c:/windows, mtime 1646990935): 119 files, no impossibilities.
 # C:\Program Files (x86)\GNU Arm Embedded Toolchain\10 2020-q4-major\bin: could not be stat'd.
-# C:\Program Files\Common Files\Oracle\Java\javapath (key C:/Program Files/Common Files/Oracle/Java/javapath, mtime 1639443572): 6 files, no impossibilities.
-# C:\Program Files\MATLAB\R2021b\bin (key C:/Program Files/MATLAB/R2021b/bin, mtime 1643450980): 15 files, no impossibilities.
-# C:\Strawberry\perl\site\bin (key C:/Strawberry/perl/site/bin, mtime 1639255856): 2 files, no impossibilities.
-# C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.6\libnvvp (key C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.6/libnvvp, mtime 1642311499): 14 files, no impossibilities.
-# C:\Users\caine\AppData\Local\GitHubDesktop\bin (key C:/Users/caine/AppData/Local/GitHubDesktop/bin, mtime 1621978044): 4 files, no impossibilities.
-# C:\Program Files\STMicroelectronics\STM32Cube\STM32CubeProgrammer\bin (key C:/Program Files/STMicroelectronics/STM32Cube/STM32CubeProgrammer/bin, mtime 1627440744): 32 files, no impossibilities.
-# C:\Program Files\Microsoft SQL Server\120\Tools\Binn\ (key C:/Program Files/Microsoft SQL Server/120/Tools/Binn/, mtime 1631370264): 14 files, no impossibilities.
-# C:\Users\caine\AppData\Local\Microsoft\WindowsApps (key C:/Users/caine/AppData/Local/Microsoft/WindowsApps, mtime 1646536878): 31 files, no impossibilities.
-# C:\Program Files\JetBrains\PyCharm Community Edition 2021.1.3\bin (key C:/Program Files/JetBrains/PyCharm Community Edition 2021.1.3/bin, mtime 1626535262): 29 files, no impossibilities.
-# c:\program files\git\cmd (key c:/program files/git/cmd, mtime 1624078900): 8 files, no impossibilities.
-# c:\windows\system32 (key c:/windows/system32, mtime 1646349463): 3131 files, no impossibilities.
-# c:\program files\cmake\bin (key c:/program files/cmake/bin, mtime 1624945198): 7 files, no impossibilities.
-# C:\Program Files\NVIDIA Corporation\Nsight Compute 2022.1.0\ (key C:/Program Files/NVIDIA Corporation/Nsight Compute 2022.1.0/, mtime 1642311389): 12 files, no impossibilities.
-# c:\program files\nvidia corporation\nvidia nvdlisr (key c:/program files/nvidia corporation/nvidia nvdlisr, mtime 1620798395): 5 files, no impossibilities.
-# C:\Program Files (x86)\GnuWin32\bin (key C:/Program Files (x86)/GnuWin32/bin, mtime 1624688123): 5 files, no impossibilities.
+# C:\Program Files\Common Files\Oracle\Java\javapath (key C:/Program Files/Common Files/Oracle/Java/javapath, mtime 1639447172): 6 files, no impossibilities.
+# C:\Program Files\MATLAB\R2021b\bin (key C:/Program Files/MATLAB/R2021b/bin, mtime 1643454580): 15 files, no impossibilities.
+# C:\Strawberry\perl\site\bin (key C:/S 
+trawberry/perl/site/bin, mtime 1639259456): 2 files, no impossibilities.
+# C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.6\libnvvp (key C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.6/libnvvp, mtime 1642315099): 14 files, no impossibilities.
+# C:\Users\caine\AppData\Local\GitHubDesktop\bin (key C:/Users/caine/AppData/Local/GitHubDesktop/bin, mtime 1621981644): 4 files, no impossibilities.
+# C:\Program Files\STMicroelectronics\STM32Cube\STM32CubeProgrammer\bin (key C:/Program Files/STMicroelectronics/STM32Cube/STM32CubeProgrammer/bin, mtime 1627444344): 32 files, no impossibilities.
+# C:\Program Files\Microsoft SQL Server\120\Tools\Binn\ (key C:/Program Files/Microsoft SQL Server/120/Tools/Binn/, mtime 1631373864): 14 files, no impossibilities.
+# C:\Users\caine\AppData\Local\Microsoft\WindowsApps (key C:/Users/caine/AppData/Local/Microsoft/WindowsApps, mtime 1648397837): 31 files, no impossibilities.
+# C:\Program Files\JetBrains\PyCharm Community Edition 2021.1.3\bin (key C:/Program Files/Jet 
+Brains/PyCharm Community Edition 2021.1.3/bin, mtime 1626538862): 29 files, no impossibilities.
+# c:\program files\git\cmd (key c:/program files/git/cmd, mtime 1624082500): 8 files, no impossibilities.
+# c:\windows\system32 (key c:/windows/system32, mtime 1649219491): 3131 files, no impossibilities.
+# c:\program files\cmake\bin (key c:/program files/cmake/bin, mtime 1624948798): 7 files, no impossibilities.
+# C:\Program Files\NVIDIA Corporation\Nsight Compute 2022.1.0\ (key C:/Program Files/NVIDIA Corporati 
+on/Nsight Compute 2022.1.0/, mtime 1642314989): 12 files, no impossibilities.
+# c:\program files\nvidia corporation\nvidia nvdlisr (key c:/program files/nvidia corporation/nvidia nvdlisr, mtime 1620801995): 5 files, no impossibilities.
+# C:\Program Files (x86)\GnuWin32\bin (key C:/Program Files (x86)/GnuWin32/bin, mtime 1624691723): 5 files, no impossibilities.
 
-# 4913 files, no impossibilities in 47 directories.
+# 4923 files, no impossibilities in 48 directories.
 
-# Implicit Rul 
-es
+# Implicit Rules
 
 # No implicit rules.
 
@@ -307,6 +318,7 @@ es
 # Not a target:
 all:
 #  Command-line target.
+ 
 #  Implicit rule search has been done.
 #  File does not exist.
 #  File has not been updated.
@@ -326,7 +338,8 @@ makefile:
 #  File does not exist.
 #  File has been updated.
 #  Failed to be updated.
-# variable set hash-table stats:
+# variabl 
+e set hash-table stats:
 # Load=0/32=0%, Rehash=0, Collisions=0/0=0%
 
 # Not a target:
@@ -346,7 +359,10 @@ GNUmakefile:
 # Load=0/32=0%, Rehash=0, Collisions=0/0=0%
 
 # files hash-table stats:
-# Load=5/1024=0%, Rehash=0, Collisions=0/16=0%
+# L 
+make.exe: *** No rule to make target `all'.  Stop.
+
+oad=5/1024=0%, Rehash=0, Collisions=0/16=0%
 # VPATH Search Paths
 
 # No `vpath' search paths.
@@ -358,8 +374,6 @@ GNUmakefile:
 # strcache size: total = 0 / max = 0 / min = 4096 / avg = 0
 # strcache free: total = 0 / max = 0 / min = 4096 / avg = 0
 
-# Finished Make data base on Sun Mar 06 18:05:13 2022
+# Finished Make data base on Wed Apr 06 01:03:43 2022
 
- 
-make.exe: *** No rule to make target `all'.  Stop.
  
