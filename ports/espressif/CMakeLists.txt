@@ -10,6 +10,12 @@ set(EXTRA_COMPONENT_DIRS ${TOP}/src ${CMAKE_CURRENT_LIST_DIR}/boards)
 set(SDKCONFIG_DEFAULTS ${CMAKE_CURRENT_LIST_DIR}/sdkconfig.defaults ${CMAKE_CURRENT_LIST_DIR}/boards/${BOARD}/sdkconfig)
 set(SDKCONFIG ${CMAKE_BINARY_DIR}/sdkconfig)
 
+message(SDKCONFIG_DEFAULTS "${SDKCONFIG_DEFAULTS}")
+message(SDKCONFIG "${SDKCONFIG}")
+
+
+
+
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 execute_process(COMMAND git describe --dirty --always --tags

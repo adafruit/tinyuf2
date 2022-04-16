@@ -64,7 +64,7 @@ void board_rgb_state(uint32_t state)
 }
 
 uint8_t led_index = 0;
-void board_timer_handler()
+void animation_handler(void)
 {
     if(current_state == STATE_WRITING_STARTED)
     {

@@ -158,6 +158,11 @@ void board_led_write(uint32_t value);
 // Write color to rgb strip
 void board_rgb_write(uint8_t const rgb[]);
 
+#ifdef CUSTOM_LED
+// Give board the current state and let it handle the RGB
+void board_rgb_state(uint32_t state);
+#endif
+
 // Init uart hardware
 void board_uart_init(uint32_t baud_rate);
 
@@ -172,6 +177,11 @@ void board_timer_stop(void);
 
 // timer event handler, must be called by port/board
 extern void board_timer_handler(void);
+
+#ifdef CUSTOM_LED
+// Give board the current state and let it handle the RGB
+void board_rgb_state(uint32_t state);
+#endif
 
 // Check if application is valid
 bool board_app_valid(void);
