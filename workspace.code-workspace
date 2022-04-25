@@ -8,7 +8,7 @@
 		"terminal.integrated.shell.windows" : "cmd.exe",
 		"terminal.integrated.shellArgs.windows" : [
 			"/k",
-			"lib\\esp-idf\\export.bat"
+			"C:\\Espressif\\frameworks\\esp-idf-v4.4\\export.bat"
 		],
 		"files.associations": {
 			"*.mk": "makefile",
