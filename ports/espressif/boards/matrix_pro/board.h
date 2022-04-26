@@ -37,6 +37,7 @@
 // is on e.g RGB = Purple. If it is GPIO0, user should not hold this while
 // reset since that will instead run the 1st stage ROM bootloader
 #define PIN_BUTTON_UF2        16
+// #define PIN_BUTTON_UF2        42 //FN key got stuck on prototype so temp fix
 
 // GPIO that implement 1-bit memory with RC components which hold the
 // pin value long enough for double reset detection.
@@ -71,7 +72,7 @@
 #define USB_PRODUCT       "Matrix DFU"
 
 #define UF2_PRODUCT_NAME  "203 | Matrix Pro"
-#define UF2_BOARD_ID      "MATRIX-PRO}"
+#define UF2_BOARD_ID      "MATRIX-PRO"
 #define UF2_VOLUME_LABEL  "MATRIXDFU"
 #define UF2_INDEX_URL     "https://203.io"
 
