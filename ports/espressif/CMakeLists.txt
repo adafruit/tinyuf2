@@ -30,8 +30,8 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 execute_process(COMMAND git describe --dirty --always --tags
                 OUTPUT_VARIABLE GIT_VERSION
-                ERROR_QUIET)
-message(GIT_VERSION=${GIT_VERSION})
+                RESULTS_VARIABLE DESCRIBE_RESULT)
+message(FATAL_ERROR "GIT_VERSION=${GIT_VERSION} DESCRIBE_RESULT=${DESCRIBE_RESULT}")
 string(STRIP ${GIT_VERSION} GIT_VERSION)
 
 execute_process(COMMAND bash "-c" "git submodule status ${TOP}/lib/esp-idf ${TOP}/lib/tinyusb | cut -d\" \" -f3,4 | paste -s -d\" \" -"

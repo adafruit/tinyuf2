@@ -76,6 +76,7 @@ jobs:
 
     - name: test git describe
       run: |
+        cd ports/espressif
         git describe --dirty --always --tags
         cmake --version
         git version
