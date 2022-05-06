@@ -64,10 +64,10 @@ jobs:
         - 'unexpectedmaker_tinys3'
     steps:
     - name: Setup Python
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v3
 
     - name: Checkout
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
 
     - name: Checkout submodules
       run: git submodule update --init lib/tinyusb lib/uf2
@@ -75,7 +75,7 @@ jobs:
     - name: Build
       run: docker run --rm -v $PWD:/project -w /project espressif/idf:release-v4.4 make -C ports/espressif/ BOARD=${{ matrix.board }} all self-update copy-artifact
 
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       with:
         name: ${{ matrix.board }}
         path: ports/espressif/_bin/${{ matrix.board }}/

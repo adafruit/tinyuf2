@@ -40,10 +40,10 @@ jobs:
 
     steps:
     - name: Setup Python
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v3
 
     - name: Checkout code
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
 
     - name: Checkout common submodules in lib
       run: git submodule update --init lib/sct_neopixel lib/tinyusb lib/uf2
@@ -52,7 +52,7 @@ jobs:
       run: echo >> $GITHUB_ENV TOOLCHAIN_URL=https://github.com/xpack-dev-tools/arm-none-eabi-gcc-xpack/releases/download/v10.2.1-1.1/xpack-arm-none-eabi-gcc-10.2.1-1.1-linux-x64.tar.gz
 
     - name: Cache Toolchain
-      uses: actions/cache@v2
+      uses: actions/cache@v3
       id: cache-toolchain
       with:
         path: ~/cache/
@@ -80,7 +80,7 @@ jobs:
         make -C $ENV_PORT BOARD=${{ matrix.board }} all self-update copy-artifact
         for app in ${{ env.ENV_PORT }}/apps/*/; do if [ $app != 'apps/self_update/' ]; then make -C $app BOARD=${{ matrix.board }} all; fi done
 
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       with:
         name: ${{ matrix.board }}
         path: ${{ env.ENV_PORT }}/_bin/${{ matrix.board }}
