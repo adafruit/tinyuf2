@@ -29,14 +29,11 @@ set(SDKCONFIG ${CMAKE_BINARY_DIR}/sdkconfig)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 execute_process(COMMAND git describe --dirty --always --tags
-                OUTPUT_VARIABLE GIT_VERSION
-                RESULTS_VARIABLE DESCRIBE_RESULT)
-message(FATAL_ERROR "GIT_VERSION=${GIT_VERSION} DESCRIBE_RESULT=${DESCRIBE_RESULT}")
+                OUTPUT_VARIABLE GIT_VERSION)
 string(STRIP ${GIT_VERSION} GIT_VERSION)
 
 execute_process(COMMAND bash "-c" "git submodule status ${TOP}/lib/esp-idf ${TOP}/lib/tinyusb | cut -d\" \" -f3,4 | paste -s -d\" \" -"
-                OUTPUT_VARIABLE GIT_SUBMODULE_VERSIONS
-                ERROR_QUIET)
+                OUTPUT_VARIABLE GIT_SUBMODULE_VERSIONS)
 string(REPLACE ../../../../lib/ "" GIT_SUBMODULE_VERSIONS ${GIT_SUBMODULE_VERSIONS})
 string(STRIP ${GIT_SUBMODULE_VERSIONS} GIT_SUBMODULE_VERSIONS)
 
