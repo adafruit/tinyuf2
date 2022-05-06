@@ -82,7 +82,9 @@ jobs:
         git version
 
     - name: Build
-      run: docker run --rm -v $PWD:/project -w /project espressif/idf:release-v4.4 make -C ports/espressif/ BOARD=${{ matrix.board }} all self-update copy-artifact
+      run: |
+        git config --global --add safe.directory /project
+        docker run --rm -v $PWD:/project -w /project espressif/idf:release-v4.4 make -C ports/espressif/ BOARD=${{ matrix.board }} all self-update copy-artifact
 
     - uses: actions/upload-artifact@v3
       with:
