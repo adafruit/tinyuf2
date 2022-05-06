@@ -28,7 +28,7 @@ set(SDKCONFIG ${CMAKE_BINARY_DIR}/sdkconfig)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
-execute_process(COMMAND git -C ../../ describe --dirty --always --tags
+execute_process(COMMAND git describe --dirty --always --tags
                 OUTPUT_VARIABLE GIT_VERSION
                 ERROR_QUIET)
 message(${GIT_VERSION})
