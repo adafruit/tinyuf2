@@ -59,6 +59,8 @@ GIT_VERSION := $(shell git describe --dirty --always --tags)
 GIT_SUBMODULE_VERSIONS := $(shell git submodule status $(addprefix ../../lib/,$(GIT_SUBMODULES)) | cut -d" " -f3,4 | paste -s -d" " -)
 GIT_SUBMODULE_VERSIONS := $(subst ../../lib/,,$(GIT_SUBMODULE_VERSIONS))
 
+$(info GIT_VERSION = $(GIT_VERSION))
+
 CFLAGS += \
   -DBOARD_UF2_FAMILY_ID=$(UF2_FAMILY_ID) \
   -DUF2_VERSION_BASE='"$(GIT_VERSION)"'\
