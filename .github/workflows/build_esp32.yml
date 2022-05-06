@@ -39,6 +39,7 @@ jobs:
         - 'espressif_saola_1_wrover'
         - 'gravitech_cucumberRIS_v1.1'
         - 'hexky_s2'
+        - 'hiibot_iots2'
         - 'lilygo_ttgo_t8_s2'
         - 'lilygo_ttgo_t8_s2_st7789'
         - 'lilygo_ttgo_t8_s2_wroom'
