@@ -72,6 +72,9 @@ jobs:
     - name: Checkout submodules
       run: git submodule update --init lib/tinyusb lib/uf2
 
+    - name: test git describe
+      run: git describe --dirty --always --tags
+
     - name: Build
       run: docker run --rm -v $PWD:/project -w /project espressif/idf:release-v4.4 make -C ports/espressif/ BOARD=${{ matrix.board }} all self-update copy-artifact
 
