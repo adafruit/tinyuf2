@@ -44,6 +44,8 @@ jobs:
 
     - name: Checkout code
       uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
 
     - name: Checkout common submodules in lib
       run: git submodule update --init lib/sct_neopixel lib/tinyusb lib/uf2
