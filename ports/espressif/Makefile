@@ -66,6 +66,9 @@ self-update: $(SELF_BUILD)/update-tinyuf2.uf2
 $(BIN):
 	@mkdir -p $@
 
+# get the partition csv from sdkconfig
+PARTITION_CSV := $(strip $(foreach csv,$(wildcard partitions-*.csv),$(findstring $(csv),$(file < boards/$(BOARD)/sdkconfig))))
+
 copy-artifact: $(BIN) all self-update $(BUILD)/combined.bin
 	@cp $(BUILD)/bootloader/bootloader.bin $<
 	@cp $(BUILD)/partition_table/partition-table.bin $<
@@ -73,3 +76,4 @@ copy-artifact: $(BIN) all self-update $(BUILD)/combined.bin
 	@cp $(BUILD)/tinyuf2.bin $<
 	@cp $(BUILD)/combined.bin $<
 	@cp $(SELF_BUILD)/update-tinyuf2.uf2 $<
+	@cp $(PARTITION_CSV) $<
