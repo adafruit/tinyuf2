@@ -19,12 +19,13 @@ jobs:
       fail-fast: false
       matrix:
         board:
+        # ----------------------
         # S2 Alphabetical order
+        # ----------------------
         - 'adafruit_camera_esp32s2'
         - 'adafruit_feather_esp32s2'
         - 'adafruit_feather_esp32s2_tft'
         - 'adafruit_feather_esp32s2_reverse_tft'
-        - 'adafruit_feather_esp32s3_nopsram'
         - 'adafruit_funhouse_esp32s2'
         - 'adafruit_magtag_29gray'
         - 'adafruit_metro_esp32s2'
@@ -55,7 +56,12 @@ jobs:
         - 'unexpectedmaker_feathers2'
         - 'unexpectedmaker_feathers2_neo'
         - 'unexpectedmaker_tinys2'
+        # ----------------------
         # S3 Alphabetical order
+        # ----------------------
+        - 'adafruit_feather_esp32s3'
+        - 'adafruit_feather_esp32s3_nopsram'
+        - 'adafruit_feather_esp32s3_tft'
         - 'adafruit_qtpy_esp32s3'
         - 'bpi_leaf_s3'
         - 'espressif_esp32s3_devkitc_1'

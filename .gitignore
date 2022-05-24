@@ -5,3 +5,7 @@
 *.P
 _build/
 _bin/
+*.h~
+*.cmake~
+sdkconfig~
+*.yml~
