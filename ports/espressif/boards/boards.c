@@ -332,7 +332,7 @@ void board_display_init(void)
   };
 
   /*!< Initialize the SPI bus */
-  ESP_ERROR_CHECK(spi_bus_initialize(LCD_SPI, &bus_cfg, LCD_SPI));
+  ESP_ERROR_CHECK(spi_bus_initialize(LCD_SPI, &bus_cfg, SPI_DMA_CH_AUTO));
 
   /*!< Attach the LCD to the SPI bus */
   ESP_ERROR_CHECK(spi_bus_add_device(LCD_SPI, &devcfg, &_display_spi));
@@ -386,7 +386,7 @@ void dotstar_init(void)
   };
 
   /*!< Initialize the SPI bus */
-  ESP_ERROR_CHECK(spi_bus_initialize(DOTSTAR_SPI, &bus_cfg, DOTSTAR_SPI));
+  ESP_ERROR_CHECK(spi_bus_initialize(DOTSTAR_SPI, &bus_cfg, SPI_DMA_CH_AUTO));
 
   /*!< Attach the LCD to the SPI bus */
   ESP_ERROR_CHECK(spi_bus_add_device(DOTSTAR_SPI, &devcfg, &_dotstar_spi));
