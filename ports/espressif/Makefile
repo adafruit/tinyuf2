@@ -76,4 +76,4 @@ copy-artifact: $(BIN) all self-update $(BUILD)/combined.bin
 	@cp $(BUILD)/tinyuf2.bin $<
 	@cp $(BUILD)/combined.bin $<
 	@cp $(SELF_BUILD)/update-tinyuf2.uf2 $<
-	@cp $(PARTITION_CSV) $</tinyuf2-$(PARTITION_CSV)
+	@cp $(PARTITION_CSV) $<
