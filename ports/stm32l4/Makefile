@@ -43,7 +43,7 @@ PORT_SRC_C += \
 
 SRC_C += \
 	$(PORT_SRC_C) \
-	lib/tinyusb/src/portable/st/synopsys/dcd_synopsys.c \
+	lib/tinyusb/src/portable/synopsys/dwc2/dcd_dwc2.c \
 	
 # Port include
 INC += \
