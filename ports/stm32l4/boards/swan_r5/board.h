@@ -63,7 +63,7 @@
 #define USB_PRODUCT       "Swan R5"
 
 #define UF2_PRODUCT_NAME  USB_PRODUCT
-#define UF2_BOARD_ID      "Swan_R5_rev_1"
+#define UF2_BOARD_ID      "STM32L4R5-Swan_R5-v1"
 #define UF2_VOLUME_LABEL  "SWANBOOT"
 #define UF2_INDEX_URL     "https://blues.io/blog/introducing-swan-from-blues-wireless/"
 
