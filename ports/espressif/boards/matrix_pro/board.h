@@ -37,7 +37,6 @@
 // is on e.g RGB = Purple. If it is GPIO0, user should not hold this while
 // reset since that will instead run the 1st stage ROM bootloader
 #define PIN_BUTTON_UF2        16
-// #define PIN_BUTTON_UF2        42 //FN key got stuck on prototype so temp fix
 
 // GPIO that implement 1-bit memory with RC components which hold the
 // pin value long enough for double reset detection.
@@ -48,8 +47,6 @@
 //--------------------------------------------------------------------+
 
 // GPIO connected to Neopixel data
-// Note: On the production version Saola (v1.2) it is GPIO 18,
-// however on earlier revision v1.1 it is GPIO 17
 #define NEOPIXEL_PIN          38
 
 // Brightness percentage from 1 to 255
