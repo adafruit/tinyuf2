@@ -6,7 +6,7 @@ ST_CMSIS = lib/st/cmsis_device_l4
 CMSIS_5 = lib/CMSIS_5
 
 # List of git submodules that is included as part of the UF2 version
-GIT_SUBMODULES = st/cmsis_device_l4 st/stm32f4xx_hal_driver tinyusb
+GIT_SUBMODULES = st/cmsis_device_l4 st/stm32l4xx_hal_driver tinyusb
 
 include ../make.mk
 
