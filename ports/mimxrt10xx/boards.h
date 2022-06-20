@@ -41,7 +41,12 @@
 extern uint32_t _ivt_origin[];
 #define BOARD_BOOT_START        (((uint32_t) _ivt_origin) - 0x1000)
 
-#define BOARD_BOOT_LENGTH       (0x8800)
+//This value needs to be 0x0800 greater than the .text section length of 0x8800.   
+//Based upon what is in memory.ld,  the ROM bootloader loader needs instructed to
+//copy the text section, IVT structure and interrupt table.  
+//Ideally, this macro should be based upon what is in the linker .ld files but this value should 
+//work across all the RT ports.
+#define BOARD_BOOT_LENGTH       (0x8800 + 0x0800)
 
 // Flash Start Address of Application, typically 0x6000C000
 #define BOARD_FLASH_APP_START   (FlexSPI_AMBA_BASE + 0xC000)
