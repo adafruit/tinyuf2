@@ -177,7 +177,9 @@ void board_flash_erase_app(void)
   write_tinyuf2_to_flash();
 }
 
-void board_flash_protect_bootloader(void)
+bool board_flash_protect_bootloader(bool protect)
 {
   // TODO implement later
+  (void) protect;
+  return false;
 }

@@ -121,9 +121,11 @@ void board_flash_write (uint32_t addr, void const *data, uint32_t len)
   memcpy(_fl_buf + (addr & (FLASH_CACHE_SIZE - 1)), data, len);
 }
 
-void board_flash_protect_bootloader(void)
+bool board_flash_protect_bootloader(bool protect)
 {
   // TODO implement later
+  (void) protect;
+  return false;
 }
 
 

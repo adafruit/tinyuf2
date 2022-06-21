@@ -156,9 +156,11 @@ void board_flash_erase_app(void)
   // TODO implement later
 }
 
-void board_flash_protect_bootloader(void)
+bool board_flash_protect_bootloader(bool protect)
 {
   // TODO implement later
+  (void) protect;
+  return false;
 }
 
 #ifdef TINYUF2_SELF_UPDATE

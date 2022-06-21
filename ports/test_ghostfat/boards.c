@@ -43,7 +43,11 @@ void     board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_l
 void     board_flash_flush(void) {}
 
 // not supported
-void board_flash_protect_bootloader(void) {}
+bool board_flash_protect_bootloader(bool protect)
+{
+  (void) protect;
+  return false;
+}
 
 //------------- Interesting part of flash support for this test -------------//
 void     board_flash_read (uint32_t addr, void* buffer, uint32_t len) {
