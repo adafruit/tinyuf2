@@ -23,7 +23,10 @@
  */
 
 #include "board_api.h"
-#include "tusb.h" // for logging
+
+#ifndef BUILD_NO_TINYUSB
+#include "tusb.h"
+#endif
 
 //--------------------------------------------------------------------+
 //
@@ -33,7 +36,10 @@
 //#define FLASH_CACHE_SIZE          4096
 //#define FLASH_CACHE_INVALID_ADDR  0xffffffff
 
-#define FLASH_BASE_ADDR  0x08000000
+#define FLASH_BASE_ADDR 0x08000000
+// TinyUF2 resides in the first 2 flash sectors on STM32F4s, therefore these are
+// write protected
+#define BOOTLOADER_SECTOR_MASK 0x3UL
 
 /* flash parameters that we should not really know */
 static const uint32_t sector_size[] =
@@ -72,7 +78,7 @@ static const uint32_t sector_size[] =
 
 enum
 {
-  SECTOR_COUNT = TU_ARRAY_SIZE(sector_size)
+  SECTOR_COUNT = sizeof(sector_size)/sizeof(sector_size[0])
 };
 
 static uint8_t erased_sectors[SECTOR_COUNT] = { 0 };
@@ -104,7 +110,7 @@ static bool flash_erase(uint32_t addr)
 
   for ( uint32_t i = 0; i < SECTOR_COUNT; i++ )
   {
-    TU_ASSERT(sector_addr < FLASH_BASE_ADDR + BOARD_FLASH_SIZE);
+    TUF2_ASSERT(sector_addr < FLASH_BASE_ADDR + BOARD_FLASH_SIZE);
 
     size = sector_size[i];
     if ( sector_addr + size > addr )
@@ -117,16 +123,16 @@ static bool flash_erase(uint32_t addr)
     sector_addr += size;
   }
 
-  TU_ASSERT(sector);
+  TUF2_ASSERT(sector);
 
   if ( !erased && !is_blank(sector_addr, size) )
   {
-    TU_LOG1("Erase: %08lX size = %lu KB\r\n", sector_addr, size / 1024);
+    TUF2_LOG1("Erase: %08lX size = %lu KB\r\n", sector_addr, size / 1024);
 
     FLASH_Erase_Sector(sector, FLASH_VOLTAGE_RANGE_3);
     FLASH_WaitForLastOperation(HAL_MAX_DELAY);
 
-    TU_ASSERT( is_blank(sector_addr, size) );
+    TUF2_ASSERT( is_blank(sector_addr, size) );
   }
 
   return true;
@@ -136,27 +142,27 @@ static void flash_write(uint32_t dst, const uint8_t *src, int len)
 {
   flash_erase(dst);
 
-  TU_LOG2("Write flash at address %08lX\r\n", dst);
+  TUF2_LOG2("Write flash at address %08lX\r\n", dst);
   for ( int i = 0; i < len; i += 4 )
   {
     uint32_t data = *((uint32_t*) ((void*) (src + i)));
 
     if ( HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, dst + i, (uint64_t) data) != HAL_OK )
     {
-      TU_LOG1("Failed to write flash at address %08lX\r\n", dst + i);
+      TUF2_LOG1("Failed to write flash at address %08lX\r\n", dst + i);
       break;
     }
 
     if ( FLASH_WaitForLastOperation(HAL_MAX_DELAY) != HAL_OK )
     {
-      TU_LOG1("Waiting on last operation failed\r\n");
+      TUF2_LOG1("Waiting on last operation failed\r\n");
       return;
     }
   }
 
   if ( memcmp((void*) dst, src, len) != 0 )
   {
-    TU_LOG1("Failed to write\r\n");
+    TUF2_LOG1("Failed to write\r\n");
   }
 }
 
@@ -165,7 +171,9 @@ static void flash_write(uint32_t dst, const uint8_t *src, int len)
 //--------------------------------------------------------------------+
 void board_flash_init(void)
 {
-
+#if TINYUF2_PROTECT_BOOTLOADER
+  board_flash_protect_bootloader(true);
+#endif
 }
 
 uint32_t board_flash_size(void)
@@ -196,10 +204,57 @@ void board_flash_erase_app(void)
   // TODO implement later
 }
 
+bool board_flash_protect_bootloader(bool protect)
+{
+  bool ret = true;
+
+  HAL_FLASH_OB_Unlock();
+
+  FLASH_OBProgramInitTypeDef ob_current = {0};
+  HAL_FLASHEx_OBGetConfig(&ob_current);
+
+  // Flash sectors are protected if the bit is cleared
+  bool const already_protected = (ob_current.WRPSector & BOOTLOADER_SECTOR_MASK) == 0;
+
+  TUF2_LOG1_INT(already_protected);
+
+  // request and current state mismatched --> require ob program
+  if ( (protect && !already_protected) || (!protect && already_protected) )
+  {
+    FLASH_OBProgramInitTypeDef ob_update = {0};
+    ob_update.OptionType = OPTIONBYTE_WRP;
+    ob_update.Banks      = FLASH_BANK_1;
+    ob_update.WRPSector  = BOOTLOADER_SECTOR_MASK;
+    ob_update.WRPState   = protect ? OB_WRPSTATE_ENABLE : OB_WRPSTATE_DISABLE;
+
+    if (HAL_FLASHEx_OBProgram(&ob_update) == HAL_OK)
+    {
+      HAL_FLASH_OB_Launch();
+    }else
+    {
+      ret = false;
+    }
+  }
+
+  HAL_FLASH_OB_Lock();
+
+  return ret;
+}
+
 #ifdef TINYUF2_SELF_UPDATE
 void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
 {
+
+#if TINYUF2_PROTECT_BOOTLOADER
+  board_flash_protect_bootloader(false);
+#endif
+
   (void) bootloader_bin;
   (void) bootloader_len;
+
+#if TINYUF2_PROTECT_BOOTLOADER
+  board_flash_protect_bootloader(true);
+#endif
+
 }
 #endif

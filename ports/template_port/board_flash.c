@@ -57,6 +57,13 @@ void board_flash_erase_app(void)
   // TODO implement later
 }
 
+bool board_flash_protect_bootloader(bool protect)
+{
+  // TODO implement later
+  (void) protect;
+  return false;
+}
+
 #ifdef TINYUF2_SELF_UPDATE
 void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
 {

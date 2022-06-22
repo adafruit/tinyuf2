@@ -54,6 +54,11 @@
 #define TINYUF2_DISPLAY 0
 #endif
 
+// Protect bootloader from flashing from ap
+#ifndef TINYUF2_PROTECT_BOOTLOADER
+#define TINYUF2_PROTECT_BOOTLOADER  0
+#endif
+
 // Use favicon.ico + autorun.inf (only works with windows)
 // define TINYUF2_FAVICON_HEADER to enable this feature
 
@@ -139,6 +144,9 @@ void board_flash_flush(void);
 // Erase application
 void board_flash_erase_app(void);
 
+// Protect bootloader in flash
+bool board_flash_protect_bootloader(bool protect);
+
 //--------------------------------------------------------------------+
 // Dispaly API
 //--------------------------------------------------------------------+
@@ -156,6 +164,20 @@ void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len);
 //--------------------------------------------------------------------+
 // LOG
 //--------------------------------------------------------------------+
+
+#define TUF2_VERIFY(_cond)    do \
+{                                \
+  if (!(_cond)) return false;    \
+} while(0)
+
+#define TUF2_ASSERT(_cond)    do                               \
+{                                                              \
+  if (!(_cond)) {                                              \
+    TUF2_LOG1("%s %d: ASSERT FAILED\r\n", __func__, __LINE__); \
+    return false;                                              \
+  }                                                            \
+} while(0)
+
 #if TUF2_LOG
 
 #include <stdio.h>

@@ -82,14 +82,14 @@ SRC_C += \
   src/usb_descriptors.c \
   $(subst $(TOP)/,,$(wildcard $(TOP)/$(BOARD_DIR)/*.c))
 
+endif # BUILD_APPLICATION
+
 # Include
 INC += \
   $(TOP)/src \
   $(TOP)/src/favicon \
   $(TOP)/$(PORT_DIR) \
   $(TOP)/$(BOARD_DIR)
-
-endif # BUILD_APPLICATION
 
 #-------------- TinyUSB --------------
 # skip tinyusb src if building application such as erase firmware

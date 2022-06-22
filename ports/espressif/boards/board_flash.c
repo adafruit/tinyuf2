@@ -121,6 +121,13 @@ void board_flash_write (uint32_t addr, void const *data, uint32_t len)
   memcpy(_fl_buf + (addr & (FLASH_CACHE_SIZE - 1)), data, len);
 }
 
+bool board_flash_protect_bootloader(bool protect)
+{
+  // TODO implement later
+  (void) protect;
+  return false;
+}
+
 
 //--------------------------------------------------------------------+
 // Self Update
@@ -150,4 +157,3 @@ void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
   esp_restart();
 }
 #endif
-

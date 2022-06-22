@@ -23,7 +23,10 @@
  */
 
 #include "board_api.h"
+
+#ifndef BUILD_NO_TINYUSB
 #include "tusb.h"
+#endif
 
 //--------------------------------------------------------------------+
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
@@ -223,8 +226,6 @@ void board_app_jump(void)
   SysTick->LOAD = 0;
   SysTick->VAL = 0;
 
-  // TODO protect bootloader region
-
   /* switch exception handlers to the application */
   SCB->VTOR = (uint32_t) BOARD_FLASH_APP_START;
 
@@ -356,14 +357,12 @@ int board_uart_write(void const * buf, int len)
 #endif
 }
 
-#ifndef TINYUF2_SELF_UPDATE
-
+#ifndef BUILD_NO_TINYUSB
 // Forward USB interrupt events to TinyUSB IRQ Handler
 void OTG_FS_IRQHandler(void)
 {
   tud_int_handler(0);
 }
-
 #endif
 
 // Required by __libc_init_array in startup code if we are compiling using

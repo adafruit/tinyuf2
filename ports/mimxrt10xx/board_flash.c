@@ -176,3 +176,10 @@ void board_flash_erase_app(void)
   TUF2_LOG1("Erase app firmware: ");
   write_tinyuf2_to_flash();
 }
+
+bool board_flash_protect_bootloader(bool protect)
+{
+  // TODO implement later
+  (void) protect;
+  return false;
+}
