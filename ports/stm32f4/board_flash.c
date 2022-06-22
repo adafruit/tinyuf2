@@ -37,8 +37,8 @@
 //#define FLASH_CACHE_INVALID_ADDR  0xffffffff
 
 #define FLASH_BASE_ADDR 0x08000000
-// TinyUF2 resides in the first 2 flash sectors on STM32F4s, therefore these are
-// write protected
+
+// TinyUF2 resides in the first 2 flash sectors on STM32F4s, therefore these are write protected
 #define BOOTLOADER_SECTOR_MASK 0x3UL
 
 /* flash parameters that we should not really know */
@@ -123,15 +123,17 @@ static bool flash_erase(uint32_t addr)
     sector_addr += size;
   }
 
+#ifndef TINYUF2_SELF_UPDATE
+  // skip erasing sector0 if not self-update
   TUF2_ASSERT(sector);
+#endif
 
   if ( !erased && !is_blank(sector_addr, size) )
   {
-    TUF2_LOG1("Erase: %08lX size = %lu KB\r\n", sector_addr, size / 1024);
-
+    TUF2_LOG1("Erase: %08lX size = %lu KB ... ", sector_addr, size / 1024);
     FLASH_Erase_Sector(sector, FLASH_VOLTAGE_RANGE_3);
     FLASH_WaitForLastOperation(HAL_MAX_DELAY);
-
+    TUF2_LOG1("OK\r\n");
     TUF2_ASSERT( is_blank(sector_addr, size) );
   }
 
@@ -142,7 +144,7 @@ static void flash_write(uint32_t dst, const uint8_t *src, int len)
 {
   flash_erase(dst);
 
-  TUF2_LOG2("Write flash at address %08lX\r\n", dst);
+  TUF2_LOG1("Write flash at address %08lX\r\n", dst);
   for ( int i = 0; i < len; i += 4 )
   {
     uint32_t data = *((uint32_t*) ((void*) (src + i)));
@@ -249,8 +251,23 @@ void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
   board_flash_protect_bootloader(false);
 #endif
 
-  (void) bootloader_bin;
-  (void) bootloader_len;
+  // keep writing until flash contents matches new bootloader data
+  while( memcmp((const void*) FLASH_BASE_ADDR, bootloader_bin, bootloader_len) )
+  {
+    uint32_t sector_addr = FLASH_BASE_ADDR;
+    const uint8_t * data = bootloader_bin;
+    uint32_t len = bootloader_len;
+
+    for ( uint32_t i = 0; i < 4 && len > 0; i++ )
+    {
+      uint32_t const size = (sector_size[i] < len ? sector_size[i] : len);
+      board_flash_write(sector_addr, data, size);
+
+      sector_addr += size;
+      data += size;
+      len -= size;
+    }
+  }
 
 #if TINYUF2_PROTECT_BOOTLOADER
   board_flash_protect_bootloader(true);

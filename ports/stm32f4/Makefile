@@ -19,6 +19,7 @@ SELF_DIR = apps/self_update
 $(SELF_DIR)/bootloader_bin.c:	$(BUILD)/$(OUTNAME).bin
 	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py --carray $^ -o $@
 
+# remove bootloader_bin.c at the end to force re-generate each time
 self-update: $(SELF_DIR)/bootloader_bin.c
-	make -C $(SELF_DIR) BOARD=$(BOARD) self-update
-	@rm $^
+	make -C $(SELF_DIR) BOARD=$(BOARD) LOG=$(LOG) LOGGER=$(LOGGER) self-update
+	@rm -f $^
