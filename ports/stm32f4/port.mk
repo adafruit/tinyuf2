@@ -21,9 +21,9 @@ CFLAGS += -Wno-error=cast-align -Wno-error=unused-parameter
 
 # default linker file
 ifdef BUILD_APPLICATION
-LD_FILES ?= $(PORT_DIR)/linker/stm32f4_app.ld
+  LD_FILES ?= $(PORT_DIR)/linker/stm32f4_app.ld
 else
-LD_FILES ?= $(PORT_DIR)/linker/stm32f4_boot.ld
+  LD_FILES ?= $(PORT_DIR)/linker/stm32f4_boot.ld
 endif
 
 # Port source
