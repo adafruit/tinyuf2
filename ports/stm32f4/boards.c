@@ -187,9 +187,7 @@ bool board_app_valid(void)
   TUF2_LOG1_HEX(app_entry);
 
   // 1st word is stack pointer (must be in SRAM region)
-  if ((sp & 0xff000003) != 0x20000000) {
-    return false;
-  }
+  if ((sp & 0xff000003) != 0x20000000) return false;
 
   // 2nd word is App entry point (reset)
   if (app_entry < BOARD_FLASH_APP_START || app_entry > BOARD_FLASH_APP_START + BOARD_FLASH_SIZE) {

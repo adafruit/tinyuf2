@@ -162,6 +162,7 @@ static void flash_write(uint32_t dst, const uint8_t *src, int len)
     }
   }
 
+  // verify contents
   if ( memcmp((void*) dst, src, len) != 0 )
   {
     TUF2_LOG1("Failed to write\r\n");
@@ -244,34 +245,71 @@ bool board_flash_protect_bootloader(bool protect)
 }
 
 #ifdef TINYUF2_SELF_UPDATE
-void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
+
+bool is_new_bootloader_valid(const uint8_t * bootloader_bin, uint32_t bootloader_len)
 {
+  // at least larger than vector table
+  if (bootloader_len < 512 ) return false;
 
-#if TINYUF2_PROTECT_BOOTLOADER
-  board_flash_protect_bootloader(false);
-#endif
+  // similar to board_app_valid() check
+  uint32_t const * app_vector = (uint32_t const*) bootloader_bin;
+  uint32_t sp = app_vector[0];
+  uint32_t boot_entry = app_vector[1];
 
-  // keep writing until flash contents matches new bootloader data
-  while( memcmp((const void*) FLASH_BASE_ADDR, bootloader_bin, bootloader_len) )
-  {
-    uint32_t sector_addr = FLASH_BASE_ADDR;
-    const uint8_t * data = bootloader_bin;
-    uint32_t len = bootloader_len;
+  // 1st word is stack pointer (must be in SRAM region)
+  if ((sp & 0xff000003) != 0x20000000) return false;
 
-    for ( uint32_t i = 0; i < 4 && len > 0; i++ )
-    {
-      uint32_t const size = (sector_size[i] < len ? sector_size[i] : len);
-      board_flash_write(sector_addr, data, size);
-
-      sector_addr += size;
-      data += size;
-      len -= size;
-    }
+  // 2nd word is App entry point (reset), must smaller than app start
+  if (boot_entry >= BOARD_FLASH_APP_START) {
+    return false;
   }
 
+  return true;
+}
+
+void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
+{
+  // check if the bootloader payload is valid
+  if ( is_new_bootloader_valid(bootloader_bin, bootloader_len) )
+  {
 #if TINYUF2_PROTECT_BOOTLOADER
-  board_flash_protect_bootloader(true);
+    board_flash_protect_bootloader(false);
 #endif
 
+    // keep writing until flash contents matches new bootloader data
+    while( memcmp((const void*) FLASH_BASE_ADDR, bootloader_bin, bootloader_len) )
+    {
+      uint32_t sector_addr = FLASH_BASE_ADDR;
+      const uint8_t * data = bootloader_bin;
+      uint32_t len = bootloader_len;
+
+      for ( uint32_t i = 0; i < 4 && len > 0; i++ )
+      {
+        uint32_t const size = (sector_size[i] < len ? sector_size[i] : len);
+        board_flash_write(sector_addr, data, size);
+
+        sector_addr += size;
+        data += size;
+        len -= size;
+      }
+    }
+
+#if TINYUF2_PROTECT_BOOTLOADER
+    board_flash_protect_bootloader(true);
+#endif
+  }
+
+  // self-destruct: write 0 to first 2 entry of vector table
+  // Note: write bit from 1 to 0 does not need to erase in advance
+  __disable_irq();
+  HAL_FLASH_Unlock();
+
+  HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, BOARD_FLASH_APP_START , 0);
+  HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, BOARD_FLASH_APP_START+4, 0);
+
+  HAL_FLASH_Lock();
+
+  // reset to run new bootloader
+  NVIC_SystemReset();
 }
 #endif
