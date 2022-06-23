@@ -54,7 +54,7 @@
 #define TINYUF2_DISPLAY 0
 #endif
 
-// Protect bootloader from flashing from ap
+// Write protection for bootloader
 #ifndef TINYUF2_PROTECT_BOOTLOADER
 #define TINYUF2_PROTECT_BOOTLOADER  0
 #endif
