@@ -66,7 +66,7 @@ clean:
 	$(RM) -rf $(BIN)
 
 #-------------- Artifacts --------------
-SELF_UF2 = $(BUILD)/update-$(OUTNAME).uf2
+SELF_UF2 ?= apps/self_update/$(BUILD)/update-$(OUTNAME).uf2
 
 $(BIN):
 	@$(MKDIR) -p $@
