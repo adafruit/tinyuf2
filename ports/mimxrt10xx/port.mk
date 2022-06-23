@@ -22,7 +22,6 @@ CFLAGS += -Wno-error=unused-parameter
 # Port source
 SRC_C += \
 	$(MCU_DIR)/system_$(MCU).c \
-	$(MCU_DIR)/project_template/clock_config.c \
 	$(MCU_DIR)/drivers/fsl_clock.c \
 	$(SDK_DIR)/drivers/cache/armv7-m7/fsl_cache.c \
 	$(SDK_DIR)/drivers/common/fsl_common.c \
@@ -31,6 +30,7 @@ SRC_C += \
 	$(SDK_DIR)/drivers/ocotp/fsl_ocotp.c \
 	$(SDK_DIR)/drivers/pwm/fsl_pwm.c \
 	$(SDK_DIR)/drivers/xbara/fsl_xbara.c \
+	$(BOARD_DIR)/clock_config.c 
 
 # It seems that only RT1011 does not have ROM API
 ifneq ($(MCU),MIMXRT1011)
@@ -38,7 +38,7 @@ SRC_C += $(MCU_DIR)/drivers/fsl_romapi.c
 endif
 
 ifndef BUILD_NO_TINYUSB
-SRC_C += lib/tinyusb/src/portable/nxp/transdimension/dcd_transdimension.c
+SRC_C += lib/tinyusb/src/portable/chipidea/ci_hs/dcd_ci_hs.c
 endif
 
 SRC_S += $(MCU_DIR)/gcc/startup_$(MCU).S
@@ -49,7 +49,6 @@ INC += \
   $(TOP)/$(BOARD_DIR) \
 	$(TOP)/$(SDK_DIR)/CMSIS/Include \
 	$(TOP)/$(MCU_DIR) \
-	$(TOP)/$(MCU_DIR)/project_template \
 	$(TOP)/$(MCU_DIR)/xip \
 	$(TOP)/$(MCU_DIR)/drivers \
 	$(TOP)/$(SDK_DIR)/drivers/cache/armv7-m7 \

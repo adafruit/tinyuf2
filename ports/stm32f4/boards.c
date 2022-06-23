@@ -23,7 +23,10 @@
  */
 
 #include "board_api.h"
+
+#ifndef BUILD_NO_TINYUSB
 #include "tusb.h"
+#endif
 
 //--------------------------------------------------------------------+
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
@@ -71,7 +74,7 @@ void board_init(void)
 
 #if NEOPIXEL_NUMBER
   GPIO_InitStruct.Pin = NEOPIXEL_PIN;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Mode = NEOPIXEL_PIN_MODE;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   GPIO_InitStruct.Speed = GPIO_SPEED_FAST;
   HAL_GPIO_Init(NEOPIXEL_PORT, &GPIO_InitStruct);
@@ -177,11 +180,17 @@ void board_dfu_complete(void)
 bool board_app_valid(void)
 {
   volatile uint32_t const * app_vector = (volatile uint32_t const*) BOARD_FLASH_APP_START;
+  uint32_t sp = app_vector[0];
+  uint32_t app_entry = app_vector[1];
 
-  // 1st word is stack pointer (should be in SRAM region)
+  TUF2_LOG1_HEX(sp);
+  TUF2_LOG1_HEX(app_entry);
+
+  // 1st word is stack pointer (must be in SRAM region)
+  if ((sp & 0xff000003) != 0x20000000) return false;
 
   // 2nd word is App entry point (reset)
-  if (app_vector[1] < BOARD_FLASH_APP_START || app_vector[1] > BOARD_FLASH_APP_START + BOARD_FLASH_SIZE) {
+  if (app_entry < BOARD_FLASH_APP_START || app_entry > BOARD_FLASH_APP_START + BOARD_FLASH_SIZE) {
     return false;
   }
 
@@ -191,6 +200,8 @@ bool board_app_valid(void)
 void board_app_jump(void)
 {
   volatile uint32_t const * app_vector = (volatile uint32_t const*) BOARD_FLASH_APP_START;
+  uint32_t sp = app_vector[0];
+  uint32_t app_entry = app_vector[1];
 
 #ifdef BUTTON_PIN
   HAL_GPIO_DeInit(BUTTON_PORT, BUTTON_PIN);
@@ -223,16 +234,21 @@ void board_app_jump(void)
   SysTick->LOAD = 0;
   SysTick->VAL = 0;
 
-  // TODO protect bootloader region
+  // Disable all Interrupts
+  NVIC->ICER[0] = 0xFFFFFFFF;
+  NVIC->ICER[1] = 0xFFFFFFFF;
+  NVIC->ICER[2] = 0xFFFFFFFF;
+  NVIC->ICER[3] = 0xFFFFFFFF;
 
   /* switch exception handlers to the application */
   SCB->VTOR = (uint32_t) BOARD_FLASH_APP_START;
 
   // Set stack pointer
-  __set_MSP(app_vector[0]);
+  __set_MSP(sp);
+  __set_PSP(sp);
 
   // Jump to Application Entry
-  asm("bx %0" ::"r"(app_vector[1]));
+  asm("bx %0" ::"r"(app_entry));
 }
 
 uint8_t board_usb_get_serial(uint8_t serial_id[16])
@@ -266,46 +282,54 @@ static inline uint8_t apply_percentage(uint8_t brightness)
   return (uint8_t) ((brightness*NEOPIXEL_BRIGHTNESS) >> 8);
 }
 
-void board_rgb_write(uint8_t const rgb[])
-{
-  // neopixel color order is GRB
-  uint8_t const pixels[3] = { apply_percentage(rgb[1]), apply_percentage(rgb[0]), apply_percentage(rgb[2]) };
-  uint32_t const numBytes = 3;
-
-  uint8_t const *p = pixels, *end = p + numBytes;
-  uint8_t pix = *p++, mask = 0x80;
-  uint32_t start = 0;
-  uint32_t cyc = 0;
-
-  //assumes 800_000Hz frequency
-  //Theoretical values here are 800_000 -> 1.25us, 2500000->0.4us, 1250000->0.8us
-  //TODO: try to get dynamic weighting working again
+void board_rgb_write(uint8_t const rgb[]) {
+  // assumes 800_000Hz frequency
+  // Theoretical values here are 800_000 -> 1.25us, 2500000->0.4us,
+  // 1250000->0.8us
   uint32_t const sys_freq = HAL_RCC_GetSysClockFreq();
-  uint32_t const interval = sys_freq/MAGIC_800_INT;
-  uint32_t const t0       = sys_freq/MAGIC_800_T0H;
-  uint32_t const t1       = sys_freq/MAGIC_800_T1H;
+  uint32_t const interval = sys_freq / MAGIC_800_INT;
+  uint32_t const t0 = sys_freq / MAGIC_800_T0H;
+  uint32_t const t1 = sys_freq / MAGIC_800_T1H;
+
+  // neopixel color order is GRB
+  uint8_t const colors[3] = {apply_percentage(rgb[1]), apply_percentage(rgb[0]),
+                             apply_percentage(rgb[2])};
 
   __disable_irq();
+  uint32_t start;
+  uint32_t cyc;
 
-  // Enable DWT in debug core. Useable when interrupts disabled, as opposed to Systick->VAL
+  // Enable DWT in debug core. Useable when interrupts disabled, as opposed to
+  // Systick->VAL
   CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
   DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
   DWT->CYCCNT = 0;
 
-  for(;;) {
-    cyc = (pix & mask) ? t1 : t0;
-    start = DWT->CYCCNT;
+  for (uint32_t i = 0; i < NEOPIXEL_NUMBER; i++) {
+    uint8_t const *color_pointer = colors;
+    uint8_t const *const color_pointer_end = color_pointer + 3;
+    uint8_t color = *color_pointer++;
+    uint8_t color_mask = 0x80;
 
-    HAL_GPIO_WritePin(NEOPIXEL_PORT, NEOPIXEL_PIN, 1);
-    while((DWT->CYCCNT - start) < cyc);
+    while (true) {
+      cyc = (color & color_mask) ? t1 : t0;
+      start = DWT->CYCCNT;
 
-    HAL_GPIO_WritePin(NEOPIXEL_PORT, NEOPIXEL_PIN, 0);
-    while((DWT->CYCCNT - start) < interval);
+      HAL_GPIO_WritePin(NEOPIXEL_PORT, NEOPIXEL_PIN, 1);
+      while ((DWT->CYCCNT - start) < cyc)
+        ;
 
-    if(!(mask >>= 1)) {
-      if(p >= end) break;
-      pix  = *p++;
-      mask = 0x80;
+      HAL_GPIO_WritePin(NEOPIXEL_PORT, NEOPIXEL_PIN, 0);
+      while ((DWT->CYCCNT - start) < interval)
+        ;
+
+      if (!(color_mask >>= 1)) {
+        if (color_pointer >= color_pointer_end) {
+          break;
+        }
+        color = *color_pointer++;
+        color_mask = 0x80;
+      }
     }
   }
 
@@ -335,7 +359,7 @@ void board_timer_stop(void)
   SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk;
 }
 
-void SysTick_Handler (void)
+void SysTick_Handler(void)
 {
   board_timer_handler();
 }
@@ -353,14 +377,12 @@ int board_uart_write(void const * buf, int len)
 #endif
 }
 
-#ifndef TINYUF2_SELF_UPDATE
-
+#ifndef BUILD_NO_TINYUSB
 // Forward USB interrupt events to TinyUSB IRQ Handler
 void OTG_FS_IRQHandler(void)
 {
   tud_int_handler(0);
 }
-
 #endif
 
 // Required by __libc_init_array in startup code if we are compiling using

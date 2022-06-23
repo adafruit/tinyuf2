@@ -54,6 +54,18 @@
 #define TINYUF2_DISPLAY 0
 #endif
 
+// Write protection for bootloader
+#ifndef TINYUF2_PROTECT_BOOTLOADER
+#define TINYUF2_PROTECT_BOOTLOADER  0
+#endif
+
+// Use favicon.ico + autorun.inf (only works with windows)
+// define TINYUF2_FAVICON_HEADER to enable this feature
+
+//--------------------------------------------------------------------+
+// Constant
+//--------------------------------------------------------------------+
+
 #define DBL_TAP_MAGIC            0xf01669ef // Enter DFU magic
 #define DBL_TAP_MAGIC_QUICK_BOOT 0xf02669ef // Skip double tap delay detection
 #define DBL_TAP_MAGIC_ERASE_APP  0xf5e80ab4 // Erase entire application !!
@@ -132,6 +144,9 @@ void board_flash_flush(void);
 // Erase application
 void board_flash_erase_app(void);
 
+// Protect bootloader in flash
+bool board_flash_protect_bootloader(bool protect);
+
 //--------------------------------------------------------------------+
 // Dispaly API
 //--------------------------------------------------------------------+
@@ -149,6 +164,20 @@ void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len);
 //--------------------------------------------------------------------+
 // LOG
 //--------------------------------------------------------------------+
+
+#define TUF2_VERIFY(_cond)    do \
+{                                \
+  if (!(_cond)) return false;    \
+} while(0)
+
+#define TUF2_ASSERT(_cond)    do                               \
+{                                                              \
+  if (!(_cond)) {                                              \
+    TUF2_LOG1("%s %d: ASSERT FAILED\r\n", __func__, __LINE__); \
+    return false;                                              \
+  }                                                            \
+} while(0)
+
 #if TUF2_LOG
 
 #include <stdio.h>

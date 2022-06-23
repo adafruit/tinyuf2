@@ -56,13 +56,17 @@ size: $(BUILD)/$(OUTNAME).elf
 	@$(SIZE) $<
 	-@echo ''
 
+# linkermap must be install previously at https://github.com/hathach/linkermap
+linkermap: $(BUILD)/$(OUTNAME).elf
+	@linkermap -v $<.map
+
 .PHONY: clean
 clean:
 	$(RM) -rf $(BUILD)
 	$(RM) -rf $(BIN)
 
 #-------------- Artifacts --------------
-SELF_UF2 = $(BUILD)/update-$(OUTNAME).uf2
+SELF_UF2 ?= apps/self_update/$(BUILD)/update-$(OUTNAME).uf2
 
 $(BIN):
 	@$(MKDIR) -p $@

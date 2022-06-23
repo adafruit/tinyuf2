@@ -42,6 +42,13 @@ void     board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_l
 // not supported
 void     board_flash_flush(void) {}
 
+// not supported
+bool board_flash_protect_bootloader(bool protect)
+{
+  (void) protect;
+  return false;
+}
+
 //------------- Interesting part of flash support for this test -------------//
 void     board_flash_read (uint32_t addr, void* buffer, uint32_t len) {
     if ((addr & 7) != 0) {
@@ -63,4 +70,3 @@ void     board_flash_read (uint32_t addr, void* buffer, uint32_t len) {
         currentAddress += incBytes;
     }
 }
-

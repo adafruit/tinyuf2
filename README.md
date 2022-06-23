@@ -9,7 +9,7 @@ This repo is cross-platform UF2 Bootloader projects for MCUs based on [TinyUSB](
 ├── apps              # Useful applications such as self-update, erase firmware
 ├── lib               # Sources from 3rd party such as tinyusb, mcu drivers ...
 ├── ports             # Port/family specific sources
-│   ├── esp32s2       
+│   ├── espressif
 │   │   └── boards/   # Board specific sources
 │   │   └── Makefile  # Makefile for this port
 │   └── mimxrt10xx         
@@ -18,13 +18,24 @@ This repo is cross-platform UF2 Bootloader projects for MCUs based on [TinyUSB](
 
 ## Features
 
-TODO more docs later
+Supported features are
 
-- Support ESP32-S2, iMXRT10xx, LPC55xx, STM32F3, STM32F4
-- Self update with update file in uf2 format
-- Indicator: LED, RGB
-- Debug log with uart/swd
 - Double tap to enter DFU, reboot to DFU and quick reboot from application
+- DFU with MassStorage (MSC)
+- Self update with uf2 file
+- Indicator: LED, RGB, TFT
+- Debug log with uart/swd
+
+Not all features are implemented for all MCUs, following is supported MCUs and its feature
+
+| MCU         | MSC  | Double Reset | Self-update | Write Protection | Neopixel | TFT  |
+| :---------- | :--: | :----------: | :---------: | :--------------: | :------: | :--: |
+| ESP32 S2/S3 |  ✔   |   Need RC    |      ✔      |                  |    ✔     |  ✔   |
+| K32L2       |  ✔   |      ✔       |             |                  |          |      |
+| LPC55       |  ✔   |      ✔       |             |                  |    ✔     |      |
+| iMXRT       |  ✔   |      ✔       |      ✔      |                  |    ✔     |      |
+| STM32F3     |  ✔   |      ✔       |             |                  |    ✔     |      |
+| STM32F4     |  ✔   |      ✔       |      ✔      |        ✔         |    ✔     |      |
 
 ## Build and Flash
 

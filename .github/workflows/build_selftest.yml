@@ -1,0 +1,82 @@
+name: GhostFAT Selftest
+
+on:
+  pull_request:
+  push:
+  repository_dispatch:
+  release:
+    types:
+      - created
+
+jobs:
+
+  # ---------------------------------------
+  # Unit testing with ghostfat
+  # ---------------------------------------
+  GHOSTFAT:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        board:
+          # Alphabetical order
+          # test_ghostfat
+          - '4k'
+          - '4k_favicon'
+          - '32k'
+          - '32k_favicon'
+          - '512b'
+          - '512b_favicon'
+          - 'huge'
+
+    steps:
+    - name: Setup Python
+      uses: actions/setup-python@v3
+
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Build
+      run: |
+        make --directory ports/test_ghostfat/ BOARD=${{ matrix.board }} all
+
+    - name: Copy known good filesystem image
+      # NOTE: test_huge's knowngood.img file starts as 1.5 GiB
+      #       Compressing once with GZip results gives 85 MiB
+      #       Compressing it a second time gives 10 MiB ...
+      #       Therefore, store known good images double-compressed...
+      run: |
+        pushd ./ports/test_ghostfat/
+        cp ./boards/${{ matrix.board }}/knowngood.img.gz.gz  ./_build/${{ matrix.board }}/
+        popd
+
+    - name: Decompress known good filesystem image
+      run: |
+        pushd ./ports/test_ghostfat/
+        gzip --decompress  ./_build/${{ matrix.board }}/knowngood.img.gz.gz
+        gzip --decompress  ./_build/${{ matrix.board }}/knowngood.img.gz
+        popd
+
+    - name: Execute native self-test
+      if: always()
+      run: |
+        pushd ./ports/test_ghostfat/_build/${{ matrix.board }}/
+        chmod +x ./tinyuf2-${{ matrix.board }}.elf
+        ./tinyuf2-${{ matrix.board }}.elf
+        popd
+
+    - name: Compress newly generated self-test images
+      if: always()
+      run: |
+        pushd ./ports/test_ghostfat/_build/${{ matrix.board }}/
+        mv ghostfat.img ghostfat_${{ matrix.board }}.img
+        gzip --keep ghostfat_${{ matrix.board }}.img
+        gzip --keep --force --best ghostfat_${{ matrix.board }}.img.gz
+        popd
+    
+    - name: Save newly generated self-test images as CI artifacts
+      if: always()
+      uses: actions/upload-artifact@v2
+      with:
+        name: ghostfat_selftest_images
+        path: ./ports/test_ghostfat/_build/${{ matrix.board }}/ghostfat_${{ matrix.board }}.img.gz.gz

@@ -1,7 +1,7 @@
-/* offset 0x1000 */
-_ivt_origin = _fcfb_origin + _fcfb_length;
+_fcfb_length = _ivt_origin - _fcfb_origin;
 _ivt_length = 0x0400;
 
+/* RT1064 is probably 0x7000C000 */
 _interrupts_origin = 0x6000C000;
 _interrupts_length = 0x0400;
 

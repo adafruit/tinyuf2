@@ -46,13 +46,14 @@
 
 #define NEOPIXEL_PORT         GPIOC
 #define NEOPIXEL_PIN          GPIO_PIN_0
+#define NEOPIXEL_PIN_MODE     GPIO_MODE_OUTPUT_PP
 
 //--------------------------------------------------------------------+
 // Flash
 //--------------------------------------------------------------------+
 
 // Flash size of the board
-#define BOARD_FLASH_SIZE  (1024 * 1024)
+#define BOARD_FLASH_SIZE      (1024 * 1024)
 
 //--------------------------------------------------------------------+
 // USB UF2
