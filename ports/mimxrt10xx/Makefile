@@ -20,6 +20,9 @@ SRC_C += \
 # include
 # INC +=
 
+# iMXRT self-update file is in the same BUILD folder
+SELF_UF2 = $(BUILD)/update-$(OUTNAME).uf2
+
 include ../rules.mk
 
 #---------------------------------------------------------
