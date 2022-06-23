@@ -174,9 +174,7 @@ static void flash_write(uint32_t dst, const uint8_t *src, int len)
 //--------------------------------------------------------------------+
 void board_flash_init(void)
 {
-#if TINYUF2_PROTECT_BOOTLOADER
-  board_flash_protect_bootloader(true);
-#endif
+
 }
 
 uint32_t board_flash_size(void)
@@ -219,7 +217,7 @@ bool board_flash_protect_bootloader(bool protect)
   // Flash sectors are protected if the bit is cleared
   bool const already_protected = (ob_current.WRPSector & BOOTLOADER_SECTOR_MASK) == 0;
 
-  TUF2_LOG1_INT(already_protected);
+  TUF2_LOG1("Protection: current = %u, request = %u\r\n", already_protected, protect);
 
   // request and current state mismatched --> require ob program
   if ( (protect && !already_protected) || (!protect && already_protected) )
@@ -273,6 +271,8 @@ void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
   if ( is_new_bootloader_valid(bootloader_bin, bootloader_len) )
   {
 #if TINYUF2_PROTECT_BOOTLOADER
+    // Note: Don't protect bootloader when done, leave that to the new bootloader
+    // since it may or may not enable protection.
     board_flash_protect_bootloader(false);
 #endif
 
@@ -293,10 +293,6 @@ void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
         len -= size;
       }
     }
-
-#if TINYUF2_PROTECT_BOOTLOADER
-    board_flash_protect_bootloader(true);
-#endif
   }
 
   // self-destruct: write 0 to first 2 entry of vector table
