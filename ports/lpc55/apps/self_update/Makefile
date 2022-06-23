@@ -17,8 +17,6 @@ SRC_C += \
 	apps/self_update/self_update.c \
 	$(CURRENT_PATH)/bootloader_bin.c
 
-INC += $(TOP)/src
-
 include ../../../rules.mk
 
 self-update: $(BUILD)/$(OUTNAME).uf2

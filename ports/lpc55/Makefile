@@ -16,7 +16,6 @@ LD_FILES ?= $(MCU_DIR)/gcc/$(MCU_CORE)_flash.ld
 include ../rules.mk
 
 #-------------- Self-update  --------------
-# Self-update is not implemented yet
 SELF_DIR = apps/self_update
 
 $(SELF_DIR)/bootloader_bin.c:	$(BUILD)/$(OUTNAME).bin

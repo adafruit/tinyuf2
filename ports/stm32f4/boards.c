@@ -180,11 +180,17 @@ void board_dfu_complete(void)
 bool board_app_valid(void)
 {
   volatile uint32_t const * app_vector = (volatile uint32_t const*) BOARD_FLASH_APP_START;
+  uint32_t sp = app_vector[0];
+  uint32_t app_entry = app_vector[1];
 
-  // 1st word is stack pointer (should be in SRAM region)
+  TUF2_LOG1_HEX(sp);
+  TUF2_LOG1_HEX(app_entry);
+
+  // 1st word is stack pointer (must be in SRAM region)
+  if ((sp & 0xff000003) != 0x20000000) return false;
 
   // 2nd word is App entry point (reset)
-  if (app_vector[1] < BOARD_FLASH_APP_START || app_vector[1] > BOARD_FLASH_APP_START + BOARD_FLASH_SIZE) {
+  if (app_entry < BOARD_FLASH_APP_START || app_entry > BOARD_FLASH_APP_START + BOARD_FLASH_SIZE) {
     return false;
   }
 
@@ -194,6 +200,8 @@ bool board_app_valid(void)
 void board_app_jump(void)
 {
   volatile uint32_t const * app_vector = (volatile uint32_t const*) BOARD_FLASH_APP_START;
+  uint32_t sp = app_vector[0];
+  uint32_t app_entry = app_vector[1];
 
 #ifdef BUTTON_PIN
   HAL_GPIO_DeInit(BUTTON_PORT, BUTTON_PIN);
@@ -226,14 +234,21 @@ void board_app_jump(void)
   SysTick->LOAD = 0;
   SysTick->VAL = 0;
 
+  // Disable all Interrupts
+  NVIC->ICER[0] = 0xFFFFFFFF;
+  NVIC->ICER[1] = 0xFFFFFFFF;
+  NVIC->ICER[2] = 0xFFFFFFFF;
+  NVIC->ICER[3] = 0xFFFFFFFF;
+
   /* switch exception handlers to the application */
   SCB->VTOR = (uint32_t) BOARD_FLASH_APP_START;
 
   // Set stack pointer
-  __set_MSP(app_vector[0]);
+  __set_MSP(sp);
+  __set_PSP(sp);
 
   // Jump to Application Entry
-  asm("bx %0" ::"r"(app_vector[1]));
+  asm("bx %0" ::"r"(app_entry));
 }
 
 uint8_t board_usb_get_serial(uint8_t serial_id[16])
@@ -339,7 +354,7 @@ void board_timer_stop(void)
   SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk;
 }
 
-void SysTick_Handler (void)
+void SysTick_Handler(void)
 {
   board_timer_handler();
 }
