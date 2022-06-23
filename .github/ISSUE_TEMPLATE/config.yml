@@ -1,4 +1,5 @@
+blank_issues_enabled: false
 contact_links:
-  - name: Adafruit Support Forum
-    url: https://forums.adafruit.com
+  - name: TinyUF2 Discussion
+    url: https://github.com/adafruit/tinyuf2/discussions
     about: If you have other questions or need help, post it here.
