@@ -65,6 +65,10 @@ int main(void)
   board_init();
   TU_LOG1("TinyUF2\r\n");
 
+#if TINYUF2_PROTECT_BOOTLOADER
+  board_flash_protect_bootloader(true);
+#endif
+
   // if not DFU mode, jump to App
   if ( !check_dfu_mode() )
   {
