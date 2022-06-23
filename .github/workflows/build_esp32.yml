@@ -93,7 +93,7 @@ jobs:
         name: ${{ matrix.board }}
         path: ${{ env.BIN_PATH }}
 
-    - name: Create Release Asset
+    - name: Prepare Release Asset
       if: ${{ github.event_name == 'release' }}
       run: |
         zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ${{ env.BIN_PATH }}

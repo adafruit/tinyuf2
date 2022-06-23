@@ -89,7 +89,7 @@ jobs:
         name: ${{ matrix.board }}
         path: ${{ env.ENV_PORT }}/_bin/${{ matrix.board }}
 
-    - name: Create Release Asset
+    - name: Prepare Release Asset
       if: ${{ github.event_name == 'release' }}
       run: |
         for f in ${{ env.ENV_PORT }}/_bin/${{ matrix.board }}/*; do mv $f ${f%.*}-${{ github.event.release.tag_name }}."${f#*.}"; done
