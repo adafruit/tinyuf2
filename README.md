@@ -29,13 +29,13 @@ Supported features are
 Not all features are implemented for all MCUs, following is supported MCUs and its feature
 
 | MCU         | MSC  | Double Reset | Self-update | Write Protection | Neopixel | TFT  |
-| ----------- | ---- | ------------ | ----------- | ---------------- | -------- | ---- |
-| ESP32 S2/S3 | ✔    | Need RC      | ✔           |                  | ✔        | ✔    |
-| K32L2       | ✔    | ✔            |             |                  |          |      |
-| LPC55       | ✔    | ✔            |             |                  | ✔        |      |
-| iMXRT       | ✔    | ✔            | ✔           |                  | ✔        |      |
-| STM32F3     | ✔    | ✔            |             |                  | ✔        |      |
-| STM32F4     | ✔    | ✔            | ✔           | ✔                | ✔        |      |
+| :---------- | :--: | :----------: | :---------: | :--------------: | :------: | :--: |
+| ESP32 S2/S3 |  ✔   |   Need RC    |      ✔      |                  |    ✔     |  ✔   |
+| K32L2       |  ✔   |      ✔       |             |                  |          |      |
+| LPC55       |  ✔   |      ✔       |             |                  |    ✔     |      |
+| iMXRT       |  ✔   |      ✔       |      ✔      |                  |    ✔     |      |
+| STM32F3     |  ✔   |      ✔       |             |                  |    ✔     |      |
+| STM32F4     |  ✔   |      ✔       |      ✔      |        ✔         |    ✔     |      |
 
 ## Build and Flash
 
