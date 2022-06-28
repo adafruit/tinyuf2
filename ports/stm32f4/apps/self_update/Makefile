@@ -7,7 +7,7 @@ BUILD_APPLICATION = 1
 # skip tinyusb src
 BUILD_NO_TINYUSB = 1
 
-CFLAGS += -DTINYUF2_SELF_UPDATE
+CFLAGS += -DTINYUF2_SELF_UPDATE -Wno-error=stringop-overread
 
 include ../../../make.mk
 include ../../port.mk
