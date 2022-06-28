@@ -78,6 +78,7 @@ jobs:
         ENV_PORT=`dirname $ENV_PORT`
         ENV_PORT=`dirname $ENV_PORT`
         echo ENV_PORT=$ENV_PORT >> $GITHUB_ENV
+        echo BIN_PATH=$ENV_PORT/_bin/${{ matrix.board }} >> $GITHUB_ENV
 
     - name: Build
       run: |
@@ -87,13 +88,13 @@ jobs:
     - uses: actions/upload-artifact@v3
       with:
         name: ${{ matrix.board }}
-        path: ${{ env.ENV_PORT }}/_bin/${{ matrix.board }}
+        path: ${{ env.BIN_PATH }}
 
     - name: Prepare Release Asset
       if: ${{ github.event_name == 'release' }}
       run: |
-        for f in ${{ env.ENV_PORT }}/_bin/${{ matrix.board }}/*; do mv $f ${f%.*}-${{ github.event.release.tag_name }}."${f#*.}"; done
-        zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ${{ env.ENV_PORT }}/_bin/${{ matrix.board }}
+        for f in ${{ env.BIN_PATH }}/*; do mv $f ${f%.*}-${{ github.event.release.tag_name }}."${f#*.}"; done
+        zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ${{ env.BIN_PATH }}
 
     - name: Upload Release Asset
       uses: softprops/action-gh-release@v1
@@ -101,4 +102,4 @@ jobs:
       with:
         files: |
           tinyuf2-${{ matrix.board }}-*.zip
-          update-tinyuf2-${{ matrix.board }}-*.uf2
+          ${{ env.BIN_PATH }}/update-tinyuf2-${{ matrix.board }}-*.uf2
