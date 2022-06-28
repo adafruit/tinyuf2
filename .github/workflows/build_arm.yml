@@ -52,25 +52,10 @@ jobs:
     - name: Checkout common submodules in lib
       run: git submodule update --init lib/sct_neopixel lib/tinyusb lib/uf2
 
-    - name: Set Toolchain URL
-      run: echo >> $GITHUB_ENV TOOLCHAIN_URL=https://github.com/xpack-dev-tools/arm-none-eabi-gcc-xpack/releases/download/v11.2.1-1.2/xpack-arm-none-eabi-gcc-11.2.1-1.2-linux-x64.tar.gz
-
-    - name: Cache Toolchain
-      uses: actions/cache@v3
-      id: cache-toolchain
+    - name: Install ARM GCC
+      uses: carlosperate/arm-none-eabi-gcc-action@v1
       with:
-        path: ~/cache/
-        key: ${{ runner.os }}-21-03-19-${{ env.TOOLCHAIN_URL }}
-
-    - name: Install Toolchain
-      if: steps.cache-toolchain.outputs.cache-hit != 'true'
-      run: |
-        mkdir -p ~/cache/toolchain
-        wget --progress=dot:mega $TOOLCHAIN_URL -O toolchain.tar.gz
-        tar -C ~/cache/toolchain -xaf toolchain.tar.gz
-
-    - name: Set Toolchain Path
-      run: echo >> $GITHUB_PATH `echo ~/cache/toolchain/*/bin`
+        release: '11.2-2022.02'
 
     - name: Find Port
       run: |
@@ -82,6 +67,7 @@ jobs:
 
     - name: Build
       run: |
+        arm-none-eabi-gcc --version
         make -C $ENV_PORT BOARD=${{ matrix.board }} all self-update copy-artifact
         for app in ${{ env.ENV_PORT }}/apps/*/; do if [ $app != 'apps/self_update/' ]; then make -C $app BOARD=${{ matrix.board }} all; fi done
 
