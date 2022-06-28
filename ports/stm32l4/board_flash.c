@@ -33,8 +33,8 @@
 //#define FLASH_CACHE_SIZE          4096
 //#define FLASH_CACHE_INVALID_ADDR  0xffffffff
 
-#define FLASH_BASE_ADDR  0x08000000
-#define SECTOR_SIZE 4096
+#define FLASH_BASE_ADDR   0x08000000UL
+#define SECTOR_SIZE       4096
 
 enum
 {

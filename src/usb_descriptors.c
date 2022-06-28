@@ -184,7 +184,7 @@ uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid)
     // TODO light alternation such as +1 to prevent conflict with application
     case STRID_SERIAL:
     {
-      uint8_t serial_id[16];
+      uint8_t serial_id[16] TU_ATTR_ALIGNED(4);
       uint8_t serial_len;
 
       serial_len = board_usb_get_serial(serial_id);
