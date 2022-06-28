@@ -30,7 +30,7 @@
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
 //--------------------------------------------------------------------+
 
-#define STM32_UUID ((uint32_t *)0x1FFFF7ACUL)
+#define STM32_UUID ((volatile uint32_t *)0x1FFFF7ACUL)
 
 static UART_HandleTypeDef UartHandle;
 
