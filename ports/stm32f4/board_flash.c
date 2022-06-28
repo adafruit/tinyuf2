@@ -35,7 +35,7 @@
 // no caching
 //#define FLASH_CACHE_SIZE          4096
 //#define FLASH_CACHE_INVALID_ADDR  0xffffffff
-#define FLASH_BASE_ADDR ((volatile uint32_t *)0x08000000UL)
+#define FLASH_BASE_ADDR 0x08000000UL
 
 // TinyUF2 resides in the first 2 flash sectors on STM32F4s, therefore these are write protected
 #define BOOTLOADER_SECTOR_MASK 0x3UL
