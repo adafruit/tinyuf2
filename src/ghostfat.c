@@ -33,6 +33,7 @@
 #include "board_api.h"
 #include "uf2.h"
 
+#include "tusb.h" // for logging
 
 
 //--------------------------------------------------------------------+
@@ -498,6 +499,8 @@ int uf2_write_block (uint32_t block_no, uint8_t *data, WriteState *state)
     board_flash_write(bl->targetAddr, bl->data, bl->payloadSize);
   }else
   {
+    TU_LOG1("WARNING: Skipping UF2 block due to mismatch between block's family ID and expected - 0x%08lX vs 0x%08X\r\n", bl->familyID, BOARD_UF2_FAMILY_ID);
+
     // TODO family matches VID/PID
     return -1;
   }
