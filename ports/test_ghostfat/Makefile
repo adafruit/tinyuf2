@@ -26,6 +26,10 @@ SRC_C += \
 
 SRC_S +=
 
+# Note: TinyUSB is only used for logging
+TINYUSB_DIR = $(TOP)/lib/tinyusb/src
+INC += $(TINYUSB_DIR)
+
 # Port include
 INC += \
   $(TOP)/src \
