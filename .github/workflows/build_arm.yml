@@ -27,6 +27,7 @@ jobs:
         # mimxrt10xx
         - 'imxrt1010_evk'
         - 'imxrt1020_evk'
+        - 'imxrt1024_evk'
         - 'imxrt1060_evk'
         - 'metro_m7_1011'
         # stm32f3
