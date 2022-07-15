@@ -36,19 +36,24 @@
 #include "fsl_device_registers.h"
 #include "board.h"
 
-// _ivt_origin is defined in linker script
-// The FCFB has different offsets, but the IVT is consistent within the family
+// symbols defined in linker script
 extern uint32_t _ivt_origin[];
+extern uint32_t _board_boot_length[];
+
+// The FCFB has different offsets, but the IVT is consistent within the family
 #define BOARD_BOOT_START        (((uint32_t) _ivt_origin) - 0x1000)
 
-#define BOARD_BOOT_LENGTH       (0x8800)
+
+// The ROM bootloader loader needs instructed to
+// copy the text section, IVT structure and interrupt table.
+#define BOARD_BOOT_LENGTH       ((uint32_t) _board_boot_length)
 
 // Flash Start Address of Application, typically 0x6000C000
 #define BOARD_FLASH_APP_START   (FlexSPI_AMBA_BASE + 0xC000)
 
 // Double Reset tap to enter DFU
 #define TINYUF2_DFU_DOUBLE_TAP  1
-#define DBL_TAP_REG              SNVS->LPGPR[3]
+#define DBL_TAP_REG             SNVS->LPGPR[3]
 
 // Brightness percentage from 1 to 255
 #ifndef NEOPIXEL_BRIGHTNESS

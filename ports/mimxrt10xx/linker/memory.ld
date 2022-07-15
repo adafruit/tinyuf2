@@ -1,13 +1,19 @@
+/* fcfb */
 _fcfb_length = _ivt_origin - _fcfb_origin;
+
+/* ivt */
 _ivt_length = 0x0400;
 
-/* offset 0x1400 */
+/* interrupt */
 _interrupts_origin = _ivt_origin + _ivt_length;
 _interrupts_length = 0x0400;
 
-/* offset 0x1800 */
+/* text */
 _text_origin = _interrupts_origin + _interrupts_length;
-_text_length =  0x8800;
+_text_length = 0x8800;
+
+/* sum of ivt + interrupt + text */
+_board_boot_length = _ivt_length + _interrupts_length + _text_length;
 
 /* Specify the memory areas */
 MEMORY
@@ -20,3 +26,20 @@ MEMORY
   m_data                (RW)  : ORIGIN = _dtcm_base         , LENGTH = _dtcm_size 
   m_data2               (RW)  : ORIGIN = _ocram_base        , LENGTH = _ocram_size
 }
+
+/* _fcfb_origin & _ivt_origin are mcu specific and defined by their ld file
+ *
+ * -------------
+ * |   text    |
+ * | (0x8800)  |
+ * -------------
+ * | interrupt |
+ * | (0x0400)  |
+ * -------------
+ * |   ivt     |
+ * | (0x0400)  |
+ * ------------- _ivt_origin
+ * |   fcfb    |
+ * |           |
+ * ------------- _fcfb_origin
+ */
