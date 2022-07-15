@@ -43,8 +43,11 @@
   #define FLEXSPI_FLASH_BASE  FlexSPI_AMBA_BASE
 #endif
 
+// defined in linker
+extern uint32_t _fcfb_length[];
+
 // Mask off lower 12 bits to get FCFB offset
-#define FCFB_START_ADDRESS    (FLEXSPI_FLASH_BASE + (((uint32_t) &qspiflash_config) & 0xFFF))
+#define FCFB_START_ADDRESS    (FLEXSPI_FLASH_BASE + (((uint32_t) &qspiflash_config) & 0xFFFUL))
 
 // Flash Configuration Structure 
 extern flexspi_nor_config_t const qspiflash_config;
@@ -58,8 +61,11 @@ static void write_tinyuf2_to_flash(void)
   uint8_t const* image_data = (uint8_t const *) &qspiflash_config;
   uint32_t flash_addr = FCFB_START_ADDRESS;
 
+  // fcfb + bootloader (ivt, interrupt, text)
+  uint32_t const end_addr = FLEXSPI_FLASH_BASE + ((uint32_t) _fcfb_length) + BOARD_BOOT_LENGTH;
+
   TUF2_LOG1("Writing TinyUF2 image to flash.\r\n");
-  while ( flash_addr < (FLEXSPI_FLASH_BASE + BOARD_BOOT_LENGTH) )
+  while ( flash_addr < end_addr )
   {
     board_flash_write(flash_addr, image_data, FLASH_PAGE_SIZE);
     flash_addr += FLASH_PAGE_SIZE;
@@ -79,6 +85,7 @@ void board_flash_init(void)
   bool fcfb_valid = (*(uint32_t*) FCFB_START_ADDRESS == FLEXSPI_CFG_BLK_TAG);
   if (boot_mode == 1 || !fcfb_valid)
   {
+    TUF2_LOG1("Boot Mode = %lu, fbfb_valid = %u\r\n", boot_mode, fcfb_valid);
     write_tinyuf2_to_flash();
   } 
 }
