@@ -43,7 +43,6 @@ extern uint32_t _board_boot_length[];
 // The FCFB has different offsets, but the IVT is consistent within the family
 #define BOARD_BOOT_START        (((uint32_t) _ivt_origin) - 0x1000)
 
-
 // The ROM bootloader loader needs instructed to
 // copy the text section, IVT structure and interrupt table.
 #define BOARD_BOOT_LENGTH       ((uint32_t) _board_boot_length)
