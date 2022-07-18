@@ -190,8 +190,8 @@ void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len);
 #define TUF2_LOG1               tuf2_printf
 #define TUF2_LOG1_MEM           // tu_print_mem
 #define TUF2_LOG1_VAR(_x)       // tu_print_var((uint8_t const*)(_x), sizeof(*(_x)))
-#define TUF2_LOG1_INT(_x)       tuf2_printf(#_x " = %ld\n", (uint32_t) (_x) )
-#define TUF2_LOG1_HEX(_x)       tuf2_printf(#_x " = %lX\n", (uint32_t) (_x) )
+#define TUF2_LOG1_INT(_x)       tuf2_printf(#_x " = %ld\r\n", (uint32_t) (_x) )
+#define TUF2_LOG1_HEX(_x)       tuf2_printf(#_x " = %lX\r\n", (uint32_t) (_x) )
 #define TUF2_LOG1_LOCATION()    tuf2_printf("%s: %d:\r\n", __PRETTY_FUNCTION__, __LINE__)
 #define TUF2_LOG1_FAILED()      tuf2_printf("%s: %d: Failed\r\n", __PRETTY_FUNCTION__, __LINE__)
 

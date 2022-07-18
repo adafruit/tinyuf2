@@ -71,4 +71,12 @@
 #define UF2_VOLUME_LABEL  "RT1020BOOT"
 #define UF2_INDEX_URL     "https://www.nxp.com/part/MIMXRT1020-EVK#/"
 
+//--------------------------------------------------------------------+
+// UART
+//--------------------------------------------------------------------+
+
+#define UART_DEV              LPUART1
+#define UART_RX_PINMUX        IOMUXC_GPIO_AD_B0_07_LPUART1_RX
+#define UART_TX_PINMUX        IOMUXC_GPIO_AD_B0_06_LPUART1_TX
+
 #endif /* BOARD_H_ */

@@ -35,10 +35,10 @@
 // LED
 //--------------------------------------------------------------------+
 
-#define LED_PINMUX            IOMUXC_GPIO_AD_B0_05_GPIO1_IO05
+#define LED_PINMUX            IOMUXC_GPIO_AD_B1_08_GPIO1_IO24
 #define LED_PORT              GPIO1
-#define LED_PIN               5
-#define LED_STATE_ON          0
+#define LED_PIN               24
+#define LED_STATE_ON          1
 
 //--------------------------------------------------------------------+
 // Neopixel
@@ -70,5 +70,13 @@
 #define UF2_BOARD_ID      "MIMXRT1024-EVK-revA"
 #define UF2_VOLUME_LABEL  "RT1024BOOT"
 #define UF2_INDEX_URL     "https://www.nxp.com/part/MIMXRT1024-EVK#/"
+
+//--------------------------------------------------------------------+
+// UART
+//--------------------------------------------------------------------+
+
+#define UART_DEV              LPUART1
+#define UART_RX_PINMUX        IOMUXC_GPIO_AD_B0_07_LPUART1_RX
+#define UART_TX_PINMUX        IOMUXC_GPIO_AD_B0_06_LPUART1_TX
 
 #endif /* BOARD_H_ */
