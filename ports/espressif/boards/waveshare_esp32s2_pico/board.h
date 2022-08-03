@@ -43,8 +43,8 @@
 // USB UF2
 //--------------------------------------------------------------------+
 
-#define USB_VID           0x239a
-#define USB_PID           0x00a5
+#define USB_VID           0x303a
+#define USB_PID           0x8109
 #define USB_MANUFACTURER  "Waveshare Electronics"
 #define USB_PRODUCT       "ESP32-S2-Pico"
 
