@@ -66,7 +66,6 @@ jobs:
         - 'adafruit_qtpy_esp32s3'
         - 'bpi_leaf_s3'
         - 'espressif_esp32s3_devkitc_1'
-        - 'espressif_esp32s3_devkitc_1'
         - 'espressif_esp32s3_devkitm_1'
         - 'espressif_esp32s3_eye'
         - 'unexpectedmaker_feathers3'
