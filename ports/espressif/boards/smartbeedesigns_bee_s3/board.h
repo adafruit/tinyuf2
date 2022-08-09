@@ -69,7 +69,7 @@
 #define USB_PRODUCT       "Bee S3"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "Bee-S3-v1.0"
+#define UF2_BOARD_ID      "ESP32S3-BeeS3-01"
 #define UF2_VOLUME_LABEL  "BEES3BOOT"
 #define UF2_INDEX_URL     ""
 
