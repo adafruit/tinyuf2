@@ -68,6 +68,7 @@ jobs:
         - 'bpi_leaf_s3'
         - 'espressif_esp32s3_devkitc_1'
         - 'espressif_esp32s3_devkitm_1'
+        - 'espressif_esp32s3_eye'
         - 'unexpectedmaker_feathers3'
         - 'unexpectedmaker_pros3'
         - 'unexpectedmaker_tinys3'
