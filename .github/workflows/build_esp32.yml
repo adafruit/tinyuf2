@@ -69,6 +69,8 @@ jobs:
         - 'espressif_esp32s3_devkitc_1'
         - 'espressif_esp32s3_devkitm_1'
         - 'espressif_esp32s3_eye'
+        - 'smartbeedesigns_bee_motion_s3'
+        - 'smartbeedesigns_bee_s3'
         - 'unexpectedmaker_feathers3'
         - 'unexpectedmaker_pros3'
         - 'unexpectedmaker_tinys3'
