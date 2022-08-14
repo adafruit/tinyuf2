@@ -49,11 +49,11 @@
 #define NEOPIXEL_BRIGHTNESS   0x10
 
 // Number of neopixels
-#define NEOPIXEL_NUMBER       6
+#define NEOPIXEL_NUMBER       1
 
 // LED for indicator and writing flash
 // If not defined neopixel will be use for flash writing instead
-#define LED_PIN               2
+#define LED_PIN               1
 #define LED_STATE_ON          1
 
 //--------------------------------------------------------------------+
@@ -62,15 +62,15 @@
 
 #define CONFIG_LCD_TYPE_ST7789V
 
-#define DISPLAY_PIN_MISO      -1 // required if use CONFIG_LCD_TYPE_AUTO
+#define DISPLAY_PIN_MISO      37 // required if use CONFIG_LCD_TYPE_AUTO
 #define DISPLAY_PIN_MOSI      35
 #define DISPLAY_PIN_SCK       36
 
-#define DISPLAY_PIN_DC        39
-#define DISPLAY_PIN_CS        40
-#define DISPLAY_PIN_RST       41
+#define DISPLAY_PIN_DC        40
+#define DISPLAY_PIN_CS        39
+#define DISPLAY_PIN_RST       38
 
-#define DISPLAY_PIN_BL        38
+#define DISPLAY_PIN_BL        41
 #define DISPLAY_BL_ON         1  // GPIO state to enable back light
 
 #define DISPLAY_WIDTH         240
