@@ -50,7 +50,7 @@
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID      "ESP32-S2-Pico-LCD"
-#define UF2_VOLUME_LABEL  "ESP32S2PICOLCD"
+#define UF2_VOLUME_LABEL  "ESP32S2PICO"
 #define UF2_INDEX_URL     "http://www.waveshare.com/wiki/ESP32-S2-Pico"
 
 #endif
