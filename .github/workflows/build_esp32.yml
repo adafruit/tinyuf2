@@ -57,6 +57,7 @@ jobs:
         - 'unexpectedmaker_feathers2'
         - 'unexpectedmaker_feathers2_neo'
         - 'unexpectedmaker_tinys2'
+        - 'waveshare_esp32_s2_pico_lcd'
         - 'waveshare_esp32s2_pico'
         # ----------------------
         # S3 Alphabetical order
