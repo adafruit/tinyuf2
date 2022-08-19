@@ -134,10 +134,10 @@ STATIC_ASSERT(FAT_ENTRIES_PER_SECTOR                       ==       256); // FAT
 
 
 const char infoUf2File[] =
-#ifndef MATRIX
-    "TinyUF2 Bootloader " UF2_VERSION "\r\n"
+#ifdef CUSTOM_BOOTLOADER_NAME
+    CUSTOM_BOOTLOADER_NAME " Bootloader " UF2_VERSION_BASE "\r\n"
 #else
-    "Matrix Bootloader " UF2_VERSION_BASE "\r\n"
+    "TinyUF2 Bootloader " UF2_VERSION_BASE "\r\n"
 #endif
     "Model: " UF2_PRODUCT_NAME "\r\n"
     "Board-ID: " UF2_BOARD_ID "\r\n"

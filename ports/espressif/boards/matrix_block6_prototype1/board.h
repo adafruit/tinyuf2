@@ -25,7 +25,7 @@
 #ifndef MATRIX_BLOCK6_S2_H_
 #define MATRIX_BLOCK6_S2_H_
 
-#define MATRIX
+#define CUSTOM_BOOTLOADER_NAME "Matrix"
 #define FASTBOOT
 #define CUSTOM_LED
 

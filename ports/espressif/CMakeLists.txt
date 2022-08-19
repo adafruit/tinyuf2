@@ -10,12 +10,6 @@ set(EXTRA_COMPONENT_DIRS ${TOP}/src ${CMAKE_CURRENT_LIST_DIR}/boards)
 set(SDKCONFIG_DEFAULTS ${CMAKE_CURRENT_LIST_DIR}/sdkconfig.defaults ${CMAKE_CURRENT_LIST_DIR}/boards/${BOARD}/sdkconfig)
 set(SDKCONFIG ${CMAKE_BINARY_DIR}/sdkconfig)
 
-message(SDKCONFIG_DEFAULTS "${SDKCONFIG_DEFAULTS}")
-message(SDKCONFIG "${SDKCONFIG}")
-
-
-
-
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 execute_process(COMMAND git describe --dirty --always --tags
@@ -30,7 +24,8 @@ string(REPLACE lib/ "" GIT_SUBMODULE_VERSIONS ${GIT_SUBMODULE_VERSIONS})
 string(STRIP ${GIT_SUBMODULE_VERSIONS} GIT_SUBMODULE_VERSIONS)
 
 add_compile_definitions(UF2_VERSION_BASE="${GIT_VERSION}")
-add_compile_definitions(UF2_VERSION="${GIT_VERSION} - ${GIT_SUBMODULE_VERSIONS}")
+# add_compile_definitions(UF2_VERSION="${GIT_VERSION} - ${GIT_SUBMODULE_VERSIONS}")
+add_compile_definitions(UF2_VERSION="${GIT_VERSION}")
 
 cmake_print_variables(GIT_VERSION GIT_SUBMODULE_VERSIONS)
 
