@@ -49,7 +49,7 @@
 #define NEOPIXEL_POWER_STATE  1
 
 // Brightness percentage from 1 to 255
-#define NEOPIXEL_BRIGHTNESS   0x64
+#define NEOPIXEL_BRIGHTNESS   0x30
 
 // Number of neopixels
 #define NEOPIXEL_NUMBER       1
@@ -70,7 +70,7 @@
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID             "ESP32S3-MFAIOTS3-v1.0"
-#define UF2_VOLUME_LABEL         "MFAIOTS3BOOT"
+#define UF2_VOLUME_LABEL         "MFAS3BOOT"
 #define UF2_INDEX_URL            "http://www.cytron.io/p-maker-feather-aiot-s3"
 
 #endif
