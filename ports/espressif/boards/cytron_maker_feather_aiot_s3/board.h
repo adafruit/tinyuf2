@@ -70,7 +70,7 @@
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID             "ESP32S3-MFAIOTS3-v1.0"
-#define UF2_VOLUME_LABEL         "MFAIOTS3BOOT"
+#define UF2_VOLUME_LABEL         "MFAS3BOOT"
 #define UF2_INDEX_URL            "http://www.cytron.io/p-maker-feather-aiot-s3"
 
 #endif
