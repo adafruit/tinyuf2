@@ -67,6 +67,7 @@ jobs:
         - 'adafruit_feather_esp32s3_tft'
         - 'adafruit_qtpy_esp32s3'
         - 'bpi_leaf_s3'
+        - 'bpi_picow_s3'
         - 'cytron_maker_feather_aiot_s3'
         - 'espressif_esp32s3_devkitc_1'
         - 'espressif_esp32s3_devkitm_1'
