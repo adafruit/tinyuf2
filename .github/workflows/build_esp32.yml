@@ -69,6 +69,7 @@ jobs:
         - 'bpi_leaf_s3'
         - 'bpi_picow_s3'
         - 'cytron_maker_feather_aiot_s3'
+        - 'espressif_esp32s3_box'
         - 'espressif_esp32s3_devkitc_1'
         - 'espressif_esp32s3_devkitm_1'
         - 'espressif_esp32s3_eye'
