@@ -46,7 +46,7 @@
 
 #ifndef UF2_DETECTION_DELAY_MS
   // Initial delay in milliseconds to detect user interaction to enter UF2.
-  #define UF2_DETECTION_DELAY_MS       500
+  #define UF2_DETECTION_DELAY_MS     500
 #endif
 
 uint8_t const RGB_DOUBLE_TAP[] = { 0x80, 0x00, 0xff }; // Purple
