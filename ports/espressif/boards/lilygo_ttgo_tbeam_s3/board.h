@@ -34,6 +34,9 @@
 // reset since that will instead run the 1st stage ROM bootloader
 #define PIN_BUTTON_UF2    0
 
+// Initial delay in milliseconds to detect user interaction to enter UF2
+#define UF2_DETECTION_DELAY_MS  1000
+
 //--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
@@ -52,6 +55,6 @@
 #define USB_PRODUCT       "TTGO T-Beam S3"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "ESP32-S3-TBeam-v3.0"
+#define UF2_BOARD_ID      "ESP32S3-TBeam-v3.0"
 #define UF2_VOLUME_LABEL  "TBEAMBOOT"
 #define UF2_INDEX_URL     "http://www.lilygo.cn/claprod_view.aspx?Id=1163"
