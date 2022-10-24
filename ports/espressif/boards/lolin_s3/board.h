@@ -51,8 +51,8 @@
 // USB UF2
 //--------------------------------------------------------------------+
 
-#define USB_VID           0x239A
-#define USB_PID           0x00A5    // TODO temporarily shared with S2 saola wrover
+#define USB_VID           0x303A
+#define USB_PID           0x8118
 #define USB_MANUFACTURER  "Lolin"
 #define USB_PRODUCT       "S3"
 
