@@ -9,7 +9,7 @@
   - [ ] Add your board to [action ci](/.github/workflows) in correct workflow and alphabet order for release binary
   - [ ] `UF2_BOARD_ID` in your board.h follow correct format from [uf2 specs](https://github.com/microsoft/uf2#files-exposed-by-bootloaders)
 
-*This entire checklist section above can be deleted if all items are checked.*
+*This checklist items that are not applicable to your PR can be deleted.*
 
 -----------
 
