@@ -69,7 +69,7 @@
 #define USB_PRODUCT       "Matrix DFU"
 
 #define UF2_PRODUCT_NAME  "203 | Matrix Pro"
-#define UF2_BOARD_ID      "293-MATRIX-PRO"
+#define UF2_BOARD_ID      "203-MATRIX-PRO"
 #define UF2_VOLUME_LABEL  "MATRIXDFU"
 #define UF2_INDEX_URL     "https://matrix.203.io"
 
