@@ -102,7 +102,7 @@
 #define USB_PRODUCT              "Feather ESP32-S2 Reverse TFT"
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID             "ESP32S2-FeatherRevTFT-revB"
+#define UF2_BOARD_ID             "ESP32S2-FeatherRevTFT-revC"
 #define UF2_VOLUME_LABEL         "FTHRS2BOOT"
 #define UF2_INDEX_URL            "https://www.adafruit.com/product/5345"
 
