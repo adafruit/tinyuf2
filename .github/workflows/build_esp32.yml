@@ -29,6 +29,7 @@ jobs:
         - 'adafruit_feather_esp32s3_reverse_tft'
         - 'adafruit_funhouse_esp32s2'
         - 'adafruit_magtag_29gray'
+        - 'adafruit_matrixportal_s2'
         - 'adafruit_metro_esp32s2'
         - 'adafruit_qtpy_esp32s2'
         - 'artisense_rd00'
