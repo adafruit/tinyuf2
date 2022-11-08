@@ -26,6 +26,7 @@ jobs:
         - 'adafruit_feather_esp32s2'
         - 'adafruit_feather_esp32s2_tft'
         - 'adafruit_feather_esp32s2_reverse_tft'
+        - 'adafruit_feather_esp32s3_reverse_tft'
         - 'adafruit_funhouse_esp32s2'
         - 'adafruit_magtag_29gray'
         - 'adafruit_metro_esp32s2'
