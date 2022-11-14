@@ -22,8 +22,8 @@
  * THE SOFTWARE.
  */
 
-#ifndef ADAFRUIT_MAGTAG29GRAY_ESP32S2_H_
-#define ADAFRUIT_MAGTAG29GRAY_ESP32S2_H_
+#ifndef MAKER_BADGE_H_
+#define MAKER_BADGE_H_
 
 //--------------------------------------------------------------------+
 // Button
