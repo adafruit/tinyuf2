@@ -48,6 +48,7 @@ jobs:
         - 'lilygo_ttgo_t8_s2_wroom'
         - 'lolin_s2_mini'
         - 'lolin_s2_pico'
+        - 'maker_badge'
         - 'microdev_micro_s2'
         - 'morpheans_morphesp-240'
         - 'muselab_nanoesp32-s2_wroom'
