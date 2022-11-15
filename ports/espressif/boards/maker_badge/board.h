@@ -70,7 +70,7 @@
 #define USB_PRODUCT              "Maker badge"
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID             "ESP32S2_Maker_badge"
+#define UF2_BOARD_ID             "ESP32S2-Maker_badge-revB"
 #define UF2_VOLUME_LABEL         "MBBOOT"
 #define UF2_INDEX_URL            "https://github.com/dronecz/maker_badge"
 
