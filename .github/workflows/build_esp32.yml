@@ -24,9 +24,8 @@ jobs:
         # ----------------------
         - 'adafruit_camera_esp32s2'
         - 'adafruit_feather_esp32s2'
-        - 'adafruit_feather_esp32s2_tft'
         - 'adafruit_feather_esp32s2_reverse_tft'
-        - 'adafruit_feather_esp32s3_reverse_tft'
+        - 'adafruit_feather_esp32s2_tft'
         - 'adafruit_funhouse_esp32s2'
         - 'adafruit_magtag_29gray'
         - 'adafruit_matrixportal_s2'
@@ -66,6 +65,7 @@ jobs:
         # ----------------------
         - 'adafruit_feather_esp32s3'
         - 'adafruit_feather_esp32s3_nopsram'
+        - 'adafruit_feather_esp32s3_reverse_tft'
         - 'adafruit_feather_esp32s3_tft'
         - 'adafruit_qtpy_esp32s3'
         - 'bpi_leaf_s3'
