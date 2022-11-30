@@ -82,6 +82,10 @@ ledc_channel_config_t ledc_channel =
 #include "lcd.h"
 #endif
 
+#if BOARD_INIT_CUSTOM
+extern bool board_init_extension();
+#endif
+
 extern int main(void);
 static void configure_pins(usb_hal_context_t *usb);
 static void internal_timer_cb(void* arg);
@@ -206,6 +210,10 @@ void board_init(void)
 
 #ifdef DOTSTAR_PIN_DATA
   dotstar_init();
+#endif
+
+#if BOARD_INIT_CUSTOM
+  board_init_extension();
 #endif
 
   // Set up timer
