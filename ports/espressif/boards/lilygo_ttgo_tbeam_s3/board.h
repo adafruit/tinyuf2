@@ -25,6 +25,8 @@
 
 #pragma once
 
+#define BOARD_INIT_CUSTOM 1
+
 //--------------------------------------------------------------------+
 // Button
 //--------------------------------------------------------------------+
@@ -52,7 +54,7 @@
 #define USB_VID           0x303A            // Espressif VID
 #define USB_PID           0x8134            // Espressif assigned PID
 #define USB_MANUFACTURER  "LilyGO"
-#define USB_PRODUCT       "TTGO T-Beam S3"
+#define USB_PRODUCT       "T-Beam Supreme"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID      "ESP32S3-TBeam-v3.0"
