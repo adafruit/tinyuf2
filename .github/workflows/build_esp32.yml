@@ -99,7 +99,7 @@ jobs:
       run: echo BIN_PATH=ports/espressif/_bin/${{ matrix.board }} >> $GITHUB_ENV
 
     - name: Build
-      run: docker run --rm -v $PWD:/project -w /project espressif/idf:release-v4.4  /bin/bash -c "git config --global --add safe.directory /project && make -C ports/espressif/ BOARD=${{ matrix.board }} all self-update copy-artifact"
+      run: docker run --rm -v $PWD:/project -w /project espressif/idf:v4.4.3 /bin/bash -c "git config --global --add safe.directory /project && make -C ports/espressif/ BOARD=${{ matrix.board }} all self-update copy-artifact"
 
     - uses: actions/upload-artifact@v3
       with:
