@@ -23,7 +23,10 @@
  */
 
 #include "board_api.h"
-#include "tusb.h" // for logging
+
+#ifndef BUILD_NO_TINYUSB
+#include "tusb.h"
+#endif
 
 #define FLASH_CACHE_SIZE          512
 #define FLASH_CACHE_INVALID_ADDR  0xffffffff
@@ -85,7 +88,7 @@ void flash_write(uint32_t dst, const uint8_t *src, int len)
 
   if (sector == 0)
   {
-    TU_LOG1("invalid sector\r\n");
+    TUF2_LOG1("invalid sector\r\n");
   }
 
   HAL_FLASH_Unlock();
@@ -94,7 +97,7 @@ void flash_write(uint32_t dst, const uint8_t *src, int len)
   {
     uint32_t SectorError = 0;
 
-    TU_LOG1("Erase: %08lX size = %lu\n", addr, size);
+    TUF2_LOG1("Erase: %08lX size = %lu\n", addr, size);
 
     FLASH_EraseInitTypeDef EraseInit;
     EraseInit.TypeErase = FLASH_TYPEERASE_PAGES;
@@ -106,7 +109,7 @@ void flash_write(uint32_t dst, const uint8_t *src, int len)
 
     if (SectorError != 0xFFFFFFFF)
     {
-      TU_LOG1("failed to erase!\r\n");
+      TUF2_LOG1("failed to erase!\r\n");
     }
   }
 
@@ -116,9 +119,10 @@ void flash_write(uint32_t dst, const uint8_t *src, int len)
     HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, dst + i, (uint64_t) data);
   }
 
+  // verify contents
   if (memcmp((void*)dst, src, len) != 0)
   {
-    TU_LOG1("failed to write\r\n");
+    TUF2_LOG1("Failed to write\r\n");
   }
 }
 
