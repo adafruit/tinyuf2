@@ -173,6 +173,16 @@ void board_app_jump(void)
   HAL_RCC_DeInit();
   HAL_DeInit();
 
+  SysTick->CTRL = 0;
+  SysTick->LOAD = 0;
+  SysTick->VAL = 0;
+
+  // Disable all Interrupts
+  NVIC->ICER[0] = 0xFFFFFFFF;
+  NVIC->ICER[1] = 0xFFFFFFFF;
+  NVIC->ICER[2] = 0xFFFFFFFF;
+  NVIC->ICER[3] = 0xFFFFFFFF;
+
   // TODO protect bootloader region
 
   volatile uint32_t const * app_vector = (volatile uint32_t const*) BOARD_FLASH_APP_START;
