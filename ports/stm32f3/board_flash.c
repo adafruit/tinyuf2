@@ -28,13 +28,14 @@
 #include "tusb.h"
 #endif
 
+//--------------------------------------------------------------------+
+//
+//--------------------------------------------------------------------+
+
 #define FLASH_CACHE_SIZE          512
 #define FLASH_CACHE_INVALID_ADDR  0xffffffff
 
-//--------------------------------------------------------------------+
-//define flash space, reserve first 8 sectors for bootloader up to 3FFF
-//--------------------------------------------------------------------+
-
+// define flash space, reserve first 8 sectors for bootloader up to 3FFF
 #define BOARD_FLASH_SECTORS 64
 #define BOARD_FIRST_FLASH_SECTOR_TO_ERASE 8
 
@@ -54,10 +55,16 @@ uint32_t flash_func_sector_size(unsigned sector)
   return 0;
 }
 
+//--------------------------------------------------------------------+
+//
+//--------------------------------------------------------------------+
+
 static bool is_blank(uint32_t addr, uint32_t size)
 {
-  for (uint32_t i = 0; i < size; i += sizeof(uint32_t)) {
-    if (*(uint32_t*)(addr + i) != 0xffffffff) {
+  for ( uint32_t i = 0; i < size; i += sizeof(uint32_t) )
+  {
+    if ( *(uint32_t*) (addr + i) != 0xffffffff )
+    {
       return false;
     }
   }

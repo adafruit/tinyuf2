@@ -20,7 +20,7 @@ CFLAGS += \
 CFLAGS += -Wno-error=cast-align -Wno-error=unused-parameter
 
 # default linker file
-LD_FILES ?= $(PORT_DIR)/linker/STM32F303VCTx_FLASH.ld
+LD_FILES ?= $(PORT_DIR)/linker/stm32f3_boot.ld
 
 # Port source
 SRC_C += \
