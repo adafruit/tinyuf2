@@ -24,7 +24,10 @@
 
 #include "board_api.h"
 #include "stm32f3xx_hal.h"
+
+#ifndef BUILD_NO_TINYUSB
 #include "tusb.h"
+#endif
 
 //--------------------------------------------------------------------+
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
@@ -129,10 +132,8 @@ bool board_app_valid(void)
   if((((*(uint32_t*)BOARD_FLASH_APP_START) - BOARD_RAM_START) <= BOARD_RAM_SIZE)) // && ((*(uint32_t*)BOARD_FLASH_APP_START + 4) > BOARD_FLASH_APP_START) && ((*(uint32_t*)BOARD_FLASH_APP_START + 4) < BOARD_FLASH_APP_START + BOARD_FLASH_SIZE)
   {
     return true;
-  } else
-  {
-    return false;
   }
+  return false;
 }
 
 void board_app_jump(void)
@@ -160,6 +161,7 @@ void board_app_jump(void)
   #if defined(UART_DEV) && CFG_TUSB_DEBUG
   HAL_UART_DeInit(&UartHandle);
   HAL_GPIO_DeInit(UART_GPIO_PORT, UART_TX_PIN | UART_RX_PIN);
+  UART_CLOCK_DISABLE();
   #endif
 
   HAL_GPIO_DeInit(GPIOA, GPIO_PIN_12 | GPIO_PIN_11);

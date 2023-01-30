@@ -34,9 +34,8 @@
 // COMMON CONFIGURATION
 //--------------------------------------------------------------------
 
-// defined by board.mk
 #ifndef CFG_TUSB_MCU
-  #error CFG_TUSB_MCU must be defined
+#error CFG_TUSB_MCU must be defined in board.mk
 #endif
 
 // RHPort number used for device can be defined by board.mk, default to port 0
@@ -51,8 +50,10 @@
 // This example doesn't use an RTOS
 #define CFG_TUSB_OS               OPT_OS_NONE
 
-// CFG_TUSB_DEBUG is defined by compiler in DEBUG build
-// #define CFG_TUSB_DEBUG           0
+// can be defined by compiler in DEBUG build
+#ifndef CFG_TUSB_DEBUG
+  #define CFG_TUSB_DEBUG           0
+#endif
 
 /* USB DMA on some MCUs can only access a specific SRAM region with restriction on alignment.
  * Tinyusb use follows macros to declare transferring memory so that they can be put
@@ -86,6 +87,8 @@
 
 // MSC Buffer size of Device Mass storage
 #define CFG_TUD_MSC_BUFSIZE     512
+
+// HID buffer size Should be sufficient to hold ID (if any) + Data
 #define CFG_TUD_HID_BUFSIZE      64
 
 #ifdef __cplusplus

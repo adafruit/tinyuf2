@@ -38,13 +38,12 @@
 #ifndef BOARD_FLASH_APP_START
 #define BOARD_FLASH_APP_START   0x08004000
 #endif
+
 #define BOARD_RAM_START 0x20000000
 #define BOARD_RAM_SIZE 0x9FFF
 
 // Double Reset tap to enter DFU
 #define TINYUF2_DFU_DOUBLE_TAP      1
-
-//#define USE_RGB                 NEOPIXEL_NUMBER
 
 // Brightness percentage from 1 to 255
 #ifndef NEOPIXEL_BRIGHTNESS
