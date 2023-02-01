@@ -126,12 +126,14 @@ char const* string_desc_arr [] =
 {
   (const char[]) { 0x09, 0x04 }, // 0: is supported language is English (0x0409)
   USB_MANUFACTURER,              // 1: Manufacturer
-  USB_PRODUCT,                   // 2: Product
+  USB_PRODUCT " ESP32 Programmer",// 2: Product
   desc_str_serial,               // 3: Serials, use default MAC address
   "USB to UART",                 // 4: CDC Interface
 };
 
-static uint16_t _desc_str[32+1];
+#define MAX_CHAR_COUNT    40
+
+static uint16_t _desc_str[1+MAX_CHAR_COUNT]; // first byte is length + type
 
 // Invoked when received GET STRING DESCRIPTOR request
 // Application return pointer to descriptor, whose contents must exist long enough for transfer to complete
@@ -178,7 +180,7 @@ uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid)
 
       // Cap at max char
       chr_count = strlen(str);
-      if ( chr_count > 31 ) chr_count = 31;
+      if ( chr_count > MAX_CHAR_COUNT ) chr_count = MAX_CHAR_COUNT;
 
       for(uint8_t i=0; i<chr_count; i++)
       {

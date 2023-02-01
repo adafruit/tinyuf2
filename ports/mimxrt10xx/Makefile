@@ -61,6 +61,7 @@ DBL_TAP_REG_ADDR = 0x400D410C
 # extract _fcfb_origin and _ivt_origin from linker file
 SDP_WRITE_ADDR := $(shell sed -n 's/_fcfb_origin.*\(0x.*\);/\1/p' $(TOP)/$(PORT_DIR)/linker/$(MCU)_ram.ld)
 SDP_JUMP_ADDR := $(shell sed -n 's/_ivt_origin.*\(0x.*\);/\1/p' $(TOP)/$(PORT_DIR)/linker/$(MCU)_ram.ld)
+
 # SDPHOST is a variable if you need to change the path
 SDPHOST = sdphost
 

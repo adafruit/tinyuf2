@@ -52,8 +52,8 @@ static uint8_t serial_buf[512];
 void put_esp_into_dfu(void)
 {
   // Put ESP into upload mode
-  GPIO_PinWrite(ESP_GPIO0_PORT, ESP_GPIO0_PIN, 0);
-  GPIO_PinWrite(ESP_RESET_PORT, ESP_RESET_PIN, 0);
+  GPIO_PinWrite(ESP32_GPIO0_PORT, ESP32_GPIO0_PIN, 0);
+  GPIO_PinWrite(ESP32_RESET_PORT, ESP32_RESET_PIN, 0);
 
   // delay 100 ms
   _timer_count = 0;
@@ -61,7 +61,7 @@ void put_esp_into_dfu(void)
   while(_timer_count < 100) {}
   board_timer_stop();
 
-  GPIO_PinWrite(ESP_RESET_PORT, ESP_RESET_PIN, 1);
+  GPIO_PinWrite(ESP32_RESET_PORT, ESP32_RESET_PIN, 1);
 
   uint8_t rgb[3] = { 20, 20, 0 };
   board_rgb_write(rgb);
@@ -75,14 +75,14 @@ int main(void)
   gpio_pin_config_t pin_config = { kGPIO_DigitalOutput, 1, kGPIO_NoIntmode };
 
   // ESP GPIO0
-  IOMUXC_SetPinMux(ESP_GPIO0_PINMUX, 0U);
-  IOMUXC_SetPinConfig(ESP_GPIO0_PINMUX, 0x10B0U);
-  GPIO_PinInit(ESP_GPIO0_PORT, ESP_GPIO0_PIN, &pin_config);
+  IOMUXC_SetPinMux(ESP32_GPIO0_PINMUX, 0U);
+  IOMUXC_SetPinConfig(ESP32_GPIO0_PINMUX, 0x10B0U);
+  GPIO_PinInit(ESP32_GPIO0_PORT, ESP32_GPIO0_PIN, &pin_config);
 
   // ESP Reset
-  IOMUXC_SetPinMux(ESP_RESET_PINMUX, 0U);
-  IOMUXC_SetPinConfig(ESP_RESET_PINMUX, 0x10B0U);
-  GPIO_PinInit(ESP_RESET_PORT, ESP_RESET_PIN, &pin_config);
+  IOMUXC_SetPinMux(ESP32_RESET_PINMUX, 0U);
+  IOMUXC_SetPinConfig(ESP32_RESET_PINMUX, 0x10B0U);
+  GPIO_PinInit(ESP32_RESET_PORT, ESP32_RESET_PIN, &pin_config);
 
   put_esp_into_dfu();
 
@@ -173,10 +173,10 @@ void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts)
     // normal operation
     TUF2_LOG1("Normal\n");
     //GPIO_PinWrite(ESP_GPIO0_PORT, ESP_GPIO0_PIN, 1);
-    GPIO_PinWrite(ESP_RESET_PORT, ESP_RESET_PIN, 1);
+    GPIO_PinWrite(ESP32_RESET_PORT, ESP32_RESET_PIN, 1);
   }else
   {
-    GPIO_PinWrite(ESP_RESET_PORT, ESP_RESET_PIN, rts);
+    GPIO_PinWrite(ESP32_RESET_PORT, ESP32_RESET_PIN, rts);
 //    if (rts)
 //    {
 //      TUF2_LOG1("Reset to DFU start\n");
