@@ -83,9 +83,10 @@ void board_flash_init(void)
   // Normally it is done once by SDPHost or used to recover an corrupted boards
   uint32_t const boot_mode = (SRC->SBMR2 & SRC_SBMR2_BMOD_MASK) >> SRC_SBMR2_BMOD_SHIFT;
   bool fcfb_valid = (*(uint32_t*) FCFB_START_ADDRESS == FLEXSPI_CFG_BLK_TAG);
+
+  TUF2_LOG1("Boot Mode = %lu, fbfb_valid = %u\r\n", boot_mode, fcfb_valid);
   if (boot_mode == 1 || !fcfb_valid)
   {
-    TUF2_LOG1("Boot Mode = %lu, fbfb_valid = %u\r\n", boot_mode, fcfb_valid);
     write_tinyuf2_to_flash();
   } 
 }

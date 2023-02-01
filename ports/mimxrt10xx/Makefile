@@ -87,3 +87,8 @@ self-update: $(SELF_UF2)
 $(SELF_UF2): $(BUILD)/$(OUTNAME).bin
 	@echo CREATE $@
 	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py -f $(UF2_FAMILY_ID) -b $(UF2_$(MCU)_WRITE_ADDR) -c -o $@ $<
+
+# UF2_BOOT_MOUNT_PATH is defined in board.mk
+flash-uf2: $(SELF_UF2)
+	@echo copying $<
+	cp $(SELF_UF2) $(UF2_BOOT_MOUNT_PATH)/

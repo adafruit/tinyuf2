@@ -35,3 +35,7 @@ all: $(BUILD)/$(OUTNAME).uf2
 flash-app: $(BUILD)/$(OUTNAME)-textonly.bin
 	pyocd flash -t $(PYOCD_TARGET) -a $(APPLICATION_ADDR) $<
 	pyocd reset -t $(PYOCD_TARGET)
+
+# UF2_BOOT_MOUNT_PATH is defined in board.mk
+flash-uf2: $(BUILD)/$(OUTNAME).uf2
+	$(CP) $< $(UF2_BOOT_MOUNT_PATH)/

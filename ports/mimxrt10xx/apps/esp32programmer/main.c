@@ -59,9 +59,11 @@ void put_esp_into_dfu(void)
   _timer_count = 0;
   board_timer_start(1);
   while(_timer_count < 100) {}
-  board_timer_stop();
 
   GPIO_PinWrite(ESP32_RESET_PORT, ESP32_RESET_PIN, 1);
+  while(_timer_count < 200) {}
+
+  board_timer_stop();
 
   uint8_t rgb[3] = { 20, 20, 0 };
   board_rgb_write(rgb);
@@ -104,7 +106,7 @@ int main(void)
     }
 
     // UART -> USB
-    count = board_uart_read(serial_buf, sizeof(serial_buf));
+    count = (uint32_t) board_uart_read(serial_buf, sizeof(serial_buf));
     if (count)
     {
       tud_cdc_write(serial_buf, count);

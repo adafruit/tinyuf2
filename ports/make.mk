@@ -181,4 +181,5 @@ ifneq ($(SKIP_NANOLIB), 1)
 endif
 
 # Board specific define
+# TODO should be moved to port.mk
 include $(TOP)/$(BOARD_DIR)/board.mk

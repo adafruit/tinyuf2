@@ -28,7 +28,7 @@ iMXRT has built-in BootROM that implements the Serial Download Protocol (SDP), w
   make BOARD=imxrt1010_evk flash-sdp
   ```
 
-4. Switch back `BOOT_MODE[1:0]=10` to boot internal flash
+4. Switch back `BOOT_MODE[1:0]=10` to boot from xip flash
 
 Note: Since SDP with BootROM doesn't requires external debugger and always exists regardless of the external flash, this method can also be used to de-brick your board should it be needed.
 
