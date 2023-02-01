@@ -405,14 +405,17 @@ int board_uart_read(uint8_t* buf, int len)
 
   while( count < len )
   {
-    if ( !((UART_DEV->WATER & LPUART_WATER_RXCOUNT_MASK) >> LPUART_WATER_RXCOUNT_SHIFT) ) break;
+    uint8_t const rx_count = LPUART_GetRxFifoCount(UART_DEV);
+    if (!rx_count) break;
 
-    buf[count] = LPUART_ReadByte(UART_DEV);
-    count++;
+    for(int i=0; i<rx_count; i++)
+    {
+      buf[count] = LPUART_ReadByte(UART_DEV);
+      count++;
+    }
   }
 
   return count;
-
 #else
 
   (void) buf; (void) len;
