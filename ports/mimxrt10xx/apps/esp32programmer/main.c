@@ -41,6 +41,8 @@
 //--------------------------------------------------------------------+
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
 //--------------------------------------------------------------------+
+//uint8_t const RGB_USB_UNMOUNTED[] = { 0xff, 0x00, 0x00 }; // Red
+//uint8_t const RGB_USB_MOUNTED[]   = { 0x00, 0xff, 0x00 }; // Green
 
 // optional API, not included in board_api.h
 int board_uart_read(uint8_t* buf, int len);
@@ -49,24 +51,37 @@ static volatile uint32_t _timer_count = 0;
 static uint32_t baud_rate = 115200;
 static uint8_t serial_buf[512];
 
-void put_esp_into_dfu(void)
+static inline void esp32_set_io0(uint8_t state)
+{
+  GPIO_PinWrite(ESP32_GPIO0_PORT, ESP32_GPIO0_PIN, state);
+}
+
+static inline void esp32_set_reset(uint8_t state)
+{
+  GPIO_PinWrite(ESP32_RESET_PORT, ESP32_RESET_PIN, state);
+}
+
+static inline void delay_blocking(uint8_t ms)
+{
+  uint32_t start = _timer_count;
+  while(_timer_count - start < ms)
+  {
+    tud_task();
+  }
+}
+
+void esp32_enter_dfu(void)
 {
   // Put ESP into upload mode
-  GPIO_PinWrite(ESP32_GPIO0_PORT, ESP32_GPIO0_PIN, 0);
-  GPIO_PinWrite(ESP32_RESET_PORT, ESP32_RESET_PIN, 0);
+  esp32_set_io0(0);
+  esp32_set_reset(0);
+  delay_blocking(100); // delay while reset
 
-  // delay 100 ms
-  _timer_count = 0;
-  board_timer_start(1);
-  while(_timer_count < 100) {}
+  esp32_set_reset(1);
+  delay_blocking(100); // delay after reset
 
-  GPIO_PinWrite(ESP32_RESET_PORT, ESP32_RESET_PIN, 1);
-  while(_timer_count < 200) {}
-
-  board_timer_stop();
-
-  uint8_t rgb[3] = { 20, 20, 0 };
-  board_rgb_write(rgb);
+  esp32_set_io0(1);
+  delay_blocking(100); // delay after reset
 }
 
 int main(void)
@@ -74,47 +89,65 @@ int main(void)
   board_init();
   board_uart_init(115200);
 
-  gpio_pin_config_t pin_config = { kGPIO_DigitalOutput, 1, kGPIO_NoIntmode };
+  gpio_pin_config_t pin_config = { kGPIO_DigitalOutput, 0, kGPIO_NoIntmode };
+
+//  uint32_t mux_config =  IOMUXC_SW_PAD_CTL_PAD_HYS(0)
+//                      | IOMUXC_SW_PAD_CTL_PAD_PUS(1)
+//                      | IOMUXC_SW_PAD_CTL_PAD_PUE(1)
+//                      | IOMUXC_SW_PAD_CTL_PAD_PKE(1)
+//                      | IOMUXC_SW_PAD_CTL_PAD_ODE(0)
+//                      | IOMUXC_SW_PAD_CTL_PAD_SPEED(1)
+//                      | IOMUXC_SW_PAD_CTL_PAD_DSE(6)
+//                      | IOMUXC_SW_PAD_CTL_PAD_SRE(0);
 
   // ESP GPIO0
-  IOMUXC_SetPinMux(ESP32_GPIO0_PINMUX, 0U);
+  IOMUXC_SetPinMux(ESP32_GPIO0_PINMUX, 0);
   IOMUXC_SetPinConfig(ESP32_GPIO0_PINMUX, 0x10B0U);
+//  IOMUXC_SetPinConfig(ESP32_GPIO0_PINMUX, mux_config);
   GPIO_PinInit(ESP32_GPIO0_PORT, ESP32_GPIO0_PIN, &pin_config);
 
   // ESP Reset
-  IOMUXC_SetPinMux(ESP32_RESET_PINMUX, 0U);
+  IOMUXC_SetPinMux(ESP32_RESET_PINMUX, 0);
   IOMUXC_SetPinConfig(ESP32_RESET_PINMUX, 0x10B0U);
+//  IOMUXC_SetPinConfig(ESP32_RESET_PINMUX, mux_config);
   GPIO_PinInit(ESP32_RESET_PORT, ESP32_RESET_PIN, &pin_config);
-
-  put_esp_into_dfu();
 
   board_usb_init();
   tusb_init();
 
+  board_timer_start(1);
+  esp32_enter_dfu();
+
   while(1)
   {
+#if 0
+    (void) serial_buf;
+#else
     uint32_t count;
 
     // USB -> UART
     while( tud_cdc_available() )
     {
+      board_led_write(1);
+
       count = tud_cdc_read(serial_buf, sizeof(serial_buf));
       board_uart_write(serial_buf, count);
 
-      uint8_t rgb[3] = { 10, 0, 0 };
-      board_rgb_write(rgb);
+      board_led_write(0);
     }
 
     // UART -> USB
     count = (uint32_t) board_uart_read(serial_buf, sizeof(serial_buf));
     if (count)
     {
+      board_led_write(1);
+
       tud_cdc_write(serial_buf, count);
       tud_cdc_write_flush();
 
-      uint8_t rgb[3] = { 0, 0, 10 };
-      board_rgb_write(rgb);
+      board_led_write(0);
     }
+#endif
 
     tud_task();
   }
@@ -128,6 +161,18 @@ void board_timer_handler(void)
 //--------------------------------------------------------------------+
 // USB CDC
 //--------------------------------------------------------------------+
+
+// Invoked when device is plugged and configured
+//void tud_mount_cb(void)
+//{
+//  board_rgb_write(RGB_USB_MOUNTED);
+//}
+//
+//// Invoked when device is unplugged
+//void tud_umount_cb(void)
+//{
+//  board_rgb_write(RGB_USB_UNMOUNTED);
+//}
 
 // Invoked when line coding is change via SET_LINE_CODING
 void tud_cdc_line_coding_cb(uint8_t itf, cdc_line_coding_t const* line_coding)
