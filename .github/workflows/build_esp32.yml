@@ -126,5 +126,5 @@ jobs:
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       if: ${{ github.event_name == 'release' }}
       run: |
-        [ -z \"$AWS_ACCESS_KEY_ID\" ] || aws s3 cp tinyuf2-${{ matrix.board }}-*.zip s3://adafruit-circuit-python/bootloaders/esp32 --no-progress --region us-east-1
-        [ -z \"$AWS_ACCESS_KEY_ID\" ] || aws s3 cp update-tinyuf2-${{ matrix.board }}-*.uf2 s3://adafruit-circuit-python/bootloaders/esp32 --no-progress --region us-east-1
+        [ -z \"$AWS_ACCESS_KEY_ID\" ] || aws s3 cp tinyuf2-${{ matrix.board }}-*.zip s3://adafruit-circuit-python/bootloaders/esp32/tinyuf2-${{ matrix.board }}-*.zip --no-progress --region us-east-1
+        [ -z \"$AWS_ACCESS_KEY_ID\" ] || aws s3 cp update-tinyuf2-${{ matrix.board }}-*.uf2 s3://adafruit-circuit-python/bootloaders/esp32/update-tinyuf2-${{ matrix.board }}-*.uf2 --no-progress --region us-east-1
