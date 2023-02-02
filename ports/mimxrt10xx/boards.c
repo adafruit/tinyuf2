@@ -61,7 +61,7 @@ void board_init(void)
   SNVS->LPCR |= SNVS_LPCR_GPR_Z_DIS_MASK;
 
 #ifdef LED_PINMUX
-  IOMUXC_SetPinMux(LED_PINMUX, 0U);
+  IOMUXC_SetPinMux(LED_PINMUX, 0);
   IOMUXC_SetPinConfig(LED_PINMUX, 0x10B0U);
 
   gpio_pin_config_t led_config = { kGPIO_DigitalOutput, 0, kGPIO_NoIntmode };
@@ -69,21 +69,29 @@ void board_init(void)
 #endif
 
 #if NEOPIXEL_NUMBER
-  IOMUXC_SetPinMux( NEOPIXEL_PINMUX, 0U);
-  IOMUXC_SetPinConfig( NEOPIXEL_PINMUX, 0x10B0U);
+  IOMUXC_SetPinMux(NEOPIXEL_PINMUX, 0);
+  IOMUXC_SetPinConfig(NEOPIXEL_PINMUX, 0x10B0U);
 
   gpio_pin_config_t neopixel_config = { kGPIO_DigitalOutput, 0, kGPIO_NoIntmode };
   GPIO_PinInit(NEOPIXEL_PORT, NEOPIXEL_PIN, &neopixel_config);
 #endif
 
 #ifdef BUTTON_PIN
-  IOMUXC_SetPinMux(BUTTON_PINMUX, 0U);
+  IOMUXC_SetPinMux(BUTTON_PINMUX, 0);
   gpio_pin_config_t button_config = { kGPIO_DigitalInput, 0, kGPIO_IntRisingEdge, };
   GPIO_PinInit(BUTTON_PORT, BUTTON_PIN, &button_config);
 #endif
 
 #if TUF2_LOG
   board_uart_init(BOARD_UART_BAUDRATE);
+#endif
+}
+
+void board_teardown(void)
+{
+  // no GPIO deinit for GPIO: LED, Neopixel, Button
+#if TUF2_LOG
+  LPUART_Deinit(UART_DEV);
 #endif
 }
 
@@ -123,7 +131,7 @@ void board_dfu_init(void)
   _dfu_mode = true;
 
 #ifdef LED_PWM_PINMUX
-  IOMUXC_SetPinMux(LED_PWM_PINMUX, 0U);
+  IOMUXC_SetPinMux(LED_PWM_PINMUX, 0);
   IOMUXC_SetPinConfig(LED_PWM_PINMUX, 0x10B0U);
 
   CLOCK_SetDiv(kCLOCK_AhbDiv, 0x2); /* Set AHB PODF to 2, divide by 3 */
@@ -348,10 +356,11 @@ void board_uart_init(uint32_t baud_rate)
 {
 #ifdef UART_DEV
   // Enable UART when debug log is on
-  IOMUXC_SetPinMux(UART_TX_PINMUX, 0U);
-  IOMUXC_SetPinMux(UART_RX_PINMUX, 0U);
-  IOMUXC_SetPinConfig(UART_TX_PINMUX, 0x10B0u);
+  IOMUXC_SetPinMux(UART_RX_PINMUX, 0);
+  IOMUXC_SetPinMux(UART_TX_PINMUX, 0);
+
   IOMUXC_SetPinConfig(UART_RX_PINMUX, 0x10B0u);
+  IOMUXC_SetPinConfig(UART_TX_PINMUX, 0x10B0u);
 
   lpuart_config_t uart_config;
   LPUART_GetDefaultConfig(&uart_config);
@@ -376,22 +385,9 @@ void board_uart_init(uint32_t baud_rate)
 int board_uart_write(void const * buf, int len)
 {
 #ifdef UART_DEV
-  uint8_t const* buf8 = (uint8_t const*) buf;
-  int count = 0;
-
-  while(count < len)
-  {
-    if (LPUART_GetStatusFlags(UART_DEV) & kLPUART_TxDataRegEmptyFlag)
-    {
-      LPUART_WriteByte(UART_DEV, *buf8++);
-      count++;
-    }
-  }
-
+  LPUART_WriteBlocking(UART_DEV, (uint8_t const*) buf, (size_t) len);
   return len;
-
 #else
-
   (void) buf; (void) len;
   return 0;
 #endif
