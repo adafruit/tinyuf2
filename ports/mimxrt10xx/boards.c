@@ -76,12 +76,6 @@ void board_init(void)
   GPIO_PinInit(NEOPIXEL_PORT, NEOPIXEL_PIN, &neopixel_config);
 #endif
 
-#ifdef BUTTON_PIN
-  IOMUXC_SetPinMux(BUTTON_PINMUX, 0);
-  gpio_pin_config_t button_config = { kGPIO_DigitalInput, 0, kGPIO_IntRisingEdge, };
-  GPIO_PinInit(BUTTON_PORT, BUTTON_PIN, &button_config);
-#endif
-
 #if TUF2_LOG
   board_uart_init(BOARD_UART_BAUDRATE);
 #endif
@@ -340,21 +334,13 @@ void board_rgb_write(uint8_t const rgb[])
 
 #endif
 
-#if 0
-uint32_t board_button_read(void)
-{
-  // active low
-  return BUTTON_STATE_ACTIVE == GPIO_PinRead(BUTTON_PORT, BUTTON_PIN);
-}
-#endif
-
 //--------------------------------------------------------------------+
 // UART
 //--------------------------------------------------------------------+
 
+#ifdef UART_DEV
 void board_uart_init(uint32_t baud_rate)
 {
-#ifdef UART_DEV
   // Enable UART when debug log is on
   IOMUXC_SetPinMux(UART_RX_PINMUX, 0);
   IOMUXC_SetPinMux(UART_TX_PINMUX, 0);
@@ -379,26 +365,18 @@ void board_uart_init(uint32_t baud_rate)
   }
 
   LPUART_Init(UART_DEV, &uart_config, freq);
-#endif
 }
 
 int board_uart_write(void const * buf, int len)
 {
-#ifdef UART_DEV
   LPUART_WriteBlocking(UART_DEV, (uint8_t const*) buf, (size_t) len);
   return len;
-#else
-  (void) buf; (void) len;
-  return 0;
-#endif
 }
 
 // optional API, not included in board_api.h
 int board_uart_read(uint8_t* buf, int len)
 {
-#ifdef UART_DEV
   int count = 0;
-
   while( count < len )
   {
     uint8_t const rx_count = LPUART_GetRxFifoCount(UART_DEV);
@@ -412,12 +390,28 @@ int board_uart_read(uint8_t* buf, int len)
   }
 
   return count;
+}
+
 #else
 
+void board_uart_init(uint32_t baud_rate)
+{
+  (void) baud_rate;
+}
+
+int board_uart_write(void const * buf, int len)
+{
   (void) buf; (void) len;
   return 0;
-#endif
 }
+
+int board_uart_read(uint8_t* buf, int len)
+{
+  (void) buf; (void) len;
+  return 0;
+}
+#endif
+
 
 //--------------------------------------------------------------------+
 // USB Interrupt Handler
