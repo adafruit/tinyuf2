@@ -28,14 +28,12 @@ iMXRT has built-in BootROM that implements the Serial Download Protocol (SDP), w
   make BOARD=metro_m7_1011 flash-sdp
   ```
 
-  The flash-sdp target will execute following 2 command (write file and jump)
+In case you wonder, the flash-sdp target will execute following 2 commands. Note: each rt10xx mcu has different vid/pid and different SRAM address, example is for rt1011.
 
   ```
   sdphost -u 0x1fc9,0x0145 write-file 0x20206400 _build/metro_m7_1011/tinyuf2-metro_m7_1011.bin
   sdphost -u 0x1fc9,0x0145 jump-address 0x20207000
   ```
-
-  Note: each rt10xx mcu has different vid/pid and different SRAM address, above example is for rt1011.
 
 4. Switch back `BOOT_MODE[1:0]=10` to boot from xip flash
 
