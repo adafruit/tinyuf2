@@ -67,15 +67,15 @@ SDPHOST = sdphost
 
 flash-sdp: $(BUILD)/$(OUTNAME).bin
 	@if [ -z "$(SDPHOST)" ]; then echo SDPHOST is not found for this machine; exit 1; fi
-	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- write-file $(SDP_WRITE_ADDR) $<
-	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- jump-address $(SDP_JUMP_ADDR)
+	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) write-file $(SDP_WRITE_ADDR) $<
+	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) jump-address $(SDP_JUMP_ADDR)
 
 # TODO write-register doesn't work
 erase-app: $(BUILD)/$(OUTNAME).bin
 	@if [ -z "$(SDPHOST)" ]; then echo SDPHOST is not found for this machine; exit 1; fi
-	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- write-register $(DBL_TAP_REG_ADDR) 32 $(DBL_TAP_MAGIC_ERASE_APP)
-	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- write-file $(SDP_$(MCU)_WRITE_ADDR) $<
-	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- jump-address $(SDP_$(MCU)_JUMP_ADDR)
+	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) write-register $(DBL_TAP_REG_ADDR) 32 $(DBL_TAP_MAGIC_ERASE_APP)
+	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) write-file $(SDP_$(MCU)_WRITE_ADDR) $<
+	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) jump-address $(SDP_$(MCU)_JUMP_ADDR)
 
 #-------------------------- Self-update  --------------------------
 # RT10xx run entire bootloader from SRAM and can directly flash

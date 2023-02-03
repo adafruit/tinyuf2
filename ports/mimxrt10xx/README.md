@@ -25,8 +25,17 @@ iMXRT has built-in BootROM that implements the Serial Download Protocol (SDP), w
 3. Run `flash-sdp` make target which in turn uses the `sdphost` with correct address and arguments to load and execute TinyUF2. While running, TinyUF2 will program the external flash with its SRAM's image.
 
   ```
-  make BOARD=imxrt1010_evk flash-sdp
+  make BOARD=metro_m7_1011 flash-sdp
   ```
+
+  The flash-sdp target will execute following 2 command (write file and jump)
+
+  ```
+  sdphost -u 0x1fc9,0x0145 write-file 0x20206400 _build/metro_m7_1011/tinyuf2-metro_m7_1011.bin
+  sdphost -u 0x1fc9,0x0145 jump-address 0x20207000
+  ```
+
+  Note: each rt10xx mcu has different vid/pid and different SRAM address, above example is for rt1011.
 
 4. Switch back `BOOT_MODE[1:0]=10` to boot from xip flash
 
