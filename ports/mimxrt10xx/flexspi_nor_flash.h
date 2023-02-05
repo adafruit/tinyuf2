@@ -13,16 +13,17 @@
 #include "fsl_common.h"
 #include "bl_flexspi.h"
 
-/*  */
-#define NOR_CMD_INDEX_READ          CMD_INDEX_READ        //!< 0
-#define NOR_CMD_INDEX_READSTATUS    CMD_INDEX_READSTATUS  //!< 1
-#define NOR_CMD_INDEX_WRITEENABLE   CMD_INDEX_WRITEENABLE //!< 2
-#define NOR_CMD_INDEX_ERASESECTOR   3                     //!< 3
-#define NOR_CMD_INDEX_PAGEPROGRAM   CMD_INDEX_WRITE       //!< 4
-#define NOR_CMD_INDEX_CHIPERASE     5                     //!< 5
-#define NOR_CMD_INDEX_DUMMY         6                     //!< 6
-#define NOR_CMD_INDEX_ERASEBLOCK    7                     //!< 7
+// Seems to be not used !
+//#define NOR_CMD_INDEX_READ          CMD_INDEX_READ        //!< 0
+//#define NOR_CMD_INDEX_READSTATUS    CMD_INDEX_READSTATUS  //!< 1
+//#define NOR_CMD_INDEX_WRITEENABLE   CMD_INDEX_WRITEENABLE //!< 2
+//#define NOR_CMD_INDEX_ERASESECTOR   3                     //!< 3
+//#define NOR_CMD_INDEX_PAGEPROGRAM   CMD_INDEX_WRITE       //!< 4
+//#define NOR_CMD_INDEX_CHIPERASE     5                     //!< 5
+//#define NOR_CMD_INDEX_DUMMY         6                     //!< 6
+//#define NOR_CMD_INDEX_ERASEBLOCK    7                     //!< 7
 
+// Command index in flexspi_nor_config_t's look-up table
 #define NOR_CMD_LUT_SEQ_IDX_READ              CMD_LUT_SEQ_IDX_READ        //!< 0  READ LUT sequence id in lookupTable stored in config block
 #define NOR_CMD_LUT_SEQ_IDX_READSTATUS        CMD_LUT_SEQ_IDX_READSTATUS  //!< 1  Read Status LUT sequence id in lookupTable stored in config block
 #define NOR_CMD_LUT_SEQ_IDX_READSTATUS_XPI    2                           //!< 2  Read status DPI/QPI/OPI sequence id in lookupTable stored in config block

@@ -61,20 +61,21 @@ DBL_TAP_REG_ADDR = 0x400D410C
 # extract _fcfb_origin and _ivt_origin from linker file
 SDP_WRITE_ADDR := $(shell sed -n 's/_fcfb_origin.*\(0x.*\);/\1/p' $(TOP)/$(PORT_DIR)/linker/$(MCU)_ram.ld)
 SDP_JUMP_ADDR := $(shell sed -n 's/_ivt_origin.*\(0x.*\);/\1/p' $(TOP)/$(PORT_DIR)/linker/$(MCU)_ram.ld)
+
 # SDPHOST is a variable if you need to change the path
 SDPHOST = sdphost
 
 flash-sdp: $(BUILD)/$(OUTNAME).bin
 	@if [ -z "$(SDPHOST)" ]; then echo SDPHOST is not found for this machine; exit 1; fi
-	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- write-file $(SDP_WRITE_ADDR) $<
-	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- jump-address $(SDP_JUMP_ADDR)
+	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) write-file $(SDP_WRITE_ADDR) $<
+	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) jump-address $(SDP_JUMP_ADDR)
 
 # TODO write-register doesn't work
 erase-app: $(BUILD)/$(OUTNAME).bin
 	@if [ -z "$(SDPHOST)" ]; then echo SDPHOST is not found for this machine; exit 1; fi
-	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- write-register $(DBL_TAP_REG_ADDR) 32 $(DBL_TAP_MAGIC_ERASE_APP)
-	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- write-file $(SDP_$(MCU)_WRITE_ADDR) $<
-	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) -- jump-address $(SDP_$(MCU)_JUMP_ADDR)
+	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) write-register $(DBL_TAP_REG_ADDR) 32 $(DBL_TAP_MAGIC_ERASE_APP)
+	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) write-file $(SDP_$(MCU)_WRITE_ADDR) $<
+	$(SDPHOST) -u 0x1fc9,$(SDP_$(MCU)_PID) jump-address $(SDP_$(MCU)_JUMP_ADDR)
 
 #-------------------------- Self-update  --------------------------
 # RT10xx run entire bootloader from SRAM and can directly flash
@@ -86,3 +87,8 @@ self-update: $(SELF_UF2)
 $(SELF_UF2): $(BUILD)/$(OUTNAME).bin
 	@echo CREATE $@
 	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py -f $(UF2_FAMILY_ID) -b $(UF2_$(MCU)_WRITE_ADDR) -c -o $@ $<
+
+# UF2_BOOT_MOUNT_PATH is defined in board.mk
+flash-uf2: $(SELF_UF2)
+	@echo copying $<
+	cp $(SELF_UF2) $(UF2_BOOT_MOUNT_PATH)/

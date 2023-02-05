@@ -48,6 +48,7 @@ extern uint32_t _fcfb_length[];
 
 // Mask off lower 12 bits to get FCFB offset
 #define FCFB_START_ADDRESS    (FLEXSPI_FLASH_BASE + (((uint32_t) &qspiflash_config) & 0xFFFUL))
+#define FCFB_LENGTH           ((uint32_t) _fcfb_length)
 
 // Flash Configuration Structure 
 extern flexspi_nor_config_t const qspiflash_config;
@@ -56,13 +57,27 @@ static flexspi_nor_config_t* flash_cfg = (flexspi_nor_config_t*) &qspiflash_conf
 static uint32_t _flash_page_addr = NO_CACHE;
 static uint8_t  _flash_cache[SECTOR_SIZE] __attribute__((aligned(4)));
 
+
+// Check if TinyUF2 running in SRAM matches the on flash contents
+static bool compare_tinyuf2_ram_vs_flash(void)
+{
+  uint8_t const* image_data = (uint8_t const *) &qspiflash_config;
+  uint32_t flash_addr = FCFB_START_ADDRESS;
+
+  // fcfb + bootloader (ivt, interrupt, text)
+  uint32_t const end_addr = FLEXSPI_FLASH_BASE + FCFB_LENGTH + BOARD_BOOT_LENGTH;
+
+  return 0 == memcmp((void const*) flash_addr, image_data, end_addr-flash_addr);
+}
+
+// Write TinyUF2 from SRAM to Flash
 static void write_tinyuf2_to_flash(void)
 {
   uint8_t const* image_data = (uint8_t const *) &qspiflash_config;
   uint32_t flash_addr = FCFB_START_ADDRESS;
 
   // fcfb + bootloader (ivt, interrupt, text)
-  uint32_t const end_addr = FLEXSPI_FLASH_BASE + ((uint32_t) _fcfb_length) + BOARD_BOOT_LENGTH;
+  uint32_t const end_addr = FLEXSPI_FLASH_BASE + FCFB_LENGTH + BOARD_BOOT_LENGTH;
 
   TUF2_LOG1("Writing TinyUF2 image to flash.\r\n");
   while ( flash_addr < end_addr )
@@ -79,15 +94,20 @@ void board_flash_init(void)
 {
   ROM_FLEXSPI_NorFlash_Init(FLEXSPI_INSTANCE, flash_cfg);
 
-  // TinyUF2 will copy its image to flash if  Boot Mode is '01' i.e Serial Download Mode (BootRom)
-  // Normally it is done once by SDPHost or used to recover an corrupted boards
+  // TinyUF2 will copy its image to flash if one of conditions meets:
+  // - Boot Mode is '01' i.e Serial Download Mode (BootRom)
+  // - Flash FCFB is invalid e.g blank flash
+  // - Flash contents does not match running tinyuf2 in SRAM
   uint32_t const boot_mode = (SRC->SBMR2 & SRC_SBMR2_BMOD_MASK) >> SRC_SBMR2_BMOD_SHIFT;
-  bool fcfb_valid = (*(uint32_t*) FCFB_START_ADDRESS == FLEXSPI_CFG_BLK_TAG);
-  if (boot_mode == 1 || !fcfb_valid)
+  bool const fcfb_valid = (*(uint32_t*) FCFB_START_ADDRESS == FLEXSPI_CFG_BLK_TAG);
+  bool const matched_flash = compare_tinyuf2_ram_vs_flash();
+
+  TUF2_LOG1("Boot Mode = %lu, fcfb_valid = %u, matched_flash = %u\r\n", boot_mode, fcfb_valid, matched_flash);
+
+  if (boot_mode == 1 || !fcfb_valid || !matched_flash)
   {
-    TUF2_LOG1("Boot Mode = %lu, fbfb_valid = %u\r\n", boot_mode, fcfb_valid);
     write_tinyuf2_to_flash();
-  } 
+  }
 }
 
 uint32_t board_flash_size(void)

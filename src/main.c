@@ -73,6 +73,7 @@ int main(void)
   if ( !check_dfu_mode() )
   {
     TU_LOG1("Jump to application\r\n");
+    if (board_teardown) board_teardown();
     board_app_jump();
     while(1) {}
   }

@@ -41,6 +41,8 @@
 //--------------------------------------------------------------------+
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
 //--------------------------------------------------------------------+
+//uint8_t const RGB_USB_UNMOUNTED[] = { 0xff, 0x00, 0x00 }; // Red
+//uint8_t const RGB_USB_MOUNTED[]   = { 0x00, 0xff, 0x00 }; // Green
 
 // optional API, not included in board_api.h
 int board_uart_read(uint8_t* buf, int len);
@@ -49,70 +51,91 @@ static volatile uint32_t _timer_count = 0;
 static uint32_t baud_rate = 115200;
 static uint8_t serial_buf[512];
 
-void put_esp_into_dfu(void)
+static inline void esp32_set_io0(uint8_t state)
+{
+  GPIO_PinWrite(ESP32_GPIO0_PORT, ESP32_GPIO0_PIN, state);
+}
+
+static inline void esp32_set_reset(uint8_t state)
+{
+  GPIO_PinWrite(ESP32_RESET_PORT, ESP32_RESET_PIN, state);
+}
+
+static inline void delay_blocking(uint8_t ms)
+{
+  uint32_t start = _timer_count;
+  while(_timer_count - start < ms)
+  {
+    tud_task();
+  }
+}
+
+void esp32_enter_dfu(void)
 {
   // Put ESP into upload mode
-  GPIO_PinWrite(ESP_GPIO0_PORT, ESP_GPIO0_PIN, 0);
-  GPIO_PinWrite(ESP_RESET_PORT, ESP_RESET_PIN, 0);
+  esp32_set_io0(0);
+  esp32_set_reset(0);
+  delay_blocking(100); // delay while reset
 
-  // delay 100 ms
-  _timer_count = 0;
-  board_timer_start(1);
-  while(_timer_count < 100) {}
-  board_timer_stop();
-
-  GPIO_PinWrite(ESP_RESET_PORT, ESP_RESET_PIN, 1);
-
-  uint8_t rgb[3] = { 20, 20, 0 };
-  board_rgb_write(rgb);
+  esp32_set_reset(1);
+  delay_blocking(100); // delay after reset
+  esp32_set_io0(1);
 }
 
 int main(void)
 {
   board_init();
-  board_uart_init(115200);
 
   gpio_pin_config_t pin_config = { kGPIO_DigitalOutput, 1, kGPIO_NoIntmode };
 
   // ESP GPIO0
-  IOMUXC_SetPinMux(ESP_GPIO0_PINMUX, 0U);
-  IOMUXC_SetPinConfig(ESP_GPIO0_PINMUX, 0x10B0U);
-  GPIO_PinInit(ESP_GPIO0_PORT, ESP_GPIO0_PIN, &pin_config);
+  IOMUXC_SetPinMux(ESP32_GPIO0_PINMUX, 0);
+  IOMUXC_SetPinConfig(ESP32_GPIO0_PINMUX, 0x10B0U);
+  GPIO_PinInit(ESP32_GPIO0_PORT, ESP32_GPIO0_PIN, &pin_config);
 
   // ESP Reset
-  IOMUXC_SetPinMux(ESP_RESET_PINMUX, 0U);
-  IOMUXC_SetPinConfig(ESP_RESET_PINMUX, 0x10B0U);
-  GPIO_PinInit(ESP_RESET_PORT, ESP_RESET_PIN, &pin_config);
+  IOMUXC_SetPinMux(ESP32_RESET_PINMUX, 0);
+  IOMUXC_SetPinConfig(ESP32_RESET_PINMUX, 0x10B0U);
+  GPIO_PinInit(ESP32_RESET_PORT, ESP32_RESET_PIN, &pin_config);
 
-  put_esp_into_dfu();
-
+  board_uart_init(115200);
   board_usb_init();
   tusb_init();
 
+  board_timer_start(1);
+  esp32_enter_dfu();
+  board_timer_stop();
+
   while(1)
   {
+#if 0
+    (void) serial_buf;
+#else
     uint32_t count;
 
     // USB -> UART
     while( tud_cdc_available() )
     {
+      board_led_write(0xff);
+
       count = tud_cdc_read(serial_buf, sizeof(serial_buf));
       board_uart_write(serial_buf, count);
 
-      uint8_t rgb[3] = { 10, 0, 0 };
-      board_rgb_write(rgb);
+      board_led_write(0);
     }
 
     // UART -> USB
-    count = board_uart_read(serial_buf, sizeof(serial_buf));
+    count = (uint32_t) board_uart_read(serial_buf, sizeof(serial_buf));
     if (count)
     {
+      board_led_write(0xff);
+
       tud_cdc_write(serial_buf, count);
       tud_cdc_write_flush();
 
-      uint8_t rgb[3] = { 0, 0, 10 };
-      board_rgb_write(rgb);
+      board_led_write(0);
     }
+#endif
 
     tud_task();
   }
@@ -126,6 +149,18 @@ void board_timer_handler(void)
 //--------------------------------------------------------------------+
 // USB CDC
 //--------------------------------------------------------------------+
+
+// Invoked when device is plugged and configured
+//void tud_mount_cb(void)
+//{
+//  board_rgb_write(RGB_USB_MOUNTED);
+//}
+//
+//// Invoked when device is unplugged
+//void tud_umount_cb(void)
+//{
+//  board_rgb_write(RGB_USB_UNMOUNTED);
+//}
 
 // Invoked when line coding is change via SET_LINE_CODING
 void tud_cdc_line_coding_cb(uint8_t itf, cdc_line_coding_t const* line_coding)
@@ -149,46 +184,6 @@ void tud_cdc_line_coding_cb(uint8_t itf, cdc_line_coding_t const* line_coding)
 
     LPUART_SetBaudRate(UART_DEV, baud_rate, freq);
   }
-}
-
-// Invoked when cdc when line state changed e.g connected/disconnected
-void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts)
-{
-  (void) itf;
-  (void) dtr;
-  (void) rts;
-
-  /* esptool does use DTR and RTS to put esp32 into bootloader mode
-   * DTR  RTS -> IO0  nRST
-   * 0    1   ->  0    1    Switch ESP to DFU
-   * 1    0   ->  1    0    Reset complete
-   *
-   * 1    1   ->  1    1    Normal
-   * 0    0   ->  0    0    Normal
-   */
-#if 0
-  TUF2_LOG1("dtr = %d, rts = %d: ", dtr, rts);
-  if ( dtr == rts )
-  {
-    // normal operation
-    TUF2_LOG1("Normal\n");
-    //GPIO_PinWrite(ESP_GPIO0_PORT, ESP_GPIO0_PIN, 1);
-    GPIO_PinWrite(ESP_RESET_PORT, ESP_RESET_PIN, 1);
-  }else
-  {
-    GPIO_PinWrite(ESP_RESET_PORT, ESP_RESET_PIN, rts);
-//    if (rts)
-//    {
-//      TUF2_LOG1("Reset to DFU start\n");
-//      GPIO_PinWrite(ESP_GPIO0_PORT, ESP_GPIO0_PIN, 0);
-//      GPIO_PinWrite(ESP_RESET_PORT, ESP_RESET_PIN, 0);
-//    }else
-//    {
-//      TUF2_LOG1("Reset Complete\n");
-//      GPIO_PinWrite(ESP_RESET_PORT, ESP_RESET_PIN, 1);
-//    }
-  }
-#endif
 }
 
 //--------------------------------------------------------------------+

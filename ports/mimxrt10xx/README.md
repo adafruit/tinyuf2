@@ -18,20 +18,24 @@ make BOARD=metro_m7_1011 flash-jlink-bin
 
 iMXRT has built-in BootROM that implements the Serial Download Protocol (SDP), which can be used to load & execute TinyUF2 to SRAM with `spdhost` tool via USB. You need to
 
-1. Instal the NXP SPSDK as described in the [SPSDK Installation Guide](https://spsdk.readthedocs.io/en/latest/usage/installation.html).  
-
-    a. Be sure to activate the venv before running sdphost.
-
-    b. If you are running linux, make sure your user has permission for
-    accessing `hidraw` (more details below)
+1. Instal the NXP SPSDK with `pip install spsdk` more details is described in the [SPSDK Installation Guide](https://spsdk.readthedocs.io/en/latest/usage/installation.html).If you are running Linux, make sure your user has permission for accessing `hidraw` (more details below)
 
 2. Power up your board with the Boot Mode switch set to `BOOT_MODE[1:0]=01` to enter Serial Download mode. Note: Serial Download mode also automatically run with blank flash, therefore you don't have to manual change it in your production run.
 
 3. Run `flash-sdp` make target which in turn uses the `sdphost` with correct address and arguments to load and execute TinyUF2. While running, TinyUF2 will program the external flash with its SRAM's image.
 
   ```
-  make BOARD=imxrt1010_evk flash-sdp
+  make BOARD=metro_m7_1011 flash-sdp
   ```
+
+In case you wonder, the flash-sdp target will execute following 2 commands. Note: each rt10xx mcu has different vid/pid and different SRAM address, example is for rt1011.
+
+  ```
+  sdphost -u 0x1fc9,0x0145 write-file 0x20206400 _build/metro_m7_1011/tinyuf2-metro_m7_1011.bin
+  sdphost -u 0x1fc9,0x0145 jump-address 0x20207000
+  ```
+
+4. Switch back `BOOT_MODE[1:0]=10` to boot from xip flash
 
 Note: Since SDP with BootROM doesn't requires external debugger and always exists regardless of the external flash, this method can also be used to de-brick your board should it be needed.
 
