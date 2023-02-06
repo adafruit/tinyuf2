@@ -39,7 +39,10 @@
 
 void loop(void);
 
-uint8_t all_pins[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, PIN_SDA, PIN_SCL, PIN_MOSI, PIN_MISO, PIN_SCK, AD5};
+uint8_t all_pins[] = {
+  0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+  PIN_SDA, PIN_SCL, PIN_MOSI, PIN_MISO, PIN_SCK, AD5
+};
 
 bool test = true;
 
@@ -65,6 +68,11 @@ int main(void)
 
   setColor(0);
   pinMode(13, OUTPUT);
+
+  // wait for Serial connection
+  if (test) {
+    while( !tud_cdc_connected() ) tud_task();
+  }
 
   while (1) {
     loop();
@@ -100,7 +108,7 @@ void loop(void) {
   }
 
   delay(100);
-  Serial_printf("\n\r\n\rHello Metro M7 iMX RT1011 Test! %d\n\r", millis());
+  Serial_printf("\n\r\n\rHello Metro M7 iMX RT1011 Test! %lu\n\r", millis());
 
 #if 0
   if ( !testpins(0, 2, all_pins, sizeof(all_pins))) return;

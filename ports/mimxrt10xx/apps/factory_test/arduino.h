@@ -59,7 +59,7 @@ typedef struct _pinmapping {
   bool adc_inited; // inited as adc
 } pinmap;
 
-void Serial_printf(const char format[], ...)  __attribute__ ((format (printf, 1, 0)));
+//void Serial_printf(const char format[], ...)  __attribute__ ((format (printf, 1, 0)));
 uint32_t millis(void);
 void delay(uint32_t ms);
 void digitalWrite(uint32_t pinnum, bool value);
@@ -69,3 +69,5 @@ void pinMode(uint32_t pinnum, uint8_t state);
 void setColor(uint32_t color);
 uint32_t neoWheel(uint8_t WheelPos);
 uint32_t makeColor(uint8_t r, uint8_t g, uint8_t b);
+
+#define Serial_printf(...)    do { printf(__VA_ARGS__); tud_cdc_write_flush(); } while(0)

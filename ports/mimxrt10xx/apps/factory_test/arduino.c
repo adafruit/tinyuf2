@@ -35,17 +35,6 @@ pinmap pinmapping[] = {
 
 static volatile uint32_t _millis = 0;
 
-void Serial_printf(const char format[], ...) {
-  char buf[256];
-  va_list ap;
-  va_start(ap, format);
-  vsnprintf(buf, sizeof(buf), format, ap);
-  tud_cdc_write(buf, strlen(buf));
-  va_end(ap);
-  tud_cdc_write_flush();
-}
-
-
 void board_timer_handler(void) {
   _millis++;
 }
@@ -62,7 +51,6 @@ void delay(uint32_t ms) {
     tud_cdc_write_flush();
   }
 }
-
 
 
 static pinmap *getMapping(uint32_t pinnum) {
