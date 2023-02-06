@@ -85,7 +85,7 @@ jobs:
         - 'unexpectedmaker_tinys3'
     steps:
     - name: Setup Python
-      uses: actions/setup-python@v3
+      uses: actions/setup-python@v4
 
     - name: Checkout
       uses: actions/checkout@v3

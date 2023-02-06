@@ -43,7 +43,7 @@ jobs:
         
     steps:
     - name: Setup Python
-      uses: actions/setup-python@v3
+      uses: actions/setup-python@v4
 
     - name: Checkout code
       uses: actions/checkout@v3
