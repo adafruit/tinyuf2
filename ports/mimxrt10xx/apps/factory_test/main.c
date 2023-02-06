@@ -37,7 +37,9 @@
 #include "tusb.h"
 #include "arduino.h"
 
-uint8_t all_pins[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, PIN_SDA, PIN_SCL};
+void loop(void);
+
+uint8_t all_pins[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, PIN_SDA, PIN_SCL, PIN_MOSI, PIN_MISO, PIN_SCK, AD5};
 
 bool testpins(uint8_t a, uint8_t b, uint8_t *allpins, uint8_t num_allpins);
 
@@ -51,6 +53,7 @@ bool testpins(uint8_t a, uint8_t b, uint8_t *allpins, uint8_t num_allpins);
 // optional API, not included in board_api.h
 int board_uart_read(uint8_t* buf, int len);
 
+bool test = false;
 
 int main(void)
 {
@@ -62,57 +65,56 @@ int main(void)
   board_usb_init();
   tusb_init();
 
-  uint8_t rgb[3] = { 20, 20, 0 };
-  board_rgb_write(rgb);
+  setColor(0);
 
   pinMode(13, OUTPUT);
 
-  while(1)
-  {
-    Serial_printf("\n\r\n\rHello Metro M7 iMX RT1011 Test! %d\n\r", millis());
-    digitalWrite(13, HIGH);
-    delay(100);
-    digitalWrite(13, LOW);
-    
-    if ( !testpins(0, 2, all_pins, sizeof(all_pins))) continue;
-    if ( !testpins(1, 3, all_pins, sizeof(all_pins))) continue;
-    if ( !testpins(4, 6, all_pins, sizeof(all_pins))) continue;
-    if ( !testpins(5, 7, all_pins, sizeof(all_pins))) continue;
-    if ( !testpins(8, 10, all_pins, sizeof(all_pins))) continue;
-    if ( !testpins(9, 11, all_pins, sizeof(all_pins))) continue;
-    if ( !testpins(12, PIN_SDA, all_pins, sizeof(all_pins))) continue; 
-    if ( !testpins(13, PIN_SCL, all_pins, sizeof(all_pins))) continue;
-    if ( !testpins(PIN_MOSI, PIN_MISO, all_pins, sizeof(all_pins))) continue;
-    if ( !testpins(PIN_SCK, AD5, all_pins, sizeof(all_pins))) continue;
-
-    Serial_printf("*** TEST OK! ***\n\r");
-    delay(100);
-
-
-    /*
-    // USB -> UART
-    while( tud_cdc_available() )
-    {
-      count = tud_cdc_read(serial_buf, sizeof(serial_buf));
-      board_uart_write(serial_buf, count);
-
-      uint8_t rgb[3] = { 10, 0, 0 };
-      board_rgb_write(rgb);
-    }
-
-    // UART -> USB
-    count = board_uart_read(serial_buf, sizeof(serial_buf));
-    if (count)
-    {
-      tud_cdc_write(serial_buf, count);
-      tud_cdc_write_flush();
-
-      uint8_t rgb[3] = { 0, 0, 10 };
-      board_rgb_write(rgb);
-    }
-    */
+  while (1) {
+    loop();
     tud_task();
   }
+}
+
+uint8_t loopcount = 0;
+void loop(void) {
+  if (tud_cdc_available()) {
+    uint8_t serial_buf[256];
+    uint32_t count;
+
+    count = tud_cdc_read(serial_buf, sizeof(serial_buf));
+    if (count && serial_buf[0] == 0xAF)
+      test = true;
+  }
+
+  if (! test) {
+    setColor(neoWheel(loopcount++));
+
+    if ((loopcount % 32) == 0) {
+       digitalWrite(13, HIGH);
+    }
+    if ((loopcount % 32) == 16) {
+       digitalWrite(13, LOW);
+    }
+    
+    delay(10);
+    return;
+  }
+
+  delay(100);
+  Serial_printf("\n\r\n\rHello Metro M7 iMX RT1011 Test! %d\n\r", millis());
+  
+  if ( !testpins(0, 2, all_pins, sizeof(all_pins))) return;
+  if ( !testpins(1, 3, all_pins, sizeof(all_pins))) return;
+  if ( !testpins(4, 6, all_pins, sizeof(all_pins))) return;
+  if ( !testpins(5, 7, all_pins, sizeof(all_pins))) return;
+  if ( !testpins(8, 10, all_pins, sizeof(all_pins))) return;
+  if ( !testpins(9, 11, all_pins, sizeof(all_pins))) return;
+  if ( !testpins(12, PIN_SDA, all_pins, sizeof(all_pins))) return; 
+  if ( !testpins(13, PIN_SCL, all_pins, sizeof(all_pins))) return;
+  if ( !testpins(PIN_MOSI, PIN_MISO, all_pins, sizeof(all_pins))) return;
+  if ( !testpins(PIN_SCK, AD5, all_pins, sizeof(all_pins))) return;
+  
+  Serial_printf("*** TEST OK! ***\n\r");
 }
 
 

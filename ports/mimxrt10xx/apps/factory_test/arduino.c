@@ -27,6 +27,11 @@ pinmap pinmapping[] = {
 
   {.num=PIN_SDA, .port=GPIO1, .pin=1, .mux={IOMUXC_GPIO_01_GPIOMUX_IO01}},
   {.num=PIN_SCL, .port=GPIO1, .pin=2, .mux={IOMUXC_GPIO_02_GPIOMUX_IO02}},
+
+  {.num=PIN_MISO, .port=GPIO1, .pin=17, .mux={IOMUXC_GPIO_AD_03_GPIOMUX_IO17}, .adc=ADC1}, // AD0
+  {.num=PIN_MOSI, .port=GPIO1, .pin=18, .mux={IOMUXC_GPIO_AD_04_GPIOMUX_IO18}, .adc=ADC1}, // AD0
+  {.num=PIN_SCK, .port=GPIO1, .pin=20, .mux={IOMUXC_GPIO_AD_06_GPIOMUX_IO20}, .adc=ADC1}, // AD0
+
 };
 
 static volatile uint32_t _millis = 0;
@@ -117,6 +122,33 @@ void pinMode(uint32_t pinnum, uint8_t state) {
   }
 }
 
+void setColor(uint32_t color) {
+  uint8_t rgb[3] = {(color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF};
+  board_rgb_write(rgb);
+}
+
+uint32_t makeColor(uint8_t r, uint8_t g, uint8_t b) {
+  uint32_t c = 0;
+  c |= r;
+  c <<= 8;
+  c |= g;
+  c <<= 8;
+  c |= b;
+  return c;
+}
+
+uint32_t neoWheel(uint8_t WheelPos) {
+  WheelPos = 255 - WheelPos;
+  if (WheelPos < 85) {
+    return makeColor(255 - WheelPos * 3, 0, WheelPos * 3);
+  }
+  if (WheelPos < 170) {
+    WheelPos -= 85;
+    return makeColor(0, WheelPos * 3, 255 - WheelPos * 3);
+  }
+  WheelPos -= 170;
+  return makeColor(WheelPos * 3, 255 - WheelPos * 3, 0);
+}
 
 
 uint32_t analogRead(uint32_t pinnum) {

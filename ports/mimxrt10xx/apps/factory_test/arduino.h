@@ -55,3 +55,6 @@ void delay(uint32_t ms);
 void digitalWrite(uint32_t pinnum, bool value);
 bool digitalRead(uint32_t pinnum);
 void pinMode(uint32_t pinnum, uint8_t state);
+void setColor(uint32_t color);
+uint32_t neoWheel(uint8_t WheelPos);
+uint32_t makeColor(uint8_t r, uint8_t g, uint8_t b);
