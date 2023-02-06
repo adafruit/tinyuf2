@@ -41,7 +41,10 @@ void loop(void);
 
 uint8_t all_pins[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, PIN_SDA, PIN_SCL, PIN_MOSI, PIN_MISO, PIN_SCK, AD5};
 
+bool test = true;
+
 bool testpins(uint8_t a, uint8_t b, uint8_t *allpins, uint8_t num_allpins);
+void test_print_adc(void);
 
 /* This is an application to test Metro M7
  */
@@ -49,11 +52,6 @@ bool testpins(uint8_t a, uint8_t b, uint8_t *allpins, uint8_t num_allpins);
 //--------------------------------------------------------------------+
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
 //--------------------------------------------------------------------+
-
-// optional API, not included in board_api.h
-int board_uart_read(uint8_t* buf, int len);
-
-bool test = false;
 
 int main(void)
 {
@@ -66,12 +64,12 @@ int main(void)
   tusb_init();
 
   setColor(0);
-
   pinMode(13, OUTPUT);
 
   while (1) {
     loop();
     tud_task();
+    tud_cdc_write_flush();
   }
 }
 
@@ -82,8 +80,9 @@ void loop(void) {
     uint32_t count;
 
     count = tud_cdc_read(serial_buf, sizeof(serial_buf));
-    if (count && serial_buf[0] == 0xAF)
+    if (count && serial_buf[0] == 0xAF){
       test = true;
+    }
   }
 
   if (! test) {
@@ -102,7 +101,8 @@ void loop(void) {
 
   delay(100);
   Serial_printf("\n\r\n\rHello Metro M7 iMX RT1011 Test! %d\n\r", millis());
-  
+
+#if 0
   if ( !testpins(0, 2, all_pins, sizeof(all_pins))) return;
   if ( !testpins(1, 3, all_pins, sizeof(all_pins))) return;
   if ( !testpins(4, 6, all_pins, sizeof(all_pins))) return;
@@ -113,39 +113,17 @@ void loop(void) {
   if ( !testpins(13, PIN_SCL, all_pins, sizeof(all_pins))) return;
   if ( !testpins(PIN_MOSI, PIN_MISO, all_pins, sizeof(all_pins))) return;
   if ( !testpins(PIN_SCK, AD5, all_pins, sizeof(all_pins))) return;
+#else
+  while(1)
+  {
+    printf("A0\tA1\tA2\tA3\tA4\tA5\n\r");
+    test_print_adc();
+    delay(1000);
+  }
+#endif
   
   Serial_printf("*** TEST OK! ***\n\r");
 }
-
-
-//--------------------------------------------------------------------+
-// Logger newlib retarget
-//--------------------------------------------------------------------+
-
-// Enable only with LOG is enabled (Note: ESP32-S2 has built-in support already)
-#if TUF2_LOG // && (CFG_TUSB_MCU != OPT_MCU_ESP32S2)
-
-#if defined(LOGGER_RTT)
-#include "SEGGER_RTT.h"
-#endif
-
-__attribute__ ((used)) int _write (int fhdl, const void *buf, size_t count)
-{
-  (void) fhdl;
-
-#if defined(LOGGER_RTT)
-  SEGGER_RTT_Write(0, (char*) buf, (int) count);
-  return count;
-#else
-  return board_uart_write(buf, count);
-#endif
-}
-
-#endif
-
-
-
-
 
 bool testpins(uint8_t a, uint8_t b, uint8_t *allpins, uint8_t num_allpins) {
   bool ok = false;
@@ -243,3 +221,28 @@ bool testpins(uint8_t a, uint8_t b, uint8_t *allpins, uint8_t num_allpins) {
   return true;
 }
 
+void test_print_adc(void)
+{
+  uint8_t adc_pins[] = { AD0, AD1, AD2, AD3, AD4, AD5 };
+  size_t const adc_pins_num = sizeof(adc_pins) / sizeof(adc_pins[0]);
+
+  for(size_t i=0; i<adc_pins_num; i++)
+  {
+    uint16_t value = analogRead(adc_pins[i]);
+
+    printf("%u\t", value);
+  }
+
+  printf("\r\n");
+}
+
+//--------------------------------------------------------------------+
+// Logger newlib retarget
+//--------------------------------------------------------------------+
+
+// retarget printf to usb cdc
+__attribute__ ((used)) int _write (int fhdl, const void *buf, size_t count)
+{
+  (void) fhdl;
+  return tud_cdc_write(buf, count);
+}
