@@ -110,7 +110,6 @@ void loop(void) {
   delay(100);
   Serial_printf("\n\r\n\rHello Metro M7 iMX RT1011 Test! %lu\n\r", millis());
 
-#if 0
   if ( !testpins(0, 2, all_pins, sizeof(all_pins))) return;
   if ( !testpins(1, 3, all_pins, sizeof(all_pins))) return;
   if ( !testpins(4, 6, all_pins, sizeof(all_pins))) return;
@@ -121,14 +120,6 @@ void loop(void) {
   if ( !testpins(13, PIN_SCL, all_pins, sizeof(all_pins))) return;
   if ( !testpins(PIN_MOSI, PIN_MISO, all_pins, sizeof(all_pins))) return;
   if ( !testpins(PIN_SCK, AD5, all_pins, sizeof(all_pins))) return;
-#else
-  while(1)
-  {
-    printf("A0\tA1\tA2\tA3\tA4\tA5\n\r");
-    test_print_adc();
-    delay(1000);
-  }
-#endif
   
   Serial_printf("*** TEST OK! ***\n\r");
 }
@@ -234,14 +225,19 @@ void test_print_adc(void)
   uint8_t adc_pins[] = { AD0, AD1, AD2, AD3, AD4, AD5 };
   size_t const adc_pins_num = sizeof(adc_pins) / sizeof(adc_pins[0]);
 
-  for(size_t i=0; i<adc_pins_num; i++)
+  while(1)
   {
-    uint16_t value = analogRead(adc_pins[i]);
+    printf("A0\tA1\tA2\tA3\tA4\tA5\n\r");
 
-    printf("%u\t", value);
+    for(size_t i=0; i<adc_pins_num; i++)
+    {
+      uint16_t value = analogRead(adc_pins[i]);
+      printf("%u\t", value);
+    }
+    printf("\r\n");
+
+    delay(1000);
   }
-
-  printf("\r\n");
 }
 
 //--------------------------------------------------------------------+
