@@ -78,7 +78,12 @@
 #define BOARD_UART_BAUDRATE   115200
 
 // Init basic peripherals such as clock, led indicator control (gpio, pwm etc ..)
+// This API does not init usb which is only init if DFU is entered
 void board_init(void);
+
+// opposite to board_init(), reset all board peripherals. Is called before jumping to application
+// TODO force this API in the future
+void board_teardown(void) __attribute__ ((weak));
 
 // Reset board, not return
 void board_reset(void);

@@ -18,4 +18,5 @@ MEMORY
   m_interrupts          (RX)  : ORIGIN = _interrupts_origin , LENGTH = _interrupts_length
   m_text                (RX)  : ORIGIN = _text_origin       , LENGTH = _text_length
   m_data                (RW)  : ORIGIN = 0x20000000         , LENGTH = 32K
+  m_data2               (RW)  : ORIGIN = _ocram_base        , LENGTH = _ocram_size
 }

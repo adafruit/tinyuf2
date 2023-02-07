@@ -36,13 +36,13 @@ const BOOT_DATA_T boot_data = {
   0xFFFFFFFF                  /* empty - extra data word */
 };
 
-// Config for W25Q32JV with QSPI routed.
+// Config for W25Q64JVSIQ with QSPI routed.
 __attribute__((section(".boot_hdr.conf")))
 const flexspi_nor_config_t qspiflash_config = {
     .pageSize           = 256u,
     .sectorSize         = 4u * 1024u,
     .ipcmdSerialClkFreq = kFlexSpiSerialClk_30MHz,
-    .blockSize          = 0x00010000,
+    .blockSize          = 64u * 1024u,
     .isUniformBlockSize = false,
     .memConfig =
     {
@@ -83,50 +83,50 @@ const flexspi_nor_config_t qspiflash_config = {
             // Indices with ROM should always have the same function because the ROM
             // bootloader uses it.
 
-            // 0: ROM: Read LUTs
+            // 0: ROM: Read
             // Quad version
-            SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0xEB /* the command to send */,
+            SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0xEB /* command code */,
                                      RADDR_SDR, FLEXSPI_4PAD, 24 /* bits to transmit */),
                      FLEXSPI_LUT_SEQ(DUMMY_SDR, FLEXSPI_4PAD, 6 /* 6 dummy cycles, 2 for M7-0 and 4 dummy */,
                                      READ_SDR,  FLEXSPI_4PAD, 0x04),
             // Single fast read version, good for debugging.
-            // FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0x0B /* the command to send */,
+            // FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0x0B /* command code */,
             //                 RADDR_SDR, FLEXSPI_1PAD, 24  /* bits to transmit */),
             // FLEXSPI_LUT_SEQ(DUMMY_SDR, FLEXSPI_1PAD, 8 /* 8 dummy clocks */,
             //                 READ_SDR,  FLEXSPI_1PAD, 0x04),
                      TWO_EMPTY_STEPS,
                      TWO_EMPTY_STEPS),
 
-            // 1: ROM: Read status
-            SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,  FLEXSPI_1PAD, 0x05  /* the command to send */,
-                                     READ_SDR, FLEXSPI_1PAD, 0x02),
+            // 1: Read Status
+            SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,  FLEXSPI_1PAD, 0x05  /* command code */,
+                                     READ_SDR, FLEXSPI_1PAD, 0x01),
                      TWO_EMPTY_STEPS,
                      TWO_EMPTY_STEPS,
                      TWO_EMPTY_STEPS),
 
-            // 2: Empty
-            SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0x35 /* the command to send */,
-                                     DUMMY_SDR, FLEXSPI_1PAD, 8),
+            // 2: Read Status XPI ( DPI/QPI/OPI) i.e QE bit
+            SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,  FLEXSPI_1PAD, 0x35 /* command code */,
+                                     READ_SDR, FLEXSPI_1PAD, 1),
                      TWO_EMPTY_STEPS,
                      TWO_EMPTY_STEPS,
                      TWO_EMPTY_STEPS),
 
-            // 3: ROM: Write Enable
-            SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR, FLEXSPI_1PAD, 0x06  /* the command to send */,
+            // 3: Write Enable
+            SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR, FLEXSPI_1PAD, 0x06  /* command code */,
                                      STOP,    FLEXSPI_1PAD, 0x00),
                      TWO_EMPTY_STEPS,
                      TWO_EMPTY_STEPS,
                      TWO_EMPTY_STEPS),
 
-            // 4: Config: Write Status
-            SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0x01  /* the command to send */,
+            // 4: Write Quad enabled i.e Write Status1 & Status2
+            SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0x01  /* command code */,
                                      WRITE_SDR, FLEXSPI_1PAD, 0x02),
                      TWO_EMPTY_STEPS,
                      TWO_EMPTY_STEPS,
                      TWO_EMPTY_STEPS),
 
             // 5: ROM: Erase Sector
-            SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0x20  /* the command to send */,
+            SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0x20 /* command code */,
                                      RADDR_SDR, FLEXSPI_1PAD, 24 /* bits to transmit */),
                      TWO_EMPTY_STEPS,
                      TWO_EMPTY_STEPS,
@@ -139,14 +139,14 @@ const flexspi_nor_config_t qspiflash_config = {
             EMPTY_SEQUENCE,
 
             // 8: Block Erase
-            SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0xD8  /* the command to send */,
+            SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0xD8  /* command code */,
                                      RADDR_SDR, FLEXSPI_1PAD, 24 /* bits to transmit */),
                      TWO_EMPTY_STEPS,
                      TWO_EMPTY_STEPS,
                      TWO_EMPTY_STEPS),
 
-            // 9: ROM: Page program
-            SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0x02  /* the command to send */,
+            // 9: ROM: Page program single mode
+            SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0x02  /* command code */,
                                      RADDR_SDR, FLEXSPI_1PAD, 24 /* bits to transmit */),
 
                      FLEXSPI_LUT_SEQ(WRITE_SDR, FLEXSPI_1PAD, 0x04  /* data out */,
@@ -154,11 +154,11 @@ const flexspi_nor_config_t qspiflash_config = {
                      TWO_EMPTY_STEPS,
                      TWO_EMPTY_STEPS),
 
-            // 10: Empty
+            // 10: Empty Page program (Quad mode) candidate
             EMPTY_SEQUENCE,
 
             // 11: ROM: Chip erase
-            SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR, FLEXSPI_1PAD, 0x60  /* the command to send */,
+            SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR, FLEXSPI_1PAD, 0x60  /* command code */,
                                      STOP,    FLEXSPI_1PAD, 0),
                      TWO_EMPTY_STEPS,
                      TWO_EMPTY_STEPS,

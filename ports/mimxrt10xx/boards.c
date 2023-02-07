@@ -61,7 +61,7 @@ void board_init(void)
   SNVS->LPCR |= SNVS_LPCR_GPR_Z_DIS_MASK;
 
 #ifdef LED_PINMUX
-  IOMUXC_SetPinMux(LED_PINMUX, 0U);
+  IOMUXC_SetPinMux(LED_PINMUX, 0);
   IOMUXC_SetPinConfig(LED_PINMUX, 0x10B0U);
 
   gpio_pin_config_t led_config = { kGPIO_DigitalOutput, 0, kGPIO_NoIntmode };
@@ -69,21 +69,23 @@ void board_init(void)
 #endif
 
 #if NEOPIXEL_NUMBER
-  IOMUXC_SetPinMux( NEOPIXEL_PINMUX, 0U);
-  IOMUXC_SetPinConfig( NEOPIXEL_PINMUX, 0x10B0U);
+  IOMUXC_SetPinMux(NEOPIXEL_PINMUX, 0);
+  IOMUXC_SetPinConfig(NEOPIXEL_PINMUX, 0x10B0U);
 
   gpio_pin_config_t neopixel_config = { kGPIO_DigitalOutput, 0, kGPIO_NoIntmode };
   GPIO_PinInit(NEOPIXEL_PORT, NEOPIXEL_PIN, &neopixel_config);
 #endif
 
-#ifdef BUTTON_PIN
-  IOMUXC_SetPinMux(BUTTON_PINMUX, 0U);
-  gpio_pin_config_t button_config = { kGPIO_DigitalInput, 0, kGPIO_IntRisingEdge, };
-  GPIO_PinInit(BUTTON_PORT, BUTTON_PIN, &button_config);
-#endif
-
 #if TUF2_LOG
   board_uart_init(BOARD_UART_BAUDRATE);
+#endif
+}
+
+void board_teardown(void)
+{
+  // no GPIO deinit for GPIO: LED, Neopixel, Button
+#if TUF2_LOG && defined(UART_DEV)
+  LPUART_Deinit(UART_DEV);
 #endif
 }
 
@@ -123,7 +125,7 @@ void board_dfu_init(void)
   _dfu_mode = true;
 
 #ifdef LED_PWM_PINMUX
-  IOMUXC_SetPinMux(LED_PWM_PINMUX, 0U);
+  IOMUXC_SetPinMux(LED_PWM_PINMUX, 0);
   IOMUXC_SetPinConfig(LED_PWM_PINMUX, 0x10B0U);
 
   CLOCK_SetDiv(kCLOCK_AhbDiv, 0x2); /* Set AHB PODF to 2, divide by 3 */
@@ -332,26 +334,19 @@ void board_rgb_write(uint8_t const rgb[])
 
 #endif
 
-#if 0
-uint32_t board_button_read(void)
-{
-  // active low
-  return BUTTON_STATE_ACTIVE == GPIO_PinRead(BUTTON_PORT, BUTTON_PIN);
-}
-#endif
-
 //--------------------------------------------------------------------+
 // UART
 //--------------------------------------------------------------------+
 
+#ifdef UART_DEV
 void board_uart_init(uint32_t baud_rate)
 {
-#ifdef UART_DEV
   // Enable UART when debug log is on
-  IOMUXC_SetPinMux(UART_TX_PINMUX, 0U);
-  IOMUXC_SetPinMux(UART_RX_PINMUX, 0U);
-  IOMUXC_SetPinConfig(UART_TX_PINMUX, 0x10B0u);
-  IOMUXC_SetPinConfig(UART_RX_PINMUX, 0x10B0u);
+  IOMUXC_SetPinMux(UART_RX_PINMUX, 0);
+  IOMUXC_SetPinMux(UART_TX_PINMUX, 0);
+
+  IOMUXC_SetPinConfig(UART_RX_PINMUX, 0x10A0U);
+  IOMUXC_SetPinConfig(UART_TX_PINMUX, 0x10A0U);
 
   lpuart_config_t uart_config;
   LPUART_GetDefaultConfig(&uart_config);
@@ -370,55 +365,61 @@ void board_uart_init(uint32_t baud_rate)
   }
 
   LPUART_Init(UART_DEV, &uart_config, freq);
-#endif
 }
 
 int board_uart_write(void const * buf, int len)
 {
-#ifdef UART_DEV
-  uint8_t const* buf8 = (uint8_t const*) buf;
-  int count = 0;
-
-  while(count < len)
-  {
-    if (LPUART_GetStatusFlags(UART_DEV) & kLPUART_TxDataRegEmptyFlag)
-    {
-      LPUART_WriteByte(UART_DEV, *buf8++);
-      count++;
-    }
-  }
-
+  LPUART_WriteBlocking(UART_DEV, (uint8_t const*) buf, (size_t) len);
   return len;
-
-#else
-
-  (void) buf; (void) len;
-  return 0;
-#endif
 }
 
 // optional API, not included in board_api.h
 int board_uart_read(uint8_t* buf, int len)
 {
-#ifdef UART_DEV
   int count = 0;
 
   while( count < len )
   {
-    if ( !((UART_DEV->WATER & LPUART_WATER_RXCOUNT_MASK) >> LPUART_WATER_RXCOUNT_SHIFT) ) break;
+    uint8_t const rx_count = LPUART_GetRxFifoCount(UART_DEV);
+    if (!rx_count)
+    {
+      // clear all error flag if any
+      uint32_t status_flags = LPUART_GetStatusFlags(UART_DEV);
+      status_flags  &= (kLPUART_RxOverrunFlag | kLPUART_ParityErrorFlag | kLPUART_FramingErrorFlag | kLPUART_NoiseErrorFlag);
+      LPUART_ClearStatusFlags(UART_DEV, status_flags);
+      break;
+    }
 
-    buf[count] = LPUART_ReadByte(UART_DEV);
-    count++;
+    for(int i=0; i<rx_count; i++)
+    {
+      buf[count] = LPUART_ReadByte(UART_DEV);
+      count++;
+    }
   }
 
   return count;
+}
 
 #else
 
+void board_uart_init(uint32_t baud_rate)
+{
+  (void) baud_rate;
+}
+
+int board_uart_write(void const * buf, int len)
+{
   (void) buf; (void) len;
   return 0;
-#endif
 }
+
+int board_uart_read(uint8_t* buf, int len)
+{
+  (void) buf; (void) len;
+  return 0;
+}
+#endif
+
 
 //--------------------------------------------------------------------+
 // USB Interrupt Handler

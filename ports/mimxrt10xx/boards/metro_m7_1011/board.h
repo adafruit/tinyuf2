@@ -29,55 +29,45 @@
 #define BOARD_H_
 
 // Size of on-board external flash
-#define BOARD_FLASH_SIZE     (4*1024*1024)
+#define BOARD_FLASH_SIZE     (8*1024*1024)
 
 //--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
 
-#define LED_PINMUX            IOMUXC_GPIO_03_GPIOMUX_IO03
-#define LED_PORT              GPIO1
-#define LED_PIN               3
-#define LED_STATE_ON          1
+#define LED_PINMUX          IOMUXC_GPIO_03_GPIOMUX_IO03
+#define LED_PORT            GPIO1
+#define LED_PIN             3
+#define LED_STATE_ON        1
 
-#define LED_PWM_PINMUX        IOMUXC_GPIO_03_FLEXPWM1_PWM1_B
-#define LED_PWM_BASE          PWM1
-#define LED_PWM_MODULE        kPWM_Module_1
-#define LED_PWM_CHANNEL       kPWM_PwmB
+#define LED_PWM_PINMUX      IOMUXC_GPIO_03_FLEXPWM1_PWM1_B
+#define LED_PWM_BASE        PWM1
+#define LED_PWM_MODULE      kPWM_Module_1
+#define LED_PWM_CHANNEL     kPWM_PwmB
 
 //--------------------------------------------------------------------+
 // Neopixel
 //--------------------------------------------------------------------+
 
 // Number of neopixels
-#define NEOPIXEL_NUMBER       1
-#define NEOPIXEL_PINMUX       IOMUXC_GPIO_00_GPIOMUX_IO00
-#define NEOPIXEL_PORT         GPIO1
-#define NEOPIXEL_PIN          0
-
-//--------------------------------------------------------------------+
-// Button
-//--------------------------------------------------------------------+
-
-// SW8 button
-//#define BUTTON_PINMUX         IOMUXC_GPIO_SD_05_GPIO2_IO05
-//#define BUTTON_PORT           GPIO2
-//#define BUTTON_PIN            5
-//#define BUTTON_STATE_ACTIVE   0
+#define NEOPIXEL_NUMBER     1
+#define NEOPIXEL_PINMUX     IOMUXC_GPIO_00_GPIOMUX_IO00
+#define NEOPIXEL_PORT       GPIO1
+#define NEOPIXEL_PIN        0
 
 //--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
 
-#define USB_VID           0x239A
-#define USB_PID           0x00E1
-#define USB_MANUFACTURER  "Adafruit"
-#define USB_PRODUCT       "Metro M7 iMX RT1011"
+#define USB_VID              0x239A
+#define USB_PID              0x00E1
+#define USB_MANUFACTURER     "Adafruit"
+#define USB_PRODUCT          "Metro M7 iMX RT1011"
 
-#define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "MIMXRT1011-Metro-revA"
-#define UF2_VOLUME_LABEL  "METROM7BOOT"
-#define UF2_INDEX_URL     "https://www.adafruit.com/product/4950"
+#define UF2_PRODUCT_NAME     USB_MANUFACTURER " " USB_PRODUCT
+#define UF2_BOARD_ID         "MIMXRT1011-Metro-revA"
+#define UF2_VOLUME_LABEL     "METROM7BOOT"
+#define UF2_INDEX_URL        "https://www.adafruit.com/product/4950"
 
 //--------------------------------------------------------------------+
 // UART
@@ -88,15 +78,15 @@
 #define UART_TX_PINMUX        IOMUXC_GPIO_10_LPUART1_TXD
 
 //--------------------------------------------------------------------+
-// EPS32 Co-Processors
+// ESP32 Co-Processors
 //--------------------------------------------------------------------+
-#define ESP_GPIO0_PINMUX  IOMUXC_GPIO_SD_05_GPIO2_IO05
-#define ESP_GPIO0_PORT    GPIO2
-#define ESP_GPIO0_PIN     5
+#define ESP32_GPIO0_PINMUX    IOMUXC_GPIO_SD_05_GPIO2_IO05
+#define ESP32_GPIO0_PORT      GPIO2
+#define ESP32_GPIO0_PIN       5
 
-#define ESP_RESET_PINMUX  IOMUXC_GPIO_AD_07_GPIOMUX_IO21
-#define ESP_RESET_PORT    GPIO1
-#define ESP_RESET_PIN     21
+#define ESP32_RESET_PINMUX    IOMUXC_GPIO_AD_07_GPIOMUX_IO21
+#define ESP32_RESET_PORT      GPIO1
+#define ESP32_RESET_PIN       21
 
 
 #endif /* BOARD_H_ */

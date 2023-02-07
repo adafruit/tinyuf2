@@ -40,13 +40,6 @@ ifeq ($(wildcard $(TOP)/$(BOARD_DIR)/),)
   $(error Invalid BOARD specified)
 endif
 
-
-# Fetch submodules depended by family
-fetch_submodule_if_empty = $(if $(wildcard $(TOP)/lib/$1/*),,$(info $(shell git -C $(TOP)/lib submodule update --init $1)))
-ifdef GIT_SUBMODULES
-  $(foreach s,$(GIT_SUBMODULES),$(call fetch_submodule_if_empty,$(s)))
-endif
-
 # Build directory
 BUILD = _build/$(BOARD)
 BIN = $(TOP)/$(PORT_DIR)/_bin/$(BOARD)
@@ -56,7 +49,7 @@ OUTNAME ?= tinyuf2-$(BOARD)
 
 # UF2 version with git tag and submodules
 GIT_VERSION := $(shell git describe --dirty --always --tags)
-GIT_SUBMODULE_VERSIONS := $(shell git submodule status $(addprefix ../../lib/,$(GIT_SUBMODULES)) | cut -d" " -f3,4 | paste -s -d" " -)
+GIT_SUBMODULE_VERSIONS := $(shell git submodule status $(addprefix ../../lib/,$(GIT_SUBMODULES)) | cut -b 43- | paste -s -d" " -)
 GIT_SUBMODULE_VERSIONS := $(subst ../../lib/,,$(GIT_SUBMODULE_VERSIONS))
 
 CFLAGS += \
@@ -181,4 +174,5 @@ ifneq ($(SKIP_NANOLIB), 1)
 endif
 
 # Board specific define
+# TODO should be moved to port.mk
 include $(TOP)/$(BOARD_DIR)/board.mk
