@@ -84,7 +84,7 @@ void board_init(void)
 void board_teardown(void)
 {
   // no GPIO deinit for GPIO: LED, Neopixel, Button
-#if TUF2_LOG
+#if TUF2_LOG && defined(UART_DEV)
   LPUART_Deinit(UART_DEV);
 #endif
 }
@@ -345,8 +345,8 @@ void board_uart_init(uint32_t baud_rate)
   IOMUXC_SetPinMux(UART_RX_PINMUX, 0);
   IOMUXC_SetPinMux(UART_TX_PINMUX, 0);
 
-  IOMUXC_SetPinConfig(UART_RX_PINMUX, 0x10B0u);
-  IOMUXC_SetPinConfig(UART_TX_PINMUX, 0x10B0u);
+  IOMUXC_SetPinConfig(UART_RX_PINMUX, 0x10A0U);
+  IOMUXC_SetPinConfig(UART_TX_PINMUX, 0x10A0U);
 
   lpuart_config_t uart_config;
   LPUART_GetDefaultConfig(&uart_config);
@@ -377,10 +377,18 @@ int board_uart_write(void const * buf, int len)
 int board_uart_read(uint8_t* buf, int len)
 {
   int count = 0;
+
   while( count < len )
   {
     uint8_t const rx_count = LPUART_GetRxFifoCount(UART_DEV);
-    if (!rx_count) break;
+    if (!rx_count)
+    {
+      // clear all error flag if any
+      uint32_t status_flags = LPUART_GetStatusFlags(UART_DEV);
+      status_flags  &= (kLPUART_RxOverrunFlag | kLPUART_ParityErrorFlag | kLPUART_FramingErrorFlag | kLPUART_NoiseErrorFlag);
+      LPUART_ClearStatusFlags(UART_DEV, status_flags);
+      break;
+    }
 
     for(int i=0; i<rx_count; i++)
     {

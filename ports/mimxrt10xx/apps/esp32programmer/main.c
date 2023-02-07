@@ -38,30 +38,33 @@
  * used to program ESP32 Co-Processors
  */
 
-//--------------------------------------------------------------------+
-// MACRO TYPEDEF CONSTANT ENUM DECLARATION
-//--------------------------------------------------------------------+
-//uint8_t const RGB_USB_UNMOUNTED[] = { 0xff, 0x00, 0x00 }; // Red
-//uint8_t const RGB_USB_MOUNTED[]   = { 0x00, 0xff, 0x00 }; // Green
+// Enable this for more reliable connection require esptool.py default reset option "--before default_reset"
+// i.e "--before no_reset" should not be include in the esptool.py command
+#define ESP32_DTR_RTS_BOOT_RESET_SUPPORT    0
 
 // optional API, not included in board_api.h
 int board_uart_read(uint8_t* buf, int len);
 
+//--------------------------------------------------------------------+
+// MACRO TYPEDEF CONSTANT ENUM DECLARATION
+//--------------------------------------------------------------------+
+
+//uint8_t const RGB_USB_UNMOUNTED[] = { 0xff, 0x00, 0x00 }; // Red
+//uint8_t const RGB_USB_MOUNTED[]   = { 0x00, 0xff, 0x00 }; // Green
+
 static volatile uint32_t _timer_count = 0;
 static uint32_t baud_rate = 115200;
-static uint8_t serial_buf[512];
 
-static inline void esp32_set_io0(uint8_t state)
+//--------------------------------------------------------------------+
+// Timer
+//--------------------------------------------------------------------+
+
+TU_ATTR_ALWAYS_INLINE static inline uint32_t millis(void)
 {
-  GPIO_PinWrite(ESP32_GPIO0_PORT, ESP32_GPIO0_PIN, state);
+  return _timer_count;
 }
 
-static inline void esp32_set_reset(uint8_t state)
-{
-  GPIO_PinWrite(ESP32_RESET_PORT, ESP32_RESET_PIN, state);
-}
-
-static inline void delay_blocking(uint8_t ms)
+static inline void delay_blocking(uint32_t ms)
 {
   uint32_t start = _timer_count;
   while(_timer_count - start < ms)
@@ -70,18 +73,42 @@ static inline void delay_blocking(uint8_t ms)
   }
 }
 
-void esp32_enter_dfu(void)
+void board_timer_handler(void)
+{
+  _timer_count++;
+}
+
+//--------------------------------------------------------------------+
+// ESP32 Helper
+//--------------------------------------------------------------------+
+
+static inline void esp32_set_io0(uint8_t state)
+{
+  GPIO_PinWrite(ESP32_GPIO0_PORT, ESP32_GPIO0_PIN, state);
+}
+
+static inline void esp32_set_en(uint8_t state)
+{
+  GPIO_PinWrite(ESP32_RESET_PORT, ESP32_RESET_PIN, state);
+}
+
+void esp32_manual_enter_dfu(void)
 {
   // Put ESP into upload mode
-  esp32_set_io0(0);
-  esp32_set_reset(0);
-  delay_blocking(100); // delay while reset
+  esp32_set_io0(1);
+  esp32_set_en(0);
+  delay_blocking(100);
 
-  esp32_set_reset(1);
-  delay_blocking(100); // delay after reset
+  esp32_set_io0(0);
+  esp32_set_en(1);
+  delay_blocking(50);
+
   esp32_set_io0(1);
 }
 
+//--------------------------------------------------------------------+
+// Main
+//--------------------------------------------------------------------+
 int main(void)
 {
   board_init();
@@ -103,26 +130,15 @@ int main(void)
   tusb_init();
 
   board_timer_start(1);
-  esp32_enter_dfu();
-  board_timer_stop();
+
+#if !ESP32_DTR_RTS_BOOT_RESET_SUPPORT
+  esp32_manual_enter_dfu();
+#endif
 
   while(1)
   {
-#if 0
-    (void) serial_buf;
-#else
+    uint8_t serial_buf[512];
     uint32_t count;
-
-    // USB -> UART
-    while( tud_cdc_available() )
-    {
-      board_led_write(0xff);
-
-      count = tud_cdc_read(serial_buf, sizeof(serial_buf));
-      board_uart_write(serial_buf, count);
-
-      board_led_write(0);
-    }
 
     // UART -> USB
     count = (uint32_t) board_uart_read(serial_buf, sizeof(serial_buf));
@@ -135,15 +151,20 @@ int main(void)
 
       board_led_write(0);
     }
-#endif
+
+    // USB -> UART
+    while ( tud_cdc_available() )
+    {
+      board_led_write(0xff);
+
+      count = tud_cdc_read(serial_buf, sizeof(serial_buf));
+      board_uart_write(serial_buf, count);
+
+      board_led_write(0);
+    }
 
     tud_task();
   }
-}
-
-void board_timer_handler(void)
-{
-  _timer_count++;
 }
 
 //--------------------------------------------------------------------+
@@ -186,27 +207,23 @@ void tud_cdc_line_coding_cb(uint8_t itf, cdc_line_coding_t const* line_coding)
   }
 }
 
-//--------------------------------------------------------------------+
-// Logger newlib retarget
-//--------------------------------------------------------------------+
-
-// Enable only with LOG is enabled (Note: ESP32-S2 has built-in support already)
-#if TUF2_LOG // && (CFG_TUSB_MCU != OPT_MCU_ESP32S2)
-
-#if defined(LOGGER_RTT)
-#include "SEGGER_RTT.h"
-#endif
-
-__attribute__ ((used)) int _write (int fhdl, const void *buf, size_t count)
+#if ESP32_DTR_RTS_BOOT_RESET_SUPPORT
+// Invoked when cdc when line state changed e.g connected/disconnected
+void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts)
 {
-  (void) fhdl;
+  (void) itf;
 
-#if defined(LOGGER_RTT)
-  SEGGER_RTT_Write(0, (char*) buf, (int) count);
-  return count;
-#else
-  return board_uart_write(buf, count);
-#endif
+  /* esptool.py does use DTR and RTS to put esp32 into bootloader mode
+   *   RTS <-> ESP32 Enable
+   *   DTR <-> ESP32 IO0
+   * Note: hardware DTR and RTS signal is active low, therefore we
+   * need to invert its logical asserted state.
+   */
+  bool const en = !rts;
+  bool const io0 = !dtr;
+
+  esp32_set_io0(io0);
+  esp32_set_en(en);
 }
-
 #endif
+
