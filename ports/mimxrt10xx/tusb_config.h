@@ -39,6 +39,7 @@
 #endif
 
 #define CFG_TUSB_RHPORT0_MODE      (OPT_MODE_DEVICE | OPT_MODE_HIGH_SPEED)
+#define CFG_TUSB_RHPORT1_MODE      0
 #define CFG_TUSB_OS                OPT_OS_NONE
 
 // can be defined by compiler in DEBUG build
@@ -70,11 +71,10 @@
 #endif
 
 //------------- CLASS -------------//
-#define CFG_TUD_CDC              0
+// #define CFG_TUD_CDC              0
 #define CFG_TUD_MSC              1
 #define CFG_TUD_HID              1
-#define CFG_TUD_MIDI             0
-#define CFG_TUD_VENDOR           0
+// #define CFG_TUD_VENDOR           0
 
 // MSC Buffer size of Device Mass storage
 #define CFG_TUD_MSC_BUFSIZE      4096

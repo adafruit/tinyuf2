@@ -39,6 +39,7 @@
 #endif
 
 #define CFG_TUSB_RHPORT0_MODE      (OPT_MODE_DEVICE | OPT_MODE_HIGH_SPEED)
+#define CFG_TUSB_RHPORT1_MODE      0
 #define CFG_TUSB_OS                OPT_OS_NONE
 
 // can be defined by compiler in DEBUG build
@@ -71,10 +72,6 @@
 
 //------------- CLASS -------------//
 #define CFG_TUD_CDC              1
-#define CFG_TUD_MSC              0
-#define CFG_TUD_HID              0
-#define CFG_TUD_MIDI             0
-#define CFG_TUD_VENDOR           0
 
 // CDC FIFO size of TX and RX
 #define CFG_TUD_CDC_RX_BUFSIZE   1024
