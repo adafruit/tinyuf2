@@ -31,7 +31,9 @@ jobs:
 
     steps:
     - name: Setup Python
-      uses: actions/setup-python@v3
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.x"
 
     - name: Checkout code
       uses: actions/checkout@v3
@@ -76,7 +78,7 @@ jobs:
     
     - name: Save newly generated self-test images as CI artifacts
       if: always()
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: ghostfat_selftest_images
         path: ./ports/test_ghostfat/_build/${{ matrix.board }}/ghostfat_${{ matrix.board }}.img.gz.gz
