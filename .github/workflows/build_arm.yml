@@ -53,7 +53,7 @@ jobs:
         fetch-depth: 0
 
     - name: Checkout common submodules in lib
-      run: git submodule update --init lib/sct_neopixel lib/tinyusb lib/uf2
+      run: git submodule update --init lib/tinyusb lib/uf2
 
     - name: Checkout linkermap
       uses: actions/checkout@v3
