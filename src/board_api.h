@@ -88,6 +88,8 @@ void board_teardown(void) __attribute__ ((weak));
 // Reset board, not return
 void board_reset(void);
 
+void board_esp32_reset();
+
 // Write PWM duty value to LED
 void board_led_write(uint32_t value);
 

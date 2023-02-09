@@ -225,6 +225,7 @@ bool tud_msc_start_stop_cb(uint8_t lun, uint8_t power_condition, bool start, boo
     }else
     {
       // unload disk storage
+      board_esp32_reset();
     }
   }
 

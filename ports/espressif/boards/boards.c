@@ -470,3 +470,189 @@ static void configure_pins(usb_hal_context_t *usb)
     gpio_set_drive_capability(USBPHY_DP_NUM, GPIO_DRIVE_CAP_3);
   }
 }
+
+//--------------------------------------------------------------------+
+// Boot Reset test
+//--------------------------------------------------------------------+
+
+#include "hal/usb_serial_jtag_ll.h"
+#include "esp32s3/rom/usb/usb_persist.h"
+#include "esp32s3/rom/usb/usb_dc.h"
+#include "esp32s3/rom/usb/chip_usb_dw_wrapper.h"
+
+/*
+ * USB Persistence API
+ * */
+typedef enum {
+    RESTART_NO_PERSIST,
+    RESTART_PERSIST,
+    RESTART_BOOTLOADER,
+    RESTART_BOOTLOADER_DFU,
+    RESTART_TYPE_MAX
+} restart_type_t;
+
+#define log_e(...)
+
+#define LOW               0x0
+#define HIGH              0x1
+
+//GPIO FUNCTIONS
+#define INPUT             0x01
+// Changed OUTPUT from 0x02 to behave the same as Arduino pinMode(pin,OUTPUT)
+// where you can read the state of pin even when it is set as OUTPUT
+#define OUTPUT            0x03
+#define PULLUP            0x04
+#define INPUT_PULLUP      0x05
+#define PULLDOWN          0x08
+#define INPUT_PULLDOWN    0x09
+#define OPEN_DRAIN        0x10
+#define OUTPUT_OPEN_DRAIN 0x12
+#define ANALOG            0xC0
+
+void pinMode(uint8_t pin, uint8_t mode)
+{
+    if (!GPIO_IS_VALID_GPIO(pin)) {
+        log_e("Invalid pin selected");
+        return;
+    }
+
+    gpio_config_t conf = {
+        .pin_bit_mask = (1ULL<<pin),                 /*!< GPIO pin: set with bit mask, each bit maps to a GPIO */
+        .mode = GPIO_MODE_DISABLE,                   /*!< GPIO mode: set input/output mode                     */
+        .pull_up_en = GPIO_PULLUP_DISABLE,           /*!< GPIO pull-up                                         */
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,       /*!< GPIO pull-down                                       */
+        .intr_type = GPIO_INTR_DISABLE               /*!< GPIO interrupt type - previously set                 */
+    };
+    if (mode < 0x20) {//io
+        conf.mode = mode & (INPUT | OUTPUT);
+        if (mode & OPEN_DRAIN) {
+            conf.mode |= GPIO_MODE_DEF_OD;
+        }
+        if (mode & PULLUP) {
+            conf.pull_up_en = GPIO_PULLUP_ENABLE;
+        }
+        if (mode & PULLDOWN) {
+            conf.pull_down_en = GPIO_PULLDOWN_ENABLE;
+        }
+    }
+    if(gpio_config(&conf) != ESP_OK)
+    {
+        log_e("GPIO config failed");
+        return;
+    }
+}
+
+void digitalWrite(uint8_t pin, uint8_t val)
+{
+	gpio_set_level((gpio_num_t)pin, val);
+}
+
+
+
+static bool usb_persist_enabled = false;
+static restart_type_t usb_persist_mode = RESTART_NO_PERSIST;
+
+
+static void hw_cdc_reset_handler(void *arg) {
+    portBASE_TYPE xTaskWoken = 0;
+    uint32_t usbjtag_intr_status = usb_serial_jtag_ll_get_intsts_mask();
+    usb_serial_jtag_ll_clr_intsts_mask(usbjtag_intr_status);
+
+    if (usbjtag_intr_status & USB_SERIAL_JTAG_INTR_BUS_RESET) {
+        xSemaphoreGiveFromISR((xSemaphoreHandle)arg, &xTaskWoken);
+    }
+
+    if (xTaskWoken == pdTRUE) {
+        portYIELD_FROM_ISR();
+    }
+}
+
+static void usb_switch_to_cdc_jtag(){
+    // Disable USB-OTG
+    periph_module_reset(PERIPH_USB_MODULE);
+    //periph_module_enable(PERIPH_USB_MODULE);
+    periph_module_disable(PERIPH_USB_MODULE);
+
+    // Switch to hardware CDC+JTAG
+    CLEAR_PERI_REG_MASK(RTC_CNTL_USB_CONF_REG, (RTC_CNTL_SW_HW_USB_PHY_SEL|RTC_CNTL_SW_USB_PHY_SEL|RTC_CNTL_USB_PAD_ENABLE));
+
+    // Do not use external PHY
+    CLEAR_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_PHY_SEL);
+
+    // Release GPIO pins from  CDC+JTAG
+    CLEAR_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_USB_PAD_ENABLE);
+
+    // Force the host to re-enumerate (BUS_RESET)
+    pinMode(USBPHY_DM_NUM, OUTPUT_OPEN_DRAIN);
+    pinMode(USBPHY_DP_NUM, OUTPUT_OPEN_DRAIN);
+    digitalWrite(USBPHY_DM_NUM, LOW);
+    digitalWrite(USBPHY_DP_NUM, LOW);
+
+    // Initialize CDC+JTAG ISR to listen for BUS_RESET
+    usb_serial_jtag_ll_disable_intr_mask(USB_SERIAL_JTAG_LL_INTR_MASK);
+    usb_serial_jtag_ll_clr_intsts_mask(USB_SERIAL_JTAG_LL_INTR_MASK);
+    usb_serial_jtag_ll_ena_intr_mask(USB_SERIAL_JTAG_INTR_BUS_RESET);
+    intr_handle_t intr_handle = NULL;
+    xSemaphoreHandle reset_sem = xSemaphoreCreateBinary();
+    if(reset_sem){
+        if(esp_intr_alloc(ETS_USB_SERIAL_JTAG_INTR_SOURCE, 0, hw_cdc_reset_handler, reset_sem, &intr_handle) != ESP_OK){
+            vSemaphoreDelete(reset_sem);
+            reset_sem = NULL;
+            log_e("HW USB CDC failed to init interrupts");
+        }
+    } else {
+        log_e("reset_sem init failed");
+    }
+
+    // Connect GPIOs to integrated CDC+JTAG
+    SET_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_USB_PAD_ENABLE);
+
+    // Wait for BUS_RESET to give us back the semaphore
+    if(reset_sem){
+        if(xSemaphoreTake(reset_sem, 1000 / portTICK_PERIOD_MS) != pdPASS){
+            log_e("reset_sem timeout");
+        }
+        usb_serial_jtag_ll_disable_intr_mask(USB_SERIAL_JTAG_LL_INTR_MASK);
+        esp_intr_free(intr_handle);
+        vSemaphoreDelete(reset_sem);
+    }
+}
+
+static void IRAM_ATTR usb_persist_shutdown_handler(void)
+{
+    if(usb_persist_mode != RESTART_NO_PERSIST){
+        if (usb_persist_enabled) {
+            usb_dc_prepare_persist();
+        }
+        if (usb_persist_mode == RESTART_BOOTLOADER) {
+            //USB CDC Download
+            if (usb_persist_enabled) {
+                chip_usb_set_persist_flags(USBDC_PERSIST_ENA);
+            }
+            REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
+        } else if (usb_persist_mode == RESTART_BOOTLOADER_DFU) {
+            //DFU Download
+            chip_usb_set_persist_flags(USBDC_BOOT_DFU);
+            REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
+        } else if (usb_persist_enabled) {
+            //USB Persist reboot
+            chip_usb_set_persist_flags(USBDC_PERSIST_ENA);
+        }
+    }
+}
+
+void usb_persist_restart(restart_type_t mode)
+{
+    if (mode < RESTART_TYPE_MAX && esp_register_shutdown_handler(usb_persist_shutdown_handler) == ESP_OK) {
+        usb_persist_mode = mode;
+        if (mode == RESTART_BOOTLOADER) {
+            usb_switch_to_cdc_jtag();
+        }
+        esp_restart();
+    }
+}
+
+void board_esp32_reset()
+{
+  usb_persist_restart(RESTART_BOOTLOADER);
+}
