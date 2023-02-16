@@ -20,7 +20,11 @@ CFLAGS += \
 CFLAGS += -Wno-error=cast-align -Wno-error=unused-parameter
 
 # default linker file
-LD_FILES ?= $(PORT_DIR)/linker/stm32f3_boot.ld
+ifdef BUILD_APPLICATION
+  LD_FILES ?= $(PORT_DIR)/linker/stm32f3_app.ld
+else
+  LD_FILES ?= $(PORT_DIR)/linker/stm32f3_boot.ld
+endif
 
 # Port source
 SRC_C += \
