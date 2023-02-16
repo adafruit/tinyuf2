@@ -40,6 +40,9 @@ jobs:
         - 'sparkfun_stm32_thing_plus'
         # stm32l4
         - 'swan_r5'
+        # Teensy 4.0/4.1
+        - 'teensy40'
+        - 'teensy41'
         
     steps:
     - name: Setup Python
