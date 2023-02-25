@@ -22,27 +22,25 @@
  * THE SOFTWARE.
  */
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <stdbool.h>
-#include <string.h>
 #include <stdarg.h>
-
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "fsl_gpio.h"
 #include "fsl_iomuxc.h"
 #include "fsl_lpuart.h"
 
+#include "arduino.h"
 #include "board_api.h"
 #include "tusb.h"
-#include "arduino.h"
 
 void loop(void);
 
-uint8_t all_pins[] = {
-  0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
-  PIN_SDA, PIN_SCL, PIN_MOSI, PIN_MISO, PIN_SCK, AD5
-};
+uint8_t all_pins[] = {0,       1,       2,        3,        4,       5,  6,
+                      7,       8,       9,        10,       11,      12, 13,
+                      PIN_SDA, PIN_SCL, PIN_MOSI, PIN_MISO, PIN_SCK, AD5};
 
 bool test = false;
 
@@ -56,8 +54,7 @@ void test_print_adc(void);
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
 //--------------------------------------------------------------------+
 
-int main(void)
-{
+int main(void) {
   board_init();
   board_uart_init(115200);
 
@@ -71,7 +68,8 @@ int main(void)
 
   // wait for Serial connection
   if (test) {
-    while( !tud_cdc_connected() ) tud_task();
+    while (!tud_cdc_connected())
+      tud_task();
   }
 
   while (1) {
@@ -88,19 +86,19 @@ void loop(void) {
     uint32_t count;
 
     count = tud_cdc_read(serial_buf, sizeof(serial_buf));
-    if (count && serial_buf[0] == 0xAF){
+    if (count && serial_buf[0] == 0xAF) {
       test = true;
     }
   }
 
-  if (! test) {
+  if (!test) {
     setColor(neoWheel(loopcount++));
 
     if ((loopcount % 32) == 0) {
-       digitalWrite(13, HIGH);
+      digitalWrite(13, HIGH);
     }
     if ((loopcount % 32) == 16) {
-       digitalWrite(13, LOW);
+      digitalWrite(13, LOW);
     }
 
     delay(10);
@@ -110,19 +108,30 @@ void loop(void) {
   delay(100);
   Serial_printf("\n\r\n\rHello Metro M7 iMX RT1011 Test! %lu\n\r", millis());
 
-  if ( !testpins(0, 2, all_pins, sizeof(all_pins))) return;
-  if ( !testpins(1, 3, all_pins, sizeof(all_pins))) return;
-  if ( !testpins(4, 6, all_pins, sizeof(all_pins))) return;
-  if ( !testpins(5, 7, all_pins, sizeof(all_pins))) return;
-  if ( !testpins(8, 10, all_pins, sizeof(all_pins))) return;
-  if ( !testpins(9, 11, all_pins, sizeof(all_pins))) return;
-  if ( !testpins(13, PIN_SDA, all_pins, sizeof(all_pins))) return;
-  if ( !testpins(12, PIN_SCL, all_pins, sizeof(all_pins))) return;
-  if ( !testpins(PIN_MOSI, PIN_MISO, all_pins, sizeof(all_pins))) return;
-  if ( !testpins(AD2, AD4, all_pins, sizeof(all_pins))) return;
-  if ( !testpins(AD3, AD5, all_pins, sizeof(all_pins))) return;
+  if (!testpins(0, 2, all_pins, sizeof(all_pins)))
+    return;
+  if (!testpins(1, 3, all_pins, sizeof(all_pins)))
+    return;
+  if (!testpins(4, 6, all_pins, sizeof(all_pins)))
+    return;
+  if (!testpins(5, 7, all_pins, sizeof(all_pins)))
+    return;
+  if (!testpins(8, 10, all_pins, sizeof(all_pins)))
+    return;
+  if (!testpins(9, 11, all_pins, sizeof(all_pins)))
+    return;
+  if (!testpins(13, PIN_SDA, all_pins, sizeof(all_pins)))
+    return;
+  if (!testpins(12, PIN_SCL, all_pins, sizeof(all_pins)))
+    return;
+  if (!testpins(PIN_MOSI, PIN_MISO, all_pins, sizeof(all_pins)))
+    return;
+  if (!testpins(AD2, AD4, all_pins, sizeof(all_pins)))
+    return;
+  if (!testpins(AD3, AD5, all_pins, sizeof(all_pins)))
+    return;
 
-//test_print_adc();
+  // test_print_adc();
   // Test 5V
   int five_mV = (float)analogRead(AD1) * 2.0 * 3.3 * 1000 / 4095.0;
   Serial_printf("5V out = %d\n\r", (int)five_mV);
@@ -155,7 +164,7 @@ bool testpins(uint8_t a, uint8_t b, uint8_t *allpins, uint8_t num_allpins) {
     return false;
   }
 
-  for (int retry=0; retry<3 && !ok; retry++) {
+  for (int retry = 0; retry < 3 && !ok; retry++) {
     // turn off both pullups
     pinMode(a, INPUT);
     pinMode(b, INPUT);
@@ -172,18 +181,21 @@ bool testpins(uint8_t a, uint8_t b, uint8_t *allpins, uint8_t num_allpins) {
     // make sure both are low
     if (ar || br) {
       Serial_printf("Low test fail on pin #");
-      if (ar) Serial_printf("%d\n\r", a);
-      if (br) Serial_printf("%d\n\r", b);
+      if (ar)
+        Serial_printf("%d\n\r", a);
+      if (br)
+        Serial_printf("%d\n\r", b);
       ok = false;
       continue;
     }
     ok = true;
   }
-  if (!ok) return false;
+  if (!ok)
+    return false;
 
   ok = false;
-  for (int retry=0; retry<3 && !ok; retry++) {
-    //theSerial->println("OK!");
+  for (int retry = 0; retry < 3 && !ok; retry++) {
+    // theSerial->println("OK!");
     // a is an input, b is an output
     pinMode(a, INPUT);
     pinMode(b, OUTPUT);
@@ -191,7 +203,7 @@ bool testpins(uint8_t a, uint8_t b, uint8_t *allpins, uint8_t num_allpins) {
     delay(10);
 
     // verify neither are grounded
-    if (!digitalRead(a)|| !digitalRead(b)) {
+    if (!digitalRead(a) || !digitalRead(b)) {
       Serial_printf("Ground test 2 fail: both pins should not be grounded");
       delay(100);
       ok = false;
@@ -199,7 +211,8 @@ bool testpins(uint8_t a, uint8_t b, uint8_t *allpins, uint8_t num_allpins) {
     }
     ok = true;
   }
-  if (!ok) return false;
+  if (!ok)
+    return false;
 
   // make sure no pins are shorted to pin a or b
   for (uint8_t i = 0; i < num_allpins; i++) {
@@ -234,17 +247,14 @@ bool testpins(uint8_t a, uint8_t b, uint8_t *allpins, uint8_t num_allpins) {
   return true;
 }
 
-void test_print_adc(void)
-{
-  uint8_t adc_pins[] = { AD0, AD1, AD2, AD3, AD4, AD5 };
+void test_print_adc(void) {
+  uint8_t adc_pins[] = {AD0, AD1, AD2, AD3, AD4, AD5};
   size_t const adc_pins_num = sizeof(adc_pins) / sizeof(adc_pins[0]);
 
-  while(1)
-  {
+  while (1) {
     printf("A0\tA1\tA2\tA3\tA4\tA5\n\r");
 
-    for(size_t i=0; i<adc_pins_num; i++)
-    {
+    for (size_t i = 0; i < adc_pins_num; i++) {
       uint16_t value = analogRead(adc_pins[i]);
       printf("%u\t", value);
     }
@@ -259,8 +269,7 @@ void test_print_adc(void)
 //--------------------------------------------------------------------+
 
 // retarget printf to usb cdc
-__attribute__ ((used)) int _write (int fhdl, const void *buf, size_t count)
-{
-  (void) fhdl;
+__attribute__((used)) int _write(int fhdl, const void *buf, size_t count) {
+  (void)fhdl;
   return tud_cdc_write(buf, count);
 }
