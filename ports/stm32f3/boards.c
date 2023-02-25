@@ -316,8 +316,7 @@ int board_uart_write(void const * buf, int len)
 #endif
 }
 
-#ifndef TINYUF2_SELF_UPDATE
-
+#ifndef BUILD_NO_TINYUSB
 // Forward USB interrupt events to TinyUSB IRQ Handler
 void USB_HP_IRQHandler(void)
 {
