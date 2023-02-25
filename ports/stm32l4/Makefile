@@ -53,10 +53,6 @@ INC += \
 
 include ../rules.mk
 
-# flash target ROM bootloader
-flash-dfu-util: $(BUILD)/$(OUTNAME).bin
-	dfu-util -R -a 0 --dfuse-address 0x08000000 -D $<
-
 #-------------- Self-update  --------------
 self-update:
 	@echo "not implemented yet"

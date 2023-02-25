@@ -163,12 +163,22 @@ erase-jlink: $(BUILD)/$(BOARD)-erase.jlink
 	$(JLINKEXE) -device $(JLINK_DEVICE) -if $(JLINK_IF) -JTAGConf -1,-1 -speed auto -CommandFile $<
 
 #-------------------- Flash with STLink --------------------
+ifneq ($(shell command -v st-flash 2> /dev/null),)
+flash-stlink: $(BUILD)/$(OUTNAME).bin
+	st-flash --reset --format binary write $< 0x8000000
+
+erase-stlink:
+	st-flash erase
+
+else
 # STM32_Programmer_CLI must be in PATH
 flash-stlink: $(BUILD)/$(OUTNAME).elf
 	STM32_Programmer_CLI --connect port=swd --write $< --go
 
 erase-stlink:
 	STM32_Programmer_CLI --connect port=swd --erase all
+
+endif
 
 #-------------------- Flash with pyocd --------------------
 
@@ -184,3 +194,12 @@ flash-pyocd-bin: $(BUILD)/$(OUTNAME).bin
 
 erase-pyocd:
 	pyocd erase -t $(PYOCD_TARGET) -c
+
+#-------------------- Flash with dfu-util -----------------
+
+# flash using ROM bootloader
+flash-dfu-util: $(BUILD)/$(OUTNAME).bin
+	dfu-util -R -a 0 --dfuse-address 0x08000000 -D $<
+
+erase-dfu-util:
+	dfu-util -R -a 0 --dfuse-address 0x08000000:mass-erase:force

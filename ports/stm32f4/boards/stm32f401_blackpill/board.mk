@@ -9,4 +9,4 @@ SRC_S += \
 JLINK_DEVICE = stm32f401cc
 
 flash: flash-dfu-util
-erase: erase-jlink
+erase: erase-dfu-util
