@@ -44,7 +44,7 @@ uint8_t all_pins[] = {
   PIN_SDA, PIN_SCL, PIN_MOSI, PIN_MISO, PIN_SCK, AD5
 };
 
-bool test = true;
+bool test = false;
 
 bool testpins(uint8_t a, uint8_t b, uint8_t *allpins, uint8_t num_allpins);
 void test_print_adc(void);
@@ -102,7 +102,7 @@ void loop(void) {
     if ((loopcount % 32) == 16) {
        digitalWrite(13, LOW);
     }
-    
+
     delay(10);
     return;
   }
@@ -116,11 +116,25 @@ void loop(void) {
   if ( !testpins(5, 7, all_pins, sizeof(all_pins))) return;
   if ( !testpins(8, 10, all_pins, sizeof(all_pins))) return;
   if ( !testpins(9, 11, all_pins, sizeof(all_pins))) return;
-  if ( !testpins(12, PIN_SDA, all_pins, sizeof(all_pins))) return; 
-  if ( !testpins(13, PIN_SCL, all_pins, sizeof(all_pins))) return;
+  if ( !testpins(13, PIN_SDA, all_pins, sizeof(all_pins))) return;
+  if ( !testpins(12, PIN_SCL, all_pins, sizeof(all_pins))) return;
   if ( !testpins(PIN_MOSI, PIN_MISO, all_pins, sizeof(all_pins))) return;
-  if ( !testpins(PIN_SCK, AD5, all_pins, sizeof(all_pins))) return;
-  
+  if ( !testpins(AD2, AD4, all_pins, sizeof(all_pins))) return;
+  if ( !testpins(AD3, AD5, all_pins, sizeof(all_pins))) return;
+
+//test_print_adc();
+  // Test 5V
+  int five_mV = (float)analogRead(AD1) * 2.0 * 3.3 * 1000 / 4095.0;
+  Serial_printf("5V out = %d\n\r", (int)five_mV);
+  if (abs(five_mV - 5000) > 500) {
+    Serial_printf("5V power supply reading wrong?");
+  }
+  // Test 5V
+  int nine_mV = (float)analogRead(AD0) * 11.0 * 3.3 * 1000 / 4095.0;
+  Serial_printf("9V out = %d\n\r", (int)nine_mV);
+  if (abs(nine_mV - 9000) > 1000) {
+    Serial_printf("9V power supply reading wrong?");
+  }
   Serial_printf("*** TEST OK! ***\n\r");
 }
 
@@ -145,16 +159,16 @@ bool testpins(uint8_t a, uint8_t b, uint8_t *allpins, uint8_t num_allpins) {
     // turn off both pullups
     pinMode(a, INPUT);
     pinMode(b, INPUT);
-    
+
     // make a an output
     pinMode(a, OUTPUT);
     digitalWrite(a, LOW);
     delay(1);
-    
+
     int ar = digitalRead(a);
     int br = digitalRead(b);
     delay(5);
-    
+
     // make sure both are low
     if (ar || br) {
       Serial_printf("Low test fail on pin #");
@@ -175,7 +189,7 @@ bool testpins(uint8_t a, uint8_t b, uint8_t *allpins, uint8_t num_allpins) {
     pinMode(b, OUTPUT);
     digitalWrite(b, HIGH);
     delay(10);
-    
+
     // verify neither are grounded
     if (!digitalRead(a)|| !digitalRead(b)) {
       Serial_printf("Ground test 2 fail: both pins should not be grounded");
@@ -214,7 +228,7 @@ bool testpins(uint8_t a, uint8_t b, uint8_t *allpins, uint8_t num_allpins) {
   }
   pinMode(a, INPUT);
   pinMode(b, INPUT);
-  
+
   delay(10);
 
   return true;
