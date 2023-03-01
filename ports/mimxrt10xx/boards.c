@@ -95,7 +95,7 @@ void board_teardown(void)
 
 void board_usb_init(void)
 {
-#if TUD_OPT_RHPORT == 0
+#if BOARD_TUD_RHPORT == 0
   // Clock
   CLOCK_EnableUsbhs0PhyPllClock(kCLOCK_Usbphy480M, 480000000U);
   CLOCK_EnableUsbhs0Clock(kCLOCK_Usb480M, 480000000U);
@@ -106,7 +106,7 @@ void board_usb_init(void)
   USBPHY_Type* usb_phy = USBPHY;
 #endif
 
-#elif TUD_OPT_RHPORT == 1
+#elif BOARD_TUD_RHPORT == 1
   // USB1
   CLOCK_EnableUsbhs1PhyPllClock(kCLOCK_Usbphy480M, 480000000U);
   CLOCK_EnableUsbhs1Clock(kCLOCK_Usb480M, 480000000U);

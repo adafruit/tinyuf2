@@ -17,8 +17,8 @@ CFLAGS += \
   -DCFG_TUSB_MCU=OPT_MCU_MIMXRT10XX
 
 # Choose which port to use
-TUD_OPT_RHPORT = 0
-CFLAGS+=-DTUD_OPT_RHPORT=$(TUD_OPT_RHPORT)
+BOARD_TUD_RHPORT = 0
+CFLAGS+=-DBOARD_TUD_RHPORT=$(BOARD_TUD_RHPORT)
 
 # mcu driver cause following warnings
 CFLAGS += -Wno-error=unused-parameter

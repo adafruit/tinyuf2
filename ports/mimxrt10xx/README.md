@@ -49,8 +49,8 @@ Double tap to enter bootloader mode, then simply drag & drop `update-tinyuf2_BOA
 - [MIMX RT1010 Evaluation Kit](https://www.nxp.com/design/development-boards/i.mx-evaluation-and-development-boards/i.mx-rt1010-evaluation-kit:MIMXRT1010-EVK)
 - [MIMX RT1020 Evaluation Kit](https://www.nxp.com/design/development-boards/i.mx-evaluation-and-development-boards/i.mx-rt1020-evaluation-kit:MIMXRT1020-EVK)
 - [MIMX RT1060 Evaluation Kit](https://www.nxp.com/design/development-boards/i.mx-evaluation-and-development-boards/mimxrt1060-evk-i.mx-rt1060-evaluation-kit:MIMXRT1060-EVK)
-- [Teensy 4.0](boards/teensy40)
-- [Teensy 4.1](boards/teensy41)
+- [Teensy 4.0](https://www.pjrc.com/store/teensy40.html)
+- [Teensy 4.1](https://www.pjrc.com/store/teensy41.html)
 
 
 ## Linux hidraw access

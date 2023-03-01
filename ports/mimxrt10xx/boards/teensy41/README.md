@@ -22,4 +22,4 @@ At this point, the board should be flashed, the red light adjacent to the micro 
 ## Building and flashing for the secondary USB port
 If you're using the secondary USB port, and want the tinyUF2 bootloader to run from that, follow the directions for flashing, but use this command instead:
 
-```make TUD_OPT_RHPORT=1 BOARD=teensy41 -j flash```
+```make BOARD_TUD_RHPORT=1 BOARD=teensy41 -j flash```
