@@ -137,12 +137,14 @@ void loop(void) {
   Serial_printf("5V out = %d\n\r", (int)five_mV);
   if (abs(five_mV - 5000) > 500) {
     Serial_printf("5V power supply reading wrong?");
+    return;
   }
   // Test 5V
   int nine_mV = (float)analogRead(AD0) * 11.0 * 3.3 * 1000 / 4095.0;
   Serial_printf("9V out = %d\n\r", (int)nine_mV);
   if (abs(nine_mV - 9000) > 1000) {
     Serial_printf("9V power supply reading wrong?");
+    return;
   }
   Serial_printf("*** TEST OK! ***\n\r");
 }
