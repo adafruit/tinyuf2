@@ -170,6 +170,13 @@ flash-stlink: $(BUILD)/$(OUTNAME).elf
 erase-stlink:
 	STM32_Programmer_CLI --connect port=swd --erase all
 
+# st-flash must be in PATH
+flash-stflash: $(BUILD)/$(OUTNAME).bin
+	st-flash --reset --format binary write $< 0x8000000
+
+erase-stflash:
+	st-flash erase
+
 #-------------------- Flash with pyocd --------------------
 
 # Flash hex file using pyocd
@@ -184,3 +191,12 @@ flash-pyocd-bin: $(BUILD)/$(OUTNAME).bin
 
 erase-pyocd:
 	pyocd erase -t $(PYOCD_TARGET) -c
+
+#-------------------- Flash with dfu-util -----------------
+
+# flash using ROM bootloader
+flash-dfu-util: $(BUILD)/$(OUTNAME).bin
+	dfu-util -R -a 0 --dfuse-address 0x08000000 -D $<
+
+erase-dfu-util:
+	dfu-util -R -a 0 --dfuse-address 0x08000000:mass-erase:force
