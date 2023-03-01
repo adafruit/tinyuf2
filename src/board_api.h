@@ -49,6 +49,16 @@
 #define TINYUF2_DFU_DOUBLE_TAP      0
 #endif
 
+// Force boot to DFU mode when button is pressed
+#ifndef TINYUF2_DFU_BUTTON
+#define TINYUF2_DFU_BUTTON 0
+// Should holding the DFU button perform an erase as well?
+#  ifndef TINYUF2_DFU_BUTTON_ERASE
+#    define TINYUF2_DFU_BUTTON_ERASE 0
+#  endif
+#endif
+
+
 // Use Display to draw DFU image
 #ifndef TINYUF2_DISPLAY
 #define TINYUF2_DISPLAY 0
@@ -90,6 +100,11 @@ void board_reset(void);
 
 // Write PWM duty value to LED
 void board_led_write(uint32_t value);
+
+#if TINYUF2_DFU_BUTTON
+  // Read button.  Return true if pressed
+  int board_button_read(void);
+#endif
 
 // Write color to rgb strip
 void board_rgb_write(uint8_t const rgb[]);

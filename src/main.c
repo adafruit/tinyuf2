@@ -35,12 +35,15 @@
 //--------------------------------------------------------------------+
 // MACRO CONSTANT TYPEDEF PROTYPES
 //--------------------------------------------------------------------+
-//#define USE_DFU_BUTTON    1
 
 // timeout for double tap detection
 #define DBL_TAP_DELAY             500
 
+// when sensing the button state, wait this long before sampling the pin
+#define BUTTON_SETTLE_DELAY 20
+
 #ifndef DBL_TAP_REG
+
 // defined by linker script
 extern uint32_t _board_dfu_dbl_tap[];
 #define DBL_TAP_REG   _board_dfu_dbl_tap[0]
@@ -104,6 +107,24 @@ int main(void)
 static bool check_dfu_mode(void)
 {
   // TODO enable for all port instead of one with double tap
+#if TINYUF2_DFU_BUTTON
+  // always stay in dfu mode if the button is pressed.
+  // wait for a few milliseconds for the switch pin to reach its pulled value.
+  _timer_count = 0;
+  board_timer_start(1);
+  while(_timer_count < BUTTON_SETTLE_DELAY) {}
+  board_timer_stop();
+  if (board_button_read()) {
+      // force erase app if forced into bootloader mode.
+#if TINYUF2_DFU_BUTTON_ERASE
+      indicator_set(STATE_WRITING_STARTED);
+      board_flash_erase_app();
+      indicator_set(STATE_WRITING_FINISHED);
+#endif
+      return true;
+  }
+#endif
+
 #if TINYUF2_DFU_DOUBLE_TAP
   // TUF2_LOG1_HEX(&DBL_TAP_REG);
 
