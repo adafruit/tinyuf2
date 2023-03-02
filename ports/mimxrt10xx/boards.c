@@ -95,24 +95,24 @@ void board_teardown(void)
 
 void board_usb_init(void)
 {
+  USBPHY_Type* usb_phy;
+
 #if BOARD_TUD_RHPORT == 0
   // Clock
   CLOCK_EnableUsbhs0PhyPllClock(kCLOCK_Usbphy480M, 480000000U);
   CLOCK_EnableUsbhs0Clock(kCLOCK_Usb480M, 480000000U);
 
-#ifdef USBPHY1
-  USBPHY_Type* usb_phy = USBPHY1;
-#else
-  USBPHY_Type* usb_phy = USBPHY;
-#endif
+  #ifdef USBPHY1
+  usb_phy = USBPHY1;
+  #else
+  usb_phy = USBPHY;
+  #endif
 
 #elif BOARD_TUD_RHPORT == 1
   // USB1
   CLOCK_EnableUsbhs1PhyPllClock(kCLOCK_Usbphy480M, 480000000U);
   CLOCK_EnableUsbhs1Clock(kCLOCK_Usb480M, 480000000U);
-  USBPHY_Type* usb_phy = USBPHY2;
-#else
-#  error
+  usb_phy = USBPHY2;
 #endif
 
   // Enable PHY support for Low speed device + LS via FS Hub

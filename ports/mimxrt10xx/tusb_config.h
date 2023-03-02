@@ -39,13 +39,13 @@
 #endif
 
 #if BOARD_TUD_RHPORT == 0
-#    define CFG_TUSB_RHPORT0_MODE      (OPT_MODE_DEVICE | OPT_MODE_HIGH_SPEED)
-#    define CFG_TUSB_RHPORT1_MODE      0
+  #define CFG_TUSB_RHPORT0_MODE      (OPT_MODE_DEVICE | OPT_MODE_HIGH_SPEED)
+  #define CFG_TUSB_RHPORT1_MODE      0
 #elif BOARD_TUD_RHPORT == 1
-#    define CFG_TUSB_RHPORT0_MODE      0
-#    define CFG_TUSB_RHPORT1_MODE      (OPT_MODE_DEVICE | OPT_MODE_HIGH_SPEED)
+  #define CFG_TUSB_RHPORT0_MODE      0
+  #define CFG_TUSB_RHPORT1_MODE      (OPT_MODE_DEVICE | OPT_MODE_HIGH_SPEED)
 #else
-#    error "RHPORT isn't right     "
+  #error "BOARD_TUD_RHPORT is not correct"
 #endif
 
 #define CFG_TUSB_OS                OPT_OS_NONE
