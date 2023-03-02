@@ -4,6 +4,9 @@ CROSS_COMPILE = arm-none-eabi-
 SDK_DIR = lib/nxp/mcux-sdk
 MCU_DIR = $(SDK_DIR)/devices/$(MCU)
 
+# Choose which USB port to use (default to USB0)
+BOARD_TUD_RHPORT ?= 0
+
 # Port Compiler Flags
 CFLAGS += \
   -mthumb \
@@ -14,8 +17,9 @@ CFLAGS += \
   -D__ARMVFP__=0 -D__ARMFPV5__=0 \
   -DXIP_EXTERNAL_FLASH=1 \
   -DXIP_BOOT_HEADER_ENABLE=1 \
-  -DCFG_TUSB_MCU=OPT_MCU_MIMXRT10XX
-  
+  -DCFG_TUSB_MCU=OPT_MCU_MIMXRT10XX \
+  -DBOARD_TUD_RHPORT=$(BOARD_TUD_RHPORT)
+
 # mcu driver cause following warnings
 CFLAGS += -Wno-error=unused-parameter
 

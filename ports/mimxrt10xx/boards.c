@@ -95,14 +95,24 @@ void board_teardown(void)
 
 void board_usb_init(void)
 {
+  USBPHY_Type* usb_phy;
+
+#if BOARD_TUD_RHPORT == 0
   // Clock
   CLOCK_EnableUsbhs0PhyPllClock(kCLOCK_Usbphy480M, 480000000U);
   CLOCK_EnableUsbhs0Clock(kCLOCK_Usb480M, 480000000U);
 
-#ifdef USBPHY1
-  USBPHY_Type* usb_phy = USBPHY1;
-#else
-  USBPHY_Type* usb_phy = USBPHY;
+  #ifdef USBPHY1
+  usb_phy = USBPHY1;
+  #else
+  usb_phy = USBPHY;
+  #endif
+
+#elif BOARD_TUD_RHPORT == 1
+  // USB1
+  CLOCK_EnableUsbhs1PhyPllClock(kCLOCK_Usbphy480M, 480000000U);
+  CLOCK_EnableUsbhs1Clock(kCLOCK_Usb480M, 480000000U);
+  usb_phy = USBPHY2;
 #endif
 
   // Enable PHY support for Low speed device + LS via FS Hub
@@ -116,10 +126,6 @@ void board_usb_init(void)
   phytx &= ~(USBPHY_TX_D_CAL_MASK | USBPHY_TX_TXCAL45DM_MASK | USBPHY_TX_TXCAL45DP_MASK);
   phytx |= USBPHY_TX_D_CAL(0x0C) | USBPHY_TX_TXCAL45DP(0x06) | USBPHY_TX_TXCAL45DM(0x06);
   usb_phy->TX = phytx;
-
-  // USB1
-//  CLOCK_EnableUsbhs1PhyPllClock(kCLOCK_Usbphy480M, 480000000U);
-//  CLOCK_EnableUsbhs1Clock(kCLOCK_Usb480M, 480000000U);
 }
 
 void board_dfu_init(void)
