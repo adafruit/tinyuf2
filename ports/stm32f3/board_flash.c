@@ -29,12 +29,8 @@
 #endif
 
 //--------------------------------------------------------------------+
-//
+// MACRO TYPEDEF CONSTANT ENUM
 //--------------------------------------------------------------------+
-
-// no caching
-// #define FLASH_CACHE_SIZE          512
-// #define FLASH_CACHE_INVALID_ADDR  0xffffffff
 
 #define FLASH_BASE_ADDR         0x08000000UL
 
@@ -46,18 +42,15 @@ enum
 
 static uint8_t erased_sectors[SECTOR_COUNT] = { 0 };
 
-uint32_t flash_func_sector_size(unsigned sector)
+//--------------------------------------------------------------------+
+// Internal Helper
+//--------------------------------------------------------------------+
+
+static inline uint32_t flash_sector_size(uint32_t sector)
 {
-  if (sector < SECTOR_COUNT) {
-    return BOARD_PAGE_SIZE;
-  }
-
-  return 0;
+  (void) sector;
+  return BOARD_PAGE_SIZE;
 }
-
-//--------------------------------------------------------------------+
-//
-//--------------------------------------------------------------------+
 
 static bool is_blank(uint32_t addr, uint32_t size)
 {
@@ -71,36 +64,31 @@ static bool is_blank(uint32_t addr, uint32_t size)
   return true;
 }
 
-static bool flash_erase(uint32_t addr)
+static bool flash_erase_sector(uint32_t addr)
 {
+#ifndef TINYUF2_SELF_UPDATE
+  // skip erasing bootloader if not self-update
+  TUF2_ASSERT(addr >= BOARD_FLASH_APP_START);
+#endif
+
   // starting address from 0x08000000
   uint32_t sector_addr = FLASH_BASE_ADDR;
   bool erased = false;
-
-  uint32_t sector = 0;
   uint32_t size = 0;
 
   for ( uint32_t i = 0; i < SECTOR_COUNT; i++ )
   {
     TUF2_ASSERT(sector_addr < FLASH_BASE_ADDR + BOARD_FLASH_SIZE);
 
-    size = flash_func_sector_size(i);
+    size = flash_sector_size(i);
     if ( sector_addr + size > addr )
     {
-      sector = i;
       erased = erased_sectors[i];
       erased_sectors[i] = 1;    // don't erase anymore - we will continue writing here!
       break;
     }
     sector_addr += size;
   }
-
-  (void)sector;
-
-#ifndef TINYUF2_SELF_UPDATE
-  // skip erasing sector0 if not self-update
-  TUF2_ASSERT(sector);
-#endif
 
   if ( !erased && !is_blank(sector_addr, size))
   {
@@ -109,13 +97,14 @@ static bool flash_erase(uint32_t addr)
     FLASH_EraseInitTypeDef EraseInit;
     EraseInit.TypeErase = FLASH_TYPEERASE_PAGES;
     EraseInit.PageAddress = sector_addr;
-    EraseInit.NbPages = ((BOARD_FLASH_APP_START - sector_addr)/size);
+    EraseInit.NbPages = 1;
 
     uint32_t SectorError = 0;
     HAL_FLASHEx_Erase(&EraseInit, &SectorError);
     FLASH_WaitForLastOperation(HAL_MAX_DELAY);
+    TUF2_ASSERT(SectorError == 0xFFFFFFFF);
+
     TUF2_LOG1("OK\r\n");
-    TUF2_ASSERT( (SectorError != 0xFFFFFFFF) && is_blank(sector_addr, size) );
   }
 
   return true;
@@ -123,7 +112,7 @@ static bool flash_erase(uint32_t addr)
 
 static void flash_write(uint32_t dst, const uint8_t *src, int len)
 {
-  flash_erase(dst);
+  flash_erase_sector(dst);
 
   TUF2_LOG1("Write flash at address %08lX\r\n", dst);
   for (int i = 0; i < len; i += 4)
@@ -151,7 +140,7 @@ static void flash_write(uint32_t dst, const uint8_t *src, int len)
 }
 
 //--------------------------------------------------------------------+
-//
+// Board API
 //--------------------------------------------------------------------+
 void board_flash_init(void)
 {
@@ -228,7 +217,7 @@ void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
 
       for ( uint32_t i = 0; i < BOOTLOADER_SECTOR_COUNT && len > 0; i++ )
       {
-        uint32_t const size = (flash_func_sector_size(i) < len ? flash_func_sector_size(i) : len);
+        uint32_t const size = (flash_sector_size(i) < len ? flash_sector_size(i) : len);
         board_flash_write(sector_addr, data, size);
 
         sector_addr += size;

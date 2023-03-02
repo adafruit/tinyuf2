@@ -13,7 +13,7 @@ flash-dfu-util: $(BUILD)/$(OUTNAME).bin
 # Self-update
 #------------------------------------------
 
-# direction containing Makefile for building update app
+# directory containing Makefile for building update app
 SELF_DIR = apps/self_update
 
 $(SELF_DIR)/bootloader_bin.c:	$(BUILD)/$(OUTNAME).bin
