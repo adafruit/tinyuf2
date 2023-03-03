@@ -80,6 +80,7 @@
 
 #define UART_DEV              USART1
 #define UART_CLOCK_ENABLE     __HAL_RCC_USART1_CLK_ENABLE
+#define UART_CLOCK_DISABLE    __HAL_RCC_USART1_CLK_DISABLE
 #define UART_GPIO_PORT        GPIOC
 #define UART_GPIO_AF          GPIO_AF7_USART1
 #define UART_TX_PIN           GPIO_PIN_4

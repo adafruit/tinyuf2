@@ -34,7 +34,7 @@ Not all features are implemented for all MCUs, following is supported MCUs and i
 | K32L2       |  ✔   |      ✔       |             |                  |          |      |
 | LPC55       |  ✔   |      ✔       |             |                  |    ✔     |      |
 | iMXRT       |  ✔   |      ✔       |      ✔      |                  |    ✔     |      |
-| STM32F3     |  ✔   |      ✔       |      ✔      |                  |    ✔     |      |
+| STM32F3     |  ✔   |      ✔       |      ✔      |        ✔         |    ✔     |      |
 | STM32F4     |  ✔   |      ✔       |      ✔      |        ✔         |    ✔     |      |
 
 ## Build and Flash

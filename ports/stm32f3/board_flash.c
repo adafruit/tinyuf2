@@ -34,6 +34,11 @@
 
 #define FLASH_BASE_ADDR         0x08000000UL
 
+// TinyUF2 by default resides in the first 8 flash pages on STM32F43s, therefore these are write protected
+#if BOARD_FLASH_APP_START == 0x08004000
+#define BOOTLOADER_PAGE_MASK (OB_WRP_PAGES0TO1 | OB_WRP_PAGES2TO3 | OB_WRP_PAGES4TO5 | OB_WRP_PAGES6TO7)
+#endif
+
 enum
 {
   SECTOR_COUNT = (BOARD_FLASH_SIZE / BOARD_PAGE_SIZE),
@@ -177,9 +182,44 @@ void board_flash_erase_app(void)
 
 bool board_flash_protect_bootloader(bool protect)
 {
-  // TODO implement later
-  (void) protect;
-  return false;
+  // Ignore if HAL_FLASHEx_OBProgram triggered reset
+  bool board_reset_was_option_bytes(void);
+  if(board_reset_was_option_bytes()) return true;
+
+  bool ret = true;
+
+  HAL_FLASH_Unlock();
+  HAL_FLASH_OB_Unlock();
+
+  FLASH_OBProgramInitTypeDef ob_current = {0};
+  HAL_FLASHEx_OBGetConfig(&ob_current);
+
+  // Flash sectors are protected if the bit is cleared
+  bool const already_protected = (ob_current.WRPPage & BOOTLOADER_PAGE_MASK) == 0;
+
+  TUF2_LOG1("Protection: current = %u, request = %u\r\n", already_protected, protect);
+
+  // request and current state mismatched --> require ob program
+  if ( (protect && !already_protected) || (!protect && already_protected) )
+  {
+    FLASH_OBProgramInitTypeDef ob_update = {0};
+    ob_update.OptionType = OPTIONBYTE_WRP;
+    ob_update.WRPPage    = BOOTLOADER_PAGE_MASK;
+    ob_update.WRPState   = protect ? OB_WRPSTATE_ENABLE : OB_WRPSTATE_DISABLE;
+
+    if (HAL_FLASHEx_OBProgram(&ob_update) == HAL_OK)
+    {
+      HAL_FLASH_OB_Launch(); // will reset
+    }else
+    {
+      ret = false;
+    }
+  }
+
+  HAL_FLASH_OB_Lock();
+  HAL_FLASH_Lock();
+
+  return ret;
 }
 
 #ifdef TINYUF2_SELF_UPDATE

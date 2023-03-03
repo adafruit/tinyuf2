@@ -47,6 +47,11 @@
 // Double Reset tap to enter DFU
 #define TINYUF2_DFU_DOUBLE_TAP      1
 
+// Enable write protection
+#ifndef TINYUF2_PROTECT_BOOTLOADER
+#define TINYUF2_PROTECT_BOOTLOADER    1
+#endif
+
 // Brightness percentage from 1 to 255
 #ifndef NEOPIXEL_BRIGHTNESS
 #define NEOPIXEL_BRIGHTNESS   0x10

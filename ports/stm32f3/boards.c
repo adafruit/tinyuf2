@@ -37,8 +37,18 @@
 
 static UART_HandleTypeDef UartHandle;
 
+static bool reset_was_option_bytes = false;
+
+bool board_reset_was_option_bytes(void)
+{
+  return reset_was_option_bytes;
+}
+
 void board_init(void)
 {
+  // Check asap to ensure correct reason
+  reset_was_option_bytes = !!(__HAL_RCC_GET_FLAG(RCC_FLAG_OBLRST));
+
   clock_init();
   SystemCoreClockUpdate();
 
