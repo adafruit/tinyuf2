@@ -182,10 +182,6 @@ void board_flash_erase_app(void)
 
 bool board_flash_protect_bootloader(bool protect)
 {
-  // Ignore if HAL_FLASHEx_OBProgram triggered reset
-  bool board_reset_was_option_bytes(void);
-  if(board_reset_was_option_bytes()) return true;
-
   bool ret = true;
 
   HAL_FLASH_Unlock();

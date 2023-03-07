@@ -39,9 +39,9 @@ static UART_HandleTypeDef UartHandle;
 
 static bool reset_was_option_bytes = false;
 
-bool board_reset_was_option_bytes(void)
+bool board_should_protect_bootloader(void)
 {
-  return reset_was_option_bytes;
+  return !reset_was_option_bytes;
 }
 
 void board_init(void)

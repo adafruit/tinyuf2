@@ -60,6 +60,13 @@ static volatile uint32_t _timer_count = 0;
 //--------------------------------------------------------------------+
 static bool check_dfu_mode(void);
 
+#if TINYUF2_PROTECT_BOOTLOADER
+__attribute__((weak)) bool board_should_protect_bootloader(void)
+{
+  return true;
+}
+#endif
+
 int main(void)
 {
   board_init();
@@ -67,7 +74,10 @@ int main(void)
   TU_LOG1("TinyUF2\r\n");
 
 #if TINYUF2_PROTECT_BOOTLOADER
-  board_flash_protect_bootloader(true);
+  if (board_should_protect_bootloader())
+  {
+    board_flash_protect_bootloader(true);
+  }
 #endif
 
   // if not DFU mode, jump to App
