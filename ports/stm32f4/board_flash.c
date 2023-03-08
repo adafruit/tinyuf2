@@ -29,12 +29,8 @@
 #endif
 
 //--------------------------------------------------------------------+
-//
+// MACRO TYPEDEF CONSTANT ENUM
 //--------------------------------------------------------------------+
-
-// no caching
-//#define FLASH_CACHE_SIZE          4096
-//#define FLASH_CACHE_INVALID_ADDR  0xffffffff
 
 #define FLASH_BASE_ADDR         0x08000000UL
 
@@ -84,8 +80,13 @@ enum
 static uint8_t erased_sectors[SECTOR_COUNT] = { 0 };
 
 //--------------------------------------------------------------------+
-//
+// Internal Helper
 //--------------------------------------------------------------------+
+
+static inline uint32_t flash_sector_size(uint32_t sector)
+{
+  return sector_size[sector];
+}
 
 static bool is_blank(uint32_t addr, uint32_t size)
 {
@@ -112,7 +113,7 @@ static bool flash_erase(uint32_t addr)
   {
     TUF2_ASSERT(sector_addr < FLASH_BASE_ADDR + BOARD_FLASH_SIZE);
 
-    size = sector_size[i];
+    size = flash_sector_size(i);
     if ( sector_addr + size > addr )
     {
       sector = i;
@@ -170,7 +171,7 @@ static void flash_write(uint32_t dst, const uint8_t *src, int len)
 }
 
 //--------------------------------------------------------------------+
-//
+// Board API
 //--------------------------------------------------------------------+
 void board_flash_init(void)
 {
@@ -285,7 +286,7 @@ void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
 
       for ( uint32_t i = 0; i < 4 && len > 0; i++ )
       {
-        uint32_t const size = (sector_size[i] < len ? sector_size[i] : len);
+        uint32_t const size = (flash_sector_size(i) < len ? flash_sector_size(i) : len);
         board_flash_write(sector_addr, data, size);
 
         sector_addr += size;

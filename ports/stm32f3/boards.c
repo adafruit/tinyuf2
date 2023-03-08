@@ -138,6 +138,10 @@ bool board_app_valid(void)
 
 void board_app_jump(void)
 {
+  volatile uint32_t const * app_vector = (volatile uint32_t const*) BOARD_FLASH_APP_START;
+  uint32_t sp = app_vector[0];
+  uint32_t app_entry = app_vector[1];
+
   GPIO_InitTypeDef  GPIO_InitStruct;
   GPIO_InitStruct.Pin = GPIO_PIN_12;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -185,18 +189,14 @@ void board_app_jump(void)
   NVIC->ICER[2] = 0xFFFFFFFF;
   NVIC->ICER[3] = 0xFFFFFFFF;
 
-  // TODO protect bootloader region
-
-  volatile uint32_t const * app_vector = (volatile uint32_t const*) BOARD_FLASH_APP_START;
-
   /* switch exception handlers to the application */
   SCB->VTOR = (uint32_t) BOARD_FLASH_APP_START;
 
   // Set stack pointer
-  __set_MSP(app_vector[0]);
+  __set_MSP(sp);
 
   // Jump to Application Entry
-  asm("bx %0" ::"r"(app_vector[1]));
+  asm("bx %0" ::"r"(app_entry));
 }
 
 uint8_t board_usb_get_serial(uint8_t serial_id[16])

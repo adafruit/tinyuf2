@@ -364,7 +364,6 @@ void SysTick_Handler(void)
   board_timer_handler();
 }
 
-
 int board_uart_write(void const * buf, int len)
 {
 #if defined(UART_DEV) && CFG_TUSB_DEBUG
