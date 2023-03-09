@@ -262,8 +262,6 @@ void SysTick_Handler(void)
 
 void board_led_write(uint32_t value)
 {
-  (void) value;
-
 #ifdef LED_PINMUX
 #ifdef LED_PWM_PINMUX
   if (_dfu_mode)
@@ -274,6 +272,7 @@ void board_led_write(uint32_t value)
   }else
 #endif
   {
+    value = (value >= 128) ? 1 : 0;
     GPIO_PinWrite(LED_PORT, LED_PIN, value ? LED_STATE_ON : (1-LED_STATE_ON));
   }
 #endif
