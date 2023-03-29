@@ -55,7 +55,7 @@
 #define USB_PRODUCT              "Deneyap Mini"
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID             "ESP32S2-deneyapmini-v1"
+#define UF2_BOARD_ID             "ESP32S2-DeneyapMini-v1"
 #define UF2_VOLUME_LABEL         "DYMBOOT"
 #define UF2_INDEX_URL            "https://magaza.deneyapkart.org/tr/product/detail/deneyap-mini"
 

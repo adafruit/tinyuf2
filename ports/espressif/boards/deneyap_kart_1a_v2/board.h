@@ -55,7 +55,7 @@
 #define USB_PRODUCT              "Deneyap Kart 1A v2"
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID             "ESP32S3-deneyapkart1a-v2"
+#define UF2_BOARD_ID             "ESP32S3-DeneyapKart1A-v2"
 #define UF2_VOLUME_LABEL         "DY1A2BOOT"
 #define UF2_INDEX_URL            "https://magaza.deneyapkart.org/tr/product/detail/deneyap-kart-1a-v2-type-c"
 
