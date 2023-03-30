@@ -6,6 +6,9 @@ Following boards are supported:
 
 - [Adafruit Magtag 2.9" E-Ink WiFi Display](https://www.adafruit.com/product/4800)
 - [Adafruit Metro ESP32-S2](https://www.adafruit.com/product/4775)
+- [Deneyap Kart 1A v2](https://magaza.deneyapkart.org/tr/product/detail/deneyap-kart-1a-v2-type-c)
+- [Deneyap Mini](https://magaza.deneyapkart.org/tr/product/detail/deneyap-mini)
+- [Deneyap Mini v2](https://magaza.deneyapkart.org/tr/product/detail/deneyap-mini-v2-type-c)
 - [Espressif Kaluga 1](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-esp32-s2-kaluga-1-kit.html)
 - [Espressif HMI 1](https://github.com/espressif/esp-dev-kits/tree/master/esp32-s2-hmi-devkit-1)
 - [Espressif Saola 1R (WROVER) and 1M (WROOM)](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-saola-1-v1.2.html)
