@@ -1,4 +1,4 @@
-# TinyUF2 "Bootloader Application" for ESP32-S2
+# TinyUF2 "Bootloader Application" for ESP32-S2 and ESP32-S3
 
 The project is composed of customizing the 2nd stage bootloader from IDF and UF2 factory application as 3rd stage bootloader. **Note**: since IDF is actively developed and change very often, it is included as submodule at `lib/esp-idf`, please run export script there to have your environment setup correctly.
 
@@ -27,7 +27,7 @@ Following boards are supported:
 
 ### Build
 
-You will need to download and [set up ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/get-started/). The IDF version is developed and tested by TinyUF2 is at `lib/esp-idf`
+You will need to download and [set up ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/get-started/) or [set up ESP-IDF for ESP32-S3](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/get-started/). The IDF version is developed and tested by TinyUF2 is at `lib/esp-idf`
 
 ```
 make BOARD=adafruit_feather_esp32s2 all
@@ -54,7 +54,7 @@ Note: you may need to change the `flash_size` and offset of `tinyuf2.bin` if you
 There are a few ways to enter UF2 mode:
 
 - There is no `ota application` and/or `ota_data` partition is corrupted
-- `PIN_BUTTON_UF2` is gnd when 2nd stage bootloader indicator is on e.g **RGB led = Purple**. Note: since most ESP32S2 board implement `GPIO0` as button for 1st stage ROM bootloader, it can be used for dual-purpose button here as well. The difference is the pressing order:
+- `PIN_BUTTON_UF2` is gnd when 2nd stage bootloader indicator is on e.g **RGB led = Purple**. Note: since most ESP32S2 and ESP32S3 board implement `GPIO0` as button for 1st stage ROM bootloader, it can be used for dual-purpose button here as well. The difference is the pressing order:
   - Holding `GPIO0` then reset -> ROM bootloader
   - Press reset, see indicator on (purple RGB) then press `GPIO0` -> UF2 bootloader
 - `PIN_DOUBLE_RESET_RC` GPIO is attached to an 100K resistor and 1uF Capacitor to serve as 1-bit memory, which hold the pin value long enough for double reset detection. Simply press double reset to enter UF2
@@ -75,7 +75,7 @@ There are a few ways to enter UF2 mode:
 
 ## Convert Binary to UF2
 
-To create your own UF2 file, simply use the [Python conversion script](https://github.com/Microsoft/uf2/blob/master/utils/uf2conv.py) on a .bin file, specifying the family id as `ESP32S2`, ``ESP32S3` or their magic number as follows. Note you must specify application address of 0x00 with the -b switch, the bootloader will use it as offset to write to ota partition.
+To create your own UF2 file, simply use the [Python conversion script](https://github.com/Microsoft/uf2/blob/master/utils/uf2conv.py) on a .bin file, specifying the family id as `ESP32S2`, `ESP32S3` or their magic number as follows. Note you must specify application address of 0x00 with the -b switch, the bootloader will use it as offset to write to ota partition.
 
 ```
 uf2conv.py firmware.bin -c -b 0x00 -f ESP32S2
@@ -90,7 +90,7 @@ uf2conv.py firmware.bin -c -b 0x00 -f 0xc47e5767
 
 After 1st stage ROM bootloader runs, which mostly checks GPIO0 to determine whether it should go into ROM DFU, 2nd stage bootloader is loaded. It is responsible for determining and loading either UF2 or user application (OTA0, OTA1). This is the place where we added detection code for entering UF2 mode mentioned by above methods.
 
-Unfortunately ESP32S2 doesn't have a dedicated reset pin, but rather using [power pin (CHIP_PU) as way to reset](https://github.com/espressif/esp-idf/issues/494#issuecomment-291921540). This makes it impossible to use any RAM (internal and PSRAM) to store the temporary double reset magic. However, using an resistor and capacitor attached to a GPIO, we can implement a 1-bit memory to hold pin value long enough for double reset detection.
+Unfortunately ESP32S2 and ESP32S3 doesn't have a dedicated reset pin, but rather using [power pin (CHIP_PU) as way to reset](https://github.com/espressif/esp-idf/issues/494#issuecomment-291921540). This makes it impossible to use any RAM (internal and PSRAM) to store the temporary double reset magic. However, using an resistor and capacitor attached to a GPIO, we can implement a 1-bit memory to hold pin value long enough for double reset detection.
 
 **TODO** guide and schematic as well as note for resistor + capacitor.
 
