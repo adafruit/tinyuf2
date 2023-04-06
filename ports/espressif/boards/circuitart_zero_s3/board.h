@@ -53,8 +53,8 @@
 
 // LED for indicator and writing flash
 // If not defined neopixel will be use for flash writing instead
-//#define LED_PIN               46
-//#define LED_STATE_ON          1
+#define LED_PIN               46
+#define LED_STATE_ON          1
 
 //--------------------------------------------------------------------+
 // TFT
@@ -67,10 +67,10 @@
 #define DISPLAY_PIN_SCK       36
 
 #define DISPLAY_PIN_CS        39
-#define DISPLAY_PIN_DC        38
+#define DISPLAY_PIN_DC        5
 #define DISPLAY_PIN_RST       4
 
-#define DISPLAY_PIN_BL        46
+#define DISPLAY_PIN_BL        18
 #define DISPLAY_BL_ON          0  // GPIO state to enable back light
 
 //#define DISPLAY_PIN_POWER      -1
@@ -79,8 +79,8 @@
 #define DISPLAY_WIDTH         320
 #define DISPLAY_HEIGHT        172
 
-#define DISPLAY_COL_OFFSET    53
-#define DISPLAY_ROW_OFFSET    40
+#define DISPLAY_COL_OFFSET    34
+#define DISPLAY_ROW_OFFSET    0
 
 // Memory Data Access Control & // Vertical Scroll Start Address
 #define DISPLAY_MADCTL        (TFT_MADCTL_MX)
@@ -102,8 +102,5 @@
 #define UF2_BOARD_ID             "ESP32S3-Zero-R1"
 #define UF2_VOLUME_LABEL         "ZEROS3BOOT"
 #define UF2_INDEX_URL            "https://github.com/CircuitART"
-
-// Use favicon
-#define TINYUF2_FAVICON_HEADER   "favicon_adafruit_256.h"
 
 #endif
