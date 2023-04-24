@@ -290,6 +290,10 @@ static inline uint8_t apply_percentage(uint8_t brightness)
 
 void board_rgb_write(uint8_t const rgb[])
 {
+  enum {
+    PIN_MASK = (1u << NEOPIXEL_PIN)
+  };
+
   // neopixel color order is GRB
   uint8_t const pixels[3] = { apply_percentage(rgb[1]), apply_percentage(rgb[0]), apply_percentage(rgb[2]) };
   uint32_t const numBytes = 3;
@@ -307,6 +311,9 @@ void board_rgb_write(uint8_t const rgb[])
   uint32_t const t0       = sys_freq/MAGIC_800_T0H;
   uint32_t const t1       = sys_freq/MAGIC_800_T1H;
 
+  volatile uint32_t* reg_set = &NEOPIXEL_PORT->DR_SET;
+  volatile uint32_t* reg_clr = &NEOPIXEL_PORT->DR_CLEAR;
+
   __disable_irq();
 
   // Enable DWT in debug core. Useable when interrupts disabled, as opposed to Systick->VAL
@@ -314,15 +321,16 @@ void board_rgb_write(uint8_t const rgb[])
   DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
   DWT->CYCCNT = 0;
 
-  for(;;) {
+  while(1) {
     cyc = (pix & mask) ? t1 : t0;
+    while((DWT->CYCCNT - start) < interval);
+
     start = DWT->CYCCNT;
 
-    GPIO_PinWrite(NEOPIXEL_PORT, NEOPIXEL_PIN, 1);
+    *reg_set = PIN_MASK;
     while((DWT->CYCCNT - start) < cyc);
 
-    GPIO_PinWrite(NEOPIXEL_PORT, NEOPIXEL_PIN, 0);
-    while((DWT->CYCCNT - start) < interval);
+    *reg_clr = PIN_MASK;
 
     if(!(mask >>= 1)) {
       if(p >= end) break;
