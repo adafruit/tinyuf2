@@ -28,8 +28,8 @@
 #ifndef BOARD_H_
 #define BOARD_H_
 
-// Size of on-chip 4MB flash
-#define BOARD_FLASH_SIZE      (4*1024*1024)
+// Size of on-board external flash
+#define BOARD_FLASH_SIZE      (8*1024*1024)
 
 //--------------------------------------------------------------------+
 // LED
@@ -51,33 +51,28 @@
 // Button
 //--------------------------------------------------------------------+
 
-// SW8 button
-#define BUTTON_PINMUX         IOMUXC_SNVS_WAKEUP_GPIO5_IO00
-#define BUTTON_PORT           GPIO5
-#define BUTTON_PIN            0
-#define BUTTON_STATE_ACTIVE   0
 
 //--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
 
 #define USB_VID           0x239A
-#define USB_PID           0x0083
+#define USB_PID           0x0133
 #define USB_MANUFACTURER  "NXP"
-#define USB_PRODUCT       "RT1064 EVK"
+#define USB_PRODUCT       "RT1050 EVK"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "MIMXRT1064-EVK-revA"
-#define UF2_VOLUME_LABEL  "RT1064BOOT"
-#define UF2_INDEX_URL     "https://www.nxp.com/part/MIMXRT1064-EVK#/"
+#define UF2_BOARD_ID      "MIMXRT1050-EVKB-revA"
+#define UF2_VOLUME_LABEL  "RT1050BOOT"
+#define UF2_INDEX_URL     "https://www.nxp.com/part/IMXRT1050-EVKB#/"
 
 //--------------------------------------------------------------------+
 // UART
 //--------------------------------------------------------------------+
 
 #define UART_DEV              LPUART1
-#define UART_RX_PINMUX        IOMUXC_GPIO_AD_B0_13_LPUART1_RX
-// On J46 farthest from the edge.
-#define UART_TX_PINMUX        IOMUXC_GPIO_AD_B0_12_LPUART1_TX
+#define UART_RX_PINMUX        IOMUXC_GPIO_AD_B0_13_LPUART1_RXD
+// On Rev A1 of the board this is on J31 closer to the edge.
+#define UART_TX_PINMUX        IOMUXC_GPIO_AD_B0_12_LPUART1_TXD
 
 #endif /* BOARD_H_ */

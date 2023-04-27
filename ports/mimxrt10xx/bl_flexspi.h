@@ -95,7 +95,7 @@ typedef enum _FlexSpiSerialClockFreq
     kFlexSpiSerialClk_80MHz  = 5,
     kFlexSpiSerialClk_100MHz = 6,
 
-#if defined(MIMXRT1011_SERIES) || defined(MIMXRT1064_SERIES) || defined(MIMXRT1062_SERIES)
+#if defined(MIMXRT1011_SERIES) || defined(MIMXRT1176_cm7_SERIES) || defined(MIMXRT1042_SERIES) || defined(MIMXRT1064_SERIES) || defined(MIMXRT1062_SERIES)
     kFlexSpiSerialClk_120MHz = 7,
     kFlexSpiSerialClk_133MHz = 8,
     kFlexSpiSerialClk_166MHz = 9,

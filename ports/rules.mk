@@ -41,7 +41,7 @@ $(OBJ_DIRS):
 
 $(BUILD)/$(OUTNAME).elf: $(OBJ)
 	@echo LINK $@
-	@$(CC) -o $@ $(LDFLAGS) $(addprefix $(LD_SCRIPT_FLAG), $(LD_FILES)) $^ -Wl,--start-group $(LIBS) -Wl,--end-group
+	@$(CC) -o $@ $(LDFLAGS) $(addprefix $(LD_SCRIPT_FLAG), $(LD_FILES)) $^ -Wl,--print-memory-usage -Wl,--start-group $(LIBS) -Wl,--end-group
 
 $(BUILD)/$(OUTNAME).bin: $(BUILD)/$(OUTNAME).elf
 	@echo CREATE $@

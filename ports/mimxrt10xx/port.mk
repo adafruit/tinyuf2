@@ -3,6 +3,7 @@ CROSS_COMPILE = arm-none-eabi-
 
 SDK_DIR = lib/nxp/mcux-sdk
 MCU_DIR = $(SDK_DIR)/devices/$(MCU)
+CMSIS_5 = lib/CMSIS_5
 
 # Choose which USB port to use (default to USB0)
 BOARD_TUD_RHPORT ?= 0
@@ -25,7 +26,6 @@ CFLAGS += -Wno-error=unused-parameter
 
 # Port source
 SRC_C += \
-	$(MCU_DIR)/system_$(MCU).c \
 	$(MCU_DIR)/drivers/fsl_clock.c \
 	$(SDK_DIR)/drivers/cache/armv7-m7/fsl_cache.c \
 	$(SDK_DIR)/drivers/common/fsl_common.c \
@@ -36,22 +36,36 @@ SRC_C += \
 	$(SDK_DIR)/drivers/xbara/fsl_xbara.c \
 	$(BOARD_DIR)/clock_config.c 
 
+ifeq ($(MCU),MIMXRT1176)
+	SRC_C += $(MCU_DIR)/system_$(MCU)_cm7.c
+	SRC_S += $(MCU_DIR)/gcc/startup_$(MCU)_cm7.S
+else
+	SRC_C += $(MCU_DIR)/system_$(MCU).c
+	SRC_S += $(MCU_DIR)/gcc/startup_$(MCU).S
+endif
+
 # It seems that only RT1011 does not have ROM API
 ifneq ($(MCU),MIMXRT1011)
 SRC_C += $(MCU_DIR)/drivers/fsl_romapi.c
+endif
+
+ifeq ($(MCU),MIMXRT1176)
+SRC_C += $(MCU_DIR)/drivers/fsl_dcdc.c \
+	$(MCU_DIR)/drivers/fsl_anatop_ai.c \
+	$(MCU_DIR)/drivers/fsl_pmu.c \
+	$(SDK_DIR)/drivers/common/fsl_common_arm.c
 endif
 
 ifndef BUILD_NO_TINYUSB
 SRC_C += lib/tinyusb/src/portable/chipidea/ci_hs/dcd_ci_hs.c
 endif
 
-SRC_S += $(MCU_DIR)/gcc/startup_$(MCU).S
 
 # Port include
 INC += \
   $(TOP)/$(PORT_DIR) \
   $(TOP)/$(BOARD_DIR) \
-	$(TOP)/$(SDK_DIR)/CMSIS/Include \
+	$(TOP)/$(CMSIS_5)/CMSIS/Core/Include \
 	$(TOP)/$(MCU_DIR) \
 	$(TOP)/$(MCU_DIR)/xip \
 	$(TOP)/$(MCU_DIR)/drivers \

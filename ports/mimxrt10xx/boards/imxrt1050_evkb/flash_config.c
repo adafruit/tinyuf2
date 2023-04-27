@@ -36,7 +36,8 @@ const BOOT_DATA_T g_boot_data = {
   0xFFFFFFFF                  /* empty - extra data word */
 };
 
-// Config for on-chip W25Q32JV with QSPI routed.
+// Config for IS25WP064A with QSPI after changing resistors to send signal to
+// QSPI instead of hyper flash!
 __attribute__((section(".boot_hdr.conf")))
 const flexspi_nor_config_t qspiflash_config = {
     .pageSize           = 256u,
@@ -48,7 +49,7 @@ const flexspi_nor_config_t qspiflash_config = {
     {
         .tag              = FLEXSPI_CFG_BLK_TAG,
         .version          = FLEXSPI_CFG_BLK_VERSION,
-        .readSampleClkSrc = kFlexSPIReadSampleClk_LoopbackFromDqsPad,
+        .readSampleClkSrc = kFlexSPIReadSampleClk_LoopbackFromSckPad,
         .csHoldTime       = 3u,
         .csSetupTime      = 3u,
 
@@ -61,17 +62,11 @@ const flexspi_nor_config_t qspiflash_config = {
           .seqId = 4u,
           .seqNum = 1u,
         },
-        .deviceModeArg = 0x0200,
-        .configCmdEnable = 1u,
-        .configModeType[0] = kDeviceConfigCmdType_Generic,
-        .configCmdSeqs[0] = {
-            .seqId = 2u,
-            .seqNum = 1u,
-        },
-        .deviceType = kFlexSpiDeviceType_SerialNOR,
+        .deviceModeArg = 0x40,
+        .deviceType    = kFlexSpiDeviceType_SerialNOR,
         .sflashPadType = kSerialFlash_4Pads,
         .serialClkFreq = kFlexSpiSerialClk_60MHz,
-        .sflashA1Size  = BOARD_FLASH_SIZE,
+        .sflashA1Size  = FLASH_SIZE,
         .lookupTable =
         {
             // FLEXSPI_LUT_SEQ(cmd0, pad0, op0, cmd1, pad1, op1)
@@ -105,11 +100,7 @@ const flexspi_nor_config_t qspiflash_config = {
                      TWO_EMPTY_STEPS),
 
             // 2: Empty
-            SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0x35 /* the command to send */,
-                DUMMY_SDR, FLEXSPI_1PAD, 8),
-                TWO_EMPTY_STEPS,
-                TWO_EMPTY_STEPS,
-                TWO_EMPTY_STEPS),
+            EMPTY_SEQUENCE,
 
             // 3: ROM: Write Enable
             SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR, FLEXSPI_1PAD, 0x06  /* the command to send */,

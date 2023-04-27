@@ -38,6 +38,9 @@
 #if defined(MIMXRT1064_SERIES)
   #define FLEXSPI_INSTANCE    1
   #define FLEXSPI_FLASH_BASE  FlexSPI2_AMBA_BASE
+#elif defined(MIMXRT1176_cm7_SERIES)
+  #define FLEXSPI_INSTANCE    1
+  #define FLEXSPI_FLASH_BASE  FlexSPI1_AMBA_BASE
 #else
   #define FLEXSPI_INSTANCE    0
   #define FLEXSPI_FLASH_BASE  FlexSPI_AMBA_BASE
@@ -68,7 +71,7 @@ static bool compare_tinyuf2_ram_vs_flash(void)
   uint32_t flash_addr = FCFB_START_ADDRESS;
 
   // fcfb + bootloader (ivt, interrupt, text)
-  uint32_t const end_addr = FLEXSPI_FLASH_BASE + FCFB_LENGTH + BOARD_BOOT_LENGTH;
+  uint32_t const end_addr = FLEXSPI_FLASH_BASE + BOARD_BOOT_LENGTH;
 
   return 0 == memcmp((void const*) flash_addr, image_data, end_addr-flash_addr);
 #else
@@ -83,7 +86,7 @@ static void write_tinyuf2_to_flash(void)
   uint32_t flash_addr = FCFB_START_ADDRESS;
 
   // fcfb + bootloader (ivt, interrupt, text)
-  uint32_t const end_addr = FLEXSPI_FLASH_BASE + FCFB_LENGTH + BOARD_BOOT_LENGTH;
+  uint32_t const end_addr = FLEXSPI_FLASH_BASE + BOARD_BOOT_LENGTH;
 
   TUF2_LOG1("Writing TinyUF2 image to flash.\r\n");
   while ( flash_addr < end_addr )
