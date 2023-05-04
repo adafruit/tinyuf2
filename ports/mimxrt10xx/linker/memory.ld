@@ -2,6 +2,7 @@
 _fcfb_length = _ivt_origin - _fcfb_origin;
 
 /* ivt */
+_ivt_flash_offset = 0x1000; /* The location of the ivt in flash. */
 _ivt_length = 0x0400;
 
 /* interrupt */
@@ -12,8 +13,11 @@ _interrupts_length = 0x0400;
 _text_origin = _interrupts_origin + _interrupts_length;
 _text_length = 0x8800;
 
-/* sum of ivt + interrupt + text */
-_board_boot_length = _ivt_length + _interrupts_length + _text_length;
+/* The image starts at the first flash address so our full boot length includes
+   the ivt offset plus our data lengths. */
+_board_boot_length = _ivt_flash_offset + _ivt_length + _interrupts_length + _text_length;
+
+ASSERT(_board_boot_length <= 0xC000, "Bootloader too big. Runs into user app.")
 
 /* Specify the memory areas */
 MEMORY

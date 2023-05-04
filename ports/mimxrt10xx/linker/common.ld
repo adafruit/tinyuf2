@@ -35,9 +35,7 @@ SECTIONS
   __NCACHE_REGION_START = ORIGIN(m_data2);
   __NCACHE_REGION_SIZE  = 0;
 
-  fcfb_begin = ORIGIN(m_flash_config);
-
-  .flash_config : AT(fcfb_begin)
+  .flash_config :
   {
     . = ALIGN(4);
     __FLASH_BASE = .;
@@ -45,9 +43,7 @@ SECTIONS
     . = ALIGN(4);
   } > m_flash_config
 
-  ivt_begin = ORIGIN(m_ivt);
-
-  .ivt : AT(ivt_begin)
+  .ivt :
   {
     . = ALIGN(4);
 	  KEEP(* (.boot_hdr.ivt))           /* ivt section */
@@ -171,7 +167,7 @@ SECTIONS
   __VECTOR_RAM = DEFINED(__ram_vector_table__) ? __VECTOR_RAM__ : ORIGIN(m_interrupts);
   __RAM_VECTOR_TABLE_SIZE_BYTES = DEFINED(__ram_vector_table__) ? (__interrupts_ram_end__ - __interrupts_ram_start__) : 0x0;
 
-  .data : AT(__DATA_ROM)
+  .data :
   {
     . = ALIGN(4);
     __DATA_RAM = .;
@@ -183,15 +179,17 @@ SECTIONS
     KEEP(*(.jcr*))
     . = ALIGN(4);
     __data_end__ = .;        /* define a global symbol at data end */
-  } > m_data
+  } > m_data AT> m_text
+
   __NDATA_ROM = __DATA_ROM + (__data_end__ - __data_start__);
-  .ncache.init : AT(__NDATA_ROM)
+  .ncache.init :
   {
     __noncachedata_start__ = .;   /* create a global symbol at ncache data start */
     *(NonCacheable.init)
     . = ALIGN(4);
     __noncachedata_init_end__ = .;   /* create a global symbol at initialized ncache data end */
-  } > m_data
+  } > m_data AT> m_text
+
   . = __noncachedata_init_end__;
   .ncache :
   {

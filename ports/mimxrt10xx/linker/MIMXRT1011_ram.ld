@@ -7,6 +7,7 @@ _dtcm_size  = 32K;
 _ocram_base = 0x20200000;
 _ocram_size = 64K;
 
+/* The bootrom uses up to 0x202057FF */
 _fcfb_origin = 0x20206400;
 
 /* must be 4K aligned */

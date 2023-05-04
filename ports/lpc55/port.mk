@@ -3,6 +3,7 @@ CROSS_COMPILE = arm-none-eabi-
 
 SDK_DIR = lib/nxp/mcux-sdk
 MCU_DIR = $(SDK_DIR)/devices/$(MCU)
+CMSIS_5 = lib/CMSIS_5
 
 # Port Compiler Flags
 CFLAGS += \
@@ -36,9 +37,9 @@ SRC_C += \
 
 # Port include
 INC += \
-  $(TOP)/$(PORT_DIR) \
-  $(TOP)/$(BOARD_DIR) \
-	$(TOP)/$(SDK_DIR)/CMSIS/Include \
+	$(TOP)/$(PORT_DIR) \
+	$(TOP)/$(BOARD_DIR) \
+	$(TOP)/$(CMSIS_5)/CMSIS/Core/Include \
 	$(TOP)/$(MCU_DIR) \
 	$(TOP)/$(MCU_DIR)/project_template \
 	$(TOP)/$(MCU_DIR)/drivers \

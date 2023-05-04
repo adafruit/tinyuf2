@@ -77,6 +77,7 @@
 
 #define UART_DEV              LPUART1
 #define UART_RX_PINMUX        IOMUXC_GPIO_AD_B0_13_LPUART1_RX
+// On J46 farthest from the edge.
 #define UART_TX_PINMUX        IOMUXC_GPIO_AD_B0_12_LPUART1_TX
 
 #endif /* BOARD_H_ */

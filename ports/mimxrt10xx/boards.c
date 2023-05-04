@@ -170,7 +170,11 @@ void board_dfu_init(void)
 
 uint8_t board_usb_get_serial(uint8_t serial_id[16])
 {
+  #if FSL_FEATURE_OCOTP_HAS_TIMING_CTRL
   OCOTP_Init(OCOTP, CLOCK_GetFreq(kCLOCK_IpgClk));
+  #else
+  OCOTP_Init(OCOTP, 0u);
+  #endif
 
   // Reads shadow registers 0x01 - 0x04 (Configuration and Manufacturing Info)
   // into 8 bit wide destination, avoiding punning.
@@ -442,6 +446,19 @@ int board_uart_read(uint8_t* buf, int len)
 // USB Interrupt Handler
 //--------------------------------------------------------------------+
 #ifndef BUILD_NO_TINYUSB
+
+// The iMX RT 1040 is named without a number. We can always have this because
+// it'll get GC'd when not used.
+void USB_OTG_IRQHandler(void)
+{
+  #if CFG_TUSB_RHPORT0_MODE & OPT_MODE_HOST
+    tuh_int_handler(0);
+  #endif
+
+  #if CFG_TUSB_RHPORT0_MODE & OPT_MODE_DEVICE
+    tud_int_handler(0);
+  #endif
+}
 
 void USB_OTG1_IRQHandler(void)
 {

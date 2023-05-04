@@ -45,11 +45,15 @@ extern uint32_t _board_boot_length[];
 
 // The ROM bootloader loader needs instructed to
 // copy the text section, IVT structure and interrupt table.
-#define BOARD_BOOT_LENGTH       ((uint32_t) _board_boot_length)
+#define BOARD_BOOT_LENGTH       ((uint32_t) &_board_boot_length)
 
 // Flash Start Address of Application, typically 0x6000C000
 #ifndef BOARD_FLASH_APP_START
+#ifdef FlexSPI1_AMBA_BASE
+#define BOARD_FLASH_APP_START   (FlexSPI1_AMBA_BASE + 0xC000)
+#else
 #define BOARD_FLASH_APP_START   (FlexSPI_AMBA_BASE + 0xC000)
+#endif
 #endif
 
 // Double Reset tap to enter DFU
