@@ -22,8 +22,8 @@
  * THE SOFTWARE.
  */
 
-#ifndef ADAFRUIT_MATRIXPORTAL_ESP32S2_H_
-#define ADAFRUIT_MATRIXPORTAL_ESP32S2_H_
+#ifndef ADAFRUIT_MATRIXPORTAL_ESP32S3_H_
+#define ADAFRUIT_MATRIXPORTAL_ESP32S3_H_
 
 //--------------------------------------------------------------------+
 // Button
@@ -36,14 +36,14 @@
 
 // GPIO that implement 1-bit memory with RC components which hold the
 // pin value long enough for double reset detection.
-#define PIN_DOUBLE_RESET_RC   2
+#define PIN_DOUBLE_RESET_RC   1
 
 //--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
 
 // GPIO connected to Neopixel data
-#define NEOPIXEL_PIN          1
+#define NEOPIXEL_PIN          4
 
 // Brightness percentage from 1 to 255
 #define NEOPIXEL_BRIGHTNESS   0x10
@@ -51,8 +51,7 @@
 // Number of neopixels
 #define NEOPIXEL_NUMBER       1
 
-
-// LED for indicator
+// LED for indicator and writing flash
 // If not defined neopixel will be use for flash writing instead
 #define LED_PIN               13
 #define LED_STATE_ON          1
@@ -65,11 +64,11 @@
 #define USB_PID                  0x0125
 
 #define USB_MANUFACTURER         "Adafruit"
-#define USB_PRODUCT              "MatrixPortal ESP32-S2"
+#define USB_PRODUCT              "MatrixPortal S3"
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID             "ESP32S2-MatrixPortal-revA"
-#define UF2_VOLUME_LABEL         "MATRIXBOOT"
+#define UF2_BOARD_ID             "ESP32-S3-MatrixPortal-revB"
+#define UF2_VOLUME_LABEL         "MATRXS3BOOT"
 #define UF2_INDEX_URL            "https://www.adafruit.com/"
 
 // Use favicon
