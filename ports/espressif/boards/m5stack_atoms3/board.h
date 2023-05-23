@@ -49,7 +49,7 @@
 #define USB_PRODUCT              "AtomS3"
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID             "ESP32S3-AtomS3-02"
+#define UF2_BOARD_ID             "ESP32S3-AtomS3-01"
 #define UF2_VOLUME_LABEL         "ATOMS3BOOT"
 #define UF2_INDEX_URL            "https://shop.m5stack.com/products/atoms3-dev-kit-w-0-85-inch-screen"
 
