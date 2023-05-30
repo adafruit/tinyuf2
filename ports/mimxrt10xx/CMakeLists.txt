@@ -18,7 +18,7 @@ target_sources(tinyuf2 PUBLIC
   )
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/../../src/tinyuf2.cmake)
-tinyuf2_add(tinyuf2)
+add_tinyuf2(tinyuf2)
 
 # include tinyusb cmake
 #include(${CMAKE_CURRENT_SOURCE_DIR}/../lib/tinyusb/src/CMakeLists.txt)

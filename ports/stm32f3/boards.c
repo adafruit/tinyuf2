@@ -342,7 +342,7 @@ void USBWakeUp_RMP_IRQHandler(void)
 
 // Required by __libc_init_array in startup code if we are compiling using
 // -nostdlib/-nostartfiles.
-void _init(void)
+__attribute__((used)) void _init(void)
 {
 
 }
