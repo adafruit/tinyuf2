@@ -1,8 +1,5 @@
 include_guard()
 
-# set output name to .elf
-set(CMAKE_EXECUTABLE_SUFFIX .elf)
-
 include(CMakePrintHelpers)
 find_package(Python COMPONENTS Interpreter)
 

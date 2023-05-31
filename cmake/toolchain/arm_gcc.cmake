@@ -9,7 +9,6 @@ set(CMAKE_OBJCOPY "arm-none-eabi-objcopy" CACHE FILEPATH "")
 set(CMAKE_OBJDUMP "arm-none-eabi-objdump" CACHE FILEPATH "")
 
 set_property(GLOBAL PROPERTY TARGET_SUPPORTS_SHARED_LIBS FALSE)
-set(CMAKE_EXECUTABLE_SUFFIX .elf)
 
 # Look for includes and libraries only in the target system prefix.
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
