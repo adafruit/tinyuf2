@@ -29,12 +29,14 @@ add_executable(tinyuf2)
 family_configure(tinyuf2)
 
 target_sources(tinyuf2 PUBLIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/board_flash.c
-  ${CMAKE_CURRENT_SOURCE_DIR}/boards.c
+  board_flash.c
+  boards.c
+  boards.h
+  # tinyusb port
   ${TOP}/lib/tinyusb/src/portable/st/stm32_fsdev/dcd_stm32_fsdev.c
   )
 target_include_directories(tinyuf2 PUBLIC
-  ${CMAKE_CURRENT_SOURCE_DIR}
+  .
   )
 target_compile_options(tinyuf2 PUBLIC
   )
@@ -73,8 +75,8 @@ add_library(board_${BOARD} STATIC
   ${ST_HAL_DRIVER}/Src/stm32f3xx_hal_uart.c
   )
 target_include_directories(board_${BOARD} PUBLIC
-  ${CMAKE_CURRENT_SOURCE_DIR}
-  ${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD}
+  .
+  boards/${BOARD}
   ${CMSIS_5}/CMSIS/Core/Include
   ${ST_CMSIS}/Include
   ${ST_HAL_DRIVER}/Inc

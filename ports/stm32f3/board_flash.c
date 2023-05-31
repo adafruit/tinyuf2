@@ -182,6 +182,13 @@ void board_flash_erase_app(void)
 
 bool board_flash_protect_bootloader(bool protect)
 {
+  // F3 reset everytime Option Bytes is programmed
+  // skip protecting bootloader if we just reset by option byte changes
+  // since we want to disable protect mode for e.g self-updating
+  if (protect && board_reset_by_option_bytes() ) {
+    return true;
+  }
+
   bool ret = true;
 
   HAL_FLASH_Unlock();
@@ -196,7 +203,7 @@ bool board_flash_protect_bootloader(bool protect)
   TUF2_LOG1("Protection: current = %u, request = %u\r\n", already_protected, protect);
 
   // request and current state mismatched --> require ob program
-  if ( (protect && !already_protected) || (!protect && already_protected) )
+  if (protect != already_protected)
   {
     FLASH_OBProgramInitTypeDef ob_update = {0};
     ob_update.OptionType = OPTIONBYTE_WRP;

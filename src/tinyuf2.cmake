@@ -12,6 +12,7 @@ function (add_tinyuf2 TARGET)
     ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/msc.c
     ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/screen.c
     ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/usb_descriptors.c
+    ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/board_api.h
     )
 
   # tinyusb source
