@@ -70,7 +70,7 @@
 #define USB_PRODUCT       "STM32F303 Discovery"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "STM32F303 discovery"
+#define UF2_BOARD_ID      "STM32F303-Discovery-MB1035D"
 #define UF2_VOLUME_LABEL  "F303BOOT"
 #define UF2_INDEX_URL     "https://www.st.com/en/evaluation-tools/stm32f3discovery.html"
 

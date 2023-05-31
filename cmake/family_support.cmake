@@ -1,6 +1,10 @@
 include_guard()
 
+# set output name to .elf
+set(CMAKE_EXECUTABLE_SUFFIX .elf)
+
 include(CMakePrintHelpers)
+find_package(Python COMPONENTS Interpreter)
 
 # TOP is path to root directory
 set(TOP "${CMAKE_CURRENT_LIST_DIR}/..")
@@ -13,6 +17,8 @@ endif ()
 if (NOT DEFINED TOOLCHAIN)
   set(TOOLCHAIN gcc)
 endif ()
+
+set(UF2CONV_PY ${TOP}/lib/uf2/utils/uf2conv.py)
 
 #------------------------------------
 # Functions
@@ -64,13 +70,13 @@ function(family_add_default_example_warnings TARGET)
 endfunction()
 
 
-function(family_support_configure TARGET)
-  # set output name to .elf
-  set_target_properties(${TARGET} PROPERTIES OUTPUT_NAME ${TARGET}.elf)
+function(family_configure TARGET)
+  # set output suffix to .elf
+  set(CMAKE_EXECUTABLE_SUFFIX .elf PARENT_SCOPE)
 
   # run size after build
   add_custom_command(TARGET ${TARGET} POST_BUILD
-    COMMAND ${TOOLCHAIN_SIZE} $<TARGET_FILE:${TARGET}>
+    COMMAND ${CMAKE_SIZE} $<TARGET_FILE:${TARGET}>
     )
 
   # Generate map file
@@ -80,11 +86,19 @@ function(family_support_configure TARGET)
     )
 endfunction()
 
-#  add_custom_command(TARGET ${TARGET} POST_BUILD
-#    COMMAND ${CMAKE_OBJCOPY} -O ihex $<TARGET_FILE:${TARGET}> ${TARGET}.hex
-#    COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:${TARGET}> ${TARGET}.bin
-#    COMMENT "Creating ${TARGET}.hex and ${TARGET}.bin"
-#    )
+function(family_add_bin_hex TARGET)
+  add_custom_command(TARGET ${TARGET} POST_BUILD
+    COMMAND ${CMAKE_OBJCOPY} -Obinary $<TARGET_FILE:${TARGET}> $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin
+    COMMAND ${CMAKE_OBJCOPY} -Oihex $<TARGET_FILE:${TARGET}> $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.hex
+    VERBATIM)
+endfunction()
+
+function(family_add_uf2 TARGET FAMILY_ID)
+  add_custom_command(TARGET ${TARGET} POST_BUILD
+    COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} -f ${FAMILY_ID} -c -o $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.uf2
+    $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.hex
+    VERBATIM)
+endfunction()
 
 # Add flash jlink target
 function(family_flash_jlink TARGET)

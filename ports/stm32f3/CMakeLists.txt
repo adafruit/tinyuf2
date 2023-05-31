@@ -7,6 +7,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/family_support.cmake)
 set(ST_HAL_DRIVER ${TOP}/lib/st/stm32f3xx_hal_driver)
 set(ST_CMSIS ${TOP}/lib/st/cmsis_device_f3)
 set(CMSIS_5 ${TOP}/lib/CMSIS_5)
+set(PORT_DIR ${CMAKE_CURRENT_LIST_DIR})
 
 include(${CMAKE_CURRENT_LIST_DIR}/boards/${BOARD}/board.cmake)
 
@@ -18,14 +19,14 @@ set(CMAKE_TOOLCHAIN_FILE ${TOP}/cmake/toolchain/arm_${TOOLCHAIN}.cmake)
 
 set(UF2_FAMILY_ID 0x6b846188)
 
-#------------------------------------
-# Project
-#------------------------------------
 project(tinyuf2 C ASM)
 
-# Bootloader
+#------------------------------------
+# TinyUF2
+#------------------------------------
+
 add_executable(tinyuf2)
-family_support_configure(tinyuf2)
+family_configure(tinyuf2)
 
 target_sources(tinyuf2 PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/board_flash.c
@@ -49,7 +50,11 @@ add_tinyuf2(tinyuf2)
 
 target_link_libraries(tinyuf2 board_${BOARD})
 
+family_add_bin_hex(tinyuf2)
 family_flash_jlink(tinyuf2)
+
+# Self Update
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/apps/self_update)
 
 #------------------------------------
 # BOARD_TARGET
