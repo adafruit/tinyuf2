@@ -59,6 +59,11 @@
 #define TINYUF2_PROTECT_BOOTLOADER  0
 #endif
 
+// Bootloader often has limited ROM than RAM and prefer to use RAM for data
+#ifndef TINYUF2_CONST
+#define TINYUF2_CONST
+#endif
+
 // Use favicon.ico + autorun.inf (only works with windows)
 // define TINYUF2_FAVICON_HEADER to enable this feature
 
