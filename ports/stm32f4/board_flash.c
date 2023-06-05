@@ -221,7 +221,7 @@ bool board_flash_protect_bootloader(bool protect)
   TUF2_LOG1("Protection: current = %u, request = %u\r\n", already_protected, protect);
 
   // request and current state mismatched --> require ob program
-  if ( (protect && !already_protected) || (!protect && already_protected) )
+  if (protect != already_protected)
   {
     FLASH_OBProgramInitTypeDef ob_update = {0};
     ob_update.OptionType = OPTIONBYTE_WRP;

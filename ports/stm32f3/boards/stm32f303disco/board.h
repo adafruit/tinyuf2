@@ -70,7 +70,7 @@
 #define USB_PRODUCT       "STM32F303 Discovery"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "STM32F303 discovery"
+#define UF2_BOARD_ID      "STM32F303-Discovery-MB1035D"
 #define UF2_VOLUME_LABEL  "F303BOOT"
 #define UF2_INDEX_URL     "https://www.st.com/en/evaluation-tools/stm32f3discovery.html"
 
@@ -80,6 +80,7 @@
 
 #define UART_DEV              USART1
 #define UART_CLOCK_ENABLE     __HAL_RCC_USART1_CLK_ENABLE
+#define UART_CLOCK_DISABLE    __HAL_RCC_USART1_CLK_DISABLE
 #define UART_GPIO_PORT        GPIOC
 #define UART_GPIO_AF          GPIO_AF7_USART1
 #define UART_TX_PIN           GPIO_PIN_4

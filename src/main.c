@@ -33,7 +33,7 @@
 #include "tusb.h"
 
 //--------------------------------------------------------------------+
-// MACRO CONSTANT TYPEDEF PROTYPES
+// MACRO CONSTANT TYPEDEF PROTOTYPES
 //--------------------------------------------------------------------+
 //#define USE_DFU_BUTTON    1
 

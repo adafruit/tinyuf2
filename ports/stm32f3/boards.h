@@ -47,6 +47,11 @@
 // Double Reset tap to enter DFU
 #define TINYUF2_DFU_DOUBLE_TAP      1
 
+// Enable write protection
+#ifndef TINYUF2_PROTECT_BOOTLOADER
+#define TINYUF2_PROTECT_BOOTLOADER    1
+#endif
+
 // Brightness percentage from 1 to 255
 #ifndef NEOPIXEL_BRIGHTNESS
 #define NEOPIXEL_BRIGHTNESS   0x10
@@ -55,6 +60,14 @@
 #ifdef LED_PIN
 #define TINYUF2_LED 1
 #endif
+
+//--------------------------------------------------------------------+
+// Port specific APIs
+// Only used with port source
+//--------------------------------------------------------------------+
+
+// check if we just reset by option bytes load i.e protection changes
+bool board_reset_by_option_bytes(void);
 
 #ifdef __cplusplus
  }
