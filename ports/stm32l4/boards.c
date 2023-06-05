@@ -23,10 +23,12 @@
  */
 
 #include "board_api.h"
-#include "tusb.h"
 #include "stm32l4xx.h"
 #include "stm32l4r5xx.h"
 
+#ifndef BUILD_NO_TINYUSB
+#include "tusb.h"
+#endif
 
 //--------------------------------------------------------------------+
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
@@ -37,7 +39,7 @@
 UART_HandleTypeDef UartHandle;
 
 void board_init(void)
-{ 
+{
   clock_init();
   SystemCoreClockUpdate();
 
@@ -171,22 +173,23 @@ void board_reset(void)
 
 void board_dfu_complete(void)
 {
-  // todo - eject USB drive for smooth UX
-  
   NVIC_SystemReset();
 }
 
 bool board_app_valid(void)
 {
   volatile uint32_t const * app_vector = (volatile uint32_t const*) BOARD_FLASH_APP_START;
+  uint32_t sp = app_vector[0];
+  uint32_t app_entry = app_vector[1];
 
-  // 1st word is stack pointer (should be in SRAM region)
-  if (app_vector[0] < BOARD_STACK_APP_START || app_vector[0] > BOARD_STACK_APP_END) {
-    return false;
-  }
+  TUF2_LOG1_HEX(sp);
+  TUF2_LOG1_HEX(app_entry);
+
+  // 1st word is stack pointer (must be in SRAM region)
+  if (sp < BOARD_STACK_APP_START || sp > BOARD_STACK_APP_END) return false;
 
   // 2nd word is App entry point (reset)
-  if (app_vector[1] < BOARD_FLASH_APP_START || app_vector[1] > BOARD_FLASH_APP_START + BOARD_FLASH_SIZE) {
+  if (app_entry < BOARD_FLASH_APP_START || app_entry > BOARD_FLASH_APP_START + BOARD_FLASH_SIZE) {
     return false;
   }
 
@@ -196,6 +199,8 @@ bool board_app_valid(void)
 void board_app_jump(void)
 {
   volatile uint32_t const * app_vector = (volatile uint32_t const*) BOARD_FLASH_APP_START;
+  uint32_t sp = app_vector[0];
+  uint32_t app_entry = app_vector[1];
 
 #ifdef BUTTON_PIN
   HAL_GPIO_DeInit(BUTTON_PORT, BUTTON_PIN);
@@ -226,7 +231,7 @@ void board_app_jump(void)
   SysTick->LOAD = 0;
   SysTick->VAL = 0;
 
-  /* Disable all interrupts */
+  // Disable all Interrupts
   RCC->CIER = 0x00000000U;
 
   // TODO protect bootloader region
@@ -235,10 +240,10 @@ void board_app_jump(void)
   SCB->VTOR = (uint32_t) BOARD_FLASH_APP_START;
 
   // Set stack pointer
-  __set_MSP(app_vector[0]);
+  __set_MSP(sp);
 
   // Jump to Application Entry
-  asm("bx %0" ::"r"(app_vector[1]));
+  asm("bx %0" ::"r"(app_entry));
 }
 
 uint8_t board_usb_get_serial(uint8_t serial_id[16])
@@ -349,11 +354,10 @@ void board_timer_stop(void)
   SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk;
 }
 
-void SysTick_Handler (void)
+void SysTick_Handler(void)
 {
   board_timer_handler();
 }
-
 
 int board_uart_write(void const * buf, int len)
 {
@@ -367,19 +371,17 @@ int board_uart_write(void const * buf, int len)
 #endif
 }
 
-#ifndef TINYUF2_SELF_UPDATE
-
+#ifndef BUILD_NO_TINYUSB
 // Forward USB interrupt events to TinyUSB IRQ Handler
 void OTG_FS_IRQHandler(void)
 {
   tud_int_handler(0);
 }
-
 #endif
 
 // Required by __libc_init_array in startup code if we are compiling using
 // -nostdlib/-nostartfiles.
-void _init(void)
+__attribute__((used)) void _init(void)
 {
 
 }
