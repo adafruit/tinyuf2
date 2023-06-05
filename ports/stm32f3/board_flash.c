@@ -34,7 +34,7 @@
 
 #define FLASH_BASE_ADDR         0x08000000UL
 
-// TinyUF2 by default resides in the first 8 flash pages on STM32F43s, therefore these are write protected
+// TinyUF2 by default resides in the first 8 flash pages on STM32F3s, therefore these are write protected
 #if BOARD_FLASH_APP_START == 0x08004000
 #define BOOTLOADER_PAGE_MASK (OB_WRP_PAGES0TO1 | OB_WRP_PAGES2TO3 | OB_WRP_PAGES4TO5 | OB_WRP_PAGES6TO7)
 #endif
