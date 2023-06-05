@@ -185,7 +185,7 @@ bool board_flash_protect_bootloader(bool protect)
   // F3 reset everytime Option Bytes is programmed
   // skip protecting bootloader if we just reset by option byte changes
   // since we want to disable protect mode for e.g self-updating
-  if (protect && board_reset_by_option_bytes() ) {
+  if ( board_reset_by_option_bytes() ) {
     return true;
   }
 
