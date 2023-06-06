@@ -22,8 +22,8 @@
  * THE SOFTWARE.
  */
 
-#ifndef M5STACK_ATOMS3_LITE_H_
-#define M5STACK_ATOMS3_LITE_H_
+#ifndef M5STACK_ATOMS3_H_
+#define M5STACK_ATOMS3_H_
 
 //--------------------------------------------------------------------+
 // Button
@@ -39,31 +39,18 @@
 //#define PIN_DOUBLE_RESET_RC   41
 
 //--------------------------------------------------------------------+
-// LED
-//--------------------------------------------------------------------+
-
-// GPIO connected to Neopixel data
-#define NEOPIXEL_PIN          35
-
-// Brightness percentage from 1 to 255
-#define NEOPIXEL_BRIGHTNESS   0x10
-
-// Number of neopixels
-#define NEOPIXEL_NUMBER       1
-
-//--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
 
 #define USB_VID                  0x303A
-#define USB_PID                  0x8160
+#define USB_PID                  0x8121
 
 #define USB_MANUFACTURER         "M5Stack"
-#define USB_PRODUCT              "AtomS3 Lite"
+#define USB_PRODUCT              "AtomS3"
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID             "ESP32S3-AtomS3Lite-01"
+#define UF2_BOARD_ID             "ESP32S3-AtomS3-01"
 #define UF2_VOLUME_LABEL         "ATOMS3BOOT"
-#define UF2_INDEX_URL            "https://shop.m5stack.com/products/atoms3-lite-esp32s3-dev-kit" 
+#define UF2_INDEX_URL            "https://shop.m5stack.com/products/atoms3-dev-kit-w-0-85-inch-screen"
 
 #endif
