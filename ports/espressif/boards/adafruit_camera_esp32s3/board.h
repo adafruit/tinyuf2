@@ -65,6 +65,9 @@
 #define DISPLAY_PIN_CS        39
 #define DISPLAY_PIN_RST       38
 
+#define DISPLAY_PIN_BL        21
+#define DISPLAY_BL_ON         1  // GPIO state to enable back light
+
 #define DISPLAY_WIDTH         240
 #define DISPLAY_HEIGHT        240
 
