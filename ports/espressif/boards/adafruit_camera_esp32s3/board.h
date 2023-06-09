@@ -22,8 +22,8 @@
  * THE SOFTWARE.
  */
 
-#ifndef ADAFRUIT_CAMERA_ESP32S2_H_
-#define ADAFRUIT_CAMERA_ESP32S2_H_
+#ifndef ADAFRUIT_CAMERA_ESP32S3_H_
+#define ADAFRUIT_CAMERA_ESP32S3_H_
 
 //--------------------------------------------------------------------+
 // Button
@@ -95,7 +95,7 @@
 #define USB_PRODUCT              "Camera"
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID             "ESP32S2-Camera-revA"
+#define UF2_BOARD_ID             "ESP32S3-Camera-revA"
 #define UF2_VOLUME_LABEL         "CAMERABOOT"
 #define UF2_INDEX_URL            "https://www.adafruit.com/"
 
