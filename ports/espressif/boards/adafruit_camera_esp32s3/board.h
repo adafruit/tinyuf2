@@ -43,18 +43,13 @@
 //--------------------------------------------------------------------+
 
 // GPIO connected to Neopixel data
-#define NEOPIXEL_PIN          21
+#define NEOPIXEL_PIN          1
 
 // Brightness percentage from 1 to 255
 #define NEOPIXEL_BRIGHTNESS   0x10
 
 // Number of neopixels
 #define NEOPIXEL_NUMBER       1
-
-// LED for indicator and writing flash
-// If not defined neopixel will be use for flash writing instead
-#define LED_PIN               1
-#define LED_STATE_ON          1
 
 //--------------------------------------------------------------------+
 // TFT
@@ -69,9 +64,6 @@
 #define DISPLAY_PIN_DC        40
 #define DISPLAY_PIN_CS        39
 #define DISPLAY_PIN_RST       38
-
-#define DISPLAY_PIN_BL        41
-#define DISPLAY_BL_ON         1  // GPIO state to enable back light
 
 #define DISPLAY_WIDTH         240
 #define DISPLAY_HEIGHT        240
@@ -95,7 +87,7 @@
 #define USB_PRODUCT              "Camera"
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID             "ESP32S3-Camera-revA"
+#define UF2_BOARD_ID             "ESP32S3-Camera-revC"
 #define UF2_VOLUME_LABEL         "CAMERABOOT"
 #define UF2_INDEX_URL            "https://www.adafruit.com/"
 
