@@ -238,7 +238,7 @@ esp_err_t lcd_init(spi_device_handle_t spi)
     cfg.pin_bit_mask = (1ull << DISPLAY_PIN_DC);
     gpio_config(&cfg);
 
-#if DISPLAY_PIN_RST != -1
+#if defined(DISPLAY_PIN_RST) && DISPLAY_PIN_RST != -1
     cfg.pin_bit_mask = (1ull << DISPLAY_PIN_RST);
     gpio_config(&cfg);
     gpio_set_direction(DISPLAY_PIN_RST, GPIO_MODE_OUTPUT);
@@ -252,19 +252,19 @@ esp_err_t lcd_init(spi_device_handle_t spi)
 
     gpio_set_direction(DISPLAY_PIN_DC, GPIO_MODE_OUTPUT);
 
-#ifdef DISPLAY_PIN_POWER
+#if defined(DISPLAY_PIN_POWER) && DISPLAY_PIN_POWER != -1
     /*!< /Enable display */
     gpio_set_direction(DISPLAY_PIN_POWER, GPIO_MODE_OUTPUT);
     gpio_set_level(DISPLAY_PIN_POWER, DISPLAY_POWER_ON);
 #endif
 
     /*!<  Reset the display */
-    #if DISPLAY_PIN_RST != -1
+#if defined(DISPLAY_PIN_RST) && DISPLAY_PIN_RST != -1
     gpio_set_level(DISPLAY_PIN_RST, 0);
     vTaskDelay(100 / portTICK_RATE_MS);
     gpio_set_level(DISPLAY_PIN_RST, 1);
     vTaskDelay(100 / portTICK_RATE_MS);
-    #endif
+#endif
 
     int lcd_type;
 
