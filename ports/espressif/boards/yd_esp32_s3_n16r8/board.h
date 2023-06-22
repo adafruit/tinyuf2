@@ -61,7 +61,7 @@
 #define USB_PRODUCT       "YD-ESP32-S3"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "YD-ESP32-S3-16"
+#define UF2_BOARD_ID      "YD-ESP32-S3-N16R8"
 #define UF2_VOLUME_LABEL  "YDESP32S3"
 #define UF2_INDEX_URL     "https://github.com/vcc-gnd/YD-ESP32-S3"
 
