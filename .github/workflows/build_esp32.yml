@@ -91,6 +91,7 @@ jobs:
         - 'unexpectedmaker_tinys3'
         - 'yd_esp32_s3_n16r8'
         - 'yd_esp32_s3_n8r8'
+        - 'seeed_xiao_esp32s3'
     steps:
     - name: Setup Python
       uses: actions/setup-python@v4
