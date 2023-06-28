@@ -84,6 +84,7 @@ jobs:
         - 'lolin_s3'
         - 'm5stack_atoms3'
         - 'm5stack_atoms3_lite'
+        - 'seeed_xiao_esp32s3'
         - 'smartbeedesigns_bee_motion_s3'
         - 'smartbeedesigns_bee_s3'
         - 'unexpectedmaker_feathers3'
