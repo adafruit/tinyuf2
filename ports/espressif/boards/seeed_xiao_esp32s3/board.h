@@ -46,7 +46,7 @@
 //--------------------------------------------------------------------+
 
 #define USB_VID           0x2886
-#define USB_PID           0x0056
+#define USB_PID           0x8056
 #define USB_MANUFACTURER  "Seeed Studio"
 #define USB_PRODUCT       "XIAO ESP32-S3"
 
