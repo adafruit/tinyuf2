@@ -71,6 +71,7 @@ jobs:
         - 'adafruit_feather_esp32s3_tft'
         - 'adafruit_matrixportal_s3'
         - 'adafruit_qtpy_esp32s3'
+        - 'adafruit_qtpy_esp32s3_n4r2'
         - 'bpi_leaf_s3'
         - 'bpi_picow_s3'
         - 'circuitart_zero_s3'
