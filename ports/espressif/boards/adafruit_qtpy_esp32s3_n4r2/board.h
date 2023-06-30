@@ -65,10 +65,10 @@
 //--------------------------------------------------------------------+
 
 #define USB_VID                  0x239A
-#define USB_PID                  0x0119 // TODO may need update
+#define USB_PID                  0x0143
 
 #define USB_MANUFACTURER         "Adafruit"
-#define USB_PRODUCT              "QT Py ESP32-S3"
+#define USB_PRODUCT              "QT Py ESP32-S3 (4M Flash, 2M PSRAM)"
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID             "ESP32S3-QTPy-N4R2-A"
