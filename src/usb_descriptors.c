@@ -171,7 +171,7 @@ char const* string_desc_arr [] =
   "HF2 WebUSB"
 };
 
-static uint16_t _desc_str[32+1];
+static uint16_t _desc_str[48+1];
 
 // Invoked when received GET STRING DESCRIPTOR request
 // Application return pointer to descriptor, whose contents must exist long enough for transfer to complete
@@ -215,14 +215,15 @@ uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid)
       // Convert ASCII string into UTF-16
       if ( !(index < sizeof(string_desc_arr)/sizeof(string_desc_arr[0])) ) return NULL;
 
+      uint16_t const max_count = (sizeof(_desc_str)/sizeof(_desc_str[0])) - 1;
+
       const char* str = string_desc_arr[index];
+      chr_count = strlen(str);
 
       // Cap at max char
-      chr_count = strlen(str);
-      if ( chr_count > 31 ) chr_count = 31;
+      if ( chr_count > max_count ) chr_count = max_count;
 
-      for(uint8_t i=0; i<chr_count; i++)
-      {
+      for(uint8_t i=0; i<chr_count; i++) {
         _desc_str[1+i] = str[i];
       }
     }
