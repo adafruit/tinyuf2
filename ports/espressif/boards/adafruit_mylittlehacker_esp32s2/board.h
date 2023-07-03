@@ -66,7 +66,7 @@
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID             "ESP32S2-MLH-revB"
 #define UF2_VOLUME_LABEL         "TOYS2BOOT"
-#define UF2_INDEX_URL            "https://www.adafruit.com/products/"
+#define UF2_INDEX_URL            "https://www.adafruit.com/products/5742"
 
 // Use favicon
 #define TINYUF2_FAVICON_HEADER   "favicon_adafruit_256.h"
