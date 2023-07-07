@@ -53,11 +53,8 @@
 #define USB_PRODUCT              "ES3ink"
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID             "ES3ink"
+#define UF2_BOARD_ID             "ESP32S3-ES3ink"
 #define UF2_VOLUME_LABEL         "ES3inkBOOT"
 #define UF2_INDEX_URL            "https://github.com/dronecz/es3ink"
-
-// Use favicon
-#define TINYUF2_FAVICON_HEADER   "favicon_adafruit_256.h"
 
 #endif
