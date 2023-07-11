@@ -109,7 +109,6 @@ function(add_board_target BOARD_TARGET)
     __ARMFPV5__=0
     XIP_EXTERNAL_FLASH=1
     XIP_BOOT_HEADER_ENABLE=1
-    CFG_TUSB_MCU=OPT_MCU_MIMXRT
     )
   target_link_options(${BOARD_TARGET} PUBLIC
     --specs=nosys.specs
@@ -173,32 +172,4 @@ function(family_flash_sdp TARGET)
     COMMAND ${SDPHOST} -u 0x1fc9,${SDP_PID} write-file ${FCFB_ORIGIN} $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin
     COMMAND ${SDPHOST} -u 0x1fc9,${SDP_PID} jump-address ${IVT_ORIGIN}
     )
-endfunction()
-
-#------------------------------------
-# Main target
-#------------------------------------
-function(family_configure_tinyuf2 TARGET)
-  family_configure_common(${TARGET})
-  add_board_target(board_${BOARD})
-
-  #---------- Port Specific ----------
-  target_sources(${TARGET} PUBLIC
-    ${TOP}/lib/tinyusb/src/portable/chipidea/ci_hs/dcd_ci_hs.c
-    )
-  #target_include_directories(${TARGET} PUBLIC)
-  #target_compile_definitions(${TARGET} PUBLIC)
-  target_link_options(${TARGET} PUBLIC
-    "LINKER:--script=${CMAKE_CURRENT_FUNCTION_LIST_DIR}/linker/${MCU_VARIANT}_ram.ld"
-    "LINKER:--script=${CMAKE_CURRENT_FUNCTION_LIST_DIR}/linker/memory.ld"
-    "LINKER:--script=${CMAKE_CURRENT_FUNCTION_LIST_DIR}/linker/common.ld"
-    )
-
-  include(${TOP}/src/tinyuf2.cmake)
-  add_tinyuf2(${TARGET})
-
-  target_link_libraries(${TARGET} PUBLIC board_${BOARD})
-
-  family_flash_sdp(${TARGET})
-  family_flash_jlink(${TARGET} hex)
 endfunction()

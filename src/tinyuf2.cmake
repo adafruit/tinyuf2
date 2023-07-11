@@ -14,26 +14,9 @@ function (add_tinyuf2 TARGET)
     ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/usb_descriptors.c
     ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/board_api.h
     )
-
-  # tinyusb source
-  set(TINYUSB_DIR ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../lib/tinyusb/src)
-
-  target_sources(${TARGET} PUBLIC
-    ${TINYUSB_DIR}/tusb.c
-    ${TINYUSB_DIR}/common/tusb_fifo.c
-    ${TINYUSB_DIR}/device/usbd.c
-    ${TINYUSB_DIR}/device/usbd_control.c
-    ${TINYUSB_DIR}/class/cdc/cdc_device.c
-    ${TINYUSB_DIR}/class/dfu/dfu_rt_device.c
-    ${TINYUSB_DIR}/class/hid/hid_device.c
-    ${TINYUSB_DIR}/class/msc/msc_device.c
-    ${TINYUSB_DIR}/class/vendor/vendor_device.c
-    )
-
   target_include_directories(${TARGET} PUBLIC
     ${CMAKE_CURRENT_FUNCTION_LIST_DIR}
     ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/favicon
-    ${TINYUSB_DIR}
     )
 
   execute_process(COMMAND git describe --dirty --always --tags OUTPUT_VARIABLE GIT_VERSION)
@@ -43,7 +26,8 @@ function (add_tinyuf2 TARGET)
   set(deps_repo "${deps_repo} ${TINYUSB_DIR}/..")
 
   execute_process(COMMAND bash "-c" "git -C ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/.. submodule status ${deps_repo} | cut -d\" \" -f3,4 | paste -s -d\" \" -"
-    OUTPUT_VARIABLE GIT_SUBMODULE_VERSIONS)
+    OUTPUT_VARIABLE GIT_SUBMODULE_VERSIONS
+    )
   string(REPLACE ../../../../lib/ "" GIT_SUBMODULE_VERSIONS ${GIT_SUBMODULE_VERSIONS})
   string(STRIP ${GIT_SUBMODULE_VERSIONS} GIT_SUBMODULE_VERSIONS)
 

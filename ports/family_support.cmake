@@ -124,12 +124,50 @@ function(family_configure_common TARGET)
   endif ()
 endfunction()
 
+
+# Add tinyusb to example
+function(family_add_tinyusb TARGET OPT_MCU RTOS)
+  # tinyusb target is built for each example since it depends on example's tusb_config.h
+  set(TINYUSB_TARGET_PREFIX ${TARGET}-)
+  add_library(${TARGET}-tinyusb_config INTERFACE)
+
+  # path to tusb_config.h
+  target_include_directories(${TARGET}-tinyusb_config INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+  target_compile_definitions(${TARGET}-tinyusb_config INTERFACE CFG_TUSB_MCU=${OPT_MCU})
+
+  if (DEFINED LOG)
+    target_compile_definitions(${TARGET}-tinyusb_config INTERFACE CFG_TUSB_DEBUG=${LOG})
+    if (LOG STREQUAL "4")
+      # no inline for debug level 4
+      target_compile_definitions(${TARGET}-tinyusb_config INTERFACE TU_ATTR_ALWAYS_INLINE=)
+    endif ()
+  endif()
+
+  if (RTOS STREQUAL "freertos")
+    target_compile_definitions(${TARGET}-tinyusb_config INTERFACE CFG_TUSB_OS=OPT_OS_FREERTOS)
+  endif ()
+
+  # tinyusb's CMakeList.txt
+  add_subdirectory(${TOP}/lib/tinyusb/src ${CMAKE_CURRENT_BINARY_DIR}/tinyusb)
+
+  if (RTOS STREQUAL "freertos")
+    # link tinyusb with freeRTOS kernel
+    target_link_libraries(${TARGET}-tinyusb PUBLIC freertos_kernel)
+  endif ()
+
+  # tinyusb depends on board target for low level mcu header and function
+  target_link_libraries(${TARGET}-tinyusb PUBLIC board_${BOARD})
+  target_link_libraries(${TARGET} PUBLIC ${TARGET}-tinyusb)
+endfunction()
+
+
 function(family_add_bin_hex TARGET)
   add_custom_command(TARGET ${TARGET} POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -Obinary $<TARGET_FILE:${TARGET}> $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin
     COMMAND ${CMAKE_OBJCOPY} -Oihex $<TARGET_FILE:${TARGET}> $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.hex
     VERBATIM)
 endfunction()
+
 
 function(family_add_uf2 TARGET FAMILY_ID)
   add_custom_command(TARGET ${TARGET} POST_BUILD

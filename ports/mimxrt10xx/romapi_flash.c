@@ -271,7 +271,7 @@ status_t ROM_FLEXSPI_NorFlash_ProgramPage (uint32_t instance, flexspi_nor_config
     flashXfer.seqId = NOR_CMD_LUT_SEQ_IDX_PAGEPROGRAM;
     flashXfer.baseAddress = dstAddr;
     flashXfer.isParallelModeEnable = isParallelMode;
-    flashXfer.txBuffer = (uint32_t*) src;
+    flashXfer.txBuffer = (uint32_t*)(uintptr_t) src;
     flashXfer.txSize = config->pageSize;
 
     status = flexspi_command_xfer(instance, &flashXfer);

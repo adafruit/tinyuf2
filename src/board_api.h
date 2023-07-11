@@ -64,6 +64,10 @@
 #define TINYUF2_CONST
 #endif
 
+#ifndef TUF2_LOG
+  #define TUF2_LOG 0
+#endif
+
 // Use favicon.ico + autorun.inf (only works with windows)
 // define TINYUF2_FAVICON_HEADER to enable this feature
 
