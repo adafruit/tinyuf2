@@ -73,6 +73,7 @@ function(add_board_target BOARD_TARGET)
     ${SDK_DIR}/devices/${MCU_VARIANT}/drivers/fsl_clock.c
     ${SDK_DIR}/devices/${MCU_VARIANT}/system_${MCU_VARIANT}.c
     ${SDK_DIR}/devices/${MCU_VARIANT}/gcc/startup_${MCU_VARIANT}.S
+    ${SDK_DIR}/drivers/adc_12b1msps_sar/fsl_adc.c
     ${SDK_DIR}/drivers/cache/armv7-m7/fsl_cache.c
     ${SDK_DIR}/drivers/common/fsl_common.c
     ${SDK_DIR}/drivers/igpio/fsl_gpio.c
@@ -90,6 +91,7 @@ function(add_board_target BOARD_TARGET)
     ${SDK_DIR}/devices/${MCU_VARIANT}
     ${SDK_DIR}/devices/${MCU_VARIANT}/xip
     ${SDK_DIR}/devices/${MCU_VARIANT}/drivers
+    ${SDK_DIR}/drivers/adc_12b1msps_sar
     ${SDK_DIR}/drivers/cache/armv7-m7
     ${SDK_DIR}/drivers/common
     ${SDK_DIR}/drivers/igpio

@@ -9,19 +9,20 @@ include(${CMAKE_CURRENT_LIST_DIR}/../app.cmake)
 #------------------------------------
 # Application
 #------------------------------------
-add_executable(esp32programmer
+add_executable(factory_test
+  arduino.c
   main.c
   usb_descriptors.c
   ${CMAKE_CURRENT_LIST_DIR}/../../boards.c
   ${TOP}/lib/tinyusb/src/portable/chipidea/ci_hs/dcd_ci_hs.c
   )
-target_include_directories(esp32programmer PUBLIC
+target_include_directories(factory_test PUBLIC
   .
   ${TOP}/src
   )
 
-family_configure_common(esp32programmer)
-configure_app(esp32programmer)
+family_configure_common(factory_test)
+configure_app(factory_test)
 
-target_link_libraries(esp32programmer PUBLIC board_${BOARD})
-family_add_tinyusb(esp32programmer OPT_MCU_MIMXRT1XXX none)
+target_link_libraries(factory_test PUBLIC board_${BOARD})
+family_add_tinyusb(factory_test OPT_MCU_MIMXRT1XXX none)
