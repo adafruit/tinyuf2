@@ -44,3 +44,4 @@ family_flash_jlink(tinyuf2 hex)
 
 add_subdirectory(apps/esp32programmer)
 add_subdirectory(apps/factory_test)
+add_subdirectory(apps/factory_test_metro_sd)
