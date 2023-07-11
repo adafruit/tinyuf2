@@ -1,7 +1,7 @@
 #------------------------------------
 # Self Update
-#------------------------------------
 # This file is meant to be include by add_subdirectory() in the root CMakeLists.txt
+#------------------------------------
 
 # Generate bootloader_bin.c
 add_custom_command(OUTPUT bootloader_bin.c

@@ -27,8 +27,3 @@ family_flash_jlink(tinyuf2)
 # Self Update
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/apps/self_update)
 
-#------------------------------------
-# BOARD_TARGET
-# used by all executable
-#------------------------------------
-
