@@ -253,6 +253,14 @@ function(family_flash_nxplink TARGET)
 endfunction()
 
 
+# Flash with UF2
+function(family_flash_uf2 TARGET FAMILY_ID)
+  add_custom_target(${TARGET}-uf2
+    DEPENDS ${TARGET}
+    COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} -f ${FAMILY_ID} --deploy $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.uf2
+    )
+endfunction()
+
 #----------------------------------
 # Family specific
 #----------------------------------
