@@ -1,24 +1,22 @@
 cmake_minimum_required(VERSION 3.17)
-include(CMakePrintHelpers)
 
-set(TOOLCHAIN gcc)
-include(family.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/../family_support.cmake)
 
 project(tinyuf2 C ASM)
 
-# Bootloader
+#------------------------------------
+# TinyUF2
+#------------------------------------
+
+set(CMAKE_EXECUTABLE_SUFFIX .elf)
 add_executable(tinyuf2)
 
-family_configure_target(tinyuf2)
-
 target_sources(tinyuf2 PUBLIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/board_flash.c
-  ${CMAKE_CURRENT_SOURCE_DIR}/boards.c
-  ${CMAKE_CURRENT_SOURCE_DIR}/romapi_flash.c
+  board_flash.c
+  boards.c
+  romapi_flash.c
   )
+#target_compile_definitions(tinyuf2 PUBLIC)
+#target_link_options(tinyuf2 PUBLIC)
 
-include(${CMAKE_CURRENT_SOURCE_DIR}/../../src/tinyuf2.cmake)
-add_tinyuf2(tinyuf2)
-
-# include tinyusb cmake
-#include(${CMAKE_CURRENT_SOURCE_DIR}/../lib/tinyusb/src/CMakeLists.txt)
+family_configure_tinyuf2(tinyuf2)
