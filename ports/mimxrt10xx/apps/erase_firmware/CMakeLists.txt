@@ -9,19 +9,12 @@ include(${CMAKE_CURRENT_LIST_DIR}/../app.cmake)
 #------------------------------------
 # Application
 #------------------------------------
-add_executable(factory_test
-  arduino.c
-  main.c
-  usb_descriptors.c
-  ${CMAKE_CURRENT_LIST_DIR}/../../boards.c
-  ${TOP}/lib/tinyusb/src/portable/chipidea/ci_hs/dcd_ci_hs.c
+add_executable(erase_firmware
+  ${TOP}/apps/erase_firmware/erase_firmware.c
   )
-target_include_directories(factory_test PUBLIC
-  .
+target_include_directories(erase_firmware PUBLIC
   ${TOP}/src
   )
 
-configure_app(factory_test)
-
-target_link_libraries(factory_test PUBLIC board_${BOARD})
-family_add_tinyusb(factory_test OPT_MCU_MIMXRT1XXX none)
+configure_app(erase_firmware)
+target_link_libraries(erase_firmware PUBLIC board_${BOARD})

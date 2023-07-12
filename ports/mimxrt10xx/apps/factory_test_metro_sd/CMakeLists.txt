@@ -21,7 +21,6 @@ target_include_directories(factory_test_metro_sd PUBLIC
   ${TOP}/src
   )
 
-family_configure_common(factory_test_metro_sd)
 configure_app(factory_test_metro_sd)
 
 target_link_libraries(factory_test_metro_sd PUBLIC board_${BOARD})

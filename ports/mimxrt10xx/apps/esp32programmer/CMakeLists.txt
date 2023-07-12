@@ -20,7 +20,6 @@ target_include_directories(esp32programmer PUBLIC
   ${TOP}/src
   )
 
-family_configure_common(esp32programmer)
 configure_app(esp32programmer)
 
 target_link_libraries(esp32programmer PUBLIC board_${BOARD})

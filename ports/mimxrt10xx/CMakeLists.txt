@@ -37,11 +37,18 @@ add_tinyuf2(tinyuf2)
 
 family_flash_sdp(tinyuf2)
 family_flash_jlink(tinyuf2 hex)
+family_add_uf2(tinyuf2 ${UF2_FAMILY_ID} bin ${UF2_WRITE_ADDR})
+family_flash_uf2(tinyuf2 ${UF2_FAMILY_ID})
 
 #------------------------------------
 # Application (including self update)
 #------------------------------------
 
-add_subdirectory(apps/esp32programmer)
-add_subdirectory(apps/factory_test)
-add_subdirectory(apps/factory_test_metro_sd)
+add_subdirectory(apps/erase_firmware)
+
+if (BOARD STREQUAL metro_m7_1011)
+  add_subdirectory(apps/esp32programmer)
+  add_subdirectory(apps/factory_test)
+elseif (BOARD STREQUAL metro_m7_1011_sd)
+  add_subdirectory(apps/factory_test_metro_sd)
+endif ()

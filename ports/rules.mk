@@ -2,12 +2,6 @@
 # Common make rules for all
 # ---------------------------------------
 
-PYTHON3 ?= python3
-MKDIR = mkdir
-SED = sed
-CP = cp
-RM = rm
-
 CFLAGS  += $(addprefix -I,$(INC))
 LDFLAGS += $(CFLAGS)
 ASFLAGS += $(CFLAGS)

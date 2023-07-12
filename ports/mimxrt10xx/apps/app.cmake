@@ -9,6 +9,7 @@ function(family_add_bin_hex TARGET)
 endfunction()
 
 function(configure_app TARGET)
+  family_configure_common(${TARGET})
   target_link_options(${TARGET} PUBLIC
     "LINKER:--script=${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../linker/${MCU_VARIANT}_ram.ld"
     "LINKER:--script=${CMAKE_CURRENT_FUNCTION_LIST_DIR}/memory.ld"

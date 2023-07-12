@@ -169,10 +169,22 @@ function(family_add_bin_hex TARGET)
 endfunction()
 
 
+# Add uf2 target, optional parameter is the extension of the binary file (default is hex)
+# If bin file is used, address is also required
 function(family_add_uf2 TARGET FAMILY_ID)
+  set(BIN_FILE hex)
+  set(ADDR_OPT "")
+  if (ARGC GREATER 2)
+    set(BIN_EXT ${ARGV2})
+    if (BIN_EXT STREQUAL bin)
+      set(ADDR_OPT "-b ${ARGV3}")
+    endif ()
+  endif ()
+
+  set(BIN_FILE $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.${BIN_EXT})
+
   add_custom_command(TARGET ${TARGET} POST_BUILD
-    COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} -f ${FAMILY_ID} -c -o $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.uf2
-    $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.hex
+    COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} -f ${FAMILY_ID} ${ADDR_OPT} -c -o $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.uf2 ${BIN_FILE}
     VERBATIM)
 endfunction()
 
