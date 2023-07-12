@@ -18,7 +18,7 @@ include ../app.mk
 else
 
 all:
-	@echo This board does not have ESP32 co-processor
+	@echo This app is only board only built for metro_m7_1011
 
 endif
 

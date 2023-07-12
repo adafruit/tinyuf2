@@ -172,7 +172,7 @@ endfunction()
 # Add uf2 target, optional parameter is the extension of the binary file (default is hex)
 # If bin file is used, address is also required
 function(family_add_uf2 TARGET FAMILY_ID)
-  set(BIN_FILE hex)
+  set(BIN_EXT hex)
   set(ADDR_OPT "")
   if (ARGC GREATER 2)
     set(BIN_EXT ${ARGV2})

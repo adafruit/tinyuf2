@@ -12,13 +12,13 @@ INC += \
 	$(TOP)/src \
 	$(TOP)/$(SDK_DIR)/drivers/adc_12b1msps_sar \
 
-ifeq ($(BOARD),metro_m7_1011)
+ifeq ($(BOARD),metro_m7_1011_sd)
 include ../app.mk
 
 else
 
 all:
-	@echo This board does not have ESP32 co-processor
+	@echo This app is only board only built for metro_m7_1011_sd
 
 endif
 
