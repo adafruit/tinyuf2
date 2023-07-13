@@ -60,6 +60,11 @@ set(UF2_MIMXRT1176_WRITE_ADDR 0x30000000)
 set(SDP_PID ${SDP_${MCU_VARIANT}_PID})
 set(UF2_WRITE_ADDR ${UF2_${MCU_VARIANT}_WRITE_ADDR})
 
+file(STRINGS ${CMAKE_CURRENT_LIST_DIR}/linker/${MCU_VARIANT}_ram.ld FCFB_ORIGIN REGEX "_fcfb_origin *=")
+file(STRINGS ${CMAKE_CURRENT_LIST_DIR}/linker/${MCU_VARIANT}_ram.ld IVT_ORIGIN REGEX "_ivt_origin *=")
+string(REGEX REPLACE ".*= *(0x[0-9a-fA-F]+).*" "\\1" FCFB_ORIGIN ${FCFB_ORIGIN})
+string(REGEX REPLACE ".*= *(0x[0-9a-fA-F]+).*" "\\1" IVT_ORIGIN ${IVT_ORIGIN})
+
 #------------------------------------
 # BOARD_TARGET
 #------------------------------------
@@ -123,11 +128,26 @@ endfunction()
 #------------------------------------
 
 function(family_add_bin_hex TARGET)
+  math(EXPR HEX_OFFSET "${UF2_WRITE_ADDR} - ${FCFB_ORIGIN}")
   add_custom_command(TARGET ${TARGET} POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -Obinary $<TARGET_FILE:${TARGET}> $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin
-    COMMAND ${CMAKE_OBJCOPY} -Oihex --change-addresses ${UF2_WRITE_ADDR} $<TARGET_FILE:${TARGET}> $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.hex
+    COMMAND ${CMAKE_OBJCOPY} -Oihex --change-addresses ${HEX_OFFSET} $<TARGET_FILE:${TARGET}> $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.hex
     VERBATIM)
 endfunction()
+
+
+function(family_flash_sdp TARGET)
+  if (NOT DEFINED SDPHOST)
+    set(SDPHOST sdphost)
+  endif ()
+
+  add_custom_target(${TARGET}-sdp
+    DEPENDS ${TARGET}
+    COMMAND ${SDPHOST} -u 0x1fc9,${SDP_PID} write-file ${FCFB_ORIGIN} $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin
+    COMMAND ${SDPHOST} -u 0x1fc9,${SDP_PID} jump-address ${IVT_ORIGIN}
+    )
+endfunction()
+
 
 function(family_flash_jlink TARGET)
   if (NOT DEFINED JLINKEXE)
@@ -152,26 +172,5 @@ exit"
   add_custom_target(${TARGET}-jlink
     DEPENDS ${TARGET}
     COMMAND ${JLINKEXE} -device ${JLINK_DEVICE} -if swd -JTAGConf -1,-1 -speed auto -CommandFile ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}.jlink
-    )
-endfunction()
-
-function(family_flash_sdp TARGET)
-  if (NOT DEFINED SDPHOST)
-    set(SDPHOST sdphost)
-  endif ()
-
-  file(STRINGS ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/linker/${MCU_VARIANT}_ram.ld FCFB_ORIGIN
-    REGEX "_fcfb_origin *="
-    )
-  file(STRINGS ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/linker/${MCU_VARIANT}_ram.ld IVT_ORIGIN
-    REGEX "_ivt_origin *="
-    )
-  string(REGEX REPLACE ".*= *(0x[0-9a-fA-F]+).*" "\\1" FCFB_ORIGIN ${FCFB_ORIGIN})
-  string(REGEX REPLACE ".*= *(0x[0-9a-fA-F]+).*" "\\1" IVT_ORIGIN ${IVT_ORIGIN})
-
-  add_custom_target(${TARGET}-sdp
-    DEPENDS ${TARGET}
-    COMMAND ${SDPHOST} -u 0x1fc9,${SDP_PID} write-file ${FCFB_ORIGIN} $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin
-    COMMAND ${SDPHOST} -u 0x1fc9,${SDP_PID} jump-address ${IVT_ORIGIN}
     )
 endfunction()

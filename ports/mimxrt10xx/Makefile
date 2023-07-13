@@ -75,7 +75,7 @@ SDP_JUMP_ADDR := $(shell sed -n 's/_ivt_origin.*\(0x.*\);/\1/p' $(TOP)/$(PORT_DI
 
 $(BUILD)/$(OUTNAME).hex: $(BUILD)/$(OUTNAME).elf
 	@echo CREATE $@
-	@$(OBJCOPY) -O ihex --change-addresses $(UF2_$(MCU)_WRITE_ADDR) $^ $@
+	$(OBJCOPY) -O ihex --change-addresses $$(( $(UF2_$(MCU)_WRITE_ADDR)-$(SDP_WRITE_ADDR) ))  $^ $@
 
 # SDPHOST is a variable if you need to change the path
 SDPHOST = sdphost
