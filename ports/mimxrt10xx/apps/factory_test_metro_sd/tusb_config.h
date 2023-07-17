@@ -38,20 +38,9 @@
 #error CFG_TUSB_MCU must be defined in board.mk
 #endif
 
-#ifndef BOARD_TUD_RHPORT
-  #define BOARD_TUD_RHPORT 0
-#endif
-
-#if BOARD_TUD_RHPORT == 0
-  #define CFG_TUSB_RHPORT0_MODE      (OPT_MODE_DEVICE | OPT_MODE_HIGH_SPEED)
-  #define CFG_TUSB_RHPORT1_MODE      0
-#elif BOARD_TUD_RHPORT == 1
-  #define CFG_TUSB_RHPORT0_MODE      0
-  #define CFG_TUSB_RHPORT1_MODE      (OPT_MODE_DEVICE | OPT_MODE_HIGH_SPEED)
-#else
-  #error "BOARD_TUD_RHPORT is not correct"
-#endif
-
+#define BOARD_TUD_RHPORT 0
+#define CFG_TUSB_RHPORT0_MODE      (OPT_MODE_DEVICE | OPT_MODE_HIGH_SPEED)
+#define CFG_TUSB_RHPORT1_MODE      0
 #define CFG_TUSB_OS                OPT_OS_NONE
 
 // can be defined by compiler in DEBUG build
@@ -83,21 +72,17 @@
 #endif
 
 //------------- CLASS -------------//
-// #define CFG_TUD_CDC              0
-#define CFG_TUD_MSC              1
-#define CFG_TUD_HID              1
-// #define CFG_TUD_VENDOR           0
+#define CFG_TUD_CDC              1
+#define CFG_TUD_MSC              0
+#define CFG_TUD_HID              0
+#define CFG_TUD_MIDI             0
+#define CFG_TUD_VENDOR           0
 
-// MSC Buffer size of Device Mass storage
-#define CFG_TUD_MSC_BUFSIZE      4096
+// CDC FIFO size of TX and RX
+#define CFG_TUD_CDC_RX_BUFSIZE   1024
+#define CFG_TUD_CDC_TX_BUFSIZE   1024
 
-// HID buffer size Should be sufficient to hold ID (if any) + Data
-#define CFG_TUD_HID_BUFSIZE      64
-
-// Vendor FIFO size of TX and RX
-// If not configured vendor endpoints will not be buffered
-#define CFG_TUD_VENDOR_RX_BUFSIZE 512
-#define CFG_TUD_VENDOR_TX_BUFSIZE 512
+#define CFG_TUD_CDC_EP_BUFSIZE   (TUD_OPT_HIGH_SPEED ? 512 : 64)
 
 #ifdef __cplusplus
  }

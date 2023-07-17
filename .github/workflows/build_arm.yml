@@ -24,7 +24,6 @@ jobs:
         - 'double_m33_express'
         - 'lpcxpresso55s28'
         - 'lpcxpresso55s69'
-
         # mimxrt10xx
         - 'imxrt1010_evk'
         - 'imxrt1015_evk'
@@ -34,19 +33,17 @@ jobs:
         - 'imxrt1050_evkb'
         - 'imxrt1060_evk'
         - 'metro_m7_1011'
+        - 'metro_m7_1011_sd'
         - 'teensy40'
         - 'teensy41'
-
         # stm32f3
         - 'stm32f303disco'
-
         # stm32f4
         - 'feather_stm32f405_express'
         - 'stm32f411ve_discovery'
         - 'stm32f411ce_blackpill'
         - 'stm32f401_blackpill'
         - 'sparkfun_stm32_thing_plus'
-
         # stm32l4
         - 'swan_r5'
         

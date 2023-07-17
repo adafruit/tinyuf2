@@ -30,6 +30,7 @@ SRC_C += \
 	$(SDK_DIR)/drivers/cache/armv7-m7/fsl_cache.c \
 	$(SDK_DIR)/drivers/common/fsl_common.c \
 	$(SDK_DIR)/drivers/igpio/fsl_gpio.c \
+	$(SDK_DIR)/drivers/lpspi/fsl_lpspi.c \
 	$(SDK_DIR)/drivers/lpuart/fsl_lpuart.c \
 	$(SDK_DIR)/drivers/ocotp/fsl_ocotp.c \
 	$(SDK_DIR)/drivers/pwm/fsl_pwm.c \
@@ -72,6 +73,7 @@ INC += \
 	$(TOP)/$(SDK_DIR)/drivers/cache/armv7-m7 \
 	$(TOP)/$(SDK_DIR)/drivers/common \
 	$(TOP)/$(SDK_DIR)/drivers/igpio \
+	$(TOP)/$(SDK_DIR)/drivers/lpspi \
 	$(TOP)/$(SDK_DIR)/drivers/lpuart \
 	$(TOP)/$(SDK_DIR)/drivers/ocotp \
 	$(TOP)/$(SDK_DIR)/drivers/pwm \

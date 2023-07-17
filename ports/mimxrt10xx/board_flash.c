@@ -55,7 +55,7 @@ extern uint32_t _fcfb_length[];
 
 // Flash Configuration Structure 
 extern flexspi_nor_config_t const qspiflash_config;
-static flexspi_nor_config_t* flash_cfg = (flexspi_nor_config_t*) &qspiflash_config;
+static flexspi_nor_config_t* flash_cfg = (flexspi_nor_config_t*)(uintptr_t) &qspiflash_config;
 
 static uint32_t _flash_page_addr = NO_CACHE;
 static uint8_t  _flash_cache[SECTOR_SIZE] __attribute__((aligned(4)));

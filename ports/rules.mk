@@ -2,12 +2,6 @@
 # Common make rules for all
 # ---------------------------------------
 
-PYTHON3 ?= python3
-MKDIR = mkdir
-SED = sed
-CP = cp
-RM = rm
-
 CFLAGS  += $(addprefix -I,$(INC))
 LDFLAGS += $(CFLAGS)
 ASFLAGS += $(CFLAGS)
@@ -47,7 +41,7 @@ $(BUILD)/$(OUTNAME).bin: $(BUILD)/$(OUTNAME).elf
 	@echo CREATE $@
 	@$(OBJCOPY) -O binary $^ $@
 
-# skip hex rul if building bootloader for imxrt since it needs spceial rule
+# skip hex rule if building bootloader for imxrt since it needs spceial rule
 ifneq ($(PORT)$(BUILD_APPLICATION),mimxrt10xx)
 
 $(BUILD)/$(OUTNAME).hex: $(BUILD)/$(OUTNAME).elf

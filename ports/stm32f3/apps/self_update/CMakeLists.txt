@@ -1,7 +1,7 @@
 #------------------------------------
 # Self Update
-#------------------------------------
 # This file is meant to be include by add_subdirectory() in the root CMakeLists.txt
+#------------------------------------
 
 # Generate bootloader_bin.c
 add_custom_command(OUTPUT bootloader_bin.c
@@ -29,7 +29,7 @@ target_link_options(self_update PUBLIC
   "LINKER:--script=${PORT_DIR}/linker/stm32f3_app.ld"
   )
 
-family_configure(self_update)
+family_configure_common(self_update)
 target_link_libraries(self_update board_${BOARD})
 family_add_bin_hex(self_update)
 family_add_uf2(self_update ${UF2_FAMILY_ID})

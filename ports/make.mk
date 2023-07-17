@@ -2,6 +2,12 @@
 # Common make definition for all
 # ---------------------------------------
 
+PYTHON3 ?= python3
+MKDIR = mkdir
+SED = sed
+CP = cp
+RM = rm
+
 CC = $(CROSS_COMPILE)gcc
 OBJCOPY = $(CROSS_COMPILE)objcopy
 SIZE = $(CROSS_COMPILE)size
@@ -18,6 +24,8 @@ TOP := $(shell realpath $(THIS_MAKEFILE))
 TOP := $(patsubst %/ports/make.mk,%,$(TOP))
 
 CURRENT_PATH := $(shell realpath --relative-to=$(TOP) `pwd`)
+
+UF2CONV_PY = $(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py
 
 #-------------- Handy check parameter function ------------
 check_defined = \

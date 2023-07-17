@@ -10,14 +10,12 @@ LD_FILES ?= $(PORT_DIR)/linker/$(MCU)_ram.ld $(PORT_DIR)/apps/memory.ld $(PORT_D
 
 include $(TOP)/ports/rules.mk
 
-APPLICATION_ADDR = 0x6000C000
-
 # self-update uf2 file
 uf2: $(BUILD)/$(OUTNAME).uf2
 
-$(BUILD)/$(OUTNAME).uf2: $(BUILD)/$(OUTNAME)-textonly.bin
+$(BUILD)/$(OUTNAME).uf2: $(BUILD)/$(OUTNAME).hex
 	@echo CREATE $@
-	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py -f $(UF2_FAMILY_ID) -b $(APPLICATION_ADDR) -c -o $@ $<
+	$(UF2CONV_PY) -f $(UF2_FAMILY_ID) -c -o $@ $<
 
 $(BUILD)/$(OUTNAME)-textonly.bin: $(BUILD)/$(OUTNAME).elf
 	@echo CREATE $@
@@ -32,10 +30,10 @@ all: $(BIN)
 all: $(BUILD)/$(OUTNAME).uf2
 	$(CP) $< $(BIN)
 
-flash-app: $(BUILD)/$(OUTNAME)-textonly.bin
-	pyocd flash -t $(PYOCD_TARGET) -a $(APPLICATION_ADDR) $<
+flash-app: $(BUILD)/$(OUTNAME).hex
+	pyocd flash -t $(PYOCD_TARGET) $<
 	pyocd reset -t $(PYOCD_TARGET)
 
-# UF2_BOOT_MOUNT_PATH is defined in board.mk
+# flash by copying uf2
 flash-uf2: $(BUILD)/$(OUTNAME).uf2
-	$(CP) $< $(UF2_BOOT_MOUNT_PATH)/
+	$(UF2CONV_PY) -f $(UF2_FAMILY_ID) --deploy $<
