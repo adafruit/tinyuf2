@@ -41,9 +41,8 @@
 
 // This is an factory test for Metro M7 SD
 
-// hathach: testing with Metro M7 Airlift without SD_CS and SD_DETECT.
-// use D2, D3 instead
-#define TESTING_WITH_AIRLIFT
+// hathach: testing with Metro M7 Airlift without SD_CS and SD_DETECT. Use D2, D3 instead
+//#define TESTING_WITH_AIRLIFT
 
 #if defined TESTING_WITH_AIRLIFT
   #define SD_CS     3 // D3

@@ -1,4 +1,4 @@
-set(APPLICATION_ADDR 0x6000C000)
+include_guard()
 
 # override bin hex output
 function(family_add_bin_hex TARGET)
