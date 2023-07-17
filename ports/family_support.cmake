@@ -234,15 +234,26 @@ function(family_flash_stlink TARGET)
 endfunction()
 
 
-# Add flash pycod target
+# Add flash pycod targe,t optional parameter is the extension of the binary file (default is elf)
+## If bin file is used, address is also required
 function(family_flash_pyocd TARGET)
   if (NOT DEFINED PYOC)
     set(PYOCD pyocd)
   endif ()
 
+  set(ADDR_OPT "")
+  if (ARGC GREATER 1)
+    set(BIN_FILE $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.${ARGV1})
+    if (${ARGV1} STREQUAL bin)
+      set(ADDR_OPT "-a ${ARGV2}")
+    endif ()
+  else ()
+    set(BIN_FILE $<TARGET_FILE:${TARGET}>)
+  endif ()
+
   add_custom_target(${TARGET}-pyocd
     DEPENDS ${TARGET}
-    COMMAND ${PYOCD} flash -t ${PYOCD_TARGET} $<TARGET_FILE:${TARGET}>
+    COMMAND ${PYOCD} flash -t ${PYOCD_TARGET} ${ADDR_OPT} ${BIN_FILE}
     )
 endfunction()
 

@@ -68,8 +68,9 @@ int main(void) {
 
   // wait for Serial connection
   if (test) {
-    while (!tud_cdc_connected())
+    while (!tud_cdc_connected()) {
       tud_task();
+    }
   }
 
   while (1) {

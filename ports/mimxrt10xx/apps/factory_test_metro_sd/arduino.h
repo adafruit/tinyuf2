@@ -26,6 +26,9 @@
 #define PIN_MISO 33
 #define PIN_SCK 34
 
+#define PIN_SD_CS 35
+#define PIN_SD_DETECT 36
+
 #define AD0 14
 #define AD1 15
 #define AD2 16

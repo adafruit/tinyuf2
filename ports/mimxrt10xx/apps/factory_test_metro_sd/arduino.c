@@ -31,6 +31,9 @@ pinmap pinmapping[] = {
   {.num=PIN_MISO, .port=GPIO1, .pin=17, .mux={IOMUXC_GPIO_AD_03_GPIOMUX_IO17}, .adc=ADC1}, // AD0
   {.num=PIN_MOSI, .port=GPIO1, .pin=18, .mux={IOMUXC_GPIO_AD_04_GPIOMUX_IO18}, .adc=ADC1}, // AD0
   {.num=PIN_SCK , .port=GPIO1, .pin=20, .mux={IOMUXC_GPIO_AD_06_GPIOMUX_IO20}, .adc=ADC1}, // AD0
+
+  {.num=PIN_SD_CS    , .port=GPIO1, .pin=28, .mux={IOMUXC_GPIO_AD_14_GPIOMUX_IO28}},
+  {.num=PIN_SD_DETECT, .port=GPIO1, .pin=25, .mux={IOMUXC_GPIO_AD_11_GPIOMUX_IO25}},
 };
 
 static volatile uint32_t _millis = 0;
@@ -40,7 +43,12 @@ void board_timer_handler(void) {
 }
 
 uint32_t millis(void) {
+#ifndef BUILD_APPLICATION
+  extern uint32_t board_millis(void);
+  return board_millis();
+#else
   return _millis;
+#endif
 }
 
 void delay(uint32_t ms) {

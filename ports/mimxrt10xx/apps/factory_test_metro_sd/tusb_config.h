@@ -38,6 +38,7 @@
 #error CFG_TUSB_MCU must be defined in board.mk
 #endif
 
+#define BOARD_TUD_RHPORT 0
 #define CFG_TUSB_RHPORT0_MODE      (OPT_MODE_DEVICE | OPT_MODE_HIGH_SPEED)
 #define CFG_TUSB_RHPORT1_MODE      0
 #define CFG_TUSB_OS                OPT_OS_NONE

@@ -75,6 +75,7 @@ function(add_board_target BOARD_TARGET)
     ${SDK_DIR}/drivers/cache/armv7-m7/fsl_cache.c
     ${SDK_DIR}/drivers/common/fsl_common.c
     ${SDK_DIR}/drivers/igpio/fsl_gpio.c
+    ${SDK_DIR}/drivers/lpspi/fsl_lpspi.c
     ${SDK_DIR}/drivers/lpuart/fsl_lpuart.c
     ${SDK_DIR}/drivers/ocotp/fsl_ocotp.c
     ${SDK_DIR}/drivers/pwm/fsl_pwm.c
@@ -93,6 +94,7 @@ function(add_board_target BOARD_TARGET)
     ${SDK_DIR}/drivers/cache/armv7-m7
     ${SDK_DIR}/drivers/common
     ${SDK_DIR}/drivers/igpio
+    ${SDK_DIR}/drivers/lpspi
     ${SDK_DIR}/drivers/lpuart
     ${SDK_DIR}/drivers/ocotp
     ${SDK_DIR}/drivers/pwm
@@ -138,32 +140,5 @@ function(family_flash_sdp TARGET)
     DEPENDS ${TARGET}
     COMMAND ${SDPHOST} -u 0x1fc9,${SDP_PID} write-file ${FCFB_ORIGIN} $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin
     COMMAND ${SDPHOST} -u 0x1fc9,${SDP_PID} jump-address ${IVT_ORIGIN}
-    )
-endfunction()
-
-
-function(family_flash_jlink TARGET)
-  if (NOT DEFINED JLINKEXE)
-    set(JLINKEXE JLinkExe)
-  endif ()
-
-  if (ARGC GREATER 1)
-    set(BIN_FILE $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.${ARGV1})
-  else ()
-    set(BIN_FILE $<TARGET_FILE:${TARGET}>)
-  endif ()
-
-  file(GENERATE
-    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}.jlink
-    CONTENT "halt
-loadfile ${BIN_FILE}
-r
-go
-exit"
-    )
-
-  add_custom_target(${TARGET}-jlink
-    DEPENDS ${TARGET}
-    COMMAND ${JLINKEXE} -device ${JLINK_DEVICE} -if swd -JTAGConf -1,-1 -speed auto -CommandFile ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}.jlink
     )
 endfunction()

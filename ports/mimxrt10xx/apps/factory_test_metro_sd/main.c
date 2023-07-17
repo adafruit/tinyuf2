@@ -31,24 +31,42 @@
 #include "fsl_gpio.h"
 #include "fsl_iomuxc.h"
 #include "fsl_lpuart.h"
+#include "fsl_lpspi.h"
+
+#include "fsl_sdspi.h"
 
 #include "arduino.h"
 #include "board_api.h"
 #include "tusb.h"
 
+// This is an factory test for Metro M7 SD
+
+// hathach: testing with Metro M7 Airlift without SD_CS and SD_DETECT.
+// use D2, D3 instead
+#define TESTING_WITH_AIRLIFT
+
+#if defined TESTING_WITH_AIRLIFT
+  #define SD_CS     3 // D3
+  #define SD_DETECT 4 // D4
+#else
+  #define SD_CS     PIN_SD_CS
+  #define SD_DETECT PIN_SD_DETECT
+#endif
+
 void loop(void);
 
-uint8_t all_pins[] = {0,       1,       2,        3,        4,       5,  6,
-                      7,       8,       9,        10,       11,      12, 13,
-                      PIN_SDA, PIN_SCL, PIN_MOSI, PIN_MISO, PIN_SCK, AD5};
+static uint8_t all_pins[] = {
+    0,       1,       2,        3,        4,       5,  6,
+    7,       8,       9,        10,       11,      12, 13,
+    PIN_SDA, PIN_SCL, PIN_MOSI, PIN_MISO, PIN_SCK, AD5
+};
 
-bool test = false;
+static bool test = false;
 
 bool testpins(uint8_t a, uint8_t b, uint8_t *allpins, uint8_t num_allpins);
 void test_print_adc(void);
 
-/* This is an application to test Metro M7
- */
+bool test_sd(void);
 
 //--------------------------------------------------------------------+
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
@@ -66,14 +84,9 @@ int main(void) {
   setColor(0);
   pinMode(13, OUTPUT);
 
-  // wait for Serial connection
-  if (test) {
-    while (!tud_cdc_connected())
-      tud_task();
-  }
-
   while (1) {
     loop();
+    test_sd();
     tud_task();
     tud_cdc_write_flush();
   }
@@ -146,6 +159,7 @@ void loop(void) {
     Serial_printf("9V power supply reading wrong?");
     return;
   }
+
   Serial_printf("*** TEST OK! ***\n\r");
 }
 
@@ -267,11 +281,151 @@ void test_print_adc(void) {
 }
 
 //--------------------------------------------------------------------+
+//
+//--------------------------------------------------------------------+
+#define LPSPI1_CLOCK_FREQ 105600000UL
+#define LPSPI_MAX_FREQ 25000000UL
+
+lpspi_master_config_t spi_config = {
+    .baudRate = 400000UL,
+    .bitsPerFrame = 8UL,
+    .cpol = kLPSPI_ClockPolarityActiveHigh,
+    .cpha = kLPSPI_ClockPhaseFirstEdge,
+    .direction = kLPSPI_MsbFirst,
+    .pcsToSckDelayInNanoSec = 1000,
+    .lastSckToPcsDelayInNanoSec = 1000,
+    .betweenTransferDelayInNanoSec = 1000,
+    .whichPcs = kLPSPI_Pcs0,
+    .pcsActiveHighOrLow = kLPSPI_PcsActiveLow,
+    .pinCfg = kLPSPI_SdiInSdoOut,
+    .dataOutConfig = kLpspiDataOutRetained
+};
+
+/*!< SPI initialization */
+void sdhost_init(void){
+  digitalWrite(SD_CS, HIGH);
+  // we will init SPI in setFrequency
+}
+
+/*!< SPI de-initialization */
+void sdhost_deinit(void){
+
+}
+
+static bool force_cs = false;
+/*!< SPI CS active polarity */
+void sdhost_csActivePolarity(sdspi_cs_active_polarity_t polarity){
+  if (polarity == kSDSPI_CsActivePolarityHigh) {
+    digitalWrite(SD_CS, HIGH);
+    force_cs = true;
+  }else {
+    digitalWrite(SD_CS, LOW);
+    force_cs = false;
+  }
+}
+
+/*!< Set frequency of SPI */
+status_t sdhost_setFrequency(uint32_t frequency){
+  // de-init first
+  LPSPI_Deinit(LPSPI1);
+
+  uint32_t const ns_delay = (1000000000U / frequency) * 2;
+  spi_config.baudRate = frequency;
+  spi_config.pcsToSckDelayInNanoSec = ns_delay;
+  spi_config.lastSckToPcsDelayInNanoSec = ns_delay;
+  spi_config.betweenTransferDelayInNanoSec = ns_delay;
+
+  LPSPI_MasterInit(LPSPI1, &spi_config, LPSPI1_CLOCK_FREQ);
+
+  return kStatus_Success;
+}
+
+/*!< Exchange data over SPI */
+status_t sdhost_exchange(uint8_t *out, uint8_t *in, uint32_t size) {
+  lpspi_transfer_t xfer = {
+      .txData = out,
+      .rxData = in,
+      .dataSize = size,
+      .configFlags = kLPSPI_MasterPcsContinuous,
+  };
+
+  status_t status;
+
+  if (!force_cs) {
+    digitalWrite(SD_CS, LOW);
+  }
+
+  do {
+    status = LPSPI_MasterTransferBlocking(LPSPI1, &xfer);
+  } while ( status == kStatus_LPSPI_Busy );
+
+  if (!force_cs) {
+    digitalWrite(SD_CS, HIGH);
+  }
+
+  if ( status != kStatus_Success ) {
+    printf("SPI Xfer: %ld\r\n", status);
+    return status;
+  }
+
+  return kStatus_Success;
+}
+
+sdspi_host_t sdhost = {
+    .busBaudRate = LPSPI_MAX_FREQ,
+    .setFrequency = sdhost_setFrequency,
+    .exchange = sdhost_exchange,
+    .init = sdhost_init,
+    .deinit = sdhost_deinit,
+    .csActivePolarity = sdhost_csActivePolarity,
+};
+
+sdspi_card_t sdcard = {
+    .host = &sdhost,
+};
+
+bool test_sd(void) {
+  // init SD CS & Detect
+  pinMode(SD_CS, OUTPUT);
+  digitalWrite(SD_CS, HIGH);
+
+  pinMode(SD_DETECT, INPUT_PULLUP);
+
+  // init LPC SPI
+  IOMUXC_SetPinMux(IOMUXC_GPIO_AD_03_LPSPI1_SDI, 0U);
+  IOMUXC_SetPinMux(IOMUXC_GPIO_AD_04_LPSPI1_SDO, 0U);
+  IOMUXC_SetPinMux(IOMUXC_GPIO_AD_06_LPSPI1_SCK, 0U);
+
+  IOMUXC_SetPinConfig(IOMUXC_GPIO_AD_03_LPSPI1_SDI, 0x10A0U);
+  IOMUXC_SetPinConfig(IOMUXC_GPIO_AD_04_LPSPI1_SDO, 0x10A0U);
+  IOMUXC_SetPinConfig(IOMUXC_GPIO_AD_06_LPSPI1_SCK, 0x10A0U);
+
+  if (!digitalRead(SD_DETECT)) {
+    printf("SD card not inserted\r\n");
+    tud_cdc_write_flush();
+    return false;
+  }
+
+  printf("SD card is detected\r\n");
+  int status = SDSPI_Init(&sdcard);
+
+  printf("SDSPI_Init: %d\r\n", status);
+  if (status == kStatus_Success) {
+    uint32_t card_size_mb = sdcard.blockCount / 2 / 1024;
+    printf("Card size: %lu MB\r\n", card_size_mb);
+  }
+  tud_cdc_write_flush();
+
+  return true;
+}
+
+//--------------------------------------------------------------------+
 // Logger newlib retarget
 //--------------------------------------------------------------------+
-
+#ifdef BUILD_APPLICATION
 // retarget printf to usb cdc
 __attribute__((used)) int _write(int fhdl, const void *buf, size_t count) {
   (void)fhdl;
   return tud_cdc_write(buf, count);
 }
+#endif
