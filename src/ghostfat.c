@@ -136,11 +136,12 @@ STATIC_ASSERT(FAT_ENTRIES_PER_SECTOR                       ==       256); // FAT
 #define UF2_BYTE_COUNT                  (UF2_SECTOR_COUNT * BPB_SECTOR_SIZE) // always a multiple of sector size, per UF2 spec
 
 
-const char infoUf2File[] =
+char infoUf2File[128*3] =
     "TinyUF2 Bootloader " UF2_VERSION "\r\n"
     "Model: " UF2_PRODUCT_NAME "\r\n"
     "Board-ID: " UF2_BOARD_ID "\r\n"
-    "Date: " COMPILE_DATE "\r\n";
+    "Date: " COMPILE_DATE "\r\n"
+    "Flash Size: 0x";
 
 const char indexFile[] =
     "<!doctype html>\n"
@@ -171,8 +172,13 @@ static FileContent_t info[] = {
 
 enum {
   NUM_FILES = sizeof(info) / sizeof(info[0]),
-  FID_UF2 = NUM_FILES-1,
   NUM_DIRENTRIES = NUM_FILES + 1 // including volume label as first root directory entry
+};
+
+enum {
+  FID_INFO = 0,
+  FID_INDEX = 1,
+  FID_UF2 = NUM_FILES - 1,
 };
 
 STATIC_ASSERT(NUM_DIRENTRIES < BPB_ROOT_DIR_ENTRIES);  // FAT requirement -- Ensures BPB reserves sufficient entries for all files
@@ -273,6 +279,16 @@ static uint32_t info_index_of(uint32_t cluster)
   return FID_UF2;
 }
 
+static void u32_to_hexstr(uint32_t value, char* buffer) {
+  const char hexDigits[] = "0123456789ABCDEF";
+  size_t i;
+
+  for (i = 0; i < 8; i++) {
+    buffer[i] = hexDigits[(value >> (28 - i * 4)) & 0xF];
+  }
+  buffer[i] = '\0';
+}
+
 void uf2_init(void)
 {
   // TODO maybe limit to application size only if possible board_flash_app_size()
@@ -280,6 +296,20 @@ void uf2_init(void)
 
   // update CURRENT.UF2 file size
   info[FID_UF2].size = UF2_BYTE_COUNT;
+
+  // update INFO_UF2.TXT with flash size if having enough space (8 bytes)
+  size_t txt_len = strlen(infoUf2File);
+  size_t const max_len = sizeof(infoUf2File) - 1;
+  if ( max_len - txt_len > 8) {
+    u32_to_hexstr(_flash_size, infoUf2File + txt_len);
+    txt_len += 8;
+
+    if (max_len - txt_len > 6) {
+      strcpy(infoUf2File + txt_len, " bytes");
+      txt_len += 6;
+    }
+  }
+  info[FID_INFO].size = txt_len;
 
   init_starting_clusters();
 }
