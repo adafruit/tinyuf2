@@ -162,6 +162,29 @@ function(family_add_tinyusb TARGET OPT_MCU RTOS)
 endfunction()
 
 
+function(family_add_uf2version TARGET DEPS_REPO)
+  execute_process(COMMAND git describe --dirty --always --tags OUTPUT_VARIABLE GIT_VERSION)
+  string(STRIP ${GIT_VERSION} GIT_VERSION)
+
+  execute_process(COMMAND bash "-c" "git -C ${TOP}/lib submodule status ${DEPS_REPO} | cut -d\" \" -f3,4 | paste -s -d\" \" -"
+    OUTPUT_VARIABLE GIT_SUBMODULE_VERSIONS
+    )
+  string(REPLACE ../ "" GIT_SUBMODULE_VERSIONS ${GIT_SUBMODULE_VERSIONS})
+  string(REPLACE lib/ "" GIT_SUBMODULE_VERSIONS ${GIT_SUBMODULE_VERSIONS})
+  string(STRIP ${GIT_SUBMODULE_VERSIONS} GIT_SUBMODULE_VERSIONS)
+
+  cmake_print_variables(GIT_VERSION GIT_SUBMODULE_VERSIONS)
+
+  target_compile_definitions(${TARGET} PUBLIC
+    UF2_VERSION_BASE="${GIT_VERSION}"
+    UF2_VERSION="${GIT_VERSION} - ${GIT_SUBMODULE_VERSIONS}"
+    )
+endfunction()
+
+#----------------------------------
+# Output
+#----------------------------------
+
 function(family_add_bin_hex TARGET)
   add_custom_command(TARGET ${TARGET} POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -Obinary $<TARGET_FILE:${TARGET}> $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin

@@ -22,7 +22,8 @@ LD_FILES ?=
 # Port source
 SRC_C += \
 	src/ghostfat.c \
-	$(addprefix $(CURRENT_PATH)/, $(wildcard *.c))
+	$(CURRENT_PATH)/boards.c \
+	$(CURRENT_PATH)/main.c \
 
 SRC_S +=
 

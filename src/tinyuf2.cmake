@@ -28,7 +28,8 @@ function (add_tinyuf2 TARGET)
   execute_process(COMMAND bash "-c" "git -C ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/.. submodule status ${deps_repo} | cut -d\" \" -f3,4 | paste -s -d\" \" -"
     OUTPUT_VARIABLE GIT_SUBMODULE_VERSIONS
     )
-  string(REPLACE ../../../../lib/ "" GIT_SUBMODULE_VERSIONS ${GIT_SUBMODULE_VERSIONS})
+  string(REPLACE ../ "" GIT_SUBMODULE_VERSIONS ${GIT_SUBMODULE_VERSIONS})
+  string(REPLACE lib/ "" GIT_SUBMODULE_VERSIONS ${GIT_SUBMODULE_VERSIONS})
   string(STRIP ${GIT_SUBMODULE_VERSIONS} GIT_SUBMODULE_VERSIONS)
 
   target_compile_definitions(${TARGET} PUBLIC
