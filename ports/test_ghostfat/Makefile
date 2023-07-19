@@ -45,7 +45,7 @@ include ../rules.mk
 
 $(BUILD)/ghostfat.img: $(BUILD)/$(OUTNAME).elf
 	@echo CREATE $@
-	$(shell $^)
+	$^
 
 mk-knowngood: $(BUILD)/ghostfat.img
 	@echo Making knowngood.img
