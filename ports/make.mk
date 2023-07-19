@@ -55,15 +55,8 @@ BIN = $(TOP)/$(PORT_DIR)/_bin/$(BOARD)
 # can be set manually by custom build such as flash_nuke
 OUTNAME ?= tinyuf2-$(BOARD)
 
-# UF2 version with git tag and submodules
-GIT_VERSION := $(shell git describe --dirty --always --tags)
-GIT_SUBMODULE_VERSIONS := $(shell git submodule status $(addprefix ../../lib/,$(GIT_SUBMODULES)) | cut -b 43- | paste -s -d" " -)
-GIT_SUBMODULE_VERSIONS := $(subst ../../lib/,,$(GIT_SUBMODULE_VERSIONS))
-
 CFLAGS += \
   -DBOARD_UF2_FAMILY_ID=$(UF2_FAMILY_ID) \
-  -DUF2_VERSION_BASE='"$(GIT_VERSION)"'\
-  -DUF2_VERSION='"$(GIT_VERSION) - $(GIT_SUBMODULE_VERSIONS)"'
 
 #-------------- Bootloader --------------
 # skip bootloader src if building application
@@ -72,6 +65,15 @@ ifdef BUILD_APPLICATION
 CFLAGS += -DBUILD_APPLICATION
 
 else
+
+# UF2 version with git tag and submodules
+GIT_VERSION := $(shell git describe --dirty --always --tags)
+GIT_SUBMODULE_VERSIONS := $(shell git submodule status $(addprefix ../../lib/,$(GIT_SUBMODULES)) | cut -b 43- | paste -s -d" " -)
+GIT_SUBMODULE_VERSIONS := $(subst ../../lib/,,$(GIT_SUBMODULE_VERSIONS))
+
+CFLAGS += \
+  -DUF2_VERSION_BASE='"$(GIT_VERSION)"'\
+  -DUF2_VERSION='"$(GIT_VERSION) - $(GIT_SUBMODULE_VERSIONS)"'\
 
 # Bootloader src, board folder and TinyUSB stack
 SRC_C += \
