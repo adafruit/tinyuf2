@@ -5,6 +5,7 @@ find_package(Python COMPONENTS Interpreter)
 
 # TOP is path to root directory
 set(TOP ${CMAKE_CURRENT_LIST_DIR}/..)
+#get_filename_component(TOP "${TOP}" REALPATH)
 
 # Default to gcc
 if (NOT DEFINED TOOLCHAIN)
