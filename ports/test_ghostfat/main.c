@@ -109,22 +109,23 @@ void DumpBuffer(uint64_t startingOffset, const void * sectorBuffer, uint16_t byt
     printf("\n");
 }
 
+#define STRIFY(x) #x
+#define X_STRIFY(x) STRIFY(x)
+
 static char const * const knownGoodFilename = "knowngood.img";
 static char const * const defaultFilename = "ghostfat.img";
 static uint8_t singleSectorBuffer [GHOSTFAT_SECTOR_SIZE];
 static uint8_t anotherSectorBuffer[GHOSTFAT_SECTOR_SIZE];
-static char const * const infoUf2FileStart =
-    "TinyUF2 Bootloader ";
-static char const * const infoUf2FileEnd =
-    "\r\n"
+static char const * const infoUf2File =
+    "TinyUF2 Bootloader " UF2_VERSION "\r\n"
     "Model: " UF2_PRODUCT_NAME "\r\n"
     "Board-ID: " UF2_BOARD_ID "\r\n"
-    "Date: " COMPILE_DATE "\r\n";
+    "Date: " COMPILE_DATE "\r\n"
+    "Flash Size: " X_STRIFY(CFG_UF2_FLASH_SIZE) " bytes";
 
 bool SectorAppearsToBe_INFO_UF2(void const * sectorBuffer) {
     char const * tmp = sectorBuffer;
-    size_t startStringLength = strlen(infoUf2FileStart);
-    size_t endStringLength   = strlen(infoUf2FileEnd  );
+    size_t infoLength = strlen(infoUf2File  );
 
     if (tmp[GHOSTFAT_SECTOR_SIZE-1] != 0) {
         // sector must end with all zeros, and must be null-terminated string
@@ -132,52 +133,31 @@ bool SectorAppearsToBe_INFO_UF2(void const * sectorBuffer) {
         return false;
     }
 
-    if (strncmp(infoUf2FileStart, tmp, startStringLength)) {
-        // mismatch of the starting bytes for this sector
-        printf("Is_INFO_UF2: Mismatch at start of sector\n");
-        printf("Is_INFO_UF2: Expecting:\n");
-        DumpBuffer(0, infoUf2FileStart, startStringLength);
-        printf("Is_INFO_UF2: Actual:");
-        DumpBuffer(0, sectorBuffer, startStringLength);
-        printf("\n");
-        return false;
-    }
-
-    // next is the UF2_VERSION, which is variable length.
-    // calculate offset where ending string should begin.
-
-    size_t bufferStringLength = strnlen(tmp, GHOSTFAT_SECTOR_SIZE); // [0..511]
-    if (bufferStringLength <= startStringLength + endStringLength) {
-        // not enough space to store START_STRING + UF2_VERSION + END_STRING...
-        printf("Is_INFO_UF2: string in sector too small for all data\n");
-        DumpBuffer(0, sectorBuffer, bufferStringLength+1);
-        return false;
-    }
-
-    size_t offset = bufferStringLength - endStringLength;
-    if (strncmp(infoUf2FileEnd, tmp + offset, endStringLength+1)) {
+    if (strncmp(infoUf2File, tmp, infoLength)) {
         // mismatch of the ending string for this sector
-        printf("Is_INFO_UF2: mismatch at end of sector's string (starting at offset %zd)\n", offset);
+        printf("Is_INFO_UF2: mismatched\n");
         printf("Is_INFO_UF2: Expecting:\n");
-        DumpBuffer(0, infoUf2FileEnd, endStringLength+1);
+        DumpBuffer(0, infoUf2File, infoLength);
         printf("Is_INFO_UF2: Actual:\n");
-        DumpBuffer(0, tmp+offset, endStringLength+1);
+        DumpBuffer(0, tmp, infoLength);
         return false;
     }
 
     // all bytes after strlen() must be zero
+    size_t bufferStringLength = strnlen(tmp, GHOSTFAT_SECTOR_SIZE); // [0..511]
     for (int i = bufferStringLength; i < GHOSTFAT_SECTOR_SIZE; i++) {
         if (tmp[i] != 0) {
             printf("Is_INFO_UF2: sector does not end with all zeros (non-zero at offset %d)\n", i);
             return false;
         }
     }
+
     // all checks pass
     return true;
 }
 bool IdenticalDirEntriesExcludingFileSizes(void const * sector1, void const * sector2) {
 
-    const uint16_t directoryEntrySize = 0x20;
+    enum { directoryEntrySize = 0x20 };
     _Static_assert(0 == (GHOSTFAT_SECTOR_SIZE % directoryEntrySize), "GHOSTFAT_SECTOR_SIZE must be multiple of directoryEntry size" );
 
     // If they are both directory entry sectors,
