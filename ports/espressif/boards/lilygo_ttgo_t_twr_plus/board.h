@@ -2,7 +2,7 @@
  * The MIT License (MIT)
  *
  * Copyright (c) 2020 Ha Thach (tinyusb.org) for Adafruit Industries
- * Copyright (c) 2022 Linar Yusupov
+ * Copyright (c) 2023 Linar Yusupov
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -43,20 +43,30 @@
 // LED
 //--------------------------------------------------------------------+
 
+// GPIO connected to Neopixel data
+#define NEOPIXEL_PIN          42
+
+// Brightness percentage from 1 to 255
+#define NEOPIXEL_BRIGHTNESS   0x10
+
+// Number of neopixels
+#define NEOPIXEL_NUMBER       1
+
 // LED for indicator and writing flash
-#define LED_PIN           6
-#define LED_STATE_ON      1
+// If not defined neopixel will be use for flash writing instead
+//#define LED_PIN           7
+//#define LED_STATE_ON      1
 
 //--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
 
 #define USB_VID           0x303A            // Espressif VID
-#define USB_PID           0x8134            // Espressif assigned PID
+#define USB_PID           0x8191            // Espressif assigned PID
 #define USB_MANUFACTURER  "LilyGO"
-#define USB_PRODUCT       "T-Beam Supreme"
+#define USB_PRODUCT       "T-TWR Plus"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "ESP32S3-TBeam-v3.0"
-#define UF2_VOLUME_LABEL  "TBEAMBOOT"
-#define UF2_INDEX_URL     "https://www.lilygo.cc/products/softrf-t-beamsupreme"
+#define UF2_BOARD_ID      "ESP32S3-TWR-v2.0"
+#define UF2_VOLUME_LABEL  "TWRBOOT"
+#define UF2_INDEX_URL     "https://www.lilygo.cc/products/t-twr-plus"
