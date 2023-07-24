@@ -85,9 +85,9 @@ int main(void) {
 
   while (1) {
     loop();
-    test_sd();
     tud_task();
     tud_cdc_write_flush();
+
   }
 }
 
@@ -136,8 +136,6 @@ void loop(void) {
     return;
   if (!testpins(12, PIN_SCL, all_pins, sizeof(all_pins)))
     return;
-  if (!testpins(PIN_MOSI, PIN_MISO, all_pins, sizeof(all_pins)))
-    return;
   if (!testpins(AD2, AD4, all_pins, sizeof(all_pins)))
     return;
   if (!testpins(AD3, AD5, all_pins, sizeof(all_pins)))
@@ -158,6 +156,9 @@ void loop(void) {
     Serial_printf("9V power supply reading wrong?");
     return;
   }
+
+  if (! test_sd() ) return;
+
 
   Serial_printf("*** TEST OK! ***\n\r");
 }
