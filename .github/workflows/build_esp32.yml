@@ -29,6 +29,7 @@ jobs:
         - 'adafruit_funhouse_esp32s2'
         - 'adafruit_magtag_29gray'
         - 'adafruit_metro_esp32s2'
+        - 'adafruit_metro_esp32s3'
         - 'adafruit_mylittlehacker_esp32s2'
         - 'adafruit_qtpy_esp32s2'
         - 'artisense_rd00'
