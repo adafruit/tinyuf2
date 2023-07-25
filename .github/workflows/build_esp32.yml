@@ -83,6 +83,7 @@ jobs:
         - 'espressif_esp32s3_devkitc_1'
         - 'espressif_esp32s3_devkitm_1'
         - 'espressif_esp32s3_eye'
+        - 'heltec_wireless_tracker'
         - 'lilygo_ttgo_t_twr_plus'
         - 'lilygo_ttgo_tbeam_s3'
         - 'lolin_s3'
