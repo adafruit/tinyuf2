@@ -51,6 +51,24 @@
 // Number of neopixels
 #define NEOPIXEL_NUMBER       1
 
+//Peripheral power is enabled through I2C connected AW9523
+#define I2C_MASTER_SCL_IO           34
+#define I2C_MASTER_SDA_IO           33
+#define I2C_MASTER_NUM              0
+#define I2C_MASTER_FREQ_HZ          400000
+#define I2C_MASTER_TX_BUF_DISABLE   0
+#define I2C_MASTER_RX_BUF_DISABLE   0
+#define I2C_MASTER_TIMEOUT_MS       1000
+#define I2C_WAIT                    40      //Timing (in microseconds) for I2C
+
+
+#define AW9523_ADDR (0x5B)
+#define AW9523_REG_SOFTRESET (0x7f)
+#define AW9523_REG_OUTPUT0 (0x02)
+#define AW9523_REG_CONFIG0 (0x04)
+#define AW9523_DEFAULT_OUTPUT (0)
+#define AW9523_DEFAULT_CONFIG (0x2)
+
 //--------------------------------------------------------------------+
 // TFT
 //--------------------------------------------------------------------+
@@ -76,7 +94,7 @@
 
 // Memory Data Access Control & // Vertical Scroll Start Address
 #define DISPLAY_MADCTL        (TFT_MADCTL_MX | TFT_MADCTL_MY | TFT_MADCTL_MV)
-#define DISPLAY_VSCSAD        140
+#define DISPLAY_VSCSAD        80
 
 #define DISPLAY_TITLE         "AdaCamera"
 
