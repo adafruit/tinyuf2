@@ -71,6 +71,7 @@ void fault_handler(sFrame *fr)
 {
   TUF2_LOG1(EXC_FMT, EXC_DET(fr));
   asm("bkpt #0");
+  (void) fr;
 }
 
 void HardFault_Handler(void)
