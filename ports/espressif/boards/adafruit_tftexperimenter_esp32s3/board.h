@@ -36,20 +36,20 @@
 
 // GPIO that implement 1-bit memory with RC components which hold the
 // pin value long enough for double reset detection.
-#define PIN_DOUBLE_RESET_RC   5
+#define PIN_DOUBLE_RESET_RC   4
 
 //--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
 
 // GPIO connected to Neopixel data
-#define NEOPIXEL_PIN          4
+//#define NEOPIXEL_PIN          4
 
 // Brightness percentage from 1 to 255
-#define NEOPIXEL_BRIGHTNESS   0x10
+//#define NEOPIXEL_BRIGHTNESS   0x10
 
 // Number of neopixels
-#define NEOPIXEL_NUMBER       1
+//#define NEOPIXEL_NUMBER       1
 
 //--------------------------------------------------------------------+
 // USB UF2
@@ -61,7 +61,7 @@
 #define USB_PRODUCT              "TFT Experimenter ESP32-S3"
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID             "ESP32S3-TFTExp-revA"
+#define UF2_BOARD_ID             "ESP32S3-TFTExp-revB"
 #define UF2_VOLUME_LABEL         "TFT_S3BOOT"
 #define UF2_INDEX_URL            "https://www.adafruit.com/"
 
