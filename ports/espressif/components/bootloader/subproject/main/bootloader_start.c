@@ -233,9 +233,10 @@ static int selected_boot_partition(const bootloader_state_t *bs)
             esp_rom_gpio_pad_select_gpio(PIN_BUTTON_UF2);
             PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[PIN_BUTTON_UF2]);
             esp_rom_gpio_pad_pullup_only(PIN_BUTTON_UF2);
-
+            
+            // run the GPIO detection at least once even if UF2_DETECTION_DELAY_MS is set to zero
             uint32_t tm_start = esp_log_early_timestamp();
-            while (UF2_DETECTION_DELAY_MS > (esp_log_early_timestamp() - tm_start) )
+            do
             {
               if ( gpio_ll_get_level(&GPIO, PIN_BUTTON_UF2) == 0 )
               {
@@ -246,6 +247,7 @@ static int selected_boot_partition(const bootloader_state_t *bs)
                 break;
               }
             }
+            while (UF2_DETECTION_DELAY_MS > (esp_log_early_timestamp() - tm_start) );
           }
 
 #if PIN_DOUBLE_RESET_RC
