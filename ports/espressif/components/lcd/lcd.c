@@ -344,7 +344,7 @@ esp_err_t lcd_init(spi_device_handle_t spi)
     if (lcd_type == LCD_TYPE_ST) {
         ESP_LOGI(TAG, "ST7789V initialization.");
         lcd_init_cmds = st_init_cmds;
-    else if(lcd_type == LCD_TYPE_GC){
+    } else if(lcd_type == LCD_TYPE_GC) {
         ESP_LOGI(TAG, "GC9107 initialization.");
         lcd_init_cmds = gc_init_cmds;    
     } else {
