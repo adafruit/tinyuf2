@@ -102,7 +102,7 @@
 #define USB_PRODUCT              "MagiClick S3"
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID             "MagiClick-S3-revA"
+#define UF2_BOARD_ID             "ESP32S3-MagiClick-revA"
 #define UF2_VOLUME_LABEL         "MAGICS3BOOT"
 #define UF2_INDEX_URL            "https://github.com/MakerM0/MagiClick-esp32s3"
 
