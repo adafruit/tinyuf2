@@ -39,6 +39,7 @@ typedef struct {
 typedef enum {
     LCD_TYPE_ILI = 1,
     LCD_TYPE_ST,
+    LCD_TYPE_GC,
     LCD_TYPE_MAX,
 } type_lcd_t;
 

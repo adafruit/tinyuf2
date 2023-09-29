@@ -92,6 +92,7 @@ jobs:
         - 'm5stack_atoms3'
         - 'm5stack_atoms3_lite'
         - 'm5stack_atoms3u'
+        - 'magiclick_s3_n4r2'
         - 'seeed_xiao_esp32s3'
         - 'smartbeedesigns_bee_motion_s3'
         - 'smartbeedesigns_bee_s3'

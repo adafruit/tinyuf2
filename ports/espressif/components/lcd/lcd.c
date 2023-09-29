@@ -154,6 +154,46 @@ DRAM_ATTR static const lcd_init_cmd_t ili_init_cmds[] = {
     {0, {0}, 0xff},
 };
 
+//GC9107
+DRAM_ATTR static const lcd_init_cmd_t gc_init_cmds[] = {
+
+    //  {0xfe, {0}, 0x80},
+    //   {0xef, {0}, 0x80},
+    /* Interface Pixel Format, 16bits/pixel for RGB/MCU interface */
+    {0xB0,   {0xC0},1},
+    {0xB2,   {0x2F},1},
+    {0xB3,   {0x03},1},
+    {0xB6,   {0x19},1},
+    {0xB7,   {0x01},1},  
+    {0xAC,   {0xCB},1},
+    {0xAB,   {0x0e},1},     
+    {0xB4,   {0x04},1},  
+    {0xA8,   {0x19},1},
+    {0x3A,   {0x05},1},
+    // Memory Data Access Control
+    {0x36, {DISPLAY_MADCTL}, 1},
+    // Vertical Scroll Start Address of RAM
+    // {0x37, {DISPLAY_VSCSAD >> 8, DISPLAY_VSCSAD & 0x00FF}, 2},
+
+    {0xb8,   {0x08},1},
+    {0xE8,   {0x24},1},
+    {0xE9,   {0x48},1},
+    {0xea,   {0x22},1},               
+    {0xC6,   {0x30},1},
+    {0xC7,   {0x18},1},
+    /* Positive Voltage Gamma Control */
+    {0xF0, {0x1F, 0x28, 0x04, 0x3E, 0x2A, 0x2E, 0x20, 0x00, 0x0C, 0x06, 0x00, 0x1C, 0x1F, 0x0F}, 14},
+    /* Negative Voltage Gamma Control */
+    {0xF1, {0x00, 0x2D, 0x2F, 0x3C, 0x6F, 0x1C, 0x0B, 0x00, 0x00, 0x00, 0x07, 0x0D, 0x11, 0x0F}, 14},
+    // Inversion ON
+    {0x21, {0}, 0x00},
+    /* Sleep Out */
+    {0x11, {0}, 0x80},
+    /* Display On */
+    {0x29, {0}, 0x80},
+    {0, {0}, 0xff}
+};
+
 static void lcd_cmd(spi_device_handle_t spi, const uint8_t cmd)
 {
     esp_err_t ret;
@@ -295,11 +335,18 @@ esp_err_t lcd_init(spi_device_handle_t spi)
     ESP_LOGI(TAG, "kconfig: force CONFIG_LCD_TYPE_ILI9341.");
     lcd_type = LCD_TYPE_ILI;
 
+#elif defined( CONFIG_LCD_TYPE_GC9107 )
+    ESP_LOGI(TAG, "kconfig: force CONFIG_LCD_TYPE_GC9107.");
+    lcd_type = LCD_TYPE_GC;
+
 #endif
 
     if (lcd_type == LCD_TYPE_ST) {
         ESP_LOGI(TAG, "ST7789V initialization.");
         lcd_init_cmds = st_init_cmds;
+    } else if(lcd_type == LCD_TYPE_GC) {
+        ESP_LOGI(TAG, "GC9107 initialization.");
+        lcd_init_cmds = gc_init_cmds;    
     } else {
         ESP_LOGI(TAG, "ILI9341 initialization.");
         lcd_init_cmds = ili_init_cmds;
@@ -377,14 +424,24 @@ void lcd_draw_lines(spi_device_handle_t spi, int ypos, uint16_t *linedata)
     trans[0].tx_data[0] = 0x2A;         /*!< Column Address Set */
     trans[1].tx_data[0] = (DISPLAY_COL_OFFSET) >> 8;            /*!< Start Col High */
     trans[1].tx_data[1] = (DISPLAY_COL_OFFSET) & 0xff;            /*!< Start Col Low */
+    #if defined( CONFIG_LCD_TYPE_GC9107 )
+    trans[1].tx_data[2] = (DISPLAY_HEIGHT+DISPLAY_COL_OFFSET-1) >> 8;   /*!< End Col High */
+    trans[1].tx_data[3] = (DISPLAY_HEIGHT+DISPLAY_COL_OFFSET-1) & 0xff; /*!< End Col Low */
+    #else
     trans[1].tx_data[2] = (320) >> 8;   /*!< End Col High */
     trans[1].tx_data[3] = (320) & 0xff; /*!< End Col Low */
+    #endif
 
     trans[2].tx_data[0] = 0x2B;         /*!< Page address set */
     trans[3].tx_data[0] = ypos >> 8;    /*!< Start page high */
     trans[3].tx_data[1] = ypos & 0xff;  /*!< start page low */
+    #if defined( CONFIG_LCD_TYPE_GC9107 )
+    trans[3].tx_data[2] = (ypos + PARALLEL_LINES-1) >> 8; /*!< end page high */
+    trans[3].tx_data[3] = (ypos + PARALLEL_LINES-1) & 0xff; /*!< end page low */
+    #else
     trans[3].tx_data[2] = (ypos + PARALLEL_LINES) >> 8; /*!< end page high */
     trans[3].tx_data[3] = (ypos + PARALLEL_LINES) & 0xff; /*!< end page low */
+    #endif
 
     trans[4].tx_data[0] = 0x2C;         /*!< memory write */
     trans[5].tx_buffer = linedata;      /*!< finally send the line data */
