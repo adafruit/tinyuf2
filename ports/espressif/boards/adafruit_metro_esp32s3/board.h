@@ -43,7 +43,7 @@
 //--------------------------------------------------------------------+
 
 // GPIO connected to Neopixel data
-#define NEOPIXEL_PIN          45
+#define NEOPIXEL_PIN          46
 
 // Brightness percentage from 1 to 255
 #define NEOPIXEL_BRIGHTNESS   0x10
@@ -66,9 +66,9 @@
 #define USB_PRODUCT              "Metro ESP32-S3"
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID             "ESP32S3-Metro-revA"
+#define UF2_BOARD_ID             "ESP32S3-Metro-revB"
 #define UF2_VOLUME_LABEL         "METROS3BOOT"
-#define UF2_INDEX_URL            "https://www.adafruit.com/"
+#define UF2_INDEX_URL            "https://www.adafruit.com/product/5500"
 
 // Use favicon
 #define TINYUF2_FAVICON_HEADER   "favicon_adafruit_256.h"
