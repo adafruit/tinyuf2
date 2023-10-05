@@ -141,8 +141,10 @@ extern "C" bool board_init_extension()
     PMU.setDC1Voltage(3300); // WROOM, OLED
     PMU.enableDC1();
 
-    PMU.setDC3Voltage(3400); // SA868, NeoPixel
+    PMU.setDC3Voltage(3400);   // V2.0 - SA868, NeoPixel
     PMU.enableDC3();
+    PMU.setALDO3Voltage(3300); // V2.1 - SA868, NeoPixel
+    PMU.enableALDO3();
 
     /* no power for GNSS and/or Mic at this moment */
 
