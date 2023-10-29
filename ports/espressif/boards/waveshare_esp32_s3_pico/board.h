@@ -62,7 +62,7 @@
 //--------------------------------------------------------------------+
 
 #define USB_VID                  0x303a
-#define USB_PID                  0x81A3
+#define USB_PID                  0x81A2
 #define USB_MANUFACTURER         "Waveshare Electronics"
 #define USB_PRODUCT              "ESP32-S3-Pico"
 
