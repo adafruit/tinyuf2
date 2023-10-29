@@ -9,6 +9,7 @@ on:
       - created
 
 jobs:
+
   # ---------------------------------------
   # Build ESP32SX family
   # ---------------------------------------
@@ -18,134 +19,134 @@ jobs:
       fail-fast: false
       matrix:
         board:
-          # ----------------------
-          # S2 Alphabetical order
-          # ----------------------
-          - "adafruit_camera_esp32s3"
-          - "adafruit_feather_esp32s2"
-          - "adafruit_feather_esp32s2_reverse_tft"
-          - "adafruit_feather_esp32s2_tft"
-          - "adafruit_funhouse_esp32s2"
-          - "adafruit_magtag_29gray"
-          - "adafruit_metro_esp32s2"
-          - "adafruit_mylittlehacker_esp32s2"
-          - "adafruit_qtpy_esp32s2"
-          - "artisense_rd00"
-          - "atmegazero_esp32s2"
-          - "bpi_bit_s2"
-          - "bpi_leaf_s2"
-          - "deneyap_mini"
-          - "deneyap_mini_v2"
-          - "department_of_alchemy_minimain_esp32s2"
-          - "espressif_hmi_1"
-          - "espressif_kaluga_1"
-          - "espressif_saola_1_wroom"
-          - "espressif_saola_1_wrover"
-          - "gravitech_cucumberRIS_v1.1"
-          - "hexky_s2"
-          - "hiibot_iots2"
-          - "lilygo_ttgo_t8_s2"
-          - "lilygo_ttgo_t8_s2_st7789"
-          - "lilygo_ttgo_t8_s2_wroom"
-          - "lolin_s2_mini"
-          - "lolin_s2_pico"
-          - "maker_badge"
-          - "microdev_micro_s2"
-          - "morpheans_morphesp-240"
-          - "muselab_nanoesp32-s2_wroom"
-          - "muselab_nanoesp32-s2_wrover"
-          - "olimex_esp32s2_devkit_lipo_vB1"
-          - "targett_mcb_wroom"
-          - "targett_mcb_wrover"
-          - "unexpectedmaker_feathers2"
-          - "unexpectedmaker_feathers2_neo"
-          - "unexpectedmaker_tinys2"
-          - "waveshare_esp32_s2_pico_lcd"
-          - "waveshare_esp32s2_pico"
-          # ----------------------
-          # S3 Alphabetical order
-          # ----------------------
-          - "adafruit_feather_esp32s3"
-          - "adafruit_feather_esp32s3_nopsram"
-          - "adafruit_feather_esp32s3_reverse_tft"
-          - "adafruit_feather_esp32s3_tft"
-          - "adafruit_matrixportal_s3"
-          - "adafruit_metro_esp32s3"
-          - "adafruit_qtpy_esp32s3"
-          - "adafruit_qtpy_esp32s3_n4r2"
-          - "adafruit_tftexperimenter_esp32s3"
-          - "bpi_leaf_s3"
-          - "bpi_picow_s3"
-          - "circuitart_zero_s3"
-          - "cytron_maker_feather_aiot_s3"
-          - "deneyap_kart_1a_v2"
-          - "es3ink"
-          - "espressif_esp32s3_box"
-          - "espressif_esp32s3_devkitc_1"
-          - "espressif_esp32s3_devkitm_1"
-          - "espressif_esp32s3_eye"
-          - "heltec_wireless_tracker"
-          - "lilygo_ttgo_t_twr_plus"
-          - "lilygo_ttgo_tbeam_s3"
-          - "lolin_s3"
-          - "m5stack_atoms3"
-          - "m5stack_atoms3_lite"
-          - "m5stack_atoms3u"
-          - "magiclick_s3_n4r2"
-          - "seeed_xiao_esp32s3"
-          - "smartbeedesigns_bee_motion_s3"
-          - "smartbeedesigns_bee_s3"
-          - "unexpectedmaker_feathers3"
-          - "unexpectedmaker_nanos3"
-          - "unexpectedmaker_pros3"
-          - "unexpectedmaker_tinys3"
-          - "waveshare_esp32_s3_pico"
-          - "yd_esp32_s3_n16r8"
-          - "yd_esp32_s3_n8r8"
+        # ----------------------
+        # S2 Alphabetical order
+        # ----------------------
+        - 'adafruit_camera_esp32s3'
+        - 'adafruit_feather_esp32s2'
+        - 'adafruit_feather_esp32s2_reverse_tft'
+        - 'adafruit_feather_esp32s2_tft'
+        - 'adafruit_funhouse_esp32s2'
+        - 'adafruit_magtag_29gray'
+        - 'adafruit_metro_esp32s2'
+        - 'adafruit_mylittlehacker_esp32s2'
+        - 'adafruit_qtpy_esp32s2'
+        - 'artisense_rd00'
+        - 'atmegazero_esp32s2'
+        - 'bpi_bit_s2'
+        - 'bpi_leaf_s2'
+        - 'deneyap_mini'
+        - 'deneyap_mini_v2'
+        - 'department_of_alchemy_minimain_esp32s2'
+        - 'espressif_hmi_1'
+        - 'espressif_kaluga_1'
+        - 'espressif_saola_1_wroom'
+        - 'espressif_saola_1_wrover'
+        - 'gravitech_cucumberRIS_v1.1'
+        - 'hexky_s2'
+        - 'hiibot_iots2'
+        - 'lilygo_ttgo_t8_s2'
+        - 'lilygo_ttgo_t8_s2_st7789'
+        - 'lilygo_ttgo_t8_s2_wroom'
+        - 'lolin_s2_mini'
+        - 'lolin_s2_pico'
+        - 'maker_badge'
+        - 'microdev_micro_s2'
+        - 'morpheans_morphesp-240'
+        - 'muselab_nanoesp32-s2_wroom'
+        - 'muselab_nanoesp32-s2_wrover'
+        - 'olimex_esp32s2_devkit_lipo_vB1'
+        - 'targett_mcb_wroom'
+        - 'targett_mcb_wrover'
+        - 'unexpectedmaker_feathers2'
+        - 'unexpectedmaker_feathers2_neo'
+        - 'unexpectedmaker_tinys2'
+        - 'waveshare_esp32_s2_pico_lcd'
+        - 'waveshare_esp32s2_pico'
+        # ----------------------
+        # S3 Alphabetical order
+        # ----------------------
+        - 'adafruit_feather_esp32s3'
+        - 'adafruit_feather_esp32s3_nopsram'
+        - 'adafruit_feather_esp32s3_reverse_tft'
+        - 'adafruit_feather_esp32s3_tft'
+        - 'adafruit_matrixportal_s3'
+        - 'adafruit_metro_esp32s3'
+        - 'adafruit_qtpy_esp32s3'
+        - 'adafruit_qtpy_esp32s3_n4r2'
+        - 'adafruit_tftexperimenter_esp32s3'
+        - 'bpi_leaf_s3'
+        - 'bpi_picow_s3'
+        - 'circuitart_zero_s3'
+        - 'cytron_maker_feather_aiot_s3'
+        - 'deneyap_kart_1a_v2'
+        - 'es3ink'
+        - 'espressif_esp32s3_box'
+        - 'espressif_esp32s3_devkitc_1'
+        - 'espressif_esp32s3_devkitm_1'
+        - 'espressif_esp32s3_eye'
+        - 'heltec_wireless_tracker'
+        - 'lilygo_ttgo_t_twr_plus'
+        - 'lilygo_ttgo_tbeam_s3'
+        - 'lolin_s3'
+        - 'm5stack_atoms3'
+        - 'm5stack_atoms3_lite'
+        - 'm5stack_atoms3u'
+        - 'magiclick_s3_n4r2'
+        - 'seeed_xiao_esp32s3'
+        - 'smartbeedesigns_bee_motion_s3'
+        - 'smartbeedesigns_bee_s3'
+        - 'unexpectedmaker_feathers3'
+        - 'unexpectedmaker_nanos3'
+        - 'unexpectedmaker_pros3'
+        - 'unexpectedmaker_tinys3'
+        - 'waveshare_esp32_s3_pico'
+        - 'yd_esp32_s3_n16r8'
+        - 'yd_esp32_s3_n8r8'
     steps:
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.x"
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.x"
 
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
+    - name: Checkout
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
 
-      - name: Checkout submodules
-        run: git submodule update --init lib/tinyusb lib/uf2
+    - name: Checkout submodules
+      run: git submodule update --init lib/tinyusb lib/uf2
 
-      - name: Set Env
-        run: echo BIN_PATH=ports/espressif/_bin/${{ matrix.board }} >> $GITHUB_ENV
+    - name: Set Env
+      run: echo BIN_PATH=ports/espressif/_bin/${{ matrix.board }} >> $GITHUB_ENV
 
-      - name: Build
-        run: docker run --rm -v $PWD:/project -w /project espressif/idf:v4.4.3 /bin/bash -c "git config --global --add safe.directory /project && make -C ports/espressif/ BOARD=${{ matrix.board }} all self-update copy-artifact"
+    - name: Build
+      run: docker run --rm -v $PWD:/project -w /project espressif/idf:v4.4.3 /bin/bash -c "git config --global --add safe.directory /project && make -C ports/espressif/ BOARD=${{ matrix.board }} all self-update copy-artifact"
 
-      - uses: actions/upload-artifact@v3
-        with:
-          name: ${{ matrix.board }}
-          path: ${{ env.BIN_PATH }}
+    - uses: actions/upload-artifact@v3
+      with:
+        name: ${{ matrix.board }}
+        path: ${{ env.BIN_PATH }}
 
-      - name: Prepare Release Asset
-        if: ${{ github.event_name == 'release' }}
-        run: |
-          zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ${{ env.BIN_PATH }}
-          cp ${{ env.BIN_PATH }}/update-tinyuf2.uf2 update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
+    - name: Prepare Release Asset
+      if: ${{ github.event_name == 'release' }}
+      run: |
+        zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ${{ env.BIN_PATH }}
+        cp ${{ env.BIN_PATH }}/update-tinyuf2.uf2 update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
 
-      - name: Upload Release Asset
-        uses: softprops/action-gh-release@v1
-        if: ${{ github.event_name == 'release' }}
-        with:
-          files: |
-            tinyuf2-${{ matrix.board }}-*.zip
-            update-tinyuf2-${{ matrix.board }}-*.uf2
+    - name: Upload Release Asset
+      uses: softprops/action-gh-release@v1
+      if: ${{ github.event_name == 'release' }}
+      with:
+        files: |
+          tinyuf2-${{ matrix.board }}-*.zip
+          update-tinyuf2-${{ matrix.board }}-*.uf2
 
-      - name: Upload Assets To AWS S3
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        if: ${{ github.event_name == 'release' }}
-        run: |
-          [ -z \"$AWS_ACCESS_KEY_ID\" ] || aws s3 cp tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip s3://adafruit-circuit-python/bootloaders/esp32/tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip --no-progress --region us-east-1
-          [ -z \"$AWS_ACCESS_KEY_ID\" ] || aws s3 cp update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2 s3://adafruit-circuit-python/bootloaders/esp32/update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2 --no-progress --region us-east-1
+    - name: Upload Assets To AWS S3
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      if: ${{ github.event_name == 'release' }}
+      run: |
+        [ -z \"$AWS_ACCESS_KEY_ID\" ] || aws s3 cp tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip s3://adafruit-circuit-python/bootloaders/esp32/tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip --no-progress --region us-east-1
+        [ -z \"$AWS_ACCESS_KEY_ID\" ] || aws s3 cp update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2 s3://adafruit-circuit-python/bootloaders/esp32/update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2 --no-progress --region us-east-1
