@@ -100,6 +100,7 @@ jobs:
         - 'unexpectedmaker_nanos3'
         - 'unexpectedmaker_pros3'
         - 'unexpectedmaker_tinys3'
+        - 'waveshare_esp32_s3_pico'
         - 'yd_esp32_s3_n16r8'
         - 'yd_esp32_s3_n8r8'
     steps:
