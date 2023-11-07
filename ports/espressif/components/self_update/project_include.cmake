@@ -1,3 +1,7 @@
+if(SELFUPDATE_BUILD)
+    return()
+endif()
+
 # Glue to build the self-update subproject binary as an external
 # cmake project under this one
 idf_build_get_property(build_dir BUILD_DIR)
@@ -19,7 +23,7 @@ idf_build_get_property(extra_cmake_args EXTRA_CMAKE_ARGS)
 externalproject_add(self_update
     SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/subproject"
     BINARY_DIR "${SELFUPDATE_BUILD_DIR}"
-    CMAKE_ARGS  -DSDKCONFIG=${sdkconfig} -DIDF_PATH=${idf_path} -DIDF_TARGET=${idf_target}
+    CMAKE_ARGS  -DIDF_PATH=${idf_path} -DIDF_TARGET=${idf_target}
                 -DPYTHON_DEPS_CHECKED=1 -DPYTHON=${python}
                 -DEXTRA_COMPONENT_DIRS=${CMAKE_CURRENT_LIST_DIR}
                 -DPROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}
