@@ -314,7 +314,7 @@ menu "Bootloader config"
         select EFUSE_VIRTUAL_KEEP_IN_FLASH
         help
             This option allows to emulate read/write operations with all eFuses and efuse secure version.
-            It allows to test anti-rollback implemention without permanent write eFuse bits.
+            It allows to test anti-rollback implementation without permanent write eFuse bits.
             There should be an entry in partition table with following details: `emul_efuse, data, efuse, , 0x2000`.
 
             This option enables: EFUSE_VIRTUAL and EFUSE_VIRTUAL_KEEP_IN_FLASH.
@@ -402,7 +402,7 @@ menu "Bootloader config"
             this area remains valid when rebooted, except for power loss.
             This memory is located at a fixed address and is available
             for both the bootloader and the application.
-            (The application and bootoloader must be compiled with the same option).
+            (The application and bootloader must be compiled with the same option).
             The RTC FAST memory has access only through PRO_CPU.
 
     config BOOTLOADER_CUSTOM_RESERVE_RTC_SIZE

@@ -226,7 +226,7 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
             esp_rom_gpio_pad_select_gpio(PIN_BUTTON_UF2);
             PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[PIN_BUTTON_UF2]);
             esp_rom_gpio_pad_pullup_only(PIN_BUTTON_UF2);
-            
+
             // run the GPIO detection at least once even if UF2_DETECTION_DELAY_MS is set to zero
             uint32_t tm_start = esp_log_early_timestamp();
             do {
@@ -292,7 +292,7 @@ static inline uint32_t delay_cycle(uint32_t cycle) {
 #define HIGH  0x01
 #define ACK   0x00
 #define NACK  0x01
-#define CLOCK_STRETCH_TIMEOUT   1000 
+#define CLOCK_STRETCH_TIMEOUT   1000
 
 #endif
 
@@ -307,7 +307,7 @@ static void board_neopixel_set(uint32_t num_pin, uint8_t const rgb[]) {
   uint32_t const time0  = ns2cycle(400);
   uint32_t const time1  = ns2cycle(800);
   uint32_t const period = ns2cycle(1250);
-  
+
   uint8_t pixels[3*NEOPIXEL_NUMBER];
   for(uint32_t i=0; i<NEOPIXEL_NUMBER; i++) {
     // Note: WS2812 color order is GRB
@@ -428,9 +428,9 @@ void sw_i2c_begin(uint8_t address) {
 
 void sw_i2c_end() {
   gpio_ll_set_level(&GPIO, I2C_MASTER_SDA_IO, LOW);
-  delay_cycle( ns2cycle(I2C_WAIT*1000) ) ;  
+  delay_cycle( ns2cycle(I2C_WAIT*1000) ) ;
   gpio_ll_set_level(&GPIO, I2C_MASTER_SCL_IO, HIGH);
-  delay_cycle( ns2cycle(I2C_WAIT*1000) ) ;  
+  delay_cycle( ns2cycle(I2C_WAIT*1000) ) ;
   gpio_ll_set_level(&GPIO, I2C_MASTER_SDA_IO, HIGH);
 }
 
@@ -449,13 +449,13 @@ void sw_i2c_init() {
   gpio_ll_input_disable(&GPIO, I2C_MASTER_SCL_IO);
   gpio_ll_output_enable(&GPIO, I2C_MASTER_SCL_IO);
   gpio_ll_od_enable(&GPIO, I2C_MASTER_SCL_IO);
-  gpio_ll_pullup_en(&GPIO, I2C_MASTER_SCL_IO); 
+  gpio_ll_pullup_en(&GPIO, I2C_MASTER_SCL_IO);
   gpio_ll_pulldown_dis(&GPIO, I2C_MASTER_SCL_IO);
-  gpio_ll_intr_disable(&GPIO, I2C_MASTER_SCL_IO); 
+  gpio_ll_intr_disable(&GPIO, I2C_MASTER_SCL_IO);
   gpio_ll_set_level(&GPIO, I2C_MASTER_SCL_IO, HIGH);
 }
 
-//Turn on Peripheral power. 
+//Turn on Peripheral power.
 void init_tca9554() {
   sw_i2c_begin(TCA9554_ADDR << 1);
   sw_i2c_write_byte(TCA9554_CONFIGURATION_REG);
@@ -475,11 +475,11 @@ static void board_led_on(void) {
 #ifdef NEOPIXEL_PIN
   #ifdef TCA9554_ADDR
   sw_i2c_init();
-  // For some reason this delay is required after the pins are initialized before being used. 
+  // For some reason this delay is required after the pins are initialized before being used.
   delay_cycle( ns2cycle(30000*1000) );
   init_tca9554();
   #endif
-  
+
   #ifdef NEOPIXEL_POWER_PIN
   esp_rom_gpio_pad_select_gpio(NEOPIXEL_POWER_PIN);
   gpio_ll_input_disable(&GPIO, NEOPIXEL_POWER_PIN);

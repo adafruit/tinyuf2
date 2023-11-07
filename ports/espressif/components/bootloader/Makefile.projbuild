@@ -25,7 +25,7 @@ BOOTLOADER_OFFSET := 0x1000
 # Custom recursive make for bootloader sub-project
 #
 # NB: Some variables are cleared in the environment, not
-# overriden, because they need to be re-defined in the child
+# overridden, because they need to be re-defined in the child
 # project.
 #
 # Pass PROJECT_PATH variable, it will let the subproject look
