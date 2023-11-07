@@ -49,7 +49,7 @@ endif()
 
 idf_component_register(SRCS ${srcs}
   INCLUDE_DIRS ${tusb_src} .
-  REQUIRES src
+  PRIV_REQUIRES main
   )
 
 target_compile_definitions(${COMPONENT_LIB} PUBLIC ${compile_definitions})
