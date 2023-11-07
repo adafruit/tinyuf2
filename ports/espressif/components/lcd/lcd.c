@@ -95,7 +95,7 @@ DRAM_ATTR static const lcd_init_cmd_t st_init_cmds[] = {
 };
 
 DRAM_ATTR static const lcd_init_cmd_t ili_init_cmds[] = {
-    /* Power contorl B, power control = 0, DC_ENA = 1 */
+    /* Power control B, power control = 0, DC_ENA = 1 */
     {0xCF, {0x00, 0x83, 0X30}, 3},
     /* Power on sequence control,
      * cp1 keeps 1 frame, 1st frame enable
@@ -160,27 +160,27 @@ DRAM_ATTR static const lcd_init_cmd_t gc_init_cmds[] = {
     //  {0xfe, {0}, 0x80},
     //   {0xef, {0}, 0x80},
     /* Interface Pixel Format, 16bits/pixel for RGB/MCU interface */
-    {0xB0,   {0xC0},1},
-    {0xB2,   {0x2F},1},
-    {0xB3,   {0x03},1},
-    {0xB6,   {0x19},1},
-    {0xB7,   {0x01},1},  
-    {0xAC,   {0xCB},1},
-    {0xAB,   {0x0e},1},     
-    {0xB4,   {0x04},1},  
-    {0xA8,   {0x19},1},
-    {0x3A,   {0x05},1},
+    {0xB0, {0xC0}, 1},
+    {0xB2, {0x2F}, 1},
+    {0xB3, {0x03}, 1},
+    {0xB6, {0x19}, 1},
+    {0xB7, {0x01}, 1},
+    {0xAC, {0xCB}, 1},
+    {0xAB, {0x0e}, 1},
+    {0xB4, {0x04}, 1},
+    {0xA8, {0x19}, 1},
+    {0x3A, {0x05}, 1},
     // Memory Data Access Control
     {0x36, {DISPLAY_MADCTL}, 1},
     // Vertical Scroll Start Address of RAM
     // {0x37, {DISPLAY_VSCSAD >> 8, DISPLAY_VSCSAD & 0x00FF}, 2},
 
-    {0xb8,   {0x08},1},
-    {0xE8,   {0x24},1},
-    {0xE9,   {0x48},1},
-    {0xea,   {0x22},1},               
-    {0xC6,   {0x30},1},
-    {0xC7,   {0x18},1},
+    {0xb8, {0x08}, 1},
+    {0xE8, {0x24}, 1},
+    {0xE9, {0x48}, 1},
+    {0xea, {0x22}, 1},
+    {0xC6, {0x30}, 1},
+    {0xC7, {0x18}, 1},
     /* Positive Voltage Gamma Control */
     {0xF0, {0x1F, 0x28, 0x04, 0x3E, 0x2A, 0x2E, 0x20, 0x00, 0x0C, 0x06, 0x00, 0x1C, 0x1F, 0x0F}, 14},
     /* Negative Voltage Gamma Control */
@@ -301,9 +301,9 @@ esp_err_t lcd_init(spi_device_handle_t spi)
     /*!<  Reset the display */
 #if defined(DISPLAY_PIN_RST) && DISPLAY_PIN_RST != -1
     gpio_set_level(DISPLAY_PIN_RST, 0);
-    vTaskDelay(100 / portTICK_RATE_MS);
+    vTaskDelay(100 / portTICK_PERIOD_MS);
     gpio_set_level(DISPLAY_PIN_RST, 1);
-    vTaskDelay(100 / portTICK_RATE_MS);
+    vTaskDelay(100 / portTICK_PERIOD_MS);
 #endif
 
     int lcd_type;
@@ -346,7 +346,7 @@ esp_err_t lcd_init(spi_device_handle_t spi)
         lcd_init_cmds = st_init_cmds;
     } else if(lcd_type == LCD_TYPE_GC) {
         ESP_LOGI(TAG, "GC9107 initialization.");
-        lcd_init_cmds = gc_init_cmds;    
+        lcd_init_cmds = gc_init_cmds;
     } else {
         ESP_LOGI(TAG, "ILI9341 initialization.");
         lcd_init_cmds = ili_init_cmds;
@@ -358,7 +358,7 @@ esp_err_t lcd_init(spi_device_handle_t spi)
         lcd_data(spi, lcd_init_cmds[cmd].data, lcd_init_cmds[cmd].databytes & 0x1F);
 
         if (lcd_init_cmds[cmd].databytes & 0x80) {
-            vTaskDelay(100 / portTICK_RATE_MS);
+            vTaskDelay(100 / portTICK_PERIOD_MS);
         }
 
         cmd++;

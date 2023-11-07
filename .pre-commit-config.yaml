@@ -13,11 +13,10 @@ repos:
         ports/espressif/components/bootloader/subproject/components
       )
   - id: end-of-file-fixer
-#    exclude: |
-#      (?x)^(
-#        .idea/|
-#        hw/bsp/mcx/sdk/
-#      )
+    exclude: |
+      (?x)^(
+        .idea/
+      )
   - id: forbid-submodules
 
 - repo: https://github.com/codespell-project/codespell

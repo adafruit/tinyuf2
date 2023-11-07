@@ -24,18 +24,18 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/timers.h"
 
-#include "esp_rom_gpio.h"
+#include "driver/rmt.h"
 #include "hal/gpio_ll.h"
 #include "hal/usb_hal.h"
 #include "soc/usb_periph.h"
-
-#include "driver/periph_ctrl.h"
-#include "driver/rmt.h"
+#include "esp_private/periph_ctrl.h"
 
 #include "esp_partition.h"
 #include "esp_ota_ops.h"
+#include "esp_mac.h"
+#include "esp_timer.h"
+
 #include "board_api.h"
 
 #ifndef TINYUF2_SELF_UPDATE
@@ -492,13 +492,14 @@ static void configure_pins(usb_hal_context_t *usb)
         esp_rom_gpio_connect_out_signal(iopin->pin, iopin->func, false, false);
       } else {
         esp_rom_gpio_connect_in_signal(iopin->pin, iopin->func, false);
-        if ((iopin->pin != GPIO_FUNC_IN_LOW) && (iopin->pin != GPIO_FUNC_IN_HIGH)) {
+        if ((iopin->pin != GPIO_MATRIX_CONST_ZERO_INPUT) && (iopin->pin != GPIO_MATRIX_CONST_ONE_INPUT)) {
           gpio_ll_input_enable(&GPIO, iopin->pin);
         }
       }
       esp_rom_gpio_pad_unhold(iopin->pin);
     }
   }
+
   if (!usb->use_external_phy) {
     gpio_set_drive_capability(USBPHY_DM_NUM, GPIO_DRIVE_CAP_3);
     gpio_set_drive_capability(USBPHY_DP_NUM, GPIO_DRIVE_CAP_3);

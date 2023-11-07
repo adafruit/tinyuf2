@@ -16,10 +16,11 @@ else()
   return()
 endif()
 
-list(APPEND compile_definitions
-  CFG_TUSB_MCU=${tusb_mcu}
-  CFG_TUSB_OS=OPT_OS_FREERTOS
-  )
+# Already defined in tusb_config.h
+#list(APPEND compile_definitions
+#  CFG_TUSB_MCU=${tusb_mcu}
+#  CFG_TUSB_OS=OPT_OS_FREERTOS
+#  )
 
 list(APPEND srcs
   # common
@@ -47,7 +48,7 @@ if (DEFINED LOG)
 endif()
 
 idf_component_register(SRCS ${srcs}
-  INCLUDE_DIRS ${tusb_src}
+  INCLUDE_DIRS ${tusb_src} .
   REQUIRES src
   )
 
