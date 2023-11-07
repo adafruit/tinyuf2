@@ -28,6 +28,7 @@ externalproject_add(self_update
                 -DEXTRA_COMPONENT_DIRS=${CMAKE_CURRENT_LIST_DIR}
                 -DPROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}
                 -DBOARD=${BOARD}
+                -DUF2_FAMILY_ID=${UF2_FAMILY_ID}
                 ${extra_cmake_args}
     INSTALL_COMMAND ""
     BUILD_ALWAYS 1  # no easy way around this...

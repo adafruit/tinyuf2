@@ -12,6 +12,14 @@ set(SDKCONFIG ${CMAKE_BINARY_DIR}/sdkconfig)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
+if(IDF_TARGET STREQUAL "esp32s3")
+  set(UF2_FAMILY_ID 0xc47e5767)
+elseif(IDF_TARGET STREQUAL "esp32s2")
+  set(UF2_FAMILY_ID 0xbfdd4eee)
+else()
+  message(FATAL_ERROR "Unsupported ${target}.")
+endif()
+
 execute_process(COMMAND git describe --dirty --always --tags
                 OUTPUT_VARIABLE GIT_VERSION)
 string(STRIP ${GIT_VERSION} GIT_VERSION)
