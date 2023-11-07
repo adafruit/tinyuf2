@@ -2,6 +2,13 @@
 <project version="4">
   <component name="CMakeSharedSettings">
     <configurations>
+      <configuration PROFILE_NAME="espressif_esp32s2_devkitc_1" ENABLED="true" CONFIG_NAME="Debug" TOOLCHAIN_NAME="ESP-IDF" GENERATION_OPTIONS="-DBOARD=espressif_esp32s2_devkitc_1">
+        <ADDITIONAL_GENERATION_ENVIRONMENT>
+          <envs>
+            <env name="ESPBAUD" value="1500000" />
+          </envs>
+        </ADDITIONAL_GENERATION_ENVIRONMENT>
+      </configuration>
       <configuration PROFILE_NAME="espressif_esp32s3_devkitc_1" ENABLED="true" CONFIG_NAME="Debug" TOOLCHAIN_NAME="ESP-IDF" GENERATION_OPTIONS="-DBOARD=espressif_esp32s3_devkitc_1">
         <ADDITIONAL_GENERATION_ENVIRONMENT>
           <envs>
