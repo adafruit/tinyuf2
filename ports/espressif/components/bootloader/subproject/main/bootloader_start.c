@@ -1,16 +1,8 @@
-// Copyright 2015-2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2022 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #include <stdbool.h>
 #include "esp_log.h"
 #include "esp_rom_sys.h"
@@ -19,7 +11,6 @@
 #include "bootloader_common.h"
 #include "bootloader_hooks.h"
 
-// components/esp_rom
 #include "rom/ets_sys.h"
 #include "rom/rtc.h"
 #include "esp_rom_gpio.h"
@@ -91,7 +82,8 @@ static void esp_reset_reason_clear_hint(void) {
  * The hardware is mostly uninitialized, flash cache is down and the app CPU is in reset.
  * We do have a stack, so we can do the initialization in C.
  */
-void __attribute__((noreturn)) call_start_cpu0(void) {
+void __attribute__((noreturn)) call_start_cpu0(void)
+{
     // (0. Call the before-init hook, if available)
     if (bootloader_before_init) {
         bootloader_before_init();
@@ -127,7 +119,8 @@ void __attribute__((noreturn)) call_start_cpu0(void) {
 }
 
 // Select the number of boot partition
-static int select_partition_number(bootloader_state_t *bs) {
+static int select_partition_number(bootloader_state_t *bs)
+{
     // 1. Load partition table
     if (!bootloader_utility_load_partition_table(bs)) {
         ESP_LOGE(TAG, "load partition table error!");
@@ -257,7 +250,8 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
 }
 
 // Return global reent struct if any newlib functions are linked to bootloader
-struct _reent *__getreent(void) {
+struct _reent *__getreent(void)
+{
     return _GLOBAL_REENT;
 }
 

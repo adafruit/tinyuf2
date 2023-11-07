@@ -8,10 +8,10 @@ repos:
   hooks:
   - id: check-yaml
   - id: trailing-whitespace
-#    exclude: |
-#      (?x)^(
-#        hw/bsp/mcx/sdk/
-#      )
+    exclude: |
+      (?x)^(
+        ports/espressif/components/bootloader/subproject/components
+      )
   - id: end-of-file-fixer
 #    exclude: |
 #      (?x)^(
