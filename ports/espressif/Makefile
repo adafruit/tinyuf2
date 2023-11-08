@@ -50,15 +50,13 @@ combined-flash: $(BUILD)/combined.bin
 	esptool.py --chip $(IDF_TARGET) write_flash 0x0 $<
 
 #-------------- Self Update --------------
-SELF_BUILD = apps/self_update/$(BUILD)
+SELF_APP = apps/self_update
+SELF_BUILD = ${SELF_APP}/${BUILD}
 
-$(SELF_BUILD)/update-tinyuf2.bin: app
-	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py --carray $(BUILD)/tinyuf2.bin -o $(TOP)/apps/self_update/bootloader_bin.c
-	idf.py -C apps/self_update/ -B$(SELF_BUILD) -DBOARD=$(BOARD) app
-	@rm $(TOP)/apps/self_update/bootloader_bin.c
-
-$(SELF_BUILD)/update-tinyuf2.uf2: $(SELF_BUILD)/update-tinyuf2.bin
-	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py -f $(UF2_FAMILY_ID_$(IDF_TARGET)) -b 0x0000 -c -o $@ $^
+# cmake post build of tinyuf2's app will generate bootloader_bin.c
+# cmake post build of self-update's app will generate update-tinyuf2.uf2
+$(SELF_BUILD)/update-tinyuf2.uf2: app
+	idf.py -C ${SELF_APP} -B${SELF_BUILD} -DBOARD=${BOARD} app
 
 self-update: $(SELF_BUILD)/update-tinyuf2.uf2
 
