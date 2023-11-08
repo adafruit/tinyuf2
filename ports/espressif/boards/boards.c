@@ -161,16 +161,16 @@ void board_init(void)
   i2c_master_write_byte(cmd, TCA9554_CONFIGURATION_REG, true);
   i2c_master_write_byte(cmd, TCA9554_DEFAULT_CONFIG, true);
   i2c_master_stop(cmd);
-  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_RATE_MS);
+  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_PERIOD_MS);
   i2c_cmd_link_delete(cmd);
-  vTaskDelay(30 / portTICK_RATE_MS);
+  vTaskDelay(30 / portTICK_PERIOD_MS);
   cmd = i2c_cmd_link_create();
   i2c_master_start(cmd);
   i2c_master_write_byte(cmd, TCA9554_ADDR << 1 | I2C_MASTER_WRITE, true);
   i2c_master_write_byte(cmd, TCA9554_OUTPUT_PORT_REG, true);
   i2c_master_write_byte(cmd, TCA9554_DEFAULT_VALUE, true);
   i2c_master_stop(cmd);
-  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_RATE_MS);
+  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_PERIOD_MS);
   i2c_cmd_link_delete(cmd);
 
 #endif
@@ -182,7 +182,7 @@ void board_init(void)
   i2c_master_write_byte(cmd, AW9523_REG_SOFTRESET, true);
   i2c_master_write_byte(cmd, 0, true);
   i2c_master_stop(cmd);
-  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_RATE_MS);
+  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_PERIOD_MS);
   i2c_cmd_link_delete(cmd);
 
   cmd = i2c_cmd_link_create();
@@ -192,7 +192,7 @@ void board_init(void)
   i2c_master_write_byte(cmd, AW9523_DEFAULT_CONFIG >> 8, true);
   i2c_master_write_byte(cmd, AW9523_DEFAULT_CONFIG & 0xff, true);
   i2c_master_stop(cmd);
-  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_RATE_MS);
+  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_PERIOD_MS);
   i2c_cmd_link_delete(cmd);
 
   cmd = i2c_cmd_link_create();
@@ -202,7 +202,7 @@ void board_init(void)
   i2c_master_write_byte(cmd, AW9523_DEFAULT_OUTPUT >> 8, true);
   i2c_master_write_byte(cmd, AW9523_DEFAULT_OUTPUT & 0xff, true);
   i2c_master_stop(cmd);
-  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_RATE_MS);
+  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_PERIOD_MS);
   i2c_cmd_link_delete(cmd);
 #endif
 
