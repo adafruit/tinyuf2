@@ -1,5 +1,4 @@
 /sdkconfig
-.settings/
 *.o
 *.d
 *.P
@@ -9,3 +8,4 @@ _bin/
 *.cmake~
 sdkconfig~
 *.yml~
+ports/espressif/apps/self_update/main/bootloader_bin.c

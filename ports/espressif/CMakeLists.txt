@@ -12,14 +12,6 @@ set(SDKCONFIG ${CMAKE_BINARY_DIR}/sdkconfig)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
-if(IDF_TARGET STREQUAL "esp32s3")
-  set(UF2_FAMILY_ID 0xc47e5767)
-elseif(IDF_TARGET STREQUAL "esp32s2")
-  set(UF2_FAMILY_ID 0xbfdd4eee)
-else()
-  message(FATAL_ERROR "Unsupported ${target}.")
-endif()
-
 execute_process(COMMAND git describe --dirty --always --tags
                 OUTPUT_VARIABLE GIT_VERSION)
 string(STRIP ${GIT_VERSION} GIT_VERSION)
@@ -37,3 +29,7 @@ add_compile_definitions(UF2_VERSION="${GIT_VERSION} - ${GIT_SUBMODULE_VERSIONS}"
 cmake_print_variables(GIT_VERSION GIT_SUBMODULE_VERSIONS)
 
 project(tinyuf2)
+
+add_custom_command(TARGET app POST_BUILD
+  COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} --carray -o ${CMAKE_SOURCE_DIR}/apps/self_update/main/bootloader_bin.c ${CMAKE_BINARY_DIR}/tinyuf2.bin
+  )
