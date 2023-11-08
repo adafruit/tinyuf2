@@ -140,10 +140,10 @@ public:
         return -1;
     }
 
-    int readRegister(uint8_t reg, uint8_t *buf, uint8_t lenght)
+    int readRegister(uint8_t reg, uint8_t *buf, uint8_t length)
     {
         if (thisReadRegCallback) {
-            return thisReadRegCallback(__addr, reg, buf, lenght);
+            return thisReadRegCallback(__addr, reg, buf, length);
         }
 #if defined(ARDUINO)
         if (__wire) {
@@ -152,23 +152,23 @@ public:
             if (__wire->endTransmission() != 0) {
                 return -1;
             }
-            __wire->requestFrom(__addr, lenght);
-            return __wire->readBytes(buf, lenght) == lenght ? 0 : -1;
+            __wire->requestFrom(__addr, length);
+            return __wire->readBytes(buf, length) == length ? 0 : -1;
         }
 #endif
         return -1;
     }
 
-    int writeRegister(uint8_t reg, uint8_t *buf, uint8_t lenght)
+    int writeRegister(uint8_t reg, uint8_t *buf, uint8_t length)
     {
         if (thisWriteRegCallback) {
-            return thisWriteRegCallback(__addr, reg, buf, lenght);
+            return thisWriteRegCallback(__addr, reg, buf, length);
         }
 #if defined(ARDUINO)
         if (__wire) {
             __wire->beginTransmission(__addr);
             __wire->write(reg);
-            __wire->write(buf, lenght);
+            __wire->write(buf, length);
             return (__wire->endTransmission() == 0) ? 0 : -1;
         }
 #endif

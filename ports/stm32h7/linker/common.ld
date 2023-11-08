@@ -7,7 +7,7 @@ _Min_Stack_Size = 0x4000; /* Stack */
 HEAP_SIZE   = DEFINED(__heap_size__)  ? __heap_size__   : _Min_Heap_Size;
 STACK_SIZE  = DEFINED(__stack_size__) ? __stack_size__  : _Min_Stack_Size;
 
-/* Initialze stack on end of memory */
+/* Initialize stack on end of memory */
 _estack = ORIGIN(RAM) + LENGTH(RAM);
 /* Generate a link error if heap and stack don't fit into RAM */
 _stack_limit = _estack - STACK_SIZE;
@@ -89,7 +89,7 @@ SECTIONS
   _sidata = LOADADDR(.data);
 
   /* Initialized data sections goes into RAM, load LMA copy after code */
-  .data : 
+  .data :
   {
     . = ALIGN(4);
     _sdata = .;        /* create a global symbol at data start */
@@ -100,12 +100,12 @@ SECTIONS
     _edata = .;        /* define a global symbol at data end */
   } >RAM AT> FLASH
 
-  
+
   /* Uninitialized data section */
   . = ALIGN(4);
   .bss :
   {
-    /* This is used by the startup in order to initialize the .bss secion */
+    /* This is used by the startup in order to initialize the .bss section */
     _sbss = .;         /* define a global symbol at bss start */
     __bss_start__ = _sbss;
     *(.bss)

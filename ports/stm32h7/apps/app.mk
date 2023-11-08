@@ -9,7 +9,7 @@ include $(TOP)/$(PORT_DIR)/port.mk
 LD_FILES ?= \
 	$(PORT_DIR)/linker/memory.ld \
 	$(PORT_DIR)/linker/common.ld \
-	$(PORT_DIR)/linker/$(MCU).ld 
+	$(PORT_DIR)/linker/$(MCU).ld
 
 CFLAGS += \
 	-DVECT_TAB_SRAM \

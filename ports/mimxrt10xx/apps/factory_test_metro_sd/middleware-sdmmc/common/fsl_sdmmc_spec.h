@@ -205,7 +205,7 @@ typedef enum _sd_application_command
     kSD_ApplicationSendNumberWriteBlocks   = 22U, /*!< Send Number Of Written Blocks */
     kSD_ApplicationSetWriteBlockEraseCount = 23U, /*!< Set Write Block Erase Count */
     kSD_ApplicationSendOperationCondition  = 41U, /*!< Send Operation Condition */
-    kSD_ApplicationSetClearCardDetect      = 42U, /*!< Set Connnect/Disconnect pull up on detect pin */
+    kSD_ApplicationSetClearCardDetect      = 42U, /*!< Set Connect/Disconnect pull up on detect pin */
     kSD_ApplicationSendScr                 = 51U, /*!< Send Scr */
 } sd_application_command_t;
 
@@ -308,7 +308,7 @@ enum
  */
 enum
 {
-    kSD_GroupTimingMode     = 0U, /*!< acess mode group*/
+    kSD_GroupTimingMode     = 0U, /*!< access mode group*/
     kSD_GroupCommandSystem  = 1U, /*!< command system group*/
     kSD_GroupDriverStrength = 2U, /*!< driver strength group*/
     kSD_GroupCurrentLimit   = 3U, /*!< current limit group*/
@@ -489,7 +489,7 @@ enum
 /*! @brief sdio ocr voltage window mask */
 #define SDIO_OCR_VOLTAGE_WINDOW_MASK (0xFFFFU << 8U)
 
-/*! @brief sdio ocr reigster IO NUMBER mask  */
+/*! @brief sdio ocr register IO NUMBER mask  */
 #define SDIO_OCR_IO_NUM_MASK (7U << kSDIO_OcrIONumber)
 
 /*! @brief sdio capability flag
@@ -657,7 +657,7 @@ typedef enum _mmc_specification_version
 /*! @brief Read the value of FREQUENCY UNIT in TRANSFER SPEED. */
 #define READ_MMC_TRANSFER_SPEED_FREQUENCY_UNIT(CSD) \
     ((((CSD).transferSpeed) & MMC_TRANSFER_SPEED_FREQUENCY_UNIT_MASK) >> MMC_TRANSFER_SPEED_FREQUENCY_UNIT_SHIFT)
-/*! @brief Read the value of MULTIPLER filed in TRANSFER SPEED. */
+/*! @brief Read the value of MULTIPLIER filed in TRANSFER SPEED. */
 #define READ_MMC_TRANSFER_SPEED_MULTIPLIER(CSD) \
     ((((CSD).transferSpeed) & MMC_TRANSFER_SPEED_MULTIPLIER_MASK) >> MMC_TRANSFER_SPEED_MULTIPLIER_SHIFT)
 
@@ -741,7 +741,7 @@ typedef enum _mmc_boot_partition_enable
  */
 typedef enum _mmc_boot_timing_mode
 {
-    kMMC_BootModeSDRWithDefaultTiming   = 0U, /*!< boot mode single data rate with backward compatiable timings */
+    kMMC_BootModeSDRWithDefaultTiming   = 0U, /*!< boot mode single data rate with backward compatible timings */
     kMMC_BootModeSDRWithHighSpeedTiming = 1U, /*!< boot mode single data rate with high speed timing */
     kMMC_BootModeDDRTiming              = 2U, /*!< boot mode dual date rate */
 } mmc_boot_timing_mode_t;
@@ -942,7 +942,7 @@ typedef struct _sdio_func_cis
     uint8_t funcInfo;        /*!< function info */
     uint8_t ioVersion;       /*!< level of application specification this io support */
     uint32_t cardPSN;        /*!< product serial number */
-    uint32_t ioCSASize;      /*!< avaliable CSA size for io  */
+    uint32_t ioCSASize;      /*!< available CSA size for io  */
     uint8_t ioCSAProperty;   /*!< CSA property */
     uint16_t ioMaxBlockSize; /*!< io max transfer data size */
     uint32_t ioOCR;          /*!< io ioeration condition */
@@ -955,7 +955,7 @@ typedef struct _sdio_func_cis
 
     uint16_t ioMinBandWidth;          /*!< io min transfer bandwidth */
     uint16_t ioOptimumBandWidth;      /*!< io optimum transfer bandwidth */
-    uint16_t ioReadyTimeout;          /*!< timeout value from enalbe to ready */
+    uint16_t ioReadyTimeout;          /*!< timeout value from enable to ready */
     uint16_t ioHighCurrentAvgCurrent; /*!< the average peak current (mA)
                                       when IO operating in high current mode */
     uint16_t ioHighCurrentMaxCurrent; /*!< the max peak current (mA)
@@ -1107,7 +1107,7 @@ typedef struct _mmc_extended_csd
     /*uint8_t packedCmdFailIndex;*/           /*!< packed cmd fail index [35]*/
     /*uint8_t packedCmdStatus;*/              /*!< packed cmd status[36]*/
     /*uint32_t contextConfig[4U];*/           /*!< context configuration[51-37]*/
-    /*uint16_t extPartitionAttr;*/            /*!< extended partitions attribut[53-52]*/
+    /*uint16_t extPartitionAttr;*/            /*!< extended partitions attribute[53-52]*/
     /*uint16_t exceptEventStatus;*/           /*!< exception events status[55-54]*/
     /*uint16_t exceptEventControl;*/          /*!< exception events control[57-56]*/
     /*uint8_t toReleaseAddressedGroup;*/      /*!< number of group to be released[58]*/

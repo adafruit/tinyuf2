@@ -1,4 +1,4 @@
-/* 
+/*
  * The MIT License (MIT)
  *
  * Copyright (c) 2023 Elviss Kustans
@@ -64,6 +64,6 @@
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID             "ESP32S3-AtomS3U-01"
 #define UF2_VOLUME_LABEL         "ATOMS3UBOOT"
-#define UF2_INDEX_URL            "https://docs.m5stack.com/en/core/AtomS3U" 
+#define UF2_INDEX_URL            "https://docs.m5stack.com/en/core/AtomS3U"
 
 #endif

@@ -13,9 +13,9 @@
 
 
 ```
-🎉 LilyGo invests time and resources to provide this open source code, please support LilyGo 
+🎉 LilyGo invests time and resources to provide this open source code, please support LilyGo
 and open source hardware by purchasing products from LilyGo!
-Written by Lewis He for LilyGo. MIT license, all text above must be included in 
+Written by Lewis He for LilyGo. MIT license, all text above must be included in
 any redistribution
 ```
 

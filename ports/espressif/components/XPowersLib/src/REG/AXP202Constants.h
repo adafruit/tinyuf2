@@ -146,6 +146,3 @@
 #define XPOWERS_AXP202_INTERNAL_TEMP_STEP               (0.1F)
 #define XPOWERS_AXP202_APS_VOLTAGE_STEP                 (1.4F)
 #define XPOWERS_AXP202_TS_PIN_OUT_STEP                  (0.8F)
-
-
-

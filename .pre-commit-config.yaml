@@ -10,11 +10,13 @@ repos:
   - id: trailing-whitespace
     exclude: |
       (?x)^(
+        lib/|
         ports/espressif/components/bootloader/subproject/components
       )
   - id: end-of-file-fixer
     exclude: |
       (?x)^(
+        lib/|
         .idea/
       )
   - id: forbid-submodules
@@ -24,8 +26,7 @@ repos:
   hooks:
   - id: codespell
     args: [-w]
-#    exclude: |
-#      (?x)^(
-#        lib/|
-#        hw/bsp/mcx/sdk/
-#      )
+    exclude: |
+      (?x)^(
+        lib/
+      )

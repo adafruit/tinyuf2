@@ -59,7 +59,7 @@
 #define DISPLAY_PIN_CS      10
 #define DISPLAY_PIN_DC      14
 #define DISPLAY_PIN_RST     9
-#define DISPLAY_PIN_BL      21 // TODO There is no backlight control on this board. Unused pin for now. Will have to PR tinyuf2      
+#define DISPLAY_PIN_BL      21 // TODO There is no backlight control on this board. Unused pin for now. Will have to PR tinyuf2
 #define DISPLAY_BL_ON       1 // GPIO state to enable back light
 
 #define DISPLAY_WIDTH       240

@@ -64,7 +64,7 @@ typedef struct __attribute__((packed)) CtxFrame {
 
 #define R ": %lx"
 #define EXC_FMT "r0" R "r1" R "r2" R "r3" R "r12" R "lr" R "ret" R "xpsr" R "\n"
-#define EXC_DET(x) x->r0, x->r1, x->r2, x->r3, x->r12, x->lr, x->ret, x->xpsr 
+#define EXC_DET(x) x->r0, x->r1, x->r2, x->r3, x->r12, x->lr, x->ret, x->xpsr
 
 __attribute__((optimize("O0")))
 void fault_handler(sFrame *fr)

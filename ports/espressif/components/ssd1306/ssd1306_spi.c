@@ -200,7 +200,7 @@ void spi_hardware_scroll(SSD1306_t * dev, ssd1306_scroll_type_t scroll)
 		spi_master_write_command(dev, 0x00); //
 		spi_master_write_command(dev, 0xFF); //
 		spi_master_write_command(dev, OLED_CMD_ACTIVE_SCROLL);		// 2F
-	} 
+	}
 
 	if (scroll == SCROLL_LEFT) {
 		spi_master_write_command(dev, OLED_CMD_HORIZONTAL_LEFT);	// 27
@@ -211,7 +211,7 @@ void spi_hardware_scroll(SSD1306_t * dev, ssd1306_scroll_type_t scroll)
 		spi_master_write_command(dev, 0x00); //
 		spi_master_write_command(dev, 0xFF); //
 		spi_master_write_command(dev, OLED_CMD_ACTIVE_SCROLL);		// 2F
-	} 
+	}
 
 	if (scroll == SCROLL_DOWN) {
 		spi_master_write_command(dev, OLED_CMD_CONTINUOUS_SCROLL);	// 29

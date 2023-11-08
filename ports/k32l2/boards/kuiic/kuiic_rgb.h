@@ -60,7 +60,7 @@ void kuiic_rgb_init(void);
 void kuiic_rgb_write(uint8_t const rgb[]);
 
 /*! @brief KUIIC RGB tick handler
- *  @note This should be called in the systick handler to 
+ *  @note This should be called in the systick handler to
  *        initiate the next pulses
  */
 void kuiic_rgb_tick(void);

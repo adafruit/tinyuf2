@@ -47,7 +47,7 @@ void kuiic_rgb_init(void) {
     uint8_t rgb[3] = {0,0,0x80};
 
     /* Select timer output for LED pins */
-    CLOCK_EnableClock(KUIIC_RGB_CLK_PORT);  
+    CLOCK_EnableClock(KUIIC_RGB_CLK_PORT);
     PORT_SetPinMux(KUIIC_RGB_BR_PORT, KUIIC_RGB_BR_PIN, KUIIC_RGB_BR_MUX);
     PORT_SetPinMux(KUIIC_RGB_GB_PORT, KUIIC_RGB_GB_PIN, KUIIC_RGB_GB_MUX);
 
@@ -101,7 +101,7 @@ void kuiic_rgb_init(void) {
 // KUIIC RGB write function
 void kuiic_rgb_write(uint8_t const rgb[]) {
   if ((rgb[0]==0)&&(rgb[1]==0)&&(rgb[2]==0)) {
-    kuiic_rgb_on = false; 
+    kuiic_rgb_on = false;
   } else {
     kuiic_rgb_on = true;
     uint32_t r = rgb[0] << KUIIC_RGB_BRIGHT_SHIFT;

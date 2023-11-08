@@ -868,7 +868,7 @@ public:
     }
 
     /*
-     * Power control EXTEN functions
+     * Power control EXTENT functions
      */
     bool enableExternalPin(void)
     {
@@ -919,7 +919,7 @@ public:
     }
 
     /**
-     * @brief  Eanble PMU interrupt control mask .
+     * @brief  Enable PMU interrupt control mask .
      * @param  opt: View the related chip type xpowers_axp192_irq_t enumeration
      *              parameters in "XPowersParams.hpp"
      * @retval
@@ -2067,6 +2067,3 @@ private:
     uint8_t statusRegister[5];
     xpowers_gpio_t gpio[6];
 };
-
-
-

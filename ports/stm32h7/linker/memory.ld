@@ -1,8 +1,8 @@
-/* Need atleast 12 bytes of noinit memory */
+/* Need at least 12 bytes of noinit memory */
 /* _board_dfu_dbl_tap - 4 bytes */
 /* _board_tmp_boot_addr - 4 bytes */
 /* _board_tmp_boot_magic - 4 bytes */
-ASSERT(_noinit_size >= 0xC, "Need atleast 12 bytes of no-init")
+ASSERT(_noinit_size >= 0xC, "Need at least 12 bytes of no-init")
 
 MEMORY
 {

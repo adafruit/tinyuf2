@@ -144,4 +144,3 @@ menu "SSD1306 Configuration"
 			GPIOs 35-39 are input-only so cannot be used as outputs.
 
 endmenu
-

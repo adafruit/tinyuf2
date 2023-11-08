@@ -1,6 +1,6 @@
 include $(TOP)/$(PORT_DIR)/boards/$(BOARD)/board.mk
 
-UF2_FAMILY_ID = 0x6db66082 
+UF2_FAMILY_ID = 0x6db66082
 CROSS_COMPILE = arm-none-eabi-
 
 ST_HAL_DRIVER = lib/st/stm32h7xx_hal_driver

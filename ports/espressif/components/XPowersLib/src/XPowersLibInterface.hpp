@@ -422,7 +422,7 @@ public:
     virtual void clearIrqStatus() = 0;
 
     /**
-     * @brief  Eanble PMU interrupt control mask .
+     * @brief  Enable PMU interrupt control mask .
      * @param  opt: View the related chip type xpowers_axpxxx_irq_t enumeration
      *              parameters in "XPowersParams.hpp"
      * @retval true valid false invalid
@@ -621,4 +621,3 @@ protected:
     uint32_t __protectedMask;
 
 };
-

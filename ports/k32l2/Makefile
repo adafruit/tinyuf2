@@ -15,7 +15,7 @@ CFLAGS += \
   -flto \
   -mthumb \
   -mabi=aapcs \
-  -mcpu=cortex-m0plus 
+  -mcpu=cortex-m0plus
 
 # suppress warning caused by vendor mcu driver
 CFLAGS += -Wno-error=cast-align -Wno-error=unused-parameter
@@ -32,7 +32,7 @@ SRC_C += \
 	$(SDK_DIR)/drivers/lpuart/fsl_lpuart.c \
 	$(PORT_DIR)/clock_config.c \
 	$(PORT_DIR)/boards.c \
-	$(PORT_DIR)/board_flash.c 
+	$(PORT_DIR)/board_flash.c
 
 ifndef BUILD_NO_TINYUSB
 SRC_C += lib/tinyusb/src/portable/nxp/khci/dcd_khci.c
@@ -53,7 +53,7 @@ INC += \
 	$(TOP)/$(SDK_DIR)/drivers/gpio \
 	$(TOP)/$(SDK_DIR)/drivers/port \
 	$(TOP)/$(SDK_DIR)/drivers/lpuart \
-	$(TOP)/$(SDK_DIR)/drivers/flash 
+	$(TOP)/$(SDK_DIR)/drivers/flash
 
 LD_FILES ?= $(MCU_DIR)/gcc/$(LD_FNAME)
 

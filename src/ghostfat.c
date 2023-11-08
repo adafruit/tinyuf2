@@ -39,7 +39,7 @@
 //
 //--------------------------------------------------------------------+
 
-// ota0 partition size 
+// ota0 partition size
 static uint32_t _flash_size;
 
 #define STATIC_ASSERT(_exp) _Static_assert(_exp, "static assert failed")
@@ -367,7 +367,7 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
     // EXCEPTIONS:
     // 1. Clusters 0 and 1 require special handling
     // 2. Final cluster of each file must be set to END_OF_CHAIN
-    // 
+    //
 
     // Set default FAT values first.
     for (uint16_t i = 0; i < FAT_ENTRIES_PER_SECTOR; i++)
@@ -461,7 +461,7 @@ void uf2_read_block (uint32_t block_no, uint8_t *data)
     FileContent_t const * inf = &info[fid];
 
     uint32_t fileRelativeSector = sectionRelativeSector - (info[fid].cluster_start-2) * BPB_SECTORS_PER_CLUSTER;
-    
+
     if ( fid != FID_UF2 )
     {
       // Handle all files other than CURRENT.UF2

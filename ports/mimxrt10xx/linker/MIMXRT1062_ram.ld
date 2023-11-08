@@ -11,7 +11,7 @@ _ocram_size = 256K;
 
 /* The default FlexRAM config has 128k ITCM so use it. */
 
-/* Reference Manual suggests avoiding addresses 0x0 through 0x3 */ 
+/* Reference Manual suggests avoiding addresses 0x0 through 0x3 */
 /* in section 9.6.1.2, so start at 0x1000 */
 _fcfb_origin = 0x1000;
 

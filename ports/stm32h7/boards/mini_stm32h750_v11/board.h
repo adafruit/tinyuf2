@@ -107,8 +107,8 @@ extern "C" {
 #define DISPLAY_CTRL_PIN  GPIO_PIN_13
 #define DISPLAY_MOSI_PIN  GPIO_PIN_14
 #define DISPLAY_PORT      GPIOE
-// The display is 160x80 but the code expects a larger frambuffer
-// The display is misconfigured, to make the existing frambuffer look pretty
+// The display is 160x80 but the code expects a larger framebuffer
+// The display is misconfigured, to make the existing framebuffer look pretty
 // on the screen. The complete framebuffer is not displayed
 #define DISPLAY_HEIGHT    128
 #define DISPLAY_WIDTH     161
@@ -124,17 +124,17 @@ static inline void clock_init(void)
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
   RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
 
-  // Supply configuration update enable 
+  // Supply configuration update enable
   HAL_PWREx_ConfigSupply(PWR_LDO_SUPPLY);
-  
-  // Configure the main internal regulator output voltage 
+
+  // Configure the main internal regulator output voltage
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE2);
   while(!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) {}
 
-  // Configure the PLL clock source 
+  // Configure the PLL clock source
   __HAL_RCC_PLL_PLLSOURCE_CONFIG(RCC_PLLSOURCE_HSE);
 
-  // Initializes the CPU, AHB and APB busses clocks 
+  // Initializes the CPU, AHB and APB busses clocks
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI|RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.LSIState = RCC_LSI_ON;
@@ -150,7 +150,7 @@ static inline void clock_init(void)
   RCC_OscInitStruct.PLL.PLLFRACN = 0;
   HAL_RCC_OscConfig(&RCC_OscInitStruct);
 
-  // Initializes the CPU, AHB and APB busses clocks 
+  // Initializes the CPU, AHB and APB busses clocks
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2
                               |RCC_CLOCKTYPE_D3PCLK1|RCC_CLOCKTYPE_D1PCLK1;
@@ -181,7 +181,7 @@ static inline void clock_init(void)
   PeriphClkInitStruct.RTCClockSelection = RCC_RTCCLKSOURCE_LSI;
   HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct);
 
-  // Enable USB Voltage detector 
+  // Enable USB Voltage detector
   HAL_PWREx_EnableUSBVoltageDetector();
 }
 
@@ -318,7 +318,7 @@ static inline void spi_flash_init(SPI_HandleTypeDef * pspi)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_MEDIUM;
   GPIO_InitStruct.Alternate = GPIO_AF5_SPI1;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-  
+
   __HAL_RCC_SPI1_CLK_ENABLE();
   pspi->Instance = SPI1;
   pspi->Init.Mode = SPI_MODE_MASTER;

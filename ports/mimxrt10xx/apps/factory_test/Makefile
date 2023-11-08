@@ -21,4 +21,3 @@ all:
 	@echo This app is only board only built for metro_m7_1011
 
 endif
-
