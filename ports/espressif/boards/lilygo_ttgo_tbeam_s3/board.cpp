@@ -27,7 +27,7 @@ static XPowersPMU PMU;
 #endif /* CONFIG_XPOWERS_CHIP_AXP2102 */
 
 
-#define I2C_MASTER_NUM                  CONFIG_I2C_MASTER_PORT_NUM
+#define I2C_MASTER_NUM                  ((i2c_port_t) CONFIG_I2C_MASTER_PORT_NUM)
 #define I2C_MASTER_FREQ_HZ              CONFIG_I2C_MASTER_FREQUENCY /*!< I2C master clock frequency */
 #define I2C_MASTER_SDA_IO               (gpio_num_t)CONFIG_PMU_I2C_SDA
 #define I2C_MASTER_SCL_IO               (gpio_num_t)CONFIG_PMU_I2C_SCL
