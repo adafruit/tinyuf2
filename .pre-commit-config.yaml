@@ -19,7 +19,6 @@ repos:
         lib/|
         .idea/
       )
-  - id: forbid-submodules
 
 - repo: https://github.com/codespell-project/codespell
   rev: v2.2.4
