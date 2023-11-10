@@ -68,7 +68,7 @@ void board_flash_init(void)
     FLASH_GetProperty(&bf_flash_config, kFLASH_PropertyPflash0TotalSize, &pflashTotalSize);
     FLASH_GetProperty(&bf_flash_config, kFLASH_PropertyPflash0SectorSize, &pflashSectorSize);
 
-    TU_LOG1("Base: 0x%08lX,  Total: 0x%08lX,  Sector: 0x%08lX\r\n", 
+    TU_LOG1("Base: 0x%08lX,  Total: 0x%08lX,  Sector: 0x%08lX\r\n",
             pflashBlockBase, pflashTotalSize, pflashSectorSize);
 }
 
@@ -95,7 +95,7 @@ void board_flash_flush(void)
   // skip matching contents
   if ( memcmp(bf_flash_cache, (void*) bf_flash_page_addr, FLASH_PAGE_SIZE) ) {
     TU_LOG1("Clear cache prefetch speculation for flush operation.\r\n");
-        
+
     /* Pre-preparation work about flash Cache/Prefetch/Speculation. */
     FTFx_CACHE_ClearCachePrefetchSpeculation(&bf_cache_config, true);
 
@@ -125,7 +125,7 @@ void board_flash_write (uint32_t addr, void const *data, uint32_t len)
 {
   uint32_t newAddr = addr & ~(FLASH_PAGE_SIZE - 1);
   // int32_t result;
-    
+
   if (newAddr != bf_flash_page_addr) {
     board_flash_flush();
     bf_flash_page_addr = newAddr;
@@ -138,7 +138,7 @@ void board_flash_write (uint32_t addr, void const *data, uint32_t len)
   memcpy(bf_flash_cache + (addr & (FLASH_PAGE_SIZE - 1)), data, len);
 }
 
- 
+
 void board_flash_erase_app(void)
 {
   // TODO implement later

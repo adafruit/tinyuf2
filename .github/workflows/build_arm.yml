@@ -46,7 +46,7 @@ jobs:
         - 'sparkfun_stm32_thing_plus'
         # stm32l4
         - 'swan_r5'
-        
+
     steps:
     - name: Setup Python
       uses: actions/setup-python@v4

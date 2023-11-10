@@ -1,6 +1,8 @@
 # TinyUF2 "Bootloader Application" for ESP32-S2 and ESP32-S3
 
-The project is composed of customizing the 2nd stage bootloader from IDF and UF2 factory application as 3rd stage bootloader. **Note**: since IDF is actively developed and change very often, it is included as submodule at `lib/esp-idf`, please run export script there to have your environment setup correctly.
+The project is composed of customizing the 2nd stage bootloader from IDF and UF2 factory application as 3rd stage bootloader.
+
+**Note**: IDF is actively developed and change very often, TinyUF2 is developed and tested with IDF v5.1.1. Should you have a problem please try to change your IDF version.
 
 Following boards are supported:
 
@@ -33,7 +35,7 @@ Following boards are supported:
 
 ### Build
 
-You will need to download and [set up ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/get-started/) or [set up ESP-IDF for ESP32-S3](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/get-started/). The IDF version is developed and tested by TinyUF2 is at `lib/esp-idf`
+Once installed and setup ESP-IDF, you can build with all target
 
 ```
 make BOARD=adafruit_feather_esp32s2 all

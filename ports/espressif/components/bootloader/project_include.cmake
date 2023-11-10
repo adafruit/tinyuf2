@@ -11,8 +11,9 @@ endif()
 #
 idf_build_get_property(build_dir BUILD_DIR)
 set(BOOTLOADER_BUILD_DIR "${build_dir}/bootloader")
+set(BOOTLOADER_ELF_FILE "${BOOTLOADER_BUILD_DIR}/bootloader.elf")
 set(bootloader_binary_files
-    "${BOOTLOADER_BUILD_DIR}/bootloader.elf"
+    "${BOOTLOADER_ELF_FILE}"
     "${BOOTLOADER_BUILD_DIR}/bootloader.bin"
     "${BOOTLOADER_BUILD_DIR}/bootloader.map"
     )
@@ -30,9 +31,9 @@ if(CONFIG_SECURE_SIGNED_APPS)
     add_custom_target(gen_secure_boot_keys)
 
     if(CONFIG_SECURE_SIGNED_APPS_ECDSA_SCHEME)
-        set(secure_apps_signing_scheme "1")
-    elseif(CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME)
-        set(secure_apps_signing_scheme "2")
+        set(secure_apps_signing_version "1")
+    elseif(CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME OR CONFIG_SECURE_SIGNED_APPS_ECDSA_V2_SCHEME)
+        set(secure_apps_signing_version "2")
     endif()
 
     if(CONFIG_SECURE_BOOT_V1_ENABLED)
@@ -64,10 +65,22 @@ if(CONFIG_SECURE_SIGNED_APPS)
             # If the signing key is not found, create a phony gen_secure_boot_signing_key target that
             # fails the build. fail_at_build_time causes a cmake run next time
             # (to pick up a new signing key if one exists, etc.)
-            fail_at_build_time(gen_secure_boot_signing_key
-                "Secure Boot Signing Key ${CONFIG_SECURE_BOOT_SIGNING_KEY} does not exist. Generate using:"
-                "\tespsecure.py generate_signing_key --version ${secure_apps_signing_scheme} \
-                ${CONFIG_SECURE_BOOT_SIGNING_KEY}")
+            if(CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME)
+                fail_at_build_time(gen_secure_boot_signing_key
+                    "Secure Boot Signing Key ${CONFIG_SECURE_BOOT_SIGNING_KEY} does not exist. Generate using:"
+                    "\tespsecure.py generate_signing_key --version ${secure_apps_signing_version} \
+                    ${CONFIG_SECURE_BOOT_SIGNING_KEY}")
+            else()
+                if(CONFIG_SECURE_BOOT_ECDSA_KEY_LEN_192_BITS)
+                    set(scheme "ecdsa192")
+                elseif(CONFIG_SECURE_BOOT_ECDSA_KEY_LEN_256_BITS)
+                    set(scheme "ecdsa256")
+                endif()
+                fail_at_build_time(gen_secure_boot_signing_key
+                    "Secure Boot Signing Key ${CONFIG_SECURE_BOOT_SIGNING_KEY} does not exist. Generate using:"
+                    "\tespsecure.py generate_signing_key --version ${secure_apps_signing_version} \
+                    --scheme ${scheme} ${CONFIG_SECURE_BOOT_SIGNING_KEY}")
+            endif()
         else()
             add_custom_target(gen_secure_boot_signing_key)
         endif()
@@ -120,10 +133,6 @@ externalproject_add(bootloader
                 -DPROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}
                 -DBOARD=${BOARD}
                 ${sign_key_arg} ${ver_key_arg}
-                # LEGACY_INCLUDE_COMMON_HEADERS has to be passed in via cache variable since
-                # the bootloader common component requirements depends on this and
-                # config variables are not available before project() call.
-                -DLEGACY_INCLUDE_COMMON_HEADERS=${CONFIG_LEGACY_INCLUDE_COMMON_HEADERS}
                 ${extra_cmake_args}
     INSTALL_COMMAND ""
     BUILD_ALWAYS 1  # no easy way around this...
@@ -140,5 +149,5 @@ endif()
 #
 # So for now we just have the top-level build remove the final build products...
 set_property(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" APPEND PROPERTY
-    ADDITIONAL_MAKE_CLEAN_FILES
+    ADDITIONAL_CLEAN_FILES
     ${bootloader_binary_files})

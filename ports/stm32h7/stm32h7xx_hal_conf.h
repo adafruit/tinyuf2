@@ -172,7 +172,7 @@
 #define  USE_HAL_ADC_REGISTER_CALLBACKS     0U /* ADC register callback disabled     */
 #define  USE_HAL_CEC_REGISTER_CALLBACKS     0U /* CEC register callback disabled     */
 #define  USE_HAL_COMP_REGISTER_CALLBACKS    0U /* COMP register callback disabled    */
-#define  USE_HAL_CORDIC_REGISTER_CALLBACKS  0U /* CORDIC register callback disabled  */ 
+#define  USE_HAL_CORDIC_REGISTER_CALLBACKS  0U /* CORDIC register callback disabled  */
 #define  USE_HAL_CRYP_REGISTER_CALLBACKS    0U /* CRYP register callback disabled    */
 #define  USE_HAL_DAC_REGISTER_CALLBACKS     0U /* DAC register callback disabled     */
 #define  USE_HAL_DCMI_REGISTER_CALLBACKS    0U /* DCMI register callback disabled    */
@@ -182,7 +182,7 @@
 #define  USE_HAL_DTS_REGISTER_CALLBACKS     0U /* DTS register callback disabled     */
 #define  USE_HAL_ETH_REGISTER_CALLBACKS     0U /* ETH register callback disabled     */
 #define  USE_HAL_FDCAN_REGISTER_CALLBACKS   0U /* FDCAN register callback disabled   */
-#define  USE_HAL_FMAC_REGISTER_CALLBACKS    0U /* FMAC register callback disabled  */ 
+#define  USE_HAL_FMAC_REGISTER_CALLBACKS    0U /* FMAC register callback disabled  */
 #define  USE_HAL_NAND_REGISTER_CALLBACKS    0U /* NAND register callback disabled    */
 #define  USE_HAL_NOR_REGISTER_CALLBACKS     0U /* NOR register callback disabled     */
 #define  USE_HAL_SDRAM_REGISTER_CALLBACKS   0U /* SDRAM register callback disabled   */

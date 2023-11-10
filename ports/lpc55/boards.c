@@ -138,7 +138,7 @@ void board_flash_write (uint32_t addr, void const *data, uint32_t len)
 {
   uint32_t newAddr = addr & ~(FLASH_PAGE_SIZE - 1);
   int32_t status;
-    
+
   if (newAddr != _flash_page_addr) {
     board_flash_flush();
     _flash_page_addr = newAddr;
@@ -280,7 +280,7 @@ void board_dfu_init(void)
   CLOCK_EnableClock(kCLOCK_Usbh1);
   /* Put PHY powerdown under software control */
   USBHSH->PORTMODE = USBHSH_PORTMODE_SW_PDCOM_MASK;
-  /* According to reference mannual, device mode setting has to be set by access usb host register */
+  /* According to reference manual, device mode setting has to be set by access usb host register */
   USBHSH->PORTMODE |= USBHSH_PORTMODE_DEV_ENABLE_MASK;
   /* enable usb1 host clock */
   CLOCK_DisableClock(kCLOCK_Usbh1);
@@ -293,7 +293,7 @@ void board_dfu_init(void)
   CLOCK_AttachClk(kFRO_HF_to_USB0_CLK);
   /* enable usb0 host clock */
   CLOCK_EnableClock(kCLOCK_Usbhsl0);
-  /*According to reference mannual, device mode setting has to be set by access usb host register */
+  /*According to reference manual, device mode setting has to be set by access usb host register */
   USBFSH->PORTMODE |= USBFSH_PORTMODE_DEV_ENABLE_MASK;
   /* disable usb0 host clock */
   CLOCK_DisableClock(kCLOCK_Usbhsl0);

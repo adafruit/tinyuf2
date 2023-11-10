@@ -47,7 +47,7 @@ void board_init(void)
   CLOCK_EnableClock(LED_CLK_PORT);
   gpio_pin_config_t led_config = { kGPIO_DigitalOutput, 0 };
   GPIO_PinInit(LED_GPIO, LED_PIN, &led_config);
-  PORT_SetPinMux(LED_PORT, LED_PIN, kPORT_MuxAsGpio);  
+  PORT_SetPinMux(LED_PORT, LED_PIN, kPORT_MuxAsGpio);
 #endif
 
 #ifdef KUIIC_RGB_LED
@@ -59,10 +59,10 @@ void board_init(void)
   gpio_pin_config_t button_config = { kGPIO_DigitalInput, 0 };
   GPIO_PinInit(BUTTON_GPIO, BUTTON_PIN, &button_config);
   const port_pin_config_t BUTTON_CFG = {
-    kPORT_PullUp, 
-    kPORT_FastSlewRate, 
-    kPORT_PassiveFilterDisable, 
-    kPORT_LowDriveStrength, 
+    kPORT_PullUp,
+    kPORT_FastSlewRate,
+    kPORT_PassiveFilterDisable,
+    kPORT_LowDriveStrength,
     kPORT_MuxAsGpio
   };
   PORT_SetPinConfig(BUTTON_PORT, BUTTON_PIN, &BUTTON_CFG);

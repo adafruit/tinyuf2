@@ -1,4 +1,4 @@
-/* 
+/*
  * The MIT License (MIT)
  *
  * Copyright (c) 2020 Ha Thach (tinyusb.org) for Adafruit Industries
@@ -66,7 +66,7 @@
 #define TCA9554_OUTPUT_PORT_REG         0x01
 #define TCA9554_POLARITY_INVERSION_REG  0x02
 #define TCA9554_CONFIGURATION_REG       0x03
-#define TCA9554_DEFAULT_CONFIG          0b10100000            
+#define TCA9554_DEFAULT_CONFIG          0b10100000
 #define TCA9554_DEFAULT_VALUE           0b11100000             //Enable peripheral power and ws2812 data in
 #define TCA9554_PERI_POWER_ON_VALUE     0b11100000             //Enable peripheral power and ws2812 data in
 #define TCA9554_PERI_POWER_OFF_VALUE    0b11110000             //Disable Peripheral power

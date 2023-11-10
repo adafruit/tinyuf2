@@ -24,18 +24,18 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/timers.h"
 
-#include "esp_rom_gpio.h"
+#include "driver/rmt.h"
 #include "hal/gpio_ll.h"
 #include "hal/usb_hal.h"
 #include "soc/usb_periph.h"
-
-#include "driver/periph_ctrl.h"
-#include "driver/rmt.h"
+#include "esp_private/periph_ctrl.h"
 
 #include "esp_partition.h"
 #include "esp_ota_ops.h"
+#include "esp_mac.h"
+#include "esp_timer.h"
+
 #include "board_api.h"
 
 #ifndef TINYUF2_SELF_UPDATE
@@ -161,16 +161,16 @@ void board_init(void)
   i2c_master_write_byte(cmd, TCA9554_CONFIGURATION_REG, true);
   i2c_master_write_byte(cmd, TCA9554_DEFAULT_CONFIG, true);
   i2c_master_stop(cmd);
-  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_RATE_MS);
+  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_PERIOD_MS);
   i2c_cmd_link_delete(cmd);
-  vTaskDelay(30 / portTICK_RATE_MS);
+  vTaskDelay(30 / portTICK_PERIOD_MS);
   cmd = i2c_cmd_link_create();
   i2c_master_start(cmd);
   i2c_master_write_byte(cmd, TCA9554_ADDR << 1 | I2C_MASTER_WRITE, true);
   i2c_master_write_byte(cmd, TCA9554_OUTPUT_PORT_REG, true);
   i2c_master_write_byte(cmd, TCA9554_DEFAULT_VALUE, true);
   i2c_master_stop(cmd);
-  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_RATE_MS);
+  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_PERIOD_MS);
   i2c_cmd_link_delete(cmd);
 
 #endif
@@ -182,7 +182,7 @@ void board_init(void)
   i2c_master_write_byte(cmd, AW9523_REG_SOFTRESET, true);
   i2c_master_write_byte(cmd, 0, true);
   i2c_master_stop(cmd);
-  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_RATE_MS);
+  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_PERIOD_MS);
   i2c_cmd_link_delete(cmd);
 
   cmd = i2c_cmd_link_create();
@@ -192,7 +192,7 @@ void board_init(void)
   i2c_master_write_byte(cmd, AW9523_DEFAULT_CONFIG >> 8, true);
   i2c_master_write_byte(cmd, AW9523_DEFAULT_CONFIG & 0xff, true);
   i2c_master_stop(cmd);
-  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_RATE_MS);
+  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_PERIOD_MS);
   i2c_cmd_link_delete(cmd);
 
   cmd = i2c_cmd_link_create();
@@ -202,7 +202,7 @@ void board_init(void)
   i2c_master_write_byte(cmd, AW9523_DEFAULT_OUTPUT >> 8, true);
   i2c_master_write_byte(cmd, AW9523_DEFAULT_OUTPUT & 0xff, true);
   i2c_master_stop(cmd);
-  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_RATE_MS);
+  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_PERIOD_MS);
   i2c_cmd_link_delete(cmd);
 #endif
 
@@ -492,13 +492,14 @@ static void configure_pins(usb_hal_context_t *usb)
         esp_rom_gpio_connect_out_signal(iopin->pin, iopin->func, false, false);
       } else {
         esp_rom_gpio_connect_in_signal(iopin->pin, iopin->func, false);
-        if ((iopin->pin != GPIO_FUNC_IN_LOW) && (iopin->pin != GPIO_FUNC_IN_HIGH)) {
+        if ((iopin->pin != GPIO_MATRIX_CONST_ZERO_INPUT) && (iopin->pin != GPIO_MATRIX_CONST_ONE_INPUT)) {
           gpio_ll_input_enable(&GPIO, iopin->pin);
         }
       }
       esp_rom_gpio_pad_unhold(iopin->pin);
     }
   }
+
   if (!usb->use_external_phy) {
     gpio_set_drive_capability(USBPHY_DM_NUM, GPIO_DRIVE_CAP_3);
     gpio_set_drive_capability(USBPHY_DP_NUM, GPIO_DRIVE_CAP_3);

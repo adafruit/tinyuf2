@@ -9,10 +9,10 @@ This repo is cross-platform UF2 Bootloader projects for MCUs based on [TinyUSB](
 ├── apps              # Useful applications such as self-update, erase firmware
 ├── lib               # Sources from 3rd party such as tinyusb, mcu drivers ...
 ├── ports             # Port/family specific sources
-│   ├── espressif
-│   │   └── boards/   # Board specific sources
-│   │   └── Makefile  # Makefile for this port
-│   └── mimxrt10xx         
+│   ├── espressif
+│   │   └── boards/   # Board specific sources
+│   │   └── Makefile  # Makefile for this port
+│   └── mimxrt10xx
 ├── src               # Cross-platform bootloader sources files
 ```
 
@@ -49,7 +49,7 @@ To build this for a specific board, we need to change current directory to its p
 $ cd ports/stm32f4
 ```
 
-Firstly we need to get all of submodule dependecy for our board e.g mcu driver with `get-deps` target. You only need to do this once for each mcu family
+Firstly we need to get all of submodule dependency for our board e.g mcu driver with `get-deps` target. You only need to do this once for each mcu family
 
 ```
 make BOARD=feather_stm32f405_express get-deps
@@ -81,7 +81,7 @@ $ make BOARD=feather_stm32f405_express DEBUG=1 all
 
 #### Log
 
-Should you have an issue running example and/or submitting an bug report. You could enable TinyUSB built-in debug logging with optional `LOG=`. 
+Should you have an issue running example and/or submitting an bug report. You could enable TinyUSB built-in debug logging with optional `LOG=`.
 - **LOG=1** will print message from bootloader and error if any from TinyUSB stack.
 - **LOG=2** and **LOG=3** will print more information with TinyUSB stack events
 
@@ -91,7 +91,7 @@ $ make BOARD=feather_stm32f405_express LOG=1 all
 
 #### Logger
 
-By default log message is printed via on-board UART which is slow and take lots of CPU time comparing to USB speed. If your board support on-board/external debugger, it would be more efficient to use it for logging. There are 2 protocols: 
+By default log message is printed via on-board UART which is slow and take lots of CPU time comparing to USB speed. If your board support on-board/external debugger, it would be more efficient to use it for logging. There are 2 protocols:
 
 - `LOGGER=rtt`: use [Segger RTT protocol](https://www.segger.com/products/debug-probes/j-link/technology/about-real-time-transfer/)
   - Cons: requires jlink as the debugger.

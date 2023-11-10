@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 /* Simplified memory map for the bootloader.
  * Make sure the bootloader can load into main memory without overwriting itself.
  */
@@ -5,8 +10,8 @@
 
 MEMORY
 {
-  iram_seg (RWX) :                  org = 0x4004c000, len = 0x4000  /* SRAM Block 13 */
-  iram_loader_seg (RWX) :           org = 0x40050000, len = 0x6000  /* SRAM Block 14 & part of 15 */
+  iram_seg (RWX) :                  org = 0x4004B000, len = 0x4000  /* SRAM part of block 12 and 13 */
+  iram_loader_seg (RWX) :           org = 0x4004F000, len = 0x7000  /* SRAM part of block 13, Block 14 & part of 15 */
   dram_seg (RW) :                   org = 0x3FFE6000, len = 0x4B00  /* Part SRAM Blocks 15 & 16, ROM static buffer starts at end of this region (reclaimed after app runs) */
 }
 
@@ -31,7 +36,7 @@ SECTIONS
     *libbootloader_support.a:bootloader_random.*(.literal .text .literal.* .text.*)
     *libbootloader_support.a:bootloader_random*.*(.literal.bootloader_random_disable .text.bootloader_random_disable)
     *libesp_common.a:fpga_overrides.*(.literal.bootloader_fill_random .text.bootloader_fill_random)
-    *libbootloader_support.a:bootloader_efuse_esp32s2.*(.literal .text .literal.* .text.*)
+    *libbootloader_support.a:bootloader_efuse.*(.literal .text .literal.* .text.*)
     *libbootloader_support.a:bootloader_utility.*(.literal .text .literal.* .text.*)
     *libbootloader_support.a:bootloader_sha.*(.literal .text .literal.* .text.*)
     *libbootloader_support.a:bootloader_console_loader.*(.literal .text .literal.* .text.*)
@@ -47,10 +52,14 @@ SECTIONS
     *libmicro-ecc.a:*.*(.literal .text .literal.* .text.*)
     *libspi_flash.a:*.*(.literal .text .literal.* .text.*)
     *libhal.a:wdt_hal_iram.*(.literal .text .literal.* .text.*)
+    *libhal.a:mmu_hal.*(.literal .text .literal.* .text.*)
+    *libhal.a:cache_hal.*(.literal .text .literal.* .text.*)
+    *libhal.a:efuse_hal.*(.literal .text .literal.* .text.*)
     *libesp_hw_support.a:rtc_clk.*(.literal .text .literal.* .text.*)
     *libesp_hw_support.a:rtc_time.*(.literal .text .literal.* .text.*)
     *libesp_hw_support.a:regi2c_ctrl.*(.literal .text .literal.* .text.*)
     *libefuse.a:*.*(.literal .text .literal.* .text.*)
+    *libesp_rom.a:esp_rom_regi2c.*(.literal .text .literal.* .text.*)
     *(.fini.literal)
     *(.fini)
     *(.gnu.version)
@@ -99,8 +108,6 @@ SECTIONS
     *(.sdata)
     *(.sdata.*)
     *(.gnu.linkonce.s.*)
-    *(.sdata2)
-    *(.sdata2.*)
     *(.gnu.linkonce.s2.*)
     *(.jcr)
     _data_end = ABSOLUTE(.);
@@ -113,6 +120,7 @@ SECTIONS
     *(.rodata.*)
     *(.gnu.linkonce.r.*)
     *(.rodata1)
+    *(.sdata2 .sdata2.*)
     __XT_EXCEPTION_TABLE_ = ABSOLUTE(.);
     *(.xt_except_table)
     *(.gcc_except_table)
@@ -170,5 +178,24 @@ SECTIONS
     _text_end = ABSOLUTE(.);
     _etext = .;
   } > iram_seg
+
+  /** This section will be used by the debugger and disassembler to get more information
+   * about raw data present in the code.
+   * Indeed, it may be required to add some padding at some points in the code
+   * in order to align a branch/jump destination on a particular bound.
+   * Padding these instructions will generate null bytes that shall be
+   * interpreted as data, and not code by the debugger or disassembler.
+   * This section will only be present in the ELF file, not in the final binary
+   * For more details, check GCC-212
+   */
+  .xt.prop 0 :
+  {
+    KEEP (*(.xt.prop .gnu.linkonce.prop.*))
+  }
+
+  .xt.lit 0 :
+  {
+    KEEP (*(.xt.lit .gnu.linkonce.p.*))
+  }
 
 }

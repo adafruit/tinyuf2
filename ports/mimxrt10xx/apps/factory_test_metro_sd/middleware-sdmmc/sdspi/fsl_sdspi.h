@@ -39,8 +39,8 @@
 #endif
 
 /*! @brief This macro is used to enable or disable the CRC protection for SD card
- * command. The SPI interface is intialized in the CRC off mode by default.However, the
- * RESET command(cmd0) that is used to switch the card to SPI mode, is recieved by by the card
+ * command. The SPI interface is initialized in the CRC off mode by default.However, the
+ * RESET command(cmd0) that is used to switch the card to SPI mode, is received by by the card
  * while in SD mode and therefore, shall have a valid CRC filed, after the card put into SPI mode
  * , CRC check for all command include CMD0 will be done according to CMD59 setting, host can turn
  * CRC option on and off using the CMD59, this command should be call before ACMD41.
@@ -77,7 +77,7 @@ enum
     kStatus_SDSPI_StopTransmissionFailed = MAKE_STATUS(kStatusGroup_SDSPI, 15U), /*!< Stop transmission failed */
     kStatus_SDSPI_SendApplicationCommandFailed =
         MAKE_STATUS(kStatusGroup_SDSPI, 16U),                            /*!< Send application command failed */
-    kStatus_SDSPI_InvalidVoltage = MAKE_STATUS(kStatusGroup_SDSPI, 17U), /*!< invaild supply voltage */
+    kStatus_SDSPI_InvalidVoltage = MAKE_STATUS(kStatusGroup_SDSPI, 17U), /*!< invalid supply voltage */
     kStatus_SDSPI_SwitchCmdFail  = MAKE_STATUS(kStatusGroup_SDSPI, 18U), /*!< switch command crc protection on/off */
     kStatus_SDSPI_NotSupportYet  = MAKE_STATUS(kStatusGroup_SDSPI, 19U), /*!< not support */
 
@@ -276,13 +276,13 @@ status_t SDSPI_SendCid(sdspi_card_t *card);
 #if SDSPI_CARD_CRC_PROTECTION_ENABLE
 /*!
  * @brief Command CRC protection on/off.
- * The SPI interface is intialized in the CRC off mode in default.However, the
- * RESET command(cmd0) that is used to switch the card to SPI mode, is recieved by by the card
+ * The SPI interface is initialized in the CRC off mode in default.However, the
+ * RESET command(cmd0) that is used to switch the card to SPI mode, is received by by the card
  * while in SD mode and therefore, shall have a valid CRC filed, after the card put into SPI mode
  * , CRC check for all command include CMD0 will be done according to CMD59 setting, host can turn
  * CRC option on and off using the CMD59, this command should be call before ACMD41.
  * @param card Card descriptor.
- * @param enable true is enable command crc protection, false is diable command crc protection.
+ * @param enable true is enable command crc protection, false is disable command crc protection.
  * @retval kStatus_SDSPI_SendCommandFailed Send command failed.
  * @retval kStatus_Success Operate successfully.
  */

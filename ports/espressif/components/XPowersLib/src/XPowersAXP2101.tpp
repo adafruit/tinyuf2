@@ -174,7 +174,7 @@ typedef enum {
     XPOWER_POWERON_SRC_BAT_CHARGE,                      //Vbus Insert and Good as POWERON Source
     XPOWER_POWERON_SRC_BAT_INSERT,                      //Battery Insert and Good as POWERON Source
     XPOWER_POWERON_SRC_ENMODE,                          //POWERON always high when EN Mode as POWERON Source
-    XPOWER_POWERON_SRC_UNKONW,                          //Unkonw
+    XPOWER_POWERON_SRC_UNKONW,                          //Unknown
 } xpower_power_on_source_t;
 
 typedef enum {
@@ -186,7 +186,7 @@ typedef enum {
     XPOWER_POWEROFF_SRC_UNDER_VOL,                  //DCDC Under Voltage as POWEROFF Source
     XPOWER_POWEROFF_SRC_OVER_VOL,                   //DCDC Over Voltage as POWEROFF Source
     XPOWER_POWEROFF_SRC_OVER_TEMP,                  //Die Over Temperature as POWEROFF Source
-    XPOWER_POWEROFF_SRC_UNKONW,                     //Unkonw
+    XPOWER_POWEROFF_SRC_UNKONW,                     //Unknown
 } xpower_power_off_source_t;
 
 typedef enum {
@@ -962,7 +962,8 @@ public:
     {
         int val = readRegister(XPOWERS_AXP2101_SLEEP_WAKEUP_CTRL);
         if (val == -1)return;
-        enable ? (val | opt) : (val & (~opt));
+        //enable ? (val | opt) : (val & (~opt));
+        (void) enable;
         writeRegister(XPOWERS_AXP2101_SLEEP_WAKEUP_CTRL, val | opt);
     }
 
@@ -2079,7 +2080,7 @@ public:
 
 
     /*
-     * Power ON OFF IRQ TIMMING Control method
+     * Power ON OFF IRQ TIMING Control method
      */
 
     void setIrqLevelTime(xpowers_irq_time_t opt)
@@ -2502,7 +2503,7 @@ public:
 #endif
 
     /**
-     * @brief  Eanble PMU interrupt control mask .
+     * @brief  Enable PMU interrupt control mask .
      * @param  opt: View the related chip type xpowers_axp2101_irq_t enumeration
      *              parameters in "XPowersParams.hpp"
      * @retval
@@ -2991,6 +2992,3 @@ private:
     uint8_t statusRegister[XPOWERS_AXP2101_INTSTS_CNT];
     uint8_t intRegister[XPOWERS_AXP2101_INTSTS_CNT];
 };
-
-
-

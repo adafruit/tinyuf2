@@ -182,7 +182,7 @@ void board_flash_erase_app(void)
 
 bool board_flash_protect_bootloader(bool protect)
 {
-  // F3 reset everytime Option Bytes is programmed
+  // F3 reset every time Option Bytes is programmed
   // skip protecting bootloader if we just reset by option byte changes
   // since we want to disable protect mode for e.g self-updating
   if ( board_reset_by_option_bytes() ) {

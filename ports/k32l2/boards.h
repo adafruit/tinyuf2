@@ -1,4 +1,4 @@
-/* 
+/*
  * The MIT License (MIT)
  *
  * Copyright (c) 2020 Ha Thach (tinyusb.org) for Adafruit Industries
@@ -34,7 +34,7 @@
 
 #define TINYUF2_DFU_DOUBLE_TAP   1
 #define DBL_TAP_REG              RTC->TAR
-#define BOARD_FLASH_APP_START    0x8000 
+#define BOARD_FLASH_APP_START    0x8000
 //#define BOARD_FLASH_SIZE         (BOARD_FLASH_TOTAL - BOARD_FLASH_APP_START)
 
 #ifdef __cplusplus

@@ -42,4 +42,3 @@ status_t ROM_FLEXSPI_NorFlash_ProgramPage(uint32_t instance, flexspi_nor_config_
 #if !( defined(FSL_ROM_FLEXSPINOR_API_HAS_FEATURE_ERASE_ALL) && FSL_ROM_FLEXSPINOR_API_HAS_FEATURE_ERASE_ALL )
 status_t ROM_FLEXSPI_NorFlash_EraseAll(uint32_t instance, flexspi_nor_config_t *config);
 #endif
-

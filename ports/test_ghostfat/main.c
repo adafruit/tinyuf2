@@ -9,7 +9,7 @@
   #error "Reproducible build requirement - COMPILE_TIME"
 #endif
 
-// If the sector size changes, such as to support 4kn sectors in the generated FAT filesystem, 
+// If the sector size changes, such as to support 4kn sectors in the generated FAT filesystem,
 // then this will need to change also.
 #define GHOSTFAT_SECTOR_SIZE 512
 
@@ -291,7 +291,7 @@ int CompareDiskImages(void) {
                     i, fileOffset
                     );
                 // once get to mismatched INFO_UF2.TXT files,
-                // cannot later have mismatched directory entries 
+                // cannot later have mismatched directory entries
                 mismatchedDirectoryEntry = -2;
                 mismatchedInfoUF2Contents = i;
             } else {
@@ -371,7 +371,3 @@ errorExit:
     printf("FAIL: (%d) %s\n", r, GetErrorString(r));
     return r;
 }
-
-
-
-

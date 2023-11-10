@@ -1,4 +1,4 @@
-/* 
+/*
  * The MIT License (MIT)
  *
  * Copyright (c) 2020 Ha Thach (tinyusb.org) for Adafruit Industries
@@ -50,7 +50,7 @@
 //--------------------------------------------------------------------+
 
 #define USB_VID           0x303A  //Espressif USB VID
-#define USB_PID           0x80C7  //Allocated by Espressif for this board and purpose. 
+#define USB_PID           0x80C7  //Allocated by Espressif for this board and purpose.
 #define USB_MANUFACTURER  "Lolin"
 #define USB_PRODUCT       "S2 Pico"
 

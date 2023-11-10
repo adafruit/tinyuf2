@@ -75,7 +75,7 @@ jobs:
         gzip --keep ghostfat_${{ matrix.board }}.img
         gzip --keep --force --best ghostfat_${{ matrix.board }}.img.gz
         popd
-    
+
     - name: Save newly generated self-test images as CI artifacts
       if: always()
       uses: actions/upload-artifact@v3

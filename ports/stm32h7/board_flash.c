@@ -55,11 +55,11 @@ extern volatile uint32_t _board_tmp_boot_magic[];
 
 uint32_t board_get_app_start_address(void)
 {
-  if (TMP_BOOT_MAGIC == 0xDEADBEEFU) 
+  if (TMP_BOOT_MAGIC == 0xDEADBEEFU)
   {
     return TMP_BOOT_ADDR;
   }
-  else 
+  else
   {
     return BOARD_QSPI_APP_ADDR;
   }
@@ -172,7 +172,7 @@ void board_flash_write(uint32_t addr, void const * data, uint32_t len)
   {
     // SET_BOOT_ADDR(BOARD_AXISRAM_APP_ADDR);
     // handles erasing internally
-    if (W25qxx_Write((uint8_t *)data, (addr - QSPI_BASE_ADDR), len) != w25qxx_OK) 
+    if (W25qxx_Write((uint8_t *)data, (addr - QSPI_BASE_ADDR), len) != w25qxx_OK)
     {
       __asm("bkpt #9");
     }

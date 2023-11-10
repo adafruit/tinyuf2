@@ -26,7 +26,7 @@ static XPowersPMU PMU;
 
 #endif /* CONFIG_XPOWERS_CHIP_AXP2102 */
 
-#define I2C_MASTER_NUM                  1
+#define I2C_MASTER_NUM                  I2C_NUM_1
 #define I2C_MASTER_FREQ_HZ              100000 /*!< I2C master clock frequency */
 #define I2C_MASTER_SDA_IO               (gpio_num_t) 8
 #define I2C_MASTER_SCL_IO               (gpio_num_t) 9
@@ -61,7 +61,7 @@ int pmu_register_read(uint8_t devAddr, uint8_t regAddr, uint8_t *data, uint8_t l
     i2c_master_write_byte(cmd, (devAddr << 1) | WRITE_BIT, ACK_CHECK_EN);
     i2c_master_write_byte(cmd, regAddr, ACK_CHECK_EN);
     i2c_master_stop(cmd);
-    esp_err_t ret =  i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+    esp_err_t ret =  i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_PERIOD_MS);
     i2c_cmd_link_delete(cmd);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "PMU i2c_master_cmd_begin FAILED! > ");
@@ -75,7 +75,7 @@ int pmu_register_read(uint8_t devAddr, uint8_t regAddr, uint8_t *data, uint8_t l
     }
     i2c_master_read_byte(cmd, &data[len - 1], NACK_VAL);
     i2c_master_stop(cmd);
-    ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+    ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_PERIOD_MS);
     i2c_cmd_link_delete(cmd);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "PMU READ FAILED! > ");
@@ -97,7 +97,7 @@ int pmu_register_write_byte(uint8_t devAddr, uint8_t regAddr, uint8_t *data, uin
     i2c_master_write_byte(cmd, regAddr, ACK_CHECK_EN);
     i2c_master_write(cmd, data, len, ACK_CHECK_EN);
     i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+    esp_err_t ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_PERIOD_MS);
     i2c_cmd_link_delete(cmd);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "PMU WRITE FAILED! < ");
@@ -185,4 +185,3 @@ extern "C" bool board_init_extension()
 
   return true;
 }
-

@@ -932,4 +932,3 @@ void BOARD_BootClockRUN_528M(void)
     /* Set SystemCoreClock variable. */
     SystemCoreClock = BOARD_BOOTCLOCKRUN_528M_CORE_CLOCK;
 }
-

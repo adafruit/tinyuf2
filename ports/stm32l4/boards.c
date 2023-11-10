@@ -106,7 +106,7 @@ void board_dfu_init(void)
   #ifdef PWR_CR2_USV
   HAL_PWREx_EnableVddUSB();
   #endif
- 
+
   GPIO_InitTypeDef  GPIO_InitStruct;
 
   // USB Pin Init
@@ -294,7 +294,7 @@ void board_rgb_write(uint8_t const rgb[]) {
   uint32_t start;
   uint32_t cyc;
 
-  // Enable DWT in debug core. Useable when interrupts disabled, as opposed to
+  // Enable DWT in debug core. Usable when interrupts disabled, as opposed to
   // Systick->VAL
   CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
   DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;

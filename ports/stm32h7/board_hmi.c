@@ -59,7 +59,7 @@ void board_led_write(uint32_t state)
 uint32_t board_button_read(void)
 {
 #if defined(BUTTON_PIN)
-  return (BUTTON_STATE_ACTIVE == HAL_GPIO_ReadPin(BUTTON_PORT, BUTTON_PIN)) ? 1: 0; 
+  return (BUTTON_STATE_ACTIVE == HAL_GPIO_ReadPin(BUTTON_PORT, BUTTON_PIN)) ? 1: 0;
 #endif // defined(BUTTON_PIN)
 }
 

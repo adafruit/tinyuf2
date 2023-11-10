@@ -18,4 +18,3 @@ all:
 	@echo This board does not have ESP32 co-processor
 
 endif
-

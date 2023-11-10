@@ -83,7 +83,7 @@ typedef enum __xpowers_axp2101_chg_vol {
 } xpowers_axp2101_chg_vol_t;
 
 /**
- * @brief axp2101 charge currnet voltage parameters.
+ * @brief axp2101 charge current voltage parameters.
  */
 typedef enum __xpowers_axp2101_chg_curr {
     XPOWERS_AXP2101_CHG_CUR_0MA,
@@ -115,7 +115,7 @@ typedef enum __xpowers_axp192_chg_vol {
 } xpowers_axp192_chg_vol_t;
 
 /**
- * @brief axp192 charge currnet voltage parameters.
+ * @brief axp192 charge current voltage parameters.
  */
 typedef enum __xpowers_axp192_chg_curr {
     XPOWERS_AXP192_CHG_CUR_100MA,
@@ -140,7 +140,7 @@ typedef enum __xpowers_axp192_chg_curr {
 
 
 /**
- * @brief axp2101 vbus currnet limit parameters.
+ * @brief axp2101 vbus current limit parameters.
  */
 typedef enum {
     XPOWERS_AXP2101_VBUS_CUR_LIM_100MA,
@@ -152,7 +152,7 @@ typedef enum {
 } xpowers_axp2101_vbus_cur_limit_t;
 
 /**
- * @brief axp192 vbus currnet limit parameters.
+ * @brief axp192 vbus current limit parameters.
  */
 typedef enum {
     XPOWERS_AXP192_VBUS_CUR_LIM_500MA,
@@ -255,32 +255,3 @@ typedef enum __xpowers_axp2101_irq {
 
     XPOWERS_AXP2101_ALL_IRQ                  = (0xFFFFFFFFUL)
 } xpowers_axp2101_irq_t;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
