@@ -25,7 +25,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include "driver/rmt.h"
 #include "hal/gpio_ll.h"
 #include "hal/usb_hal.h"
 #include "soc/usb_periph.h"
@@ -35,6 +34,9 @@
 #include "esp_ota_ops.h"
 #include "esp_mac.h"
 #include "esp_timer.h"
+#include "esp_rom_gpio.h"
+
+#include "driver/gpio.h"
 
 #include "board_api.h"
 
@@ -50,7 +52,7 @@ static esp_timer_handle_t timer_hdl;
 
 #ifdef NEOPIXEL_PIN
 #include "led_strip.h"
-static led_strip_t *strip;
+static led_strip_handle_t led_strip;
 #endif
 
 #ifdef DOTSTAR_PIN_DATA
@@ -87,7 +89,9 @@ extern bool board_init_extension();
 #endif
 
 extern int main(void);
-static void configure_pins(usb_hal_context_t *usb);
+
+static void configure_pins(usb_hal_context_t* usb);
+
 static void internal_timer_cb(void* arg);
 
 //--------------------------------------------------------------------+
@@ -95,9 +99,7 @@ static void internal_timer_cb(void* arg);
 //--------------------------------------------------------------------+
 
 #ifdef TINYUF2_SELF_UPDATE
-
-void app_main(void)
-{
+void app_main(void) {
   main();
 }
 
@@ -107,28 +109,26 @@ void app_main(void)
 // Increase stack size when debug log is enabled
 #define USBD_STACK_SIZE     (4*1024)
 
-static StackType_t  usb_device_stack[USBD_STACK_SIZE];
+static StackType_t usb_device_stack[USBD_STACK_SIZE];
 static StaticTask_t usb_device_taskdef;
 
 // USB Device Driver task
 // This top level thread process all usb events and invoke callbacks
-void usb_device_task(void* param)
-{
+void usb_device_task(void* param) {
   (void) param;
 
   // RTOS forever loop
-  while (1)
-  {
+  while (1) {
     tud_task();
   }
 }
 
-void app_main(void)
-{
+void app_main(void) {
   main();
 
   // Create a task for tinyusb device stack
-  (void) xTaskCreateStatic( usb_device_task, "usbd", USBD_STACK_SIZE, NULL, configMAX_PRIORITIES-2, usb_device_stack, &usb_device_taskdef);
+  (void) xTaskCreateStatic(usb_device_task, "usbd", USBD_STACK_SIZE, NULL, configMAX_PRIORITIES - 2, usb_device_stack,
+                           &usb_device_taskdef);
 }
 
 #endif
@@ -137,8 +137,7 @@ void app_main(void)
 // Board API
 //--------------------------------------------------------------------+
 
-void board_init(void)
-{
+void board_init(void) {
 // Peripheral control through I2C Expander
 #if defined(TCA9554_ADDR) || defined(AW9523_ADDR)
   int i2c_num = I2C_MASTER_NUM;
@@ -172,7 +171,6 @@ void board_init(void)
   i2c_master_stop(cmd);
   i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_PERIOD_MS);
   i2c_cmd_link_delete(cmd);
-
 #endif
 
 #if defined(AW9523_ADDR)
@@ -207,7 +205,7 @@ void board_init(void)
 #endif
 
   i2c_driver_delete(i2c_num);
-#endif
+#endif // TCA9554_ADDR, AW9523_ADDR
 
 #ifdef LED_PIN
   ledc_timer_config_t ledc_timer =
@@ -230,16 +228,23 @@ void board_init(void)
   #endif
 
   // WS2812 Neopixel driver with RMT peripheral
-  rmt_config_t config = RMT_DEFAULT_CONFIG_TX(NEOPIXEL_PIN, RMT_CHANNEL_0);
-  config.clk_div = 2; // set counter clock to 40MHz
+  led_strip_rmt_config_t rmt_config = {
+      .clk_src = RMT_CLK_SRC_DEFAULT, // different clock source can lead to different power consumption
+      .resolution_hz = 10 * 1000 * 1000,  // RMT counter clock frequency, default = 10 Mhz
+      .flags.with_dma = false,        // DMA feature is available on ESP target like ESP32-S3
+  };
 
-  rmt_config(&config);
-  rmt_driver_install(config.channel, 0, 0);
+  led_strip_config_t strip_config = {
+      .strip_gpio_num = NEOPIXEL_PIN,           // The GPIO that connected to the LED strip's data line
+      .max_leds = NEOPIXEL_NUMBER,              // The number of LEDs in the strip,
+      .led_pixel_format = LED_PIXEL_FORMAT_GRB, // Pixel format of your LED strip
+      .led_model = LED_MODEL_WS2812,            // LED strip model
+      .flags.invert_out = false,                // whether to invert the output signal
+  };
 
-  led_strip_config_t strip_config = LED_STRIP_DEFAULT_CONFIG(NEOPIXEL_NUMBER, (led_strip_dev_t) config.channel);
-  strip = led_strip_new_rmt_ws2812(&strip_config);
-  strip->clear(strip, 100); // off led
-  strip->set_brightness(strip, NEOPIXEL_BRIGHTNESS);
+  ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &led_strip));
+
+  led_strip_clear(led_strip); // off
 #endif
 
 #ifdef DOTSTAR_PIN_DATA
@@ -255,51 +260,44 @@ void board_init(void)
   esp_timer_create(&periodic_timer_args, &timer_hdl);
 }
 
-void board_dfu_init(void)
-{
+void board_dfu_init(void) {
   // USB Controller Hal init
   periph_module_reset(PERIPH_USB_MODULE);
   periph_module_enable(PERIPH_USB_MODULE);
 
   usb_hal_context_t hal = {
-    .use_external_phy = false // use built-in PHY
+      .use_external_phy = false // use built-in PHY
   };
   usb_hal_init(&hal);
   configure_pins(&hal);
 }
 
-void board_reset(void)
-{
+void board_reset(void) {
   esp_restart();
 }
 
-void board_dfu_complete(void)
-{
+void board_dfu_complete(void) {
   // Set partition OTA0 as bootable and reset
   esp_ota_set_boot_partition(esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL));
   esp_restart();
 }
 
-bool board_app_valid(void)
-{
+bool board_app_valid(void) {
   // esp32s2 is always enter DFU mode
   return false;
 }
 
-void board_app_jump(void)
-{
+void board_app_jump(void) {
   // nothing to do
 }
 
-uint8_t board_usb_get_serial(uint8_t serial_id[16])
-{
+uint8_t board_usb_get_serial(uint8_t serial_id[16]) {
   // use factory default MAC as serial ID
   esp_efuse_mac_get_default(serial_id);
   return 6;
 }
 
-void board_led_write(uint32_t value)
-{
+void board_led_write(uint32_t value) {
   (void) value;
 
 #ifdef LED_PIN
@@ -308,14 +306,16 @@ void board_led_write(uint32_t value)
 #endif
 }
 
-void board_rgb_write(uint8_t const rgb[])
-{
+void board_rgb_write(uint8_t const rgb[]) {
 #ifdef NEOPIXEL_PIN
-  for(uint32_t i=0; i<NEOPIXEL_NUMBER; i++)
-  {
-    strip->set_pixel(strip, i, rgb[0], rgb[1], rgb[2]);
+  uint32_t const r = (rgb[0] * NEOPIXEL_BRIGHTNESS) >> 8;
+  uint32_t const g = (rgb[1] * NEOPIXEL_BRIGHTNESS) >> 8;
+  uint32_t const b = (rgb[2] * NEOPIXEL_BRIGHTNESS) >> 8;
+
+  for (uint32_t i = 0; i < NEOPIXEL_NUMBER; i++) {
+    led_strip_set_pixel(led_strip, i, r, g, b);
   }
-  strip->refresh(strip, 100);
+  led_strip_refresh(led_strip);
 #endif
 
 #ifdef DOTSTAR_PIN_DATA
@@ -327,20 +327,17 @@ void board_rgb_write(uint8_t const rgb[])
 // Timer
 //--------------------------------------------------------------------+
 
-static void internal_timer_cb(void*  arg)
-{
+static void internal_timer_cb(void* arg) {
   (void) arg;
   board_timer_handler();
 }
 
-void board_timer_start(uint32_t ms)
-{
+void board_timer_start(uint32_t ms) {
   esp_timer_stop(timer_hdl);
-  esp_timer_start_periodic(timer_hdl, ms*1000);
+  esp_timer_start_periodic(timer_hdl, ms * 1000);
 }
 
-void board_timer_stop(void)
-{
+void board_timer_stop(void) {
   esp_timer_stop(timer_hdl);
 }
 
@@ -403,11 +400,11 @@ uint8_t _dotstar_data[ (1+DOTSTAR_NUMBER+1) * 4];
 
 void dotstar_init(void)
 {
-  #ifdef DOTSTAR_PIN_PWR
+#ifdef DOTSTAR_PIN_PWR
   gpio_reset_pin(DOTSTAR_PIN_PWR);
   gpio_set_direction(DOTSTAR_PIN_PWR, GPIO_MODE_OUTPUT);
   gpio_set_level(DOTSTAR_PIN_PWR, DOTSTAR_POWER_STATE);
-  #endif
+#endif
 
   spi_bus_config_t bus_cfg =
   {
@@ -479,13 +476,12 @@ void dotstar_write(uint8_t const rgb[])
 //--------------------------------------------------------------------+
 // Helper
 //--------------------------------------------------------------------+
-static void configure_pins(usb_hal_context_t *usb)
-{
+static void configure_pins(usb_hal_context_t* usb) {
   /* usb_periph_iopins currently configures USB_OTG as USB Device.
    * Introduce additional parameters in usb_hal_context_t when adding support
    * for USB Host.
    */
-  for (const usb_iopin_dsc_t *iopin = usb_periph_iopins; iopin->pin != -1; ++iopin) {
+  for (const usb_iopin_dsc_t* iopin = usb_periph_iopins; iopin->pin != -1; ++iopin) {
     if ((usb->use_external_phy) || (iopin->ext_phy_only == 0)) {
       esp_rom_gpio_pad_select_gpio(iopin->pin);
       if (iopin->is_output) {
