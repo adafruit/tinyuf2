@@ -24,6 +24,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 
 #include "hal/gpio_ll.h"
 #include "hal/usb_hal.h"
@@ -340,9 +341,9 @@ void board_timer_stop(void) {
 //--------------------------------------------------------------------+
 // CDC Touch1200
 //--------------------------------------------------------------------+
+#ifndef TINYUF2_SELF_UPDATE
 
 #if CONFIG_IDF_TARGET_ESP32S3
-
 #include "hal/usb_serial_jtag_ll.h"
 #include "hal/usb_phy_ll.h"
 
@@ -445,7 +446,7 @@ void tud_cdc_line_state_cb(uint8_t instance, bool dtr, bool rts) {
     }
   }
 }
-
+#endif // TINYUF2_SELF_UPDATE
 
 //--------------------------------------------------------------------+
 // Display
