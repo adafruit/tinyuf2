@@ -19,7 +19,7 @@ def connect_serial(port):
             print(f"Connected to {port} at {baud_rate} bps.")
 
         # Wait for a moment before closing the port
-        time.sleep(2)
+        time.sleep(0.5)
 
     except serial.SerialException as e:
         print(f"Error: {e}")

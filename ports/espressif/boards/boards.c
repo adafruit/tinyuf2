@@ -69,8 +69,7 @@ void dotstar_write(uint8_t const rgb[]);
 
 #ifdef LED_PIN
 #include "driver/ledc.h"
-ledc_channel_config_t ledc_channel =
-{
+ledc_channel_config_t ledc_channel = {
   .channel    = LEDC_CHANNEL_0,
   .duty       = 0,
   .gpio_num   = LED_PIN,
@@ -89,9 +88,7 @@ extern bool board_init_extension();
 #endif
 
 extern int main(void);
-
 static void configure_pins(usb_hal_context_t* usb);
-
 static void internal_timer_cb(void* arg);
 
 //--------------------------------------------------------------------+
@@ -102,7 +99,6 @@ static void internal_timer_cb(void* arg);
 void app_main(void) {
   main();
 }
-
 #else
 
 // static task for usbd
@@ -342,6 +338,113 @@ void board_timer_stop(void) {
 }
 
 //--------------------------------------------------------------------+
+// CDC Touch1200
+//--------------------------------------------------------------------+
+
+#if CONFIG_IDF_TARGET_ESP32S3
+
+static void hw_cdc_reset_handler(void *arg) {
+  portBASE_TYPE xTaskWoken = 0;
+  uint32_t usbjtag_intr_status = usb_serial_jtag_ll_get_intsts_mask();
+  usb_serial_jtag_ll_clr_intsts_mask(usbjtag_intr_status);
+
+  if (usbjtag_intr_status & USB_SERIAL_JTAG_INTR_BUS_RESET) {
+    xSemaphoreGiveFromISR((SemaphoreHandle_t)arg, &xTaskWoken);
+  }
+
+  if (xTaskWoken == pdTRUE) {
+    portYIELD_FROM_ISR();
+  }
+}
+
+static void usb_switch_to_cdc_jtag(){
+  // Disable USB-OTG
+  periph_ll_reset(PERIPH_USB_MODULE);
+  //periph_ll_enable_clk_clear_rst(PERIPH_USB_MODULE);
+  periph_ll_disable_clk_set_rst(PERIPH_USB_MODULE);
+
+  // Switch to hardware CDC+JTAG
+  CLEAR_PERI_REG_MASK(RTC_CNTL_USB_CONF_REG, (RTC_CNTL_SW_HW_USB_PHY_SEL|RTC_CNTL_SW_USB_PHY_SEL|RTC_CNTL_USB_PAD_ENABLE));
+
+  // Do not use external PHY
+  CLEAR_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_PHY_SEL);
+
+  // Release GPIO pins from  CDC+JTAG
+  CLEAR_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_USB_PAD_ENABLE);
+
+  // Force the host to re-enumerate (BUS_RESET)
+  pinMode(USBPHY_DM_NUM, OUTPUT_OPEN_DRAIN);
+  pinMode(USBPHY_DP_NUM, OUTPUT_OPEN_DRAIN);
+  digitalWrite(USBPHY_DM_NUM, LOW);
+  digitalWrite(USBPHY_DP_NUM, LOW);
+
+  // Initialize CDC+JTAG ISR to listen for BUS_RESET
+  usb_phy_ll_int_jtag_enable(&USB_SERIAL_JTAG);
+  usb_serial_jtag_ll_disable_intr_mask(USB_SERIAL_JTAG_LL_INTR_MASK);
+  usb_serial_jtag_ll_clr_intsts_mask(USB_SERIAL_JTAG_LL_INTR_MASK);
+  usb_serial_jtag_ll_ena_intr_mask(USB_SERIAL_JTAG_INTR_BUS_RESET);
+  intr_handle_t intr_handle = NULL;
+  SemaphoreHandle_t reset_sem = xSemaphoreCreateBinary();
+  if(reset_sem){
+    if(esp_intr_alloc(ETS_USB_SERIAL_JTAG_INTR_SOURCE, 0, hw_cdc_reset_handler, reset_sem, &intr_handle) != ESP_OK){
+      vSemaphoreDelete(reset_sem);
+      reset_sem = NULL;
+      log_e("HW USB CDC failed to init interrupts");
+    }
+  } else {
+    log_e("reset_sem init failed");
+  }
+
+  // Connect GPIOs to integrated CDC+JTAG
+  SET_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_USB_PAD_ENABLE);
+
+  // Wait for BUS_RESET to give us back the semaphore
+  if(reset_sem){
+    if(xSemaphoreTake(reset_sem, 1000 / portTICK_PERIOD_MS) != pdPASS){
+      log_e("reset_sem timeout");
+    }
+    usb_serial_jtag_ll_disable_intr_mask(USB_SERIAL_JTAG_LL_INTR_MASK);
+    esp_intr_free(intr_handle);
+    vSemaphoreDelete(reset_sem);
+  }
+}
+#endif
+
+// Copied from Arduino's esp32-hal-tinyusb.c with usb_persist_mode = RESTART_BOOTLOADER, and usb_persist_enabled = false
+static void IRAM_ATTR usb_persist_shutdown_handler(void) {
+  // USB CDC Download: RESTART_BOOTLOADER
+#if CONFIG_IDF_TARGET_ESP32S2
+  periph_module_reset(PERIPH_USB_MODULE);
+  periph_module_enable(PERIPH_USB_MODULE);
+#endif
+
+  REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
+}
+
+// Invoked when cdc when line state changed e.g connected/disconnected
+// Use to reset to bootrom when disconnect with 1200 bps
+void tud_cdc_line_state_cb(uint8_t instance, bool dtr, bool rts) {
+  (void) rts;
+
+  // DTR = false is counted as disconnected
+  if (!dtr) {
+    cdc_line_coding_t coding;
+    tud_cdc_get_line_coding(&coding);
+
+    if (coding.bit_rate == 1200) {
+      printf("Touch1200: Reset to bootrom\n");
+      // copied from Arduino's usb_persist_restart()
+      esp_register_shutdown_handler(usb_persist_shutdown_handler);
+#if CONFIG_IDF_TARGET_ESP32S3
+      usb_switch_to_cdc_jtag();
+#endif
+      esp_restart();
+    }
+  }
+}
+
+
+//--------------------------------------------------------------------+
 // Display
 //--------------------------------------------------------------------+
 
@@ -351,8 +454,7 @@ void board_timer_stop(void) {
 
 spi_device_handle_t _display_spi;
 
-void board_display_init(void)
-{
+void board_display_init(void) {
   spi_bus_config_t bus_cfg = {
     .miso_io_num     = DISPLAY_PIN_MISO,
     .mosi_io_num     = DISPLAY_PIN_MOSI,
@@ -380,8 +482,7 @@ void board_display_init(void)
   ESP_ERROR_CHECK(lcd_init(_display_spi));
 }
 
-void board_display_draw_line(int y, uint16_t* pixel_color, uint32_t pixel_num)
-{
+void board_display_draw_line(int y, uint16_t* pixel_color, uint32_t pixel_num) {
   (void) pixel_num; // same as DISPLAY_HEIGHT
   lcd_draw_lines(_display_spi, y, (uint16_t*) pixel_color);
 }
@@ -398,16 +499,14 @@ void board_display_draw_line(int y, uint16_t* pixel_color, uint32_t pixel_num)
 spi_device_handle_t _dotstar_spi;
 uint8_t _dotstar_data[ (1+DOTSTAR_NUMBER+1) * 4];
 
-void dotstar_init(void)
-{
+void dotstar_init(void) {
 #ifdef DOTSTAR_PIN_PWR
   gpio_reset_pin(DOTSTAR_PIN_PWR);
   gpio_set_direction(DOTSTAR_PIN_PWR, GPIO_MODE_OUTPUT);
   gpio_set_level(DOTSTAR_PIN_PWR, DOTSTAR_POWER_STATE);
 #endif
 
-  spi_bus_config_t bus_cfg =
-  {
+  spi_bus_config_t bus_cfg = {
     .miso_io_num     = -1,
     .mosi_io_num     = DOTSTAR_PIN_DATA,
     .sclk_io_num     = DOTSTAR_PIN_SCK,
@@ -416,8 +515,7 @@ void dotstar_init(void)
     .max_transfer_sz = sizeof(_dotstar_data)
   };
 
-  spi_device_interface_config_t devcfg =
-  {
+  spi_device_interface_config_t devcfg = {
     .clock_speed_hz = 10 * 1000000, // 10 Mhz
     .mode           = 0,
     .spics_io_num   = -1,
@@ -431,8 +529,7 @@ void dotstar_init(void)
   ESP_ERROR_CHECK(spi_bus_add_device(DOTSTAR_SPI, &devcfg, &_dotstar_spi));
 }
 
-void dotstar_write(uint8_t const rgb[])
-{
+void dotstar_write(uint8_t const rgb[]) {
   // convert from 0-255 (8 bit) to 0-31 (5 bit)
   uint8_t const ds_brightness = (DOTSTAR_BRIGHTNESS * 32) / 256;
 
@@ -441,8 +538,7 @@ void dotstar_write(uint8_t const rgb[])
 
   uint8_t* color = _dotstar_data+4;
 
-  for(uint8_t i=0; i<DOTSTAR_NUMBER; i++)
-  {
+  for(uint8_t i=0; i<DOTSTAR_NUMBER; i++) {
     *color++ = 0xE0 | ds_brightness;
     *color++ = rgb[2];
     *color++ = rgb[1];
@@ -462,8 +558,7 @@ void dotstar_write(uint8_t const rgb[])
   *color++ = 0xff;
   *color++ = 0xff;
 
-  static spi_transaction_t xact =
-  {
+  static spi_transaction_t xact = {
     .length    = (sizeof(_dotstar_data) - 4 + (DOTSTAR_NUMBER+15)/16 )*8, // length in bits, see end frame not above
     .tx_buffer = _dotstar_data
   };
