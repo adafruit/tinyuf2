@@ -377,10 +377,16 @@ static void usb_switch_to_cdc_jtag(void) {
   CLEAR_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_USB_PAD_ENABLE);
 
   // Force the host to re-enumerate (BUS_RESET)
-//  pinMode(USBPHY_DM_NUM, OUTPUT_OPEN_DRAIN);
-//  pinMode(USBPHY_DP_NUM, OUTPUT_OPEN_DRAIN);
-//  digitalWrite(USBPHY_DM_NUM, LOW);
-//  digitalWrite(USBPHY_DP_NUM, LOW);
+  gpio_config_t dp_dm_conf = {
+      .pin_bit_mask = (1ULL << USBPHY_DM_NUM) | (1ULL < USBPHY_DP_NUM),
+      .mode = GPIO_MODE_OUTPUT_OD,
+      .pull_up_en = GPIO_PULLUP_DISABLE,
+      .pull_down_en = GPIO_PULLDOWN_DISABLE,
+      .intr_type = GPIO_INTR_DISABLE
+  };
+  gpio_config(&dp_dm_conf);
+  gpio_set_level((gpio_num_t)USBPHY_DM_NUM, 0);
+  gpio_set_level((gpio_num_t)USBPHY_DP_NUM, 0);
 
   // Initialize CDC+JTAG ISR to listen for BUS_RESET
   usb_phy_ll_int_jtag_enable(&USB_SERIAL_JTAG);
