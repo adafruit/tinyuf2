@@ -343,6 +343,9 @@ void board_timer_stop(void) {
 
 #if CONFIG_IDF_TARGET_ESP32S3
 
+#include "hal/usb_serial_jtag_ll.h"
+#include "hal/usb_phy_ll.h"
+
 static void hw_cdc_reset_handler(void *arg) {
   portBASE_TYPE xTaskWoken = 0;
   uint32_t usbjtag_intr_status = usb_serial_jtag_ll_get_intsts_mask();
@@ -357,14 +360,14 @@ static void hw_cdc_reset_handler(void *arg) {
   }
 }
 
-static void usb_switch_to_cdc_jtag(){
+static void usb_switch_to_cdc_jtag(void) {
   // Disable USB-OTG
-  periph_ll_reset(PERIPH_USB_MODULE);
-  //periph_ll_enable_clk_clear_rst(PERIPH_USB_MODULE);
-  periph_ll_disable_clk_set_rst(PERIPH_USB_MODULE);
+  periph_module_reset(PERIPH_USB_MODULE);
+  periph_module_disable(PERIPH_USB_MODULE);
 
   // Switch to hardware CDC+JTAG
-  CLEAR_PERI_REG_MASK(RTC_CNTL_USB_CONF_REG, (RTC_CNTL_SW_HW_USB_PHY_SEL|RTC_CNTL_SW_USB_PHY_SEL|RTC_CNTL_USB_PAD_ENABLE));
+  CLEAR_PERI_REG_MASK(RTC_CNTL_USB_CONF_REG,
+                      (RTC_CNTL_SW_HW_USB_PHY_SEL | RTC_CNTL_SW_USB_PHY_SEL | RTC_CNTL_USB_PAD_ENABLE));
 
   // Do not use external PHY
   CLEAR_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_PHY_SEL);
@@ -373,10 +376,10 @@ static void usb_switch_to_cdc_jtag(){
   CLEAR_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_USB_PAD_ENABLE);
 
   // Force the host to re-enumerate (BUS_RESET)
-  pinMode(USBPHY_DM_NUM, OUTPUT_OPEN_DRAIN);
-  pinMode(USBPHY_DP_NUM, OUTPUT_OPEN_DRAIN);
-  digitalWrite(USBPHY_DM_NUM, LOW);
-  digitalWrite(USBPHY_DP_NUM, LOW);
+//  pinMode(USBPHY_DM_NUM, OUTPUT_OPEN_DRAIN);
+//  pinMode(USBPHY_DP_NUM, OUTPUT_OPEN_DRAIN);
+//  digitalWrite(USBPHY_DM_NUM, LOW);
+//  digitalWrite(USBPHY_DP_NUM, LOW);
 
   // Initialize CDC+JTAG ISR to listen for BUS_RESET
   usb_phy_ll_int_jtag_enable(&USB_SERIAL_JTAG);
@@ -385,23 +388,23 @@ static void usb_switch_to_cdc_jtag(){
   usb_serial_jtag_ll_ena_intr_mask(USB_SERIAL_JTAG_INTR_BUS_RESET);
   intr_handle_t intr_handle = NULL;
   SemaphoreHandle_t reset_sem = xSemaphoreCreateBinary();
-  if(reset_sem){
-    if(esp_intr_alloc(ETS_USB_SERIAL_JTAG_INTR_SOURCE, 0, hw_cdc_reset_handler, reset_sem, &intr_handle) != ESP_OK){
+  if (reset_sem) {
+    if (esp_intr_alloc(ETS_USB_SERIAL_JTAG_INTR_SOURCE, 0, hw_cdc_reset_handler, reset_sem, &intr_handle) != ESP_OK) {
       vSemaphoreDelete(reset_sem);
       reset_sem = NULL;
-      log_e("HW USB CDC failed to init interrupts");
+      //log_e("HW USB CDC failed to init interrupts");
     }
   } else {
-    log_e("reset_sem init failed");
+    //log_e("reset_sem init failed");
   }
 
   // Connect GPIOs to integrated CDC+JTAG
   SET_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_USB_PAD_ENABLE);
 
   // Wait for BUS_RESET to give us back the semaphore
-  if(reset_sem){
-    if(xSemaphoreTake(reset_sem, 1000 / portTICK_PERIOD_MS) != pdPASS){
-      log_e("reset_sem timeout");
+  if (reset_sem) {
+    if (xSemaphoreTake(reset_sem, 1000 / portTICK_PERIOD_MS) != pdPASS) {
+      //log_e("reset_sem timeout");
     }
     usb_serial_jtag_ll_disable_intr_mask(USB_SERIAL_JTAG_LL_INTR_MASK);
     esp_intr_free(intr_handle);
