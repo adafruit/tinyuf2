@@ -61,7 +61,7 @@
 #define USB_PRODUCT              "MCU-S2 ESP32S2"
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID             "senseBoxMCU-S2-rev2.1"
+#define UF2_BOARD_ID             "ESP32S2-senseBoxMCUS2-rev2.1"
 #define UF2_VOLUME_LABEL         "senseBox"
 #define UF2_INDEX_URL            "https://sensebox.de"
 
