@@ -50,7 +50,7 @@ Added new boards: MorphESP-240 ESP32S2, Lolin S2 Mini, Espressif HMI devkit
 ## 0.4.0
 
 - Add support for multiple sectors per cluster in GhostFAT to enable larger flash sizes
-  - Add native test for ghostfat with varous checks
+  - Add native test for ghostfat with various checks
 - Add new board API:
   - board_reset()
   - board_flash_erase_app()
@@ -59,7 +59,7 @@ Added new boards: MorphESP-240 ESP32S2, Lolin S2 Mini, Espressif HMI devkit
 - Add `erase_firmware` application target (only implemented for iMXRT for now).
   - TinyUF2 will erase whole flash if `MAGIC_ERASE_APP` is written by application.
   - `erase_firmware.uf2` is also uploaded as part of build/release asset if available
-- No major chagnes to LPC55, STM32 F3 F4
+- No major changes to LPC55, STM32 F3 F4
 
 ### ESP32-S2
 
@@ -71,7 +71,7 @@ Added new boards: MorphESP-240 ESP32S2, Lolin S2 Mini, Espressif HMI devkit
 
 ### iMXRT
 
-- Always write tinyuf2 image to flash if loaded in Serial Donwload mode (Boot Mode = 01)
+- Always write tinyuf2 image to flash if loaded in Serial Download mode (Boot Mode = 01)
 - Add `erase_firmware.uf2` to erase the whole flash except bootloader
 - Add sdphost binary for arm 32bit e.g raspberry pi 4
 - Add `esp32programmer.uf2` app for selected board.

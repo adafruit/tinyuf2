@@ -4,7 +4,7 @@ TinyUF2 port of iMXRT runs entirely on SRAM which is not only super fast but als
 
 ## Initial Flash
 
-To initially flash TinyUF2 on your blank board or board that is shipped with other bootlaoder. You could either use external debugger or BootROM
+To initially flash TinyUF2 on your blank board or board that is shipped with other bootloader. You could either use external debugger or BootROM
 
 ### External Debugger
 
@@ -18,7 +18,7 @@ make BOARD=metro_m7_1011 flash-jlink-bin
 
 iMXRT has built-in BootROM that implements the Serial Download Protocol (SDP), which can be used to load & execute TinyUF2 to SRAM with `spdhost` tool via USB. You need to
 
-1. Instal the NXP SPSDK with `pip install spsdk` more details is described in the [SPSDK Installation Guide](https://spsdk.readthedocs.io/en/latest/usage/installation.html).If you are running Linux, make sure your user has permission for accessing `hidraw` (more details below)
+1. Install the NXP SPSDK with `pip install spsdk` more details is described in the [SPSDK Installation Guide](https://spsdk.readthedocs.io/en/latest/usage/installation.html).If you are running Linux, make sure your user has permission for accessing `hidraw` (more details below)
 
 2. Power up your board with the Boot Mode switch set to `BOOT_MODE[1:0]=01` to enter Serial Download mode. Note: Serial Download mode also automatically run with blank flash, therefore you don't have to manual change it in your production run.
 

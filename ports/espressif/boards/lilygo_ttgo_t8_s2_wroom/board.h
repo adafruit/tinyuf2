@@ -1,4 +1,4 @@
-/* 
+/*
  * The MIT License (MIT)
  *
  * Copyright (c) 2022 Fabian Affolter <fabian@affolter-engineering.ch>
@@ -46,4 +46,3 @@
 #define UF2_BOARD_ID      "ESP32S2-TTGOS2-WROOM-v1.1"
 #define UF2_VOLUME_LABEL  "TTGOS2BOOT"
 #define UF2_INDEX_URL     "http://www.lilygo.cn/prod_view.aspx?TypeId=50063&Id=1320&FId=t3:50063:3"
-

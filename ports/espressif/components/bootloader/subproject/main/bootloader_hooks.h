@@ -16,7 +16,7 @@
 #define BOOTLOADER_HOOKS_H
 
 /**
- * @file The 2nd stage bootloader can be overriden or completed by an application.
+ * @file The 2nd stage bootloader can be overridden or completed by an application.
  * The functions declared here are weak, and thus, are meant to be defined by a user
  * project, if required.
  * Please check `custom_bootloader` ESP-IDF examples for more details about this feature.

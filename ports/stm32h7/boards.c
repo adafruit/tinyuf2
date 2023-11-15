@@ -46,7 +46,7 @@ void board_init(void)
 
 #ifndef TINYUF2_SELF_UPDATE
   board_flash_early_init();
-#endif // TINYUF2_SELF_UPDATE 
+#endif // TINYUF2_SELF_UPDATE
 }
 
 // Configure USB for DFU

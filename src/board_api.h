@@ -98,7 +98,7 @@ void board_init2(void) __attribute__ ((weak));
 // TODO force this API in the future
 void board_teardown(void) __attribute__ ((weak));
 
-// board_teardown2() is called immeidately after board_init()
+// board_teardown2() is called immediately after board_init()
 void board_teardown2(void) __attribute__ ((weak));
 
 // Reset board, not return
@@ -172,7 +172,7 @@ void board_flash_erase_app(void);
 bool board_flash_protect_bootloader(bool protect);
 
 //--------------------------------------------------------------------+
-// Dispaly API
+// Display API
 //--------------------------------------------------------------------+
 
 #if TINYUF2_DISPLAY

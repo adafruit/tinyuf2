@@ -5,7 +5,7 @@
 
 #ifdef __cplusplus
  extern "C" {
-#endif 
+#endif
 
 /* W25Q32 */
 #define W25QXXXX_FLASH_SIZE                  0x0400000 /* 32 MBits => 4MBytes */
@@ -29,7 +29,7 @@
 #define W25QXXXX_SUBSECTOR_ERASE_MAX_TIME    800
 #define W25QXXXX_TIMEOUT_VALUE 1000
 
-//  W25QXX Commands  
+//  W25QXX Commands
 /* Reset Operations */
 #define RESET_ENABLE_CMD                     0x66
 #define RESET_MEMORY_CMD                     0x99

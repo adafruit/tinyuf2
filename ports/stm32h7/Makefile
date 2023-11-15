@@ -7,7 +7,7 @@ include port.mk
 LD_FILES ?= \
 	$(PORT_DIR)/linker/memory.ld \
 	$(PORT_DIR)/linker/common.ld \
-	$(PORT_DIR)/linker/$(MCU).ld 
+	$(PORT_DIR)/linker/$(MCU).ld
 
 SRC_C += \
 	$(TOP)/$(PORT_DIR)/boards.c \
@@ -17,7 +17,7 @@ SRC_C += \
 
 include ../rules.mk
 
-#---------- Self udpate ----------
+#---------- Self update ----------
 # Compile apps/self_update/self_update.c
 # This uf2 will be loaded into RAM
 # TODO: this needs to build the actual uf2 binary first
@@ -31,9 +31,8 @@ self-update-clean:
 #---------- Erase app ----------
 # Compile apps/erase_firmware/erase_firmware.c
 # This uf2 will be loaded into RAM
-erase-app: 
+erase-app:
 	$(MAKE) -C $(TOP)/$(PORT_DIR)/apps/erase_firmware uf2
 
-erase-app-clean: 
+erase-app-clean:
 	$(MAKE) -C $(TOP)/$(PORT_DIR)/apps/erase_firmware clean
-

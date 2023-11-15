@@ -35,7 +35,7 @@ SRC_C += \
 	$(SDK_DIR)/drivers/ocotp/fsl_ocotp.c \
 	$(SDK_DIR)/drivers/pwm/fsl_pwm.c \
 	$(SDK_DIR)/drivers/xbara/fsl_xbara.c \
-	$(BOARD_DIR)/clock_config.c 
+	$(BOARD_DIR)/clock_config.c
 
 ifeq ($(MCU),MIMXRT1176)
 	SRC_C += $(MCU_DIR)/system_$(MCU)_cm7.c

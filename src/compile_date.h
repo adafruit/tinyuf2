@@ -63,7 +63,7 @@
    )
 
 // __TIME__ expands to an eight-character string constant
-// "23:59:01", or (if cannot determine time) "??:??:??" 
+// "23:59:01", or (if cannot determine time) "??:??:??"
 #define COMPILE_HOUR_INT ( \
    (COMPILE_TIME [0u] == '?' ? 0 : COMPILE_TIME [0u] - '0') * 10u \
  + (COMPILE_TIME [1u] == '?' ? 0 : COMPILE_TIME [1u] - '0')       )
@@ -88,4 +88,3 @@
 	( COMPILE_SECONDS_INT <<  0u) )
 
 #endif // COMPILE_DATE_H
-

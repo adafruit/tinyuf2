@@ -22,7 +22,6 @@ jobs:
         # ----------------------
         # S2 Alphabetical order
         # ----------------------
-        - 'adafruit_camera_esp32s3'
         - 'adafruit_feather_esp32s2'
         - 'adafruit_feather_esp32s2_reverse_tft'
         - 'adafruit_feather_esp32s2_tft'
@@ -66,15 +65,16 @@ jobs:
         # ----------------------
         # S3 Alphabetical order
         # ----------------------
+        - 'adafruit_camera_esp32s3'
         - 'adafruit_feather_esp32s3'
         - 'adafruit_feather_esp32s3_nopsram'
         - 'adafruit_feather_esp32s3_reverse_tft'
         - 'adafruit_feather_esp32s3_tft'
         - 'adafruit_matrixportal_s3'
         - 'adafruit_metro_esp32s3'
+        - 'adafruit_qualia_s3_rgb666'
         - 'adafruit_qtpy_esp32s3'
         - 'adafruit_qtpy_esp32s3_n4r2'
-        - 'adafruit_tftexperimenter_esp32s3'
         - 'bpi_leaf_s3'
         - 'bpi_picow_s3'
         - 'circuitart_zero_s3'
@@ -121,7 +121,7 @@ jobs:
       run: echo BIN_PATH=ports/espressif/_bin/${{ matrix.board }} >> $GITHUB_ENV
 
     - name: Build
-      run: docker run --rm -v $PWD:/project -w /project espressif/idf:v4.4.3 /bin/bash -c "git config --global --add safe.directory /project && make -C ports/espressif/ BOARD=${{ matrix.board }} all self-update copy-artifact"
+      run: docker run --rm -v $PWD:/project -w /project espressif/idf:v5.1.1 /bin/bash -c "git config --global --add safe.directory /project && make -C ports/espressif/ BOARD=${{ matrix.board }} all self-update copy-artifact"
 
     - uses: actions/upload-artifact@v3
       with:

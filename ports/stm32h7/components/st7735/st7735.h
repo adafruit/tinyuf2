@@ -1,17 +1,17 @@
 // MIT License
-// 
+//
 // Copyright (c) 2018 Aleksander Alekseev
-// 
+//
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
 // in the Software without restriction, including without limitation the rights
 // to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 // copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
-// 
+//
 // The above copyright notice and this permission notice shall be included in all
 // copies or substantial portions of the Software.
-// 
+//
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -173,7 +173,7 @@ extern SPI_HandleTypeDef ST7735_SPI_PORT;
 #define ST7735_XSTART 26
 #define ST7735_YSTART 1
 #define ST7735_WIDTH  80
-#define ST7735_HEIGHT 160 
+#define ST7735_HEIGHT 160
 #define ST7735_ROTATION (ST7735_MADCTL_MX | ST7735_MADCTL_MY | ST7735_MADCTL_BGR)
 */
 
@@ -187,7 +187,7 @@ extern SPI_HandleTypeDef ST7735_SPI_PORT;
 #define ST7735_ROTATION (ST7735_MADCTL_MX | ST7735_MADCTL_MV | ST7735_MADCTL_BGR)
 */
 
-// mini 160x80, rotate right 
+// mini 160x80, rotate right
 /*
 #define ST7735_IS_160X80 1
 #define ST7735_XSTART 1

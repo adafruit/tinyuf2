@@ -207,4 +207,3 @@ void BOARD_BootClockRUN_528M(void);
 #endif /* __cplusplus*/
 
 #endif /* _CLOCK_CONFIG_H_ */
-

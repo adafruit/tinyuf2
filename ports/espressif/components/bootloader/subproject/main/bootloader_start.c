@@ -1,36 +1,27 @@
-// Copyright 2015-2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2022 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #include <stdbool.h>
 #include "esp_log.h"
+#include "esp_rom_sys.h"
 #include "bootloader_init.h"
 #include "bootloader_utility.h"
 #include "bootloader_common.h"
 #include "bootloader_hooks.h"
 
-// components/esp_rom
-#include "esp_rom_sys.h"
+#include "rom/ets_sys.h"
+#include "rom/rtc.h"
 #include "esp_rom_gpio.h"
-
-#include "soc/cpu.h"
-#include "hal/gpio_ll.h"
+#include "esp_cpu.h"
+#include "hal/gpio_hal.h"
 
 // Specific board header specified with -DBOARD=
 #include "board.h"
 
 #ifdef TCA9554_ADDR
   #include "hal/i2c_types.h"
-
   // Using GPIO expander requires long reset delay (somehow)
   #define NEOPIXEL_RESET_DELAY      ns2cycle(1000*1000)
 #endif
@@ -39,7 +30,6 @@
   // Need at least 200 us for initial delay although Neopixel reset time is only 50 us
   #define NEOPIXEL_RESET_DELAY      ns2cycle(200*1000)
 #endif
-
 
 // Reset Reason Hint to enter UF2. Check out esp_reset_reason_t for other Espressif pre-defined values
 #define APP_REQUEST_UF2_RESET_HINT   0x11F2
@@ -67,14 +57,13 @@ static void board_led_off(void);
 // Get Reset Reason Hint requested by Application to enter UF2
 //--------------------------------------------------------------------+
 
-// copied from components/esp_system/port/soc/esp32s2/reset_reason.c
+// copied from components/esp_system/port/soc/esp32sx/reset_reason.c
 // since esp_system is not included with bootloader build
 #define RST_REASON_BIT  0x80000000
 #define RST_REASON_MASK 0x7FFF
 #define RST_REASON_SHIFT 16
 
-uint32_t /*IRAM_ATTR*/ esp_reset_reason_get_hint(void)
-{
+uint32_t esp_reset_reason_get_hint(void) {
     uint32_t reset_reason_hint = REG_READ(RTC_RESET_CAUSE_REG);
     uint32_t high = (reset_reason_hint >> RST_REASON_SHIFT) & RST_REASON_MASK;
     uint32_t low = reset_reason_hint & RST_REASON_MASK;
@@ -84,8 +73,7 @@ uint32_t /*IRAM_ATTR*/ esp_reset_reason_get_hint(void)
     return low;
 }
 
-static void esp_reset_reason_clear_hint(void)
-{
+static void esp_reset_reason_clear_hint(void) {
     REG_WRITE(RTC_RESET_CAUSE_REG, 0);
 }
 
@@ -147,15 +135,15 @@ static int select_partition_number(bootloader_state_t *bs)
  * Selects a boot partition.
  * The conditions for switching to another firmware are checked.
  */
-static int selected_boot_partition(const bootloader_state_t *bs)
-{
+static int selected_boot_partition(const bootloader_state_t *bs) {
     int boot_index = bootloader_utility_get_selected_boot_partition(bs);
     if (boot_index == INVALID_INDEX) {
         return boot_index; // Unrecoverable failure (not due to corrupt ota data or bad partition contents)
     }
 
-    RESET_REASON reset_reason = bootloader_common_get_reset_reason(0);
-    if (reset_reason != DEEPSLEEP_RESET) {
+    soc_reset_reason_t reset_reason = esp_rom_get_reset_reason(0);
+    ESP_LOGI(TAG, "Reset Reason = %d", reset_reason);
+    if (reset_reason != RESET_REASON_CORE_DEEP_SLEEP) {
         // Factory firmware.
 #ifdef CONFIG_BOOTLOADER_FACTORY_RESET
         bool reset_level = false;
@@ -173,12 +161,19 @@ static int selected_boot_partition(const bootloader_state_t *bs)
             if (bootloader_common_erase_part_type_data(list_erase, ota_data_erase) == false) {
                 ESP_LOGE(TAG, "Not all partitions were erased");
             }
+#ifdef CONFIG_BOOTLOADER_RESERVE_RTC_MEM
+            bootloader_common_set_rtc_retain_mem_factory_reset_state();
+#endif
             return bootloader_utility_get_selected_boot_partition(bs);
         }
-#endif
+#endif // CONFIG_BOOTLOADER_FACTORY_RESET
         // TEST firmware.
 #ifdef CONFIG_BOOTLOADER_APP_TEST
-        if (bootloader_common_check_long_hold_gpio(CONFIG_BOOTLOADER_NUM_PIN_APP_TEST, CONFIG_BOOTLOADER_HOLD_TIME_GPIO) == 1) {
+        bool app_test_level = false;
+#if CONFIG_BOOTLOADER_APP_TEST_PIN_HIGH
+        app_test_level = true;
+#endif
+        if (bootloader_common_check_long_hold_gpio_level(CONFIG_BOOTLOADER_NUM_PIN_APP_TEST, CONFIG_BOOTLOADER_HOLD_TIME_GPIO, app_test_level) == GPIO_LONG_HOLD) {
             ESP_LOGI(TAG, "Detect a boot condition of the test firmware");
             if (bs->test.offset != 0) {
                 boot_index = TEST_APP_INDEX;
@@ -188,17 +183,15 @@ static int selected_boot_partition(const bootloader_state_t *bs)
                 return INVALID_INDEX;
             }
         }
-#endif
+#endif // CONFIG_BOOTLOADER_APP_TEST
 
         // UF2: check if Application want to load uf2 "bootloader" with reset reason hint.
-        if ( boot_index != FACTORY_INDEX )
-        {
+        if ( boot_index != FACTORY_INDEX ) {
           // Application request to enter UF2 with Software Reset with reason hint
-          if ( reset_reason == RTC_SW_SYS_RESET ||  reset_reason == RTC_SW_CPU_RESET )
-          {
+          if ( reset_reason == RESET_REASON_CORE_SW ||  reset_reason == RESET_REASON_CPU0_SW ) {
             uint32_t const reset_hint = (uint32_t) esp_reset_reason_get_hint();
-            if ( APP_REQUEST_UF2_RESET_HINT == reset_hint )
-            {
+            ESP_LOGI(TAG, "Reset hint = %d", reset_hint);
+            if ( APP_REQUEST_UF2_RESET_HINT == reset_hint ) {
               esp_reset_reason_clear_hint(); // clear the hint
               ESP_LOGI(TAG, "Detect application request to enter UF2 bootloader");
               boot_index = FACTORY_INDEX;
@@ -208,46 +201,38 @@ static int selected_boot_partition(const bootloader_state_t *bs)
 
         // UF2: check if GPIO0 is pressed and/or 1-bit RC on specific GPIO detect double reset
         // during this time. If yes then to load uf2 "bootloader".
-        if ( boot_index != FACTORY_INDEX )
-        {
+        if ( boot_index != FACTORY_INDEX ) {
           board_led_on();
 
 #ifdef PIN_DOUBLE_RESET_RC
           // Double reset detect if board implements 1-bit memory with RC components
           esp_rom_gpio_pad_select_gpio(PIN_DOUBLE_RESET_RC);
           PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[PIN_DOUBLE_RESET_RC]);
-          if ( gpio_ll_get_level(&GPIO, PIN_DOUBLE_RESET_RC) == 1 )
-          {
+          if ( gpio_ll_get_level(&GPIO, PIN_DOUBLE_RESET_RC) == 1 ) {
             ESP_LOGI(TAG, "Detect double reset using RC on GPIO %d to enter UF2 bootloader", PIN_DOUBLE_RESET_RC);
             boot_index = FACTORY_INDEX;
           }
-          else
-          {
+          else {
             gpio_ll_output_enable(&GPIO, PIN_DOUBLE_RESET_RC);
             gpio_ll_set_level(&GPIO, PIN_DOUBLE_RESET_RC, 1);
           }
 #endif
-
-          if ( boot_index != FACTORY_INDEX )
-          {
+          if ( boot_index != FACTORY_INDEX ) {
             esp_rom_gpio_pad_select_gpio(PIN_BUTTON_UF2);
             PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[PIN_BUTTON_UF2]);
             esp_rom_gpio_pad_pullup_only(PIN_BUTTON_UF2);
-            
+
             // run the GPIO detection at least once even if UF2_DETECTION_DELAY_MS is set to zero
             uint32_t tm_start = esp_log_early_timestamp();
-            do
-            {
-              if ( gpio_ll_get_level(&GPIO, PIN_BUTTON_UF2) == 0 )
-              {
+            do {
+              if ( gpio_ll_get_level(&GPIO, PIN_BUTTON_UF2) == 0 ) {
                 ESP_LOGI(TAG, "Detect GPIO %d active to enter UF2 bootloader", PIN_BUTTON_UF2);
 
                 // Simply return factory index without erasing any other partition
                 boot_index = FACTORY_INDEX;
                 break;
               }
-            }
-            while (UF2_DETECTION_DELAY_MS > (esp_log_early_timestamp() - tm_start) );
+            } while (UF2_DETECTION_DELAY_MS > (esp_log_early_timestamp() - tm_start) );
           }
 
 #if PIN_DOUBLE_RESET_RC
@@ -276,8 +261,7 @@ struct _reent *__getreent(void)
 // Board LED Indicator
 //--------------------------------------------------------------------+
 
-static inline uint32_t ns2cycle(uint32_t ns)
-{
+static inline uint32_t ns2cycle(uint32_t ns) {
   uint32_t tick_per_us;
 
 #if CONFIG_IDF_TARGET_ESP32S3
@@ -290,11 +274,10 @@ static inline uint32_t ns2cycle(uint32_t ns)
   return (tick_per_us*ns) / 1000;
 }
 
-static inline uint32_t delay_cycle(uint32_t cycle)
-{
+static inline uint32_t delay_cycle(uint32_t cycle) {
   uint32_t ccount;
-  uint32_t start = esp_cpu_get_ccount();
-  while( (ccount = esp_cpu_get_ccount()) - start < cycle ) {}
+  uint32_t start = esp_cpu_get_cycle_count();
+  while( (ccount = esp_cpu_get_cycle_count()) - start < cycle ) {}
   return ccount;
 }
 
@@ -305,27 +288,24 @@ static inline uint32_t delay_cycle(uint32_t cycle)
 #define HIGH  0x01
 #define ACK   0x00
 #define NACK  0x01
-#define CLOCK_STRETCH_TIMEOUT   1000 
+#define CLOCK_STRETCH_TIMEOUT   1000
 
 #endif
 
 #ifdef NEOPIXEL_PIN
 
-static inline uint8_t color_brightness(uint8_t color, uint8_t brightness)
-{
+static inline uint8_t color_brightness(uint8_t color, uint8_t brightness) {
   return (uint8_t) ((color*brightness) >> 8);
 }
 
-static void board_neopixel_set(uint32_t num_pin, uint8_t const rgb[])
-{
+static void board_neopixel_set(uint32_t num_pin, uint8_t const rgb[]) {
   // WS2812B should be
   uint32_t const time0  = ns2cycle(400);
   uint32_t const time1  = ns2cycle(800);
   uint32_t const period = ns2cycle(1250);
-  
+
   uint8_t pixels[3*NEOPIXEL_NUMBER];
-  for(uint32_t i=0; i<NEOPIXEL_NUMBER; i++)
-  {
+  for(uint32_t i=0; i<NEOPIXEL_NUMBER; i++) {
     // Note: WS2812 color order is GRB
     pixels[3*i  ] = color_brightness(rgb[1], NEOPIXEL_BRIGHTNESS);
     pixels[3*i+1] = color_brightness(rgb[0], NEOPIXEL_BRIGHTNESS);
@@ -338,30 +318,28 @@ static void board_neopixel_set(uint32_t num_pin, uint8_t const rgb[])
 
     for(uint8_t mask = 0x80; mask > 0; mask >>= 1) {
       uint32_t ccount;
-      while( (ccount = esp_cpu_get_ccount()) - cyc < period ) {}
+      while( (ccount = esp_cpu_get_cycle_count()) - cyc < period ) {}
 
       // gpio_ll_set_level() only take 6 cycles, while GPIO_OUTPUT_SET() take 40 cycles to set/clear
       gpio_ll_set_level(&GPIO, num_pin, 1);
 
       cyc = ccount;
       uint32_t const t_hi = (pix & mask) ? time1 : time0;
-      while( (ccount = esp_cpu_get_ccount()) - cyc < t_hi ) {}
+      while( (ccount = esp_cpu_get_cycle_count()) - cyc < t_hi ) {}
 
       gpio_ll_set_level(&GPIO, num_pin, 0);
     }
   }
 
-  while(esp_cpu_get_ccount() - cyc < period) {}
+  while(esp_cpu_get_cycle_count() - cyc < period) {}
 }
 #endif
 
 #ifdef DOTSTAR_PIN_DATA
 //Bit bang out 8 bits
-static void SPI_write(int32_t pin_data,uint32_t pin_sck,uint8_t c)
-{
+static void SPI_write(int32_t pin_data,uint32_t pin_sck,uint8_t c) {
   uint8_t i;
-  for (i=0; i<8 ;i++)
-  {
+  for (i=0; i<8 ;i++) {
     if (!(c&0x80)) {
       gpio_ll_set_level(&GPIO, pin_data, 0);
     }
@@ -377,8 +355,7 @@ static void SPI_write(int32_t pin_data,uint32_t pin_sck,uint8_t c)
   }
 }
 
-static void board_dotstar_set(uint32_t pin_data, uint32_t pin_sck, uint8_t const rgb[])
-{
+static void board_dotstar_set(uint32_t pin_data, uint32_t pin_sck, uint8_t const rgb[]) {
   // convert from 0-255 (8 bit) to 0-31 (5 bit)
   uint8_t const ds_brightness = (DOTSTAR_BRIGHTNESS * 32) / 256;
 
@@ -388,8 +365,7 @@ static void board_dotstar_set(uint32_t pin_data, uint32_t pin_sck, uint8_t const
   SPI_write(pin_data, pin_sck, 0x00);
   SPI_write(pin_data, pin_sck, 0x00);
 
-  for(uint32_t i=0; i<DOTSTAR_NUMBER; i++)
-  {
+  for(uint32_t i=0; i<DOTSTAR_NUMBER; i++) {
     SPI_write(pin_data, pin_sck, 0xE0 | ds_brightness);
 
     // DotStar APA102 color order is BGR
@@ -399,8 +375,7 @@ static void board_dotstar_set(uint32_t pin_data, uint32_t pin_sck, uint8_t const
   }
 
   // End frame
-  for(uint32_t i=0; i < (DOTSTAR_NUMBER+15)/16; i++)
-  {
+  for(uint32_t i=0; i < (DOTSTAR_NUMBER+15)/16; i++) {
     SPI_write(pin_data, pin_sck, 0xff);
   }
 }
@@ -408,19 +383,15 @@ static void board_dotstar_set(uint32_t pin_data, uint32_t pin_sck, uint8_t const
 
 #ifdef TCA9554_ADDR
 // Write one byte to I2C bus
-uint8_t sw_i2c_write_byte(uint8_t b)
-{
+uint8_t sw_i2c_write_byte(uint8_t b) {
   uint8_t ack;
 
   //Shift out 8 bits
-  for (uint8_t mask=0x80; mask!=0; mask>>=1)
-  {
-    if (mask & b) 
-    {
+  for (uint8_t mask=0x80; mask!=0; mask>>=1) {
+    if (mask & b) {
       gpio_ll_set_level(&GPIO, I2C_MASTER_SDA_IO, HIGH);
     }
-    else
-    {
+    else {
       gpio_ll_set_level(&GPIO, I2C_MASTER_SDA_IO, LOW);
     }
     delay_cycle( ns2cycle(I2C_WAIT/2*1000) ) ;
@@ -441,8 +412,7 @@ uint8_t sw_i2c_write_byte(uint8_t b)
 }
 
 // I2C Start and Address
-void sw_i2c_begin(uint8_t address)
-{
+void sw_i2c_begin(uint8_t address) {
   // Start signal
   gpio_ll_set_level(&GPIO, I2C_MASTER_SDA_IO, LOW);
   delay_cycle( ns2cycle(I2C_WAIT*1000) ) ;
@@ -452,18 +422,16 @@ void sw_i2c_begin(uint8_t address)
   sw_i2c_write_byte(address);
 }
 
-void sw_i2c_end()
-{
+void sw_i2c_end() {
   gpio_ll_set_level(&GPIO, I2C_MASTER_SDA_IO, LOW);
-  delay_cycle( ns2cycle(I2C_WAIT*1000) ) ;  
+  delay_cycle( ns2cycle(I2C_WAIT*1000) ) ;
   gpio_ll_set_level(&GPIO, I2C_MASTER_SCL_IO, HIGH);
-  delay_cycle( ns2cycle(I2C_WAIT*1000) ) ;  
+  delay_cycle( ns2cycle(I2C_WAIT*1000) ) ;
   gpio_ll_set_level(&GPIO, I2C_MASTER_SDA_IO, HIGH);
 }
 
 // Initialize I2C pins
-void sw_i2c_init()
-{
+void sw_i2c_init() {
   esp_rom_gpio_pad_select_gpio(I2C_MASTER_SDA_IO);
   gpio_ll_input_enable(&GPIO, I2C_MASTER_SDA_IO);
   gpio_ll_output_enable(&GPIO, I2C_MASTER_SDA_IO);
@@ -477,15 +445,14 @@ void sw_i2c_init()
   gpio_ll_input_disable(&GPIO, I2C_MASTER_SCL_IO);
   gpio_ll_output_enable(&GPIO, I2C_MASTER_SCL_IO);
   gpio_ll_od_enable(&GPIO, I2C_MASTER_SCL_IO);
-  gpio_ll_pullup_en(&GPIO, I2C_MASTER_SCL_IO); 
+  gpio_ll_pullup_en(&GPIO, I2C_MASTER_SCL_IO);
   gpio_ll_pulldown_dis(&GPIO, I2C_MASTER_SCL_IO);
-  gpio_ll_intr_disable(&GPIO, I2C_MASTER_SCL_IO); 
+  gpio_ll_intr_disable(&GPIO, I2C_MASTER_SCL_IO);
   gpio_ll_set_level(&GPIO, I2C_MASTER_SCL_IO, HIGH);
 }
 
-//Turn on Peripheral power. 
-void init_tca9554()
-{
+//Turn on Peripheral power.
+void init_tca9554() {
   sw_i2c_begin(TCA9554_ADDR << 1);
   sw_i2c_write_byte(TCA9554_CONFIGURATION_REG);
   sw_i2c_write_byte(TCA9554_DEFAULT_CONFIG);
@@ -500,18 +467,15 @@ void init_tca9554()
 }
 #endif
 
-static void board_led_on(void)
-{
-
+static void board_led_on(void) {
 #ifdef NEOPIXEL_PIN
-
   #ifdef TCA9554_ADDR
   sw_i2c_init();
-  // For some reason this delay is required after the pins are initialized before being used. 
+  // For some reason this delay is required after the pins are initialized before being used.
   delay_cycle( ns2cycle(30000*1000) );
   init_tca9554();
   #endif
-  
+
   #ifdef NEOPIXEL_POWER_PIN
   esp_rom_gpio_pad_select_gpio(NEOPIXEL_POWER_PIN);
   gpio_ll_input_disable(&GPIO, NEOPIXEL_POWER_PIN);
@@ -560,8 +524,7 @@ static void board_led_on(void)
 #endif
 }
 
-static void board_led_off(void)
-{
+static void board_led_off(void) {
 #ifdef NEOPIXEL_PIN
   board_neopixel_set(NEOPIXEL_PIN, RGB_OFF);
 

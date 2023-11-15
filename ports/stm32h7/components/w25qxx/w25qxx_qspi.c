@@ -10,7 +10,7 @@ static uint32_t QSPI_AutoPollingMemReady(QSPI_HandleTypeDef *hqspi, uint32_t Tim
 static uint32_t QSPI_WriteEnable(QSPI_HandleTypeDef *hqspi);
 static uint32_t QSPI_EnterFourBytesAddress(QSPI_HandleTypeDef *hqspi);
 
-static uint8_t QSPI_Send_CMD(QSPI_HandleTypeDef *hqspi,uint32_t instruction, uint32_t address,uint32_t addressSize,uint32_t dummyCycles, 
+static uint8_t QSPI_Send_CMD(QSPI_HandleTypeDef *hqspi,uint32_t instruction, uint32_t address,uint32_t addressSize,uint32_t dummyCycles,
                     uint32_t instructionMode,uint32_t addressMode, uint32_t dataMode, uint32_t dataSize);
 
 w25qxx_StatusTypeDef w25qxx_Mode = w25qxx_SPIMode;
@@ -55,7 +55,7 @@ uint8_t w25qxx_ReadSR(uint8_t SR)
 
   if (HAL_QSPI_Receive(&_qspi_flash,&byte,HAL_QPSI_TIMEOUT_DEFAULT_VALUE) != HAL_OK)
   {
-    
+
   }
   return byte;
 }
@@ -104,7 +104,7 @@ uint8_t w25qxx_EnterQPI(void)
   {
     return w25qxx_ERROR;
   }
-  
+
   return w25qxx_SetReadParameters(8,8);
 }
 
@@ -183,19 +183,19 @@ uint8_t W25qxx_EraseBlock(uint32_t BlockAddress)
 uint8_t W25qxx_EraseChip(void)
 {
   uint8_t result;
-  
+
   W25qxx_WriteEnable();
   W25QXX_Wait_Busy();
-  
+
   if(w25qxx_Mode == w25qxx_SPIMode)
     result = QSPI_Send_CMD(&_qspi_flash,W25X_ChipErase,0x00,QSPI_ADDRESS_8_BITS,0,QSPI_INSTRUCTION_1_LINE,QSPI_ADDRESS_NONE,QSPI_DATA_NONE,0);
   else
     result = QSPI_Send_CMD(&_qspi_flash,W25X_ChipErase,0x00,QSPI_ADDRESS_8_BITS,0,QSPI_INSTRUCTION_4_LINES,QSPI_ADDRESS_NONE,QSPI_DATA_NONE,0);
-  
+
   /* 等待擦除完成 */
   if(result == w25qxx_OK)
     W25QXX_Wait_Busy();
-  
+
   return result;
 }
 
@@ -209,21 +209,21 @@ uint8_t W25qxx_EraseChip(void)
 uint8_t W25qxx_PageProgram(uint8_t *pData, uint32_t WriteAddr, uint32_t Size)
 {
   uint8_t result;
-  
+
   W25qxx_WriteEnable();
-  
+
   if(w25qxx_Mode == w25qxx_SPIMode)
     result = QSPI_Send_CMD(&_qspi_flash,W25X_QUAD_INPUT_PAGE_PROG_CMD,WriteAddr,QSPI_ADDRESS_24_BITS,0,QSPI_INSTRUCTION_1_LINE,QSPI_ADDRESS_1_LINE,QSPI_DATA_4_LINES,Size);
   else
     result = QSPI_Send_CMD(&_qspi_flash,W25X_PageProgram,WriteAddr,QSPI_ADDRESS_24_BITS,0,QSPI_INSTRUCTION_4_LINES,QSPI_ADDRESS_4_LINES,QSPI_DATA_4_LINES,Size);
-  
+
   if(result == w25qxx_OK)
     result = HAL_QSPI_Transmit(&_qspi_flash,pData,HAL_QPSI_TIMEOUT_DEFAULT_VALUE);
-  
+
   /* 等待写入完成 */
   if(result == w25qxx_OK)
     W25QXX_Wait_Busy();
-  
+
   return result;
 }
 
@@ -235,24 +235,24 @@ uint8_t W25qxx_PageProgram(uint8_t *pData, uint32_t WriteAddr, uint32_t Size)
 uint8_t W25qxx_Read(uint8_t *pData, uint32_t ReadAddr, uint32_t Size)
 {
   uint8_t result;
-  
+
   QSPI_CommandTypeDef      s_command;
 
   /* Configure the command for the read instruction */
-  
+
   if(w25qxx_Mode == w25qxx_QPIMode)
   {
     s_command.Instruction     = W25X_QUAD_INOUT_FAST_READ_CMD;
     s_command.InstructionMode = QSPI_INSTRUCTION_4_LINES;
     s_command.DummyCycles     = W25X_DUMMY_CYCLES_READ_QUAD;
   }
-  else 
+  else
   {
     s_command.Instruction     = W25X_QUAD_INOUT_FAST_READ_CMD;
     s_command.InstructionMode = QSPI_INSTRUCTION_1_LINE;
     s_command.DummyCycles     = W25X_DUMMY_CYCLES_READ_QUAD-2;
   }
-  
+
   s_command.Address           = ReadAddr;
   s_command.AddressMode       = QSPI_ADDRESS_4_LINES;
   s_command.AddressSize       = QSPI_ADDRESS_24_BITS;
@@ -261,19 +261,19 @@ uint8_t W25qxx_Read(uint8_t *pData, uint32_t ReadAddr, uint32_t Size)
   s_command.AlternateBytes    = 0xFF;
   s_command.AlternateBytesSize = QSPI_ALTERNATE_BYTES_8_BITS;
 
-  s_command.DataMode          = QSPI_DATA_4_LINES;	
+  s_command.DataMode          = QSPI_DATA_4_LINES;
   s_command.NbData            = Size;
-    
+
   s_command.DdrMode         = QSPI_DDR_MODE_DISABLE;
 
   s_command.DdrHoldHalfCycle  = QSPI_DDR_HHC_ANALOG_DELAY;
   s_command.SIOOMode          = QSPI_SIOO_INST_EVERY_CMD;
-  
+
   result = HAL_QSPI_Command(&_qspi_flash, &s_command, HAL_QPSI_TIMEOUT_DEFAULT_VALUE);
-  
+
   if(result == w25qxx_OK)
     result = HAL_QSPI_Receive(&_qspi_flash,pData,HAL_QPSI_TIMEOUT_DEFAULT_VALUE);
-  
+
   return result;
 }
 
@@ -287,7 +287,7 @@ uint8_t W25qxx_Read(uint8_t *pData, uint32_t ReadAddr, uint32_t Size)
 //CHECK OK
 void W25qxx_WriteNoCheck(uint8_t *pBuffer,uint32_t WriteAddr,uint32_t NumByteToWrite)
 {
-  uint16_t pageremain;	   
+  uint16_t pageremain;
   pageremain = 256 - WriteAddr % 256; //单页剩余的字节数
   if (NumByteToWrite <= pageremain)
   {
@@ -392,37 +392,37 @@ static uint32_t QSPI_EnableMemoryMappedMode(QSPI_HandleTypeDef *hqspi,uint8_t DT
   /* Configure the command for the read instruction */
   if(w25qxx_Mode == w25qxx_QPIMode)
     s_command.InstructionMode   = QSPI_INSTRUCTION_4_LINES;
-  else 
+  else
     s_command.InstructionMode   = QSPI_INSTRUCTION_1_LINE;
-  
+
   s_command.AddressMode       = QSPI_ADDRESS_4_LINES;
   s_command.Address           = 0;
   s_command.AddressSize       = QSPI_ADDRESS_24_BITS;
-  
+
   s_command.AlternateByteMode = QSPI_ALTERNATE_BYTES_4_LINES;
   s_command.AlternateBytes    = 0xEF;
   s_command.AlternateBytesSize = QSPI_ALTERNATE_BYTES_8_BITS;
 
-  s_command.DataMode          = QSPI_DATA_4_LINES;	
-  
+  s_command.DataMode          = QSPI_DATA_4_LINES;
+
   if(DTRMode == w25qxx_DTRMode)
   {
-    s_command.Instruction     = W25X_QUAD_INOUT_FAST_READ_DTR_CMD; 
+    s_command.Instruction     = W25X_QUAD_INOUT_FAST_READ_DTR_CMD;
     s_command.DummyCycles     = W25X_DUMMY_CYCLES_READ_QUAD_DTR;
     s_command.DdrMode         = QSPI_DDR_MODE_ENABLE;
   }
   else
   {
     s_command.Instruction     = W25X_QUAD_INOUT_FAST_READ_CMD;
-    
+
     if(w25qxx_Mode == w25qxx_QPIMode)
       s_command.DummyCycles   = W25X_DUMMY_CYCLES_READ_QUAD;
     else
       s_command.DummyCycles   = W25X_DUMMY_CYCLES_READ_QUAD-2;
-    
+
     s_command.DdrMode         = QSPI_DDR_MODE_DISABLE;
   }
-  
+
   s_command.DdrHoldHalfCycle  = QSPI_DDR_HHC_ANALOG_DELAY;
   s_command.SIOOMode          = QSPI_SIOO_INST_ONLY_FIRST_CMD;
 
@@ -485,7 +485,7 @@ static uint32_t QSPI_ResetDevice(QSPI_HandleTypeDef *hqspi)
   {
     return w25qxx_ERROR;
   }
-  
+
   w25qxx_Mode = w25qxx_SPIMode;
   return w25qxx_OK;
 }
@@ -505,27 +505,27 @@ static uint32_t QSPI_ResetDevice(QSPI_HandleTypeDef *hqspi)
  * @return  uint8_t			w25qxx_OK:正常
  *                      w25qxx_ERROR:错误
  */
-static uint8_t QSPI_Send_CMD(QSPI_HandleTypeDef *hqspi,uint32_t instruction, uint32_t address,uint32_t addressSize,uint32_t dummyCycles, 
+static uint8_t QSPI_Send_CMD(QSPI_HandleTypeDef *hqspi,uint32_t instruction, uint32_t address,uint32_t addressSize,uint32_t dummyCycles,
                     uint32_t instructionMode,uint32_t addressMode, uint32_t dataMode, uint32_t dataSize)
 {
     QSPI_CommandTypeDef Cmdhandler;
 
-    Cmdhandler.Instruction        = instruction;   
-    Cmdhandler.InstructionMode    = instructionMode;  
-  
+    Cmdhandler.Instruction        = instruction;
+    Cmdhandler.InstructionMode    = instructionMode;
+
     Cmdhandler.Address            = address;
     Cmdhandler.AddressSize        = addressSize;
     Cmdhandler.AddressMode        = addressMode;
-    
+
     Cmdhandler.AlternateBytes     = 0x00;
     Cmdhandler.AlternateBytesSize = QSPI_ALTERNATE_BYTES_8_BITS;
-    Cmdhandler.AlternateByteMode  = QSPI_ALTERNATE_BYTES_NONE;                              
-    Cmdhandler.DummyCycles        = dummyCycles;                   
-                               
+    Cmdhandler.AlternateByteMode  = QSPI_ALTERNATE_BYTES_NONE;
+    Cmdhandler.DummyCycles        = dummyCycles;
+
     Cmdhandler.DataMode           = dataMode;
-    Cmdhandler.NbData             = dataSize; 
-  
-    Cmdhandler.DdrMode            = QSPI_DDR_MODE_DISABLE;           	
+    Cmdhandler.NbData             = dataSize;
+
+    Cmdhandler.DdrMode            = QSPI_DDR_MODE_DISABLE;
     Cmdhandler.DdrHoldHalfCycle   = QSPI_DDR_HHC_ANALOG_DELAY;
     Cmdhandler.SIOOMode           = QSPI_SIOO_INST_EVERY_CMD;
 
@@ -589,7 +589,7 @@ static uint32_t QSPI_WriteEnable(QSPI_HandleTypeDef *hqspi)
   /* Enable write operations */
   if(w25qxx_Mode == w25qxx_QPIMode)
     s_command.InstructionMode = QSPI_INSTRUCTION_4_LINES;
-  else 
+  else
     s_command.InstructionMode = QSPI_INSTRUCTION_1_LINE;
 
   s_command.Instruction       = W25X_WriteEnable;
@@ -615,12 +615,12 @@ static uint32_t QSPI_WriteEnable(QSPI_HandleTypeDef *hqspi)
   s_config.AutomaticStop   = QSPI_AUTOMATIC_STOP_ENABLE;
 
   s_command.Instruction    = W25X_ReadStatusReg1;
-  
+
   if(w25qxx_Mode == w25qxx_QPIMode)
     s_command.DataMode     = QSPI_DATA_4_LINES;
-  else 
+  else
     s_command.DataMode     = QSPI_DATA_1_LINE;
-  
+
   if (HAL_QSPI_AutoPolling(hqspi, &s_command, &s_config, HAL_QPSI_TIMEOUT_DEFAULT_VALUE) != HAL_OK)
   {
     return w25qxx_ERROR;
@@ -641,19 +641,19 @@ static uint32_t QSPI_AutoPollingMemReady(QSPI_HandleTypeDef *hqspi, uint32_t Tim
   QSPI_AutoPollingTypeDef s_config;
 
   /* Configure automatic polling mode to wait for memory ready */
-  
+
   if(w25qxx_Mode == w25qxx_SPIMode)
     s_command.InstructionMode   = QSPI_INSTRUCTION_1_LINE;
   else
     s_command.InstructionMode   = QSPI_INSTRUCTION_4_LINES;
-  
+
   s_command.Instruction       = W25X_ReadStatusReg1;
-  
+
   s_command.AddressMode       = QSPI_ADDRESS_NONE;
   s_command.Address           = 0x00;
   s_command.AddressSize       = QSPI_ADDRESS_8_BITS;
   s_command.AlternateByteMode = QSPI_ALTERNATE_BYTES_NONE;
-  
+
   if(w25qxx_Mode == w25qxx_SPIMode)
     s_command.DataMode        = QSPI_DATA_1_LINE;
   else
@@ -669,14 +669,14 @@ static uint32_t QSPI_AutoPollingMemReady(QSPI_HandleTypeDef *hqspi, uint32_t Tim
   s_config.Interval        = 0x10;
   s_config.AutomaticStop   = QSPI_AUTOMATIC_STOP_ENABLE;
   s_config.StatusBytesSize = 1;
-  
+
   return HAL_QSPI_AutoPolling(hqspi, &s_command, &s_config, Timeout);
 
 }
 
 /**
   * @brief  This function enter the QSPI memory in QPI mode
-  * @param  hqspi QSPI handle 
+  * @param  hqspi QSPI handle
   * @retval QSPI status
   */
 static uint8_t QSPI_EnterQPI(QSPI_HandleTypeDef *hqspi)
@@ -690,14 +690,14 @@ static uint8_t QSPI_EnterQPI(QSPI_HandleTypeDef *hqspi)
     w25qxx_WriteSR(W25X_WriteStatusReg2,stareg2);
   }
   QSPI_Send_CMD(hqspi,W25X_EnterQSPIMode,0x00,QSPI_ADDRESS_8_BITS,0,QSPI_INSTRUCTION_1_LINE,QSPI_ADDRESS_NONE,QSPI_DATA_NONE,0);
-  
+
   /* Configure automatic polling mode to wait the memory is ready */
   if (QSPI_AutoPollingMemReady(hqspi, HAL_QPSI_TIMEOUT_DEFAULT_VALUE) != w25qxx_OK)
   {
     return w25qxx_ERROR;
   }
-  
+
   w25qxx_Mode = w25qxx_QPIMode;
-  
+
   return w25qxx_OK;
 }

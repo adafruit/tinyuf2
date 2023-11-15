@@ -1,4 +1,4 @@
-/* 
+/*
  * The MIT License (MIT)
  *
  * Copyright (c) 2020 Ha Thach (tinyusb.org) for Adafruit Industries
@@ -48,13 +48,13 @@
 // Uncomment & wire-up NeoPixel to board for testing
 // // GPIOs connected to NeoPixel data & power
 // #define NEOPIXEL_PIN          01
-// 
+//
 // #define NEOPIXEL_POWER_PIN    02
 // #define NEOPIXEL_POWER_STATE  1
-// 
+//
 // // Brightness percentage from 1 to 255
 // #define NEOPIXEL_BRIGHTNESS   0x64
-// 
+//
 // // Number of neopixels
 // #define NEOPIXEL_NUMBER       1
 

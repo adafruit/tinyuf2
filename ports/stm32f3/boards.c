@@ -261,7 +261,7 @@ void board_rgb_write(uint8_t const rgb[])
 
   __disable_irq();
 
-  // Enable DWT in debug core. Useable when interrupts disabled, as opposed to Systick->VAL
+  // Enable DWT in debug core. Usable when interrupts disabled, as opposed to Systick->VAL
   CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
   DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
   DWT->CYCCNT = 0;

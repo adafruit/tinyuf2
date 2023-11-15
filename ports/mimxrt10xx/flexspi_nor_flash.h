@@ -46,7 +46,7 @@ enum _flexspi_nor_status
     kStatus_FLEXSPINOR_EraseAllFail             = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 2),  //!< Status for Chip Erase failure
     kStatus_FLEXSPINOR_WaitTimeout              = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 3),  //!< Status for timeout
     kStatus_FlexSPINOR_NotSupported             = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 4),  // Status for PageSize overflow
-    kStatus_FlexSPINOR_WriteAlignmentError      = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 5),  //!< Status for Alignement error
+    kStatus_FlexSPINOR_WriteAlignmentError      = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 5),  //!< Status for Alignment error
     kStatus_FlexSPINOR_CommandFailure           = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 6),  //!< Status for Erase/Program Verify Error
     kStatus_FlexSPINOR_SFDP_NotFound            = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 7),  //!< Status for SFDP read failure
     kStatus_FLEXSPINOR_Unsupported_SFDP_Version = MAKE_STATUS(kStatusGroup_FLEXSPINOR, 8),  //!< Status for Unrecognized SFDP version
@@ -185,7 +185,7 @@ typedef struct _flexspi_nor_config
     uint8_t serialNorType;          //!< Serial NOR Flash type: 0/1/2/3
     uint8_t needExitNoCmdMode;      //!< Need to exit NoCmd mode before other IP command
     uint8_t halfClkForNonReadCmd;   //!< Half the Serial Clock for non-read command: true/false
-    uint8_t needRestoreNoCmdMode;   //!< Need to Restore NoCmd mode after IP commmand execution
+    uint8_t needRestoreNoCmdMode;   //!< Need to Restore NoCmd mode after IP command execution
     uint32_t blockSize;             //!< Block size
     uint32_t reserve2[11];          //!< Reserved for future use
 } flexspi_nor_config_t;

@@ -17,7 +17,7 @@
 #endif
 
 /*******************************************************************************
- * Definitons
+ * Definitions
  ******************************************************************************/
 /*! @brief Card command maximum retry times value */
 #define SDSPI_TRANSFER_RETRY_TIMES (20000U)
@@ -49,7 +49,7 @@ static status_t SDSPI_WaitReady(sdspi_host_t *host);
  *
  * @param buffer Data buffer.
  * @param length Data length.
- * @param crc The orginal crc value.
+ * @param crc The original crc value.
  * @return Generated CRC7.
  */
 static uint32_t SDSPI_GenerateCRC7(uint8_t *buffer, uint32_t length, uint32_t crc);
@@ -233,7 +233,7 @@ static status_t SDSPI_SelectFunction(sdspi_card_t *card, uint32_t group, uint32_
  * @param mode 0 to check function group, 1 to switch function group.
  * @param group function group.
  * @param number function name.
- * @status buffer to recieve function status.
+ * @status buffer to receive function status.
  */
 static status_t SDSPI_SwitchFunction(
     sdspi_card_t *card, uint32_t mode, uint32_t group, uint32_t number, uint32_t *status);
@@ -361,7 +361,7 @@ static status_t SDSPI_SendCommand(sdspi_host_t *host, uint32_t command, uint32_t
         return kStatus_SDSPI_ExchangeFailed;
     }
 
-    /* Wait for the response coming, the left most bit which is transfered first in first response byte is 0 */
+    /* Wait for the response coming, the left most bit which is transferred first in first response byte is 0 */
     for (i = 0U; i < 9U; i++)
     {
         if (kStatus_Success != host->exchange(&timingByte, &response[0U], 1U))
@@ -376,7 +376,7 @@ static status_t SDSPI_SendCommand(sdspi_host_t *host, uint32_t command, uint32_t
         }
     }
 
-    if ((response[0U] & 0x80U) != 0U) /* Max index byte is high means response comming. */
+    if ((response[0U] & 0x80U) != 0U) /* Max index byte is high means response coming. */
     {
         return kStatus_SDSPI_ResponseError;
     }
@@ -492,7 +492,7 @@ static status_t SDSPI_SendInterfaceCondition(sdspi_card_t *card, uint32_t *flags
                 *flags |= SDMMC_MASK(kSD_OcrHostCapacitySupportFlag);
                 return kStatus_Success;
             }
-            /* if VCA in the reponse not set, then the card not support current voltage, return fail */
+            /* if VCA in the response not set, then the card not support current voltage, return fail */
             else if (response[3U] == 0U)
             {
                 return kStatus_SDSPI_InvalidVoltage;
@@ -640,7 +640,7 @@ static void SDSPI_DecodeCsd(sdspi_card_t *card, uint8_t *rawCsd)
         csd->flags |= (uint16_t)kSD_CsdDsrImplementedFlag;
     }
 
-    /* Some fileds is different when csdStructure is different. */
+    /* Some fields is different when csdStructure is different. */
     if (csd->csdStructure == 0U) /* Decode the bits when CSD structure is version 1.0 */
     {
         csd->deviceSize =
@@ -918,7 +918,7 @@ static status_t SDSPI_Read(sdspi_host_t *host, uint8_t *buffer, uint32_t size)
 
     (void)memset(buffer, 0xFF, size);
 
-    /* Wait data token comming */
+    /* Wait data token coming */
     do
     {
         if (kStatus_Success != host->exchange((uint8_t *)&timingByte, &response, 1U))

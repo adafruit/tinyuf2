@@ -20,9 +20,9 @@ endif ()
 if (NOT DEFINED FAMILY)
   # Find path contains BOARD
   file(GLOB BOARD_PATH LIST_DIRECTORIES true
-          RELATIVE ${TOP}/ports
-          ${TOP}/ports/*/boards/${BOARD}
-          )
+    RELATIVE ${TOP}/ports
+    ${TOP}/ports/*/boards/${BOARD}
+    )
   if (NOT BOARD_PATH)
     message(FATAL_ERROR "Could not detect FAMILY from BOARD=${BOARD}")
   endif ()

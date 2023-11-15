@@ -3,7 +3,7 @@ UF2_FAMILY_ID = 0x00000000
 # This should *NOT* cross-compile, because the goal is to run the
 # resulting executable on the build machine, as a method of validating
 # the generated ghostfat image.
-CROSS_COMPILE = 
+CROSS_COMPILE =
 
 # List of git submodules that is included as part of the UF2 version
 GIT_VERSION = 0.0.0-selftest

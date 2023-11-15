@@ -1,4 +1,4 @@
-/* 
+/*
  * The MIT License (MIT)
  *
  * Copyright (c) 2020 Ha Thach (tinyusb.org) for Adafruit Industries
@@ -22,8 +22,8 @@
  * THE SOFTWARE.
  */
 
-#ifndef ADAFRUIT_TFTEXP_ESP32S3_H_
-#define ADAFRUIT_TFTEXP_ESP32S3_H_
+#ifndef ADAFRUIT_QUALIA_S3_H_
+#define ADAFRUIT_QUALIA_S3_H_
 
 //--------------------------------------------------------------------+
 // Button
@@ -36,20 +36,7 @@
 
 // GPIO that implement 1-bit memory with RC components which hold the
 // pin value long enough for double reset detection.
-#define PIN_DOUBLE_RESET_RC   5
-
-//--------------------------------------------------------------------+
-// LED
-//--------------------------------------------------------------------+
-
-// GPIO connected to Neopixel data
-#define NEOPIXEL_PIN          4
-
-// Brightness percentage from 1 to 255
-#define NEOPIXEL_BRIGHTNESS   0x10
-
-// Number of neopixels
-#define NEOPIXEL_NUMBER       1
+#define PIN_DOUBLE_RESET_RC   4
 
 //--------------------------------------------------------------------+
 // USB UF2
@@ -58,12 +45,12 @@
 #define USB_VID                  0x239A
 #define USB_PID                  0x0147
 #define USB_MANUFACTURER         "Adafruit"
-#define USB_PRODUCT              "TFT Experimenter ESP32-S3"
+#define USB_PRODUCT              "Qualia ESP32-S3 RGB666"
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID             "ESP32S3-TFTExp-revA"
+#define UF2_BOARD_ID             "ESP32S3-Qualia-revC"
 #define UF2_VOLUME_LABEL         "TFT_S3BOOT"
-#define UF2_INDEX_URL            "https://www.adafruit.com/"
+#define UF2_INDEX_URL            "https://www.adafruit.com/5800"
 
 // Use favicon
 #define TINYUF2_FAVICON_HEADER   "favicon_adafruit_256.h"

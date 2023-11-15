@@ -34,9 +34,9 @@ include ../rules.mk
 #  - "SDP Jump Address" must equal _ivt_origin
 #
 # TinyUF2 will copy itself to the correct location in flash.
-# "UF2 Write Address" shows where the image will reside in flash if you 
+# "UF2 Write Address" shows where the image will reside in flash if you
 # want to use a tool like pyocd to write the binary into flash through SWD
-# Note: The .elf file cannot be written directly to flash since the target 
+# Note: The .elf file cannot be written directly to flash since the target
 # is RAM and the addresses need to be translated.
 #---------------------------------------------------------
 SDP_MIMXRT1011_PID = 0x0145

@@ -7,7 +7,7 @@ The KUIIC board uses two timer capable pins to drive an RGB LED.  This was done 
 The three LEDS are connected in the following order:
 
 ```
-         red  B/R#      blue G/B#      green 
+         red  B/R#      blue G/B#      green
 3V3 - 2k ->|- PTA1 - 1k ->|- PTA2 - 2k ->|- GND
 ```
 
@@ -36,5 +36,4 @@ To implement this with the timer:
 
 ## Clocking
 
-This library utilizes the 48MHz clock that is required for USB operation.  It sets the prescaler to divide by 1 for the highest resolution.  KUIIC_RGB_BRIGHT_SHIFT is provided to allow for maximum brightness addjustments.  The three color counts need to be completed within the 1ms SysTick interval which is 48,000 clocks when running at 48MHz, therefor the maximum count needs to be less than 16,000 for each color and KUIIC_RGB_BRIGHT_SHIFT should not be set above 5 (255 * 2^5 = 8160).
-
+This library utilizes the 48MHz clock that is required for USB operation.  It sets the prescaler to divide by 1 for the highest resolution.  KUIIC_RGB_BRIGHT_SHIFT is provided to allow for maximum brightness addjustments.  The three color counts need to be completed within the 1ms SysTick interval which is 48,000 clocks when running at 48MHz, therefore the maximum count needs to be less than 16,000 for each color and KUIIC_RGB_BRIGHT_SHIFT should not be set above 5 (255 * 2^5 = 8160).
