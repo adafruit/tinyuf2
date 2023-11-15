@@ -66,6 +66,6 @@
 #define UF2_INDEX_URL            "https://sensebox.de"
 
 // Use favicon
-#define TINYUF2_FAVICON_HEADER   "favicon_adafruit_256.h"
+#define TINYUF2_FAVICON_HEADER   "favicon_sensebox_256.h"
 
 #endif
