@@ -55,6 +55,7 @@ jobs:
         - 'muselab_nanoesp32-s2_wroom'
         - 'muselab_nanoesp32-s2_wrover'
         - 'olimex_esp32s2_devkit_lipo_vB1'
+        - 'sensebox_mcu_esp32s2'
         - 'targett_mcb_wroom'
         - 'targett_mcb_wrover'
         - 'unexpectedmaker_feathers2'
