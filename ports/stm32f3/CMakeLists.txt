@@ -25,4 +25,4 @@ family_flash_jlink(tinyuf2)
 #------------------------------------
 # Application (e.g self update)
 #------------------------------------
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/apps/self_update)
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/apps/self_update)
