@@ -27,7 +27,7 @@ set(CMAKE_TOOLCHAIN_FILE ${TOP}/cmake/toolchain/arm_${TOOLCHAIN}.cmake)
 #------------------------------------
 # used by all executable targets
 
-function(add_board_target BOARD_TARGET)
+function(family_add_board_target BOARD_TARGET)
   if (TARGET ${BOARD_TARGET})
     return()
   endif ()
@@ -63,31 +63,10 @@ function(add_board_target BOARD_TARGET)
     )
   target_link_options(${BOARD_TARGET} PUBLIC
     -nostartfiles
-    # nanolib
-    --specs=nosys.specs
-    --specs=nano.specs
+    --specs=nosys.specs --specs=nano.specs
     )
 endfunction()
 
 #------------------------------------
 # Main target
 #------------------------------------
-function(family_configure_tinyuf2 TARGET)
-  family_configure_common(${TARGET})
-  add_board_target(board_${BOARD})
-
-  #---------- Port Specific ----------
-  target_sources(${TARGET} PUBLIC
-    ${TOP}/lib/tinyusb/src/portable/st/stm32_fsdev/dcd_stm32_fsdev.c
-    )
-  #target_include_directories(${TARGET} PUBLIC)
-  #target_compile_definitions(${TARGET} PUBLIC)
-  target_link_options(${TARGET} PUBLIC
-    "LINKER:--script=${CMAKE_CURRENT_FUNCTION_LIST_DIR}/linker/stm32f3_boot.ld"
-    )
-
-  include(${TOP}/src/tinyuf2.cmake)
-  add_tinyuf2(${TARGET})
-
-  target_link_libraries(${TARGET} PUBLIC board_${BOARD})
-endfunction()

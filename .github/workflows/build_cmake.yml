@@ -1,0 +1,56 @@
+name: Build ARM
+
+on:
+  pull_request:
+  push:
+  repository_dispatch:
+  release:
+    types:
+      - created
+
+jobs:
+
+  # ---------------------------------------
+  # Build ARM family
+  # ---------------------------------------
+  ARM:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        board:
+        # Alphabetical order by family
+        - 'metro_m7_1011'
+        - 'stm32f303disco'
+
+    steps:
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.x"
+
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Checkout common submodules in lib
+      run: git submodule update --init lib/tinyusb lib/uf2
+
+    - name: Install ARM GCC
+      uses: carlosperate/arm-none-eabi-gcc-action@v1
+      with:
+        release: '11.2-2022.02'
+
+    - name: Build
+      run: |
+        cmake . -B _build -G Ninja -DCMAKE_BUILD_TYPE=MinSizeRel -DBOARD=${{ matrix.board }}
+        cmake --build _build
+
+#    - uses: actions/upload-artifact@v3
+#      with:
+#        name: ${{ matrix.board }}
+#        path: |
+#          _build/ports/*/tinyusb.bin
+#          _build/ports/*/tinyusb.hex
+#          _build/ports/*/apps/*/*.uf2

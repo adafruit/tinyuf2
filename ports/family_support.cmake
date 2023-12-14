@@ -44,6 +44,11 @@ endif ()
 #------------------------------------
 # Functions
 #------------------------------------
+
+function(family_add_bin_hex TARGET)
+  # placeholder, will be override by family specific
+endfunction()
+
 function(family_add_default_example_warnings TARGET)
 #  target_compile_options(${TARGET} PUBLIC
 #    -Wall
@@ -105,6 +110,10 @@ function(family_configure_common TARGET)
   # Generate map file
   target_link_options(${TARGET} PUBLIC "LINKER:-Map=$<TARGET_FILE:${TARGET}>.map")
 
+  # All executable target linked with board target
+  family_add_board_target(board_${BOARD})
+  target_link_libraries(${TARGET} PUBLIC board_${BOARD})
+
   # ETM Trace option
   if (TRACE_ETM STREQUAL "1")
     target_compile_definitions(${TARGET} PUBLIC TRACE_ETM)
@@ -161,7 +170,6 @@ function(family_add_tinyusb TARGET OPT_MCU RTOS)
   target_link_libraries(${TARGET} PUBLIC ${TARGET}-tinyusb)
 endfunction()
 
-
 function(family_add_uf2version TARGET DEPS_REPO)
   execute_process(COMMAND git describe --dirty --always --tags OUTPUT_VARIABLE GIT_VERSION)
   string(STRIP ${GIT_VERSION} GIT_VERSION)
@@ -179,6 +187,18 @@ function(family_add_uf2version TARGET DEPS_REPO)
     UF2_VERSION_BASE="${GIT_VERSION}"
     UF2_VERSION="${GIT_VERSION} - ${GIT_SUBMODULE_VERSIONS}"
     )
+endfunction()
+
+function(family_configure_tinyuf2 TARGET OPT_MCU)
+  family_configure_common(${TARGET})
+  family_add_bin_hex(${TARGET})
+
+  #target_include_directories(${TARGET} PUBLIC)
+  #target_compile_definitions(${TARGET} PUBLIC)
+  include(${TOP}/src/tinyuf2.cmake)
+  add_tinyuf2(${TARGET})
+
+  family_add_tinyusb(tinyuf2 ${OPT_MCU} none)
 endfunction()
 
 #----------------------------------
@@ -308,8 +328,5 @@ function(family_flash_uf2 TARGET FAMILY_ID)
     )
 endfunction()
 
-#----------------------------------
 # Family specific
-#----------------------------------
-
 include(${CMAKE_CURRENT_LIST_DIR}/${FAMILY}/family.cmake)

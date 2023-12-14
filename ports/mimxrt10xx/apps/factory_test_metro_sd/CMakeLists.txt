@@ -28,10 +28,7 @@ include(middleware-sdmmc/CMakeLists.txt)
 add_sdmmc(factory_test_metro_sd)
 
 configure_app(factory_test_metro_sd)
-
-target_link_libraries(factory_test_metro_sd PUBLIC board_${BOARD})
 family_add_tinyusb(factory_test_metro_sd OPT_MCU_MIMXRT1XXX none)
-
 
 #------------------------------------
 #

@@ -62,7 +62,7 @@ string(REGEX REPLACE ".*= *(0x[0-9a-fA-F]+).*" "\\1" IVT_ORIGIN ${IVT_ORIGIN})
 # BOARD_TARGET
 #------------------------------------
 # used by all executable targets
-function(add_board_target BOARD_TARGET)
+function(family_add_board_target BOARD_TARGET)
   if (TARGET ${BOARD_TARGET})
     return()
   endif ()
@@ -113,8 +113,7 @@ function(add_board_target BOARD_TARGET)
     XIP_BOOT_HEADER_ENABLE=1
     )
   target_link_options(${BOARD_TARGET} PUBLIC
-    --specs=nosys.specs
-    --specs=nano.specs
+    --specs=nosys.specs --specs=nano.specs
     )
 endfunction()
 

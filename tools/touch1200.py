@@ -2,6 +2,7 @@ import click
 import serial
 import time
 
+
 @click.command()
 @click.argument('port', default='/dev/ttyACM0')
 def connect_serial(port):
@@ -28,6 +29,7 @@ def connect_serial(port):
         # Close the serial connection
         set.close()
         print(f"Disconnected from {port}.")
+
 
 if __name__ == '__main__':
     connect_serial()
