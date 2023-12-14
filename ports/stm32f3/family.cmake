@@ -13,6 +13,7 @@ set(ST_HAL_DRIVER ${TOP}/lib/st/stm32f3xx_hal_driver)
 set(ST_CMSIS ${TOP}/lib/st/cmsis_device_f3)
 set(CMSIS_5 ${TOP}/lib/CMSIS_5)
 set(PORT_DIR ${CMAKE_CURRENT_LIST_DIR})
+set(FAMILY_SUBMODULE_DEPS ${ST_CMSIS} ${ST_HAL_DRIVER})
 
 include(${CMAKE_CURRENT_LIST_DIR}/boards/${BOARD}/board.cmake)
 
@@ -21,6 +22,7 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
 
 set(CMAKE_SYSTEM_PROCESSOR cortex-m4 CACHE INTERNAL "System Processor")
 set(CMAKE_TOOLCHAIN_FILE ${TOP}/cmake/toolchain/arm_${TOOLCHAIN}.cmake)
+
 
 #------------------------------------
 # BOARD_TARGET

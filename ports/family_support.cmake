@@ -330,3 +330,17 @@ endfunction()
 
 # Family specific
 include(${CMAKE_CURRENT_LIST_DIR}/${FAMILY}/family.cmake)
+
+# Family submodules dependencies
+if (DEFINED FAMILY_SUBMODULE_DEPS)
+  foreach(DEP ${FAMILY_SUBMODULE_DEPS})
+    # Check if the submodule is present. If not, fetch it
+    if(NOT EXISTS ${DEP}/.git)
+      string(REPLACE ${TOP}/ "" DEP_REL ${DEP})
+      find_package(Git REQUIRED)
+      execute_process(
+        COMMAND ${GIT_EXECUTABLE} -C ${TOP} submodule update --init ${DEP_REL}
+        )
+    endif()
+  endforeach()
+endif ()
