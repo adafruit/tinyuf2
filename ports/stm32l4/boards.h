@@ -34,6 +34,8 @@
 
 #include "board.h"
 
+#define BOARD_FLASH_ADDR_ZERO   0x08000000
+
 // Flash Start Address of Application
 #ifndef BOARD_FLASH_APP_START
 #define BOARD_FLASH_APP_START   0x08010000

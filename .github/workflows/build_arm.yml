@@ -1,8 +1,21 @@
 name: Build ARM
 
 on:
-  pull_request:
   push:
+    paths:
+      - 'src/**'
+      - 'ports/**'
+      - '!ports/espressif/**'
+      - 'lib/**'
+      - '.github/workflows/build_arm.yml'
+  pull_request:
+    branches: [ master ]
+    paths:
+      - 'src/**'
+      - 'ports/**'
+      - '!ports/espressif/**'
+      - 'lib/**'
+      - '.github/workflows/build_arm.yml'
   repository_dispatch:
   release:
     types:

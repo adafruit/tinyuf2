@@ -26,7 +26,7 @@ target_compile_definitions(self_update PUBLIC
   BUILD_APPLICATION
   )
 target_link_options(self_update PUBLIC
-  "LINKER:--script=${CMAKE_CURRENT_LIST_DIR}/../../linker/stm32f3_app.ld"
+  "LINKER:--script=${CMAKE_CURRENT_LIST_DIR}/../../linker/stm32f4_app.ld"
   )
 
 family_configure_common(self_update)

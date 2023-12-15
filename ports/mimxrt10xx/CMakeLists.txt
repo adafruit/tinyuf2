@@ -3,11 +3,11 @@ cmake_minimum_required(VERSION 3.17)
 include(${CMAKE_CURRENT_LIST_DIR}/../family_support.cmake)
 
 project(tinyuf2 C ASM)
+set(CMAKE_EXECUTABLE_SUFFIX .elf)
 
 #------------------------------------
 # TinyUF2
 #------------------------------------
-set(CMAKE_EXECUTABLE_SUFFIX .elf)
 add_executable(tinyuf2
   board_flash.c
   boards.c

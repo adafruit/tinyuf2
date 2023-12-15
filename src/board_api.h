@@ -34,6 +34,10 @@
 // Features
 //--------------------------------------------------------------------+
 
+#ifndef BOARD_FLASH_ADDR_ZERO
+#define BOARD_FLASH_ADDR_ZERO   0
+#endif
+
 // Flash Start Address of Application
 #ifndef BOARD_FLASH_APP_START
 #define BOARD_FLASH_APP_START  0

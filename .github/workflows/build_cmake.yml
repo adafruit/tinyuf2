@@ -1,8 +1,21 @@
 name: Build CMake
 
 on:
-  pull_request:
   push:
+    paths:
+      - 'src/**'
+      - 'ports/**'
+      - '!ports/espressif/**'
+      - 'lib/**'
+      - '.github/workflows/build_cmake.yml'
+  pull_request:
+    branches: [ master ]
+    paths:
+      - 'src/**'
+      - 'ports/**'
+      - '!ports/espressif/**'
+      - 'lib/**'
+      - '.github/workflows/build_cmake.yml'
   repository_dispatch:
   release:
     types:
@@ -25,6 +38,7 @@ jobs:
         # Alphabetical order by family
         - 'metro_m7_1011'
         - 'stm32f303disco'
+        - 'stm32f411ve_discovery'
 
     steps:
     - name: Setup Python

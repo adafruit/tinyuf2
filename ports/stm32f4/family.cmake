@@ -4,9 +4,9 @@ include_guard()
 # Config
 #------------------------------------
 
-set(UF2_FAMILY_ID 0x6b846188)
-set(ST_HAL_DRIVER ${TOP}/lib/st/stm32f3xx_hal_driver)
-set(ST_CMSIS ${TOP}/lib/st/cmsis_device_f3)
+set(UF2_FAMILY_ID 0x57755a57)
+set(ST_HAL_DRIVER ${TOP}/lib/st/stm32f4xx_hal_driver)
+set(ST_CMSIS ${TOP}/lib/st/cmsis_device_f4)
 set(CMSIS_5 ${TOP}/lib/CMSIS_5)
 set(FAMILY_SUBMODULE_DEPS ${ST_CMSIS} ${ST_HAL_DRIVER})
 
@@ -30,15 +30,15 @@ function(family_add_board_target BOARD_TARGET)
   endif ()
 
   add_library(${BOARD_TARGET} STATIC
-    ${ST_CMSIS}/Source/Templates/system_stm32f3xx.c
-    ${ST_HAL_DRIVER}/Src/stm32f3xx_hal.c
-    ${ST_HAL_DRIVER}/Src/stm32f3xx_hal_cortex.c
-    ${ST_HAL_DRIVER}/Src/stm32f3xx_hal_rcc.c
-    ${ST_HAL_DRIVER}/Src/stm32f3xx_hal_rcc_ex.c
-    ${ST_HAL_DRIVER}/Src/stm32f3xx_hal_gpio.c
-    ${ST_HAL_DRIVER}/Src/stm32f3xx_hal_flash.c
-    ${ST_HAL_DRIVER}/Src/stm32f3xx_hal_flash_ex.c
-    ${ST_HAL_DRIVER}/Src/stm32f3xx_hal_uart.c
+    ${ST_CMSIS}/Source/Templates/system_stm32f4xx.c
+    ${ST_HAL_DRIVER}/Src/stm32f4xx_hal.c
+    ${ST_HAL_DRIVER}/Src/stm32f4xx_hal_cortex.c
+    ${ST_HAL_DRIVER}/Src/stm32f4xx_hal_rcc.c
+    ${ST_HAL_DRIVER}/Src/stm32f4xx_hal_rcc_ex.c
+    ${ST_HAL_DRIVER}/Src/stm32f4xx_hal_gpio.c
+    ${ST_HAL_DRIVER}/Src/stm32f4xx_hal_flash.c
+    ${ST_HAL_DRIVER}/Src/stm32f4xx_hal_flash_ex.c
+    ${ST_HAL_DRIVER}/Src/stm32f4xx_hal_uart.c
     )
   target_include_directories(${BOARD_TARGET} PUBLIC
     # port & board
@@ -53,7 +53,6 @@ function(family_add_board_target BOARD_TARGET)
   update_board(${BOARD_TARGET})
 
   target_compile_definitions(${BOARD_TARGET} PUBLIC
-    CFG_TUSB_MCU=OPT_MCU_STM32F3
     BOARD_UF2_FAMILY_ID=${UF2_FAMILY_ID}
     )
   target_compile_options(${BOARD_TARGET} PUBLIC
