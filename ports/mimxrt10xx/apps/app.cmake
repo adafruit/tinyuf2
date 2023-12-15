@@ -19,10 +19,8 @@ function(configure_app TARGET)
     "LINKER:--script=${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../linker/common.ld"
     )
 
-  family_add_bin_hex(${TARGET})
   family_add_uf2(${TARGET} ${UF2_FAMILY_ID})
-
   family_flash_uf2(${TARGET} ${UF2_FAMILY_ID})
-  #family_flash_jlink(${TARGET} hex)
-  family_flash_pyocd(${TARGET} hex)
+  family_flash_jlink(${TARGET} hex)
+  #family_flash_pyocd(${TARGET} hex)
 endfunction()

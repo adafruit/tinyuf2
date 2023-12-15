@@ -10,6 +10,7 @@ endif ()
 set(UF2_FAMILY_ID 0x4fb2d5bd)
 set(SDK_DIR ${TOP}/lib/nxp/mcux-sdk)
 set(CMSIS_DIR ${TOP}/lib/CMSIS_5)
+set(FAMILY_SUBMODULE_DEPS ${SDK_DIR})
 
 include(${CMAKE_CURRENT_LIST_DIR}/boards/${BOARD}/board.cmake)
 
@@ -62,7 +63,7 @@ string(REGEX REPLACE ".*= *(0x[0-9a-fA-F]+).*" "\\1" IVT_ORIGIN ${IVT_ORIGIN})
 # BOARD_TARGET
 #------------------------------------
 # used by all executable targets
-function(add_board_target BOARD_TARGET)
+function(family_add_board_target BOARD_TARGET)
   if (TARGET ${BOARD_TARGET})
     return()
   endif ()
@@ -113,8 +114,7 @@ function(add_board_target BOARD_TARGET)
     XIP_BOOT_HEADER_ENABLE=1
     )
   target_link_options(${BOARD_TARGET} PUBLIC
-    --specs=nosys.specs
-    --specs=nano.specs
+    --specs=nosys.specs --specs=nano.specs
     )
 endfunction()
 

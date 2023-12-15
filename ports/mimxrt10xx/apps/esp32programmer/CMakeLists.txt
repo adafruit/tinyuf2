@@ -21,6 +21,4 @@ target_include_directories(esp32programmer PUBLIC
   )
 
 configure_app(esp32programmer)
-
-target_link_libraries(esp32programmer PUBLIC board_${BOARD})
 family_add_tinyusb(esp32programmer OPT_MCU_MIMXRT1XXX none)

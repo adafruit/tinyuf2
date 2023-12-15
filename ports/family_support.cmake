@@ -2,6 +2,7 @@ include_guard()
 
 include(CMakePrintHelpers)
 find_package(Python COMPONENTS Interpreter)
+find_package(Git REQUIRED)
 
 # TOP is path to root directory
 set(TOP ${CMAKE_CURRENT_LIST_DIR}/..)
@@ -44,6 +45,11 @@ endif ()
 #------------------------------------
 # Functions
 #------------------------------------
+
+function(family_add_bin_hex TARGET)
+  # placeholder, will be override by family specific
+endfunction()
+
 function(family_add_default_example_warnings TARGET)
 #  target_compile_options(${TARGET} PUBLIC
 #    -Wall
@@ -105,6 +111,10 @@ function(family_configure_common TARGET)
   # Generate map file
   target_link_options(${TARGET} PUBLIC "LINKER:-Map=$<TARGET_FILE:${TARGET}>.map")
 
+  # All executable target linked with board target
+  family_add_board_target(board_${BOARD})
+  target_link_libraries(${TARGET} PUBLIC board_${BOARD})
+
   # ETM Trace option
   if (TRACE_ETM STREQUAL "1")
     target_compile_definitions(${TARGET} PUBLIC TRACE_ETM)
@@ -161,24 +171,45 @@ function(family_add_tinyusb TARGET OPT_MCU RTOS)
   target_link_libraries(${TARGET} PUBLIC ${TARGET}-tinyusb)
 endfunction()
 
-
 function(family_add_uf2version TARGET DEPS_REPO)
-  execute_process(COMMAND git describe --dirty --always --tags OUTPUT_VARIABLE GIT_VERSION)
+  execute_process(COMMAND ${GIT_EXECUTABLE} describe --dirty --always --tags OUTPUT_VARIABLE GIT_VERSION)
   string(STRIP ${GIT_VERSION} GIT_VERSION)
+  string(REPLACE ${TOP}/ "" DEPS_REPO "${DEPS_REPO}")
+  foreach (DEP ${DEPS_REPO})
+    execute_process(COMMAND ${GIT_EXECUTABLE} -C ${TOP} submodule status ${DEP}
+      OUTPUT_VARIABLE DEP_VERSION
+      )
+    string(STRIP ${DEP_VERSION} DEP_VERSION)
+    string(FIND "${DEP_VERSION}" " " SPACE_POS)
+    string(SUBSTRING "${DEP_VERSION}" ${SPACE_POS} -1 DEP_VERSION)
+    string(STRIP ${DEP_VERSION} DEP_VERSION)
 
-  execute_process(COMMAND bash "-c" "git -C ${TOP}/lib submodule status ${DEPS_REPO} | cut -d\" \" -f3,4 | paste -s -d\" \" -"
-    OUTPUT_VARIABLE GIT_SUBMODULE_VERSIONS
-    )
-  string(REPLACE ../ "" GIT_SUBMODULE_VERSIONS ${GIT_SUBMODULE_VERSIONS})
-  string(REPLACE lib/ "" GIT_SUBMODULE_VERSIONS ${GIT_SUBMODULE_VERSIONS})
+    set(GIT_SUBMODULE_VERSIONS "${GIT_SUBMODULE_VERSIONS} ${DEP_VERSION}")
+  endforeach ()
+
   string(STRIP ${GIT_SUBMODULE_VERSIONS} GIT_SUBMODULE_VERSIONS)
+  string(REPLACE lib/ "" GIT_SUBMODULE_VERSIONS ${GIT_SUBMODULE_VERSIONS})
 
-  cmake_print_variables(GIT_VERSION GIT_SUBMODULE_VERSIONS)
+  cmake_print_variables(GIT_VERSION)
+  cmake_print_variables(GIT_SUBMODULE_VERSIONS)
 
   target_compile_definitions(${TARGET} PUBLIC
     UF2_VERSION_BASE="${GIT_VERSION}"
     UF2_VERSION="${GIT_VERSION} - ${GIT_SUBMODULE_VERSIONS}"
     )
+endfunction()
+
+function(family_configure_tinyuf2 TARGET OPT_MCU)
+  family_configure_common(${TARGET})
+
+  #target_include_directories(${TARGET} PUBLIC)
+  #target_compile_definitions(${TARGET} PUBLIC)
+  include(${TOP}/src/tinyuf2.cmake)
+  add_tinyuf2(${TARGET})
+
+  family_add_uf2version(${TARGET} "${FAMILY_SUBMODULE_DEPS}")
+
+  family_add_tinyusb(tinyuf2 ${OPT_MCU} none)
 endfunction()
 
 #----------------------------------
@@ -308,8 +339,18 @@ function(family_flash_uf2 TARGET FAMILY_ID)
     )
 endfunction()
 
-#----------------------------------
 # Family specific
-#----------------------------------
-
 include(${CMAKE_CURRENT_LIST_DIR}/${FAMILY}/family.cmake)
+
+# Family submodules dependencies
+if (DEFINED FAMILY_SUBMODULE_DEPS)
+  foreach(DEP ${FAMILY_SUBMODULE_DEPS})
+    # Check if the submodule is present. If not, fetch it
+    if(NOT EXISTS ${DEP}/.git)
+      string(REPLACE ${TOP}/ "" DEP_REL ${DEP})
+      execute_process(
+        COMMAND ${GIT_EXECUTABLE} -C ${TOP} submodule update --init ${DEP_REL}
+        )
+    endif()
+  endforeach()
+endif ()
