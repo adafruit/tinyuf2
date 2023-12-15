@@ -76,7 +76,7 @@ There are a few ways to enter UF2 mode:
 
     // call esp_reset_reason() is required for idf.py to properly links esp_reset_reason_set_hint()
     (void) esp_reset_reason();
-    esp_reset_reason_set_hint(APP_REQUEST_UF2_RESET_HINT);
+    esp_reset_reason_set_hint((esp_reset_reason_t)APP_REQUEST_UF2_RESET_HINT);
     esp_restart();
   }
   ```
