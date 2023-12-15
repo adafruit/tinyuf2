@@ -1,15 +1,29 @@
 name: Build ESP32
 
 on:
-  pull_request:
   push:
+    paths:
+      - 'src/**'
+      - 'ports/espressif/**'
+      - 'lib/tinyusb'
+      - '.github/workflows/build_esp32.yml'
+  pull_request:
+    branches: [ master ]
+    paths:
+      - 'src/**'
+      - 'ports/espressif/**'
+      - 'lib/tinyusb'
+      - '.github/workflows/build_esp32.yml'
   repository_dispatch:
   release:
     types:
       - created
 
-jobs:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
 
+jobs:
   # ---------------------------------------
   # Build ESP32SX family
   # ---------------------------------------

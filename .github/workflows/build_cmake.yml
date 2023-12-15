@@ -1,8 +1,21 @@
 name: Build CMake
 
 on:
-  pull_request:
   push:
+    paths:
+      - 'src/**'
+      - 'ports/**'
+      - '!ports/espressif/**'
+      - 'lib/**'
+      - '.github/workflows/build_cmake.yml'
+  pull_request:
+    branches: [ master ]
+    paths:
+      - 'src/**'
+      - 'ports/**'
+      - '!ports/espressif/**'
+      - 'lib/**'
+      - '.github/workflows/build_cmake.yml'
   repository_dispatch:
   release:
     types:
