@@ -8,7 +8,6 @@ set(UF2_FAMILY_ID 0x57755a57)
 set(ST_HAL_DRIVER ${TOP}/lib/st/stm32f4xx_hal_driver)
 set(ST_CMSIS ${TOP}/lib/st/cmsis_device_f4)
 set(CMSIS_5 ${TOP}/lib/CMSIS_5)
-set(PORT_DIR ${CMAKE_CURRENT_LIST_DIR})
 set(FAMILY_SUBMODULE_DEPS ${ST_CMSIS} ${ST_HAL_DRIVER})
 
 include(${CMAKE_CURRENT_LIST_DIR}/boards/${BOARD}/board.cmake)
@@ -54,7 +53,6 @@ function(family_add_board_target BOARD_TARGET)
   update_board(${BOARD_TARGET})
 
   target_compile_definitions(${BOARD_TARGET} PUBLIC
-    CFG_TUSB_MCU=OPT_MCU_STM32F4
     BOARD_UF2_FAMILY_ID=${UF2_FAMILY_ID}
     )
   target_compile_options(${BOARD_TARGET} PUBLIC

@@ -452,7 +452,7 @@ void uf2_read_block (uint32_t block_no, uint8_t *data) {
     else {
       // CURRENT.UF2: generate data on-the-fly
       uint32_t addr = BOARD_FLASH_APP_START + (fileRelativeSector * UF2_FIRMWARE_BYTES_PER_SECTOR);
-      if ( addr < _flash_size ) /* TODO abstract this out */ {
+      if ( addr < (BOARD_FLASH_ADDR_ZERO + _flash_size) ) {
         UF2_Block *bl = (void*) data;
         bl->magicStart0 = UF2_MAGIC_START0;
         bl->magicStart1 = UF2_MAGIC_START1;
