@@ -112,6 +112,7 @@ jobs:
         - 'seeed_xiao_esp32s3'
         - 'smartbeedesigns_bee_motion_s3'
         - 'smartbeedesigns_bee_s3'
+        - 'unexpectedmaker_bling'
         - 'unexpectedmaker_feathers3'
         - 'unexpectedmaker_nanos3'
         - 'unexpectedmaker_pros3'
