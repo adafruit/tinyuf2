@@ -202,9 +202,9 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
         // UF2: check if GPIO0 is pressed and/or 1-bit RC on specific GPIO detect double reset
         // during this time. If yes then to load uf2 "bootloader".
         if ( boot_index != FACTORY_INDEX ) {
-          board_led_on();
 
 #ifdef PIN_DOUBLE_RESET_RC
+          board_led_on();
           // Double reset detect if board implements 1-bit memory with RC components
           esp_rom_gpio_pad_select_gpio(PIN_DOUBLE_RESET_RC);
           PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[PIN_DOUBLE_RESET_RC]);
@@ -218,6 +218,12 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
           }
 #endif
           if ( boot_index != FACTORY_INDEX ) {
+
+            // Only turn the default purple waiting color on if there is actualy waiting will happen
+            if (UF2_DETECTION_DELAY_MS > 0){
+              board_led_on();
+            }
+            
             esp_rom_gpio_pad_select_gpio(PIN_BUTTON_UF2);
             PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[PIN_BUTTON_UF2]);
             esp_rom_gpio_pad_pullup_only(PIN_BUTTON_UF2);
