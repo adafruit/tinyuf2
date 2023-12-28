@@ -219,11 +219,11 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
 #endif
           if ( boot_index != FACTORY_INDEX ) {
 
-            // Only turn the default purple waiting color on if there is actualy waiting will happen
+            // Only turn the default purple waiting color on if there is actually waiting happening
             if (UF2_DETECTION_DELAY_MS > 0){
               board_led_on();
             }
-            
+
             esp_rom_gpio_pad_select_gpio(PIN_BUTTON_UF2);
             PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[PIN_BUTTON_UF2]);
             esp_rom_gpio_pad_pullup_only(PIN_BUTTON_UF2);
