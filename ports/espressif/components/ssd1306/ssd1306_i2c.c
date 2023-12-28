@@ -17,7 +17,7 @@
 #define I2C_MASTER_FREQ_HZ 800000 /*!< I2C master clock frequency. no higher than 1MHz for now */
 //#define I2C_MASTER_FREQ_HZ 1000000 /*!< I2C master clock frequency. no higher than 1MHz for now */
 
-void i2c_master_init(SSD1306_t * dev, int16_t sda, int16_t scl, int16_t reset)
+void i2c_master_init(SSD1306_t * dev, int16_t sda, int16_t scl, int16_t reset,int address)
 {
 	i2c_config_t i2c_config = {
 		.mode = I2C_MODE_MASTER,
@@ -38,7 +38,7 @@ void i2c_master_init(SSD1306_t * dev, int16_t sda, int16_t scl, int16_t reset)
 		vTaskDelay(50 / portTICK_PERIOD_MS);
 		gpio_set_level(reset, 1);
 	}
-	dev->_address = I2CAddress;
+	dev->_address = address;
 	dev->_flip = false;
 }
 

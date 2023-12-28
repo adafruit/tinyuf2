@@ -143,8 +143,10 @@ extern "C" bool board_init_extension()
 
     PMU.setDC3Voltage(3400);   // V2.0 - SA868, NeoPixel
     PMU.enableDC3();
-    PMU.setALDO3Voltage(3300); // V2.1 - SA868, NeoPixel
-    PMU.enableALDO3();
+
+    // Rev2.1 pixel light and ESP have the same power supply
+    // PMU.setALDO3Voltage(3300); // V2.1 - SA868 .No need to turn it on here
+    // PMU.enableALDO3();
 
     /* no power for GNSS and/or Mic at this moment */
 
@@ -162,8 +164,19 @@ extern "C" bool board_init_extension()
     dev._offset = 0;
   }
 
+  // Check the OLED device address. Rev2.1 has two I2C device addresses, which are used to distinguish VHF or UHF.
+  uint8_t oled_addr = 0x3C;
+  uint8_t data[1];
+  if (pmu_register_read(0x3C,0x00,data,1) == 0){
+    ESP_LOGI(tag, "Find OLED address is 0x3C");
+    oled_addr = 0x3C;
+  }else if (pmu_register_read(0x3D,0x00,data,1) == 0){
+    ESP_LOGI(tag, "Find OLED address is 0x3D");
+    oled_addr = 0x3D;
+  }
+
 #if CONFIG_I2C_INTERFACE
-  i2c_master_init(&dev, I2C_MASTER_SDA_IO, I2C_MASTER_SCL_IO, -1);
+  i2c_master_init(&dev, I2C_MASTER_SDA_IO, I2C_MASTER_SCL_IO, -1, oled_addr);
 #endif // CONFIG_I2C_INTERFACE
 
 #if CONFIG_FLIP
