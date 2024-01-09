@@ -19,3 +19,9 @@ add_custom_command(TARGET app POST_BUILD
   COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} -f ${UF2_FAMILY_ID_${IDF_TARGET}} -b 0x0 -c -o ${CMAKE_BINARY_DIR}/update-tinyuf2.uf2 ${CMAKE_BINARY_DIR}/update-tinyuf2.bin
   VERBATIM
   )
+
+add_custom_target(flash-update-tinyuf2
+  DEPENDS app
+  COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} -f ${UF2_FAMILY_ID_${IDF_TARGET}} --deploy ${CMAKE_BINARY_DIR}/update-tinyuf2.uf2
+  VERBATIM
+  )
