@@ -202,22 +202,27 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
         // UF2: check if GPIO0 is pressed and/or 1-bit RC on specific GPIO detect double reset
         // during this time. If yes then to load uf2 "bootloader".
         if ( boot_index != FACTORY_INDEX ) {
-          board_led_on();
-
 #ifdef PIN_DOUBLE_RESET_RC
           // Double reset detect if board implements 1-bit memory with RC components
           esp_rom_gpio_pad_select_gpio(PIN_DOUBLE_RESET_RC);
           PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[PIN_DOUBLE_RESET_RC]);
           if ( gpio_ll_get_level(&GPIO, PIN_DOUBLE_RESET_RC) == 1 ) {
+            // RC pin is already high, double reset detected
             ESP_LOGI(TAG, "Detect double reset using RC on GPIO %d to enter UF2 bootloader", PIN_DOUBLE_RESET_RC);
             boot_index = FACTORY_INDEX;
           }
           else {
+            // Set to high to charge the RC, indicating we are in reset
             gpio_ll_output_enable(&GPIO, PIN_DOUBLE_RESET_RC);
             gpio_ll_set_level(&GPIO, PIN_DOUBLE_RESET_RC, 1);
-          }
+#else
+          {
 #endif
-          if ( boot_index != FACTORY_INDEX ) {
+            // turn led on if there is actually waiting
+            if (UF2_DETECTION_DELAY_MS > 0){
+              board_led_on();
+            }
+
             esp_rom_gpio_pad_select_gpio(PIN_BUTTON_UF2);
             PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[PIN_BUTTON_UF2]);
             esp_rom_gpio_pad_pullup_only(PIN_BUTTON_UF2);
@@ -233,14 +238,16 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
                 break;
               }
             } while (UF2_DETECTION_DELAY_MS > (esp_log_early_timestamp() - tm_start) );
+
+            board_led_off();
           }
 
 #if PIN_DOUBLE_RESET_RC
+          // Set to low to discharge the RC
+          gpio_ll_output_enable(&GPIO, PIN_DOUBLE_RESET_RC);
           gpio_ll_set_level(&GPIO, PIN_DOUBLE_RESET_RC, 0);
           gpio_ll_output_disable(&GPIO, PIN_DOUBLE_RESET_RC);
 #endif
-
-          board_led_off();
         }
 
         // Customer implementation.
