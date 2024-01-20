@@ -101,8 +101,8 @@
 // USB UF2
 //--------------------------------------------------------------------+
 
-#define USB_VID                  0x239A
-#define USB_PID                  0x011D
+#define USB_VID                  0x303A
+#define USB_PID                  0x811A
 
 #define USB_MANUFACTURER         "M5"
 #define USB_PRODUCT              "Stamp S3"
