@@ -114,4 +114,3 @@
 
 // Use favicon
 #define TINYUF2_FAVICON_HEADER   "favicon_adafruit_256.h"
-
