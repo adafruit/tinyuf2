@@ -22,15 +22,6 @@
  * THE SOFTWARE.
  */
 
-// #ifndef ADAFRUIT_FEATHER_ESP32S3_TFT_H_
-// #define ADAFRUIT_FEATHER_ESP32S3_TFT_H_
-// #ifndef ADAFRUIT_FEATHER_ESP32S3_NOPSRAM_H_
-// #define ADAFRUIT_FEATHER_ESP32S3_NOPSRAM_H_
-
-// #define CFG_UF2_FLASH_SIZE          (8*1024*1024)
-// #define BOARD_FLASH_SIZE      (8*1024*1024)
-
-
 //--------------------------------------------------------------------+
 // Button
 //--------------------------------------------------------------------+
@@ -51,19 +42,11 @@
 // GPIO connected to Neopixel data
 #define NEOPIXEL_PIN          21
 
-// #define NEOPIXEL_POWER_PIN    34
-// #define NEOPIXEL_POWER_STATE  1
-
 // Brightness percentage from 1 to 255
 #define NEOPIXEL_BRIGHTNESS   0x10
 
 // Number of neopixels
 #define NEOPIXEL_NUMBER       1
-
-// LED for indicator and writing flash
-// If not defined neopixel will be use for flash writing instead
-// #define LED_PIN               13
-// #define LED_STATE_ON          1
 
 //--------------------------------------------------------------------+
 // TFT
@@ -110,7 +93,4 @@
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID             "ESP32S3"
 #define UF2_VOLUME_LABEL         "M5S3BOOT"
-#define UF2_INDEX_URL            "https://www.adafruit.com/product/5483"
-
-// Use favicon
-#define TINYUF2_FAVICON_HEADER   "favicon_adafruit_256.h"
+#define UF2_INDEX_URL            "https://docs.m5stack.com/en/core/StampS3"
