@@ -21,6 +21,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 #ifndef M5STACK_STAMPS3_BOARD_H_
 #define M5STACK_STAMPS3_BOARD_H_
 
@@ -97,4 +98,4 @@
 #define UF2_VOLUME_LABEL         "M5S3BOOT"
 #define UF2_INDEX_URL            "https://docs.m5stack.com/en/core/StampS3"
 
-#endif 
+#endif
