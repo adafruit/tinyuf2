@@ -21,6 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+#ifndef M5STACK_STAMPS3_BOARD_H_
+#define M5STACK_STAMPS3_BOARD_H_
 
 //--------------------------------------------------------------------+
 // Button
@@ -91,6 +93,8 @@
 #define USB_PRODUCT              "Stamp S3"
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID             "ESP32S3"
+#define UF2_BOARD_ID             "ESP32S3-StampS3-01"
 #define UF2_VOLUME_LABEL         "M5S3BOOT"
 #define UF2_INDEX_URL            "https://docs.m5stack.com/en/core/StampS3"
+
+#endif 
