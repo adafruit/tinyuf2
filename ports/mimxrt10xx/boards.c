@@ -39,6 +39,12 @@
 #include "tusb.h"
 #endif
 
+// allow board.h to change the pin configuration for the button
+#ifndef BUTTON_PIN_CONFIG
+// default to 22k pull up
+#define BUTTON_PIN_CONFIG ((1<<16) | (3<<14) | (1<<13) | (1<<12))
+#endif
+
 static bool _dfu_mode = false;
 
 // needed by fsl_flexspi_nor_boot
@@ -80,10 +86,26 @@ void board_init(void)
   GPIO_PinInit(NEOPIXEL_PORT, NEOPIXEL_PIN, &neopixel_config);
 #endif
 
+#if TINYUF2_DFU_BUTTON
+  // Button
+  IOMUXC_SetPinMux( BUTTON_PINMUX, 1U);
+  IOMUXC_SetPinConfig(BUTTON_PINMUX, BUTTON_PIN_CONFIG);
+  gpio_pin_config_t button_config = { kGPIO_DigitalInput, 0, kGPIO_NoIntmode };
+  GPIO_PinInit(BUTTON_PORT, BUTTON_PIN, &button_config);
+#endif
+
 #if TUF2_LOG
   board_uart_init(BOARD_UART_BAUDRATE);
 #endif
 }
+
+#if TINYUF2_DFU_BUTTON
+int board_button_read(void)
+{
+  // active low
+  return BUTTON_STATE_ACTIVE == GPIO_PinRead(BUTTON_PORT, BUTTON_PIN);
+}
+#endif
 
 void board_teardown(void)
 {
