@@ -105,6 +105,7 @@ jobs:
         - 'lilygo_ttgo_t_twr_plus'
         - 'lilygo_ttgo_tbeam_s3'
         - 'lolin_s3'
+        - 'lolin_s3_mini'
         - 'm5stack_atoms3'
         - 'm5stack_atoms3_lite'
         - 'm5stack_atoms3u'
