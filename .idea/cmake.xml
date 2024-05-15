@@ -9,6 +9,13 @@
           </envs>
         </ADDITIONAL_GENERATION_ENVIRONMENT>
       </configuration>
+      <configuration PROFILE_NAME="adafruit_feather_esp32s2" ENABLED="true" CONFIG_NAME="Debug" TOOLCHAIN_NAME="ESP-IDF" GENERATION_OPTIONS="-DBOARD=adafruit_feather_esp32s2">
+        <ADDITIONAL_GENERATION_ENVIRONMENT>
+          <envs>
+            <env name="ESPBAUD" value="1500000" />
+          </envs>
+        </ADDITIONAL_GENERATION_ENVIRONMENT>
+      </configuration>
       <configuration PROFILE_NAME="adafruit_metro_esp32s2" ENABLED="false" CONFIG_NAME="Debug" TOOLCHAIN_NAME="ESP-IDF" GENERATION_OPTIONS="-DBOARD=adafruit_metro_esp32s2">
         <ADDITIONAL_GENERATION_ENVIRONMENT>
           <envs>
