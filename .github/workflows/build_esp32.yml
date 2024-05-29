@@ -123,13 +123,8 @@ jobs:
         - 'yd_esp32_s3_n16r8'
         - 'yd_esp32_s3_n8r8'
     steps:
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: "3.x"
-
     - name: Checkout
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         fetch-depth: 0
 
