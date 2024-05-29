@@ -41,9 +41,6 @@ jobs:
         - 'stm32f411ve_discovery'
 
     steps:
-    - name: Install Ninja
-      run: sudo apt install -y ninja-build
-
     - name: Checkout code
       uses: actions/checkout@v4
       with:
@@ -57,15 +54,12 @@ jobs:
       with:
         release: '11.2-2022.02'
 
+    - name: Get Dependencies
+      run: |
+        sudo apt install -y ninja-build
+        python tools/get_deps.py --board ${{ matrix.board }}
+
     - name: Build
       run: |
         cmake . -B _build -G Ninja -DCMAKE_BUILD_TYPE=MinSizeRel -DBOARD=${{ matrix.board }}
         cmake --build _build
-
-#    - uses: actions/upload-artifact@v3
-#      with:
-#        name: ${{ matrix.board }}
-#        path: |
-#          _build/ports/*/tinyusb.bin
-#          _build/ports/*/tinyusb.hex
-#          _build/ports/*/apps/*/*.uf2

@@ -6,7 +6,6 @@ include_guard()
 set(UF2_FAMILY_ID 0x4fb2d5bd)
 set(SDK_DIR ${TOP}/lib/nxp/mcux-sdk)
 set(CMSIS_DIR ${TOP}/lib/CMSIS_5)
-set(FAMILY_SUBMODULE_DEPS ${SDK_DIR})
 
 include(${CMAKE_CURRENT_LIST_DIR}/boards/${BOARD}/board.cmake)
 

@@ -7,6 +7,3 @@
 [submodule "lib/sct_neopixel"]
 	path = lib/sct_neopixel
 	url = https://github.com/gsteiert/sct_neopixel
-[submodule "lib/nxp/mcux-sdk"]
-	path = lib/nxp/mcux-sdk
-	url = https://github.com/NXPmicro/mcux-sdk.git
