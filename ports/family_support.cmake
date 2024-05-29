@@ -174,21 +174,21 @@ endfunction()
 function(family_add_uf2version TARGET DEPS_REPO)
   execute_process(COMMAND ${GIT_EXECUTABLE} describe --dirty --always --tags OUTPUT_VARIABLE GIT_VERSION)
   string(STRIP ${GIT_VERSION} GIT_VERSION)
-  string(REPLACE ${TOP}/ "" DEPS_REPO "${DEPS_REPO}")
-  foreach (DEP ${DEPS_REPO})
-    execute_process(COMMAND ${GIT_EXECUTABLE} -C ${TOP} submodule status ${DEP}
-      OUTPUT_VARIABLE DEP_VERSION
-      )
-    string(STRIP ${DEP_VERSION} DEP_VERSION)
-    string(FIND "${DEP_VERSION}" " " SPACE_POS)
-    string(SUBSTRING "${DEP_VERSION}" ${SPACE_POS} -1 DEP_VERSION)
-    string(STRIP ${DEP_VERSION} DEP_VERSION)
-
-    set(GIT_SUBMODULE_VERSIONS "${GIT_SUBMODULE_VERSIONS} ${DEP_VERSION}")
-  endforeach ()
-
-  string(STRIP ${GIT_SUBMODULE_VERSIONS} GIT_SUBMODULE_VERSIONS)
-  string(REPLACE lib/ "" GIT_SUBMODULE_VERSIONS ${GIT_SUBMODULE_VERSIONS})
+#  string(REPLACE ${TOP}/ "" DEPS_REPO "${DEPS_REPO}")
+#  foreach (DEP ${DEPS_REPO})
+#    execute_process(COMMAND ${GIT_EXECUTABLE} -C ${TOP} submodule status ${DEP}
+#      OUTPUT_VARIABLE DEP_VERSION
+#      )
+#    string(STRIP ${DEP_VERSION} DEP_VERSION)
+#    string(FIND "${DEP_VERSION}" " " SPACE_POS)
+#    string(SUBSTRING "${DEP_VERSION}" ${SPACE_POS} -1 DEP_VERSION)
+#    string(STRIP ${DEP_VERSION} DEP_VERSION)
+#
+#    set(GIT_SUBMODULE_VERSIONS "${GIT_SUBMODULE_VERSIONS} ${DEP_VERSION}")
+#  endforeach ()
+#
+#  string(STRIP ${GIT_SUBMODULE_VERSIONS} GIT_SUBMODULE_VERSIONS)
+#  string(REPLACE lib/ "" GIT_SUBMODULE_VERSIONS ${GIT_SUBMODULE_VERSIONS})
 
   cmake_print_variables(GIT_VERSION)
   cmake_print_variables(GIT_SUBMODULE_VERSIONS)
