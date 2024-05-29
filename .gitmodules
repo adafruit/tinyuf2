@@ -1,9 +1,3 @@
-[submodule "lib/st/cmsis_device_l4"]
-	path = lib/st/cmsis_device_l4
-	url = https://github.com/STMicroelectronics/cmsis_device_l4.git
-[submodule "lib/st/stm32l4xx_hal_driver"]
-	path = lib/st/stm32l4xx_hal_driver
-	url = https://github.com/STMicroelectronics/stm32l4xx_hal_driver.git
 [submodule "lib/tinyusb"]
 	path = lib/tinyusb
 	url = https://github.com/hathach/tinyusb.git
@@ -16,9 +10,3 @@
 [submodule "lib/nxp/mcux-sdk"]
 	path = lib/nxp/mcux-sdk
 	url = https://github.com/NXPmicro/mcux-sdk.git
-[submodule "lib/st/cmsis_device_h7"]
-	path = lib/st/cmsis_device_h7
-	url = https://github.com/STMicroelectronics/cmsis_device_h7.git
-[submodule "lib/st/stm32h7xx_hal_driver"]
-	path = lib/st/stm32h7xx_hal_driver
-	url = https://github.com/STMicroelectronics/stm32h7xx_hal_driver.git

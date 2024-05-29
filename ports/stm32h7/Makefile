@@ -1,5 +1,5 @@
 # List of git submodules that is included as part of the UF2 version
-GIT_SUBMODULES = st/cmsis_device_h7 st/stm32h7xx_hal_driver tinyusb uf2
+GIT_SUBMODULES = tinyusb uf2
 
 include ../make.mk
 include port.mk
