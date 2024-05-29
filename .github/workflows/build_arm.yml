@@ -89,7 +89,8 @@ jobs:
     - name: Build
       run: |
         arm-none-eabi-gcc --version
-        make -C $ENV_PORT BOARD=${{ matrix.board }} get-deps
+        #make -C $ENV_PORT BOARD=${{ matrix.board }} get-deps
+        python tools/get_deps.py --board ${{ matrix.board }}
         make -C $ENV_PORT BOARD=${{ matrix.board }} all self-update copy-artifact
         for app in ${{ env.ENV_PORT }}/apps/*/; do if [ $app != 'apps/self_update/' ]; then make -C $app BOARD=${{ matrix.board }} all; fi done
 
