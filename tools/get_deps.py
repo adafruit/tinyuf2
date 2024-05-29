@@ -13,7 +13,7 @@ deps_mandatory = {}
 deps_optional = {
     'lib/nxp/mcux-sdk': ['https://github.com/hathach/mcux-sdk.git',
                          '9990f264f98430f6d885041ab0f24224d68f4958',
-                         'kinetis_k kinetis_k32l2 kinetis_kl lpc51 lpc54 lpc55 mcx imxrt'],
+                         'kinetis_k kinetis_k32l2 kinetis_kl lpc51 lpc54 lpc55 mcx mimxrt10xx'],
     'lib/st/cmsis_device_f3': ['https://github.com/STMicroelectronics/cmsis_device_f3.git',
                                '5e4ee5ed7a7b6c85176bb70a9fd3c72d6eb99f1b',
                                'stm32f3'],
