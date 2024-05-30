@@ -21,7 +21,7 @@ on:
         type: string
 
 jobs:
-  family:
+  board:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
