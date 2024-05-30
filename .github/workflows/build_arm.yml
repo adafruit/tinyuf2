@@ -64,24 +64,6 @@ jobs:
       build-system: 'make'
       toolchain: 'arm-gcc'
 
-#    steps:
-#    - name: Checkout code
-#      uses: actions/checkout@v4
-#      with:
-#        fetch-depth: 0
-#        fetch-tags: true
-#
-#    - name: Install ARM GCC
-#      uses: carlosperate/arm-none-eabi-gcc-action@v1
-#      with:
-#        release: '11.2-2022.02'
-#
-#    - name: Get Dependencies
-#      run: |
-#        git submodule update --init lib/tinyusb lib/uf2
-#        #make -C $ENV_PORT BOARD=${{ matrix.board }} get-deps
-#        python tools/get_deps.py --board ${{ matrix.board }}
-#
 #    - name: Find Port
 #      run: |
 #        ENV_PORT=`echo ports/*/boards/${{ matrix.board }}`
