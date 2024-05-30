@@ -12,7 +12,7 @@ deps_mandatory = {}
 # path, url, commit, family (Alphabet sorted by path)
 deps_optional = {
     'lib/mcu/nxp/mcux-sdk': ['https://github.com/nxp-mcuxpresso/mcux-sdk.git',
-                             '0906a567e26a1b41fcdf1a217825e126872bda32',
+                             '9990f264f98430f6d885041ab0f24224d68f4958',
                              'kinetis_k kinetis_k32l2 kinetis_kl lpc51 lpc54 lpc55 mcx mimxrt10xx'],
     'lib/mcu/st/cmsis_device_f3': ['https://github.com/STMicroelectronics/cmsis_device_f3.git',
                                    '5e4ee5ed7a7b6c85176bb70a9fd3c72d6eb99f1b',
