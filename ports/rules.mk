@@ -64,13 +64,10 @@ clean:
 	$(RM) -rf $(BUILD)
 	$(RM) -rf $(BIN)
 
-# get depenecies
+# get dependencies
 .PHONY: get-deps
 get-deps:
-  ifdef GIT_SUBMODULES
-	git -C $(TOP) submodule update --init $(addprefix lib/,$(GIT_SUBMODULES))
-  endif
-
+	$(PYTHON3) $(TOP)/tools/get_deps.py --board $(BOARD)
 
 #-------------- Artifacts --------------
 SELF_UF2 ?= apps/self_update/$(BUILD)/update-$(OUTNAME).uf2

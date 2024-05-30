@@ -49,10 +49,11 @@ To build this for a specific board, we need to change current directory to its p
 $ cd ports/stm32f4
 ```
 
-Firstly we need to get all of submodule dependency for our board e.g mcu driver with `get-deps` target. You only need to do this once for each mcu family
+Firstly we need to get all submodule dependency for our board using `tools/get_deps.py` script with either family input or using --board option. You only need to do this once for each family
 
 ```
-make BOARD=feather_stm32f405_express get-deps
+python tools/get_deps.py stm32f4
+python tools/get_deps.py --board feather_stm32f405_express
 ```
 
 Then compile with `all` target:

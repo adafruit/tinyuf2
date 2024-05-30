@@ -1,8 +1,8 @@
 UF2_FAMILY_ID = 0x6b846188
 CROSS_COMPILE = arm-none-eabi-
 
-ST_HAL_DRIVER = lib/st/stm32f3xx_hal_driver
-ST_CMSIS = lib/st/cmsis_device_f3
+ST_HAL_DRIVER = lib/mcu/st/stm32f3xx_hal_driver
+ST_CMSIS = lib/mcu/st/cmsis_device_f3
 CMSIS_5 = lib/CMSIS_5
 
 # Port Compiler Flags

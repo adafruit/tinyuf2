@@ -70,13 +70,16 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Checkout common submodules in lib
-      run: git submodule update --init lib/tinyusb lib/uf2
-
     - name: Install ARM GCC
       uses: carlosperate/arm-none-eabi-gcc-action@v1
       with:
         release: '11.2-2022.02'
+
+    - name: Get Dependencies
+      run: |
+        git submodule update --init lib/tinyusb lib/uf2
+        #make -C $ENV_PORT BOARD=${{ matrix.board }} get-deps
+        python tools/get_deps.py --board ${{ matrix.board }}
 
     - name: Find Port
       run: |
@@ -88,12 +91,10 @@ jobs:
 
     - name: Build
       run: |
-        arm-none-eabi-gcc --version
-        make -C $ENV_PORT BOARD=${{ matrix.board }} get-deps
         make -C $ENV_PORT BOARD=${{ matrix.board }} all self-update copy-artifact
         for app in ${{ env.ENV_PORT }}/apps/*/; do if [ $app != 'apps/self_update/' ]; then make -C $app BOARD=${{ matrix.board }} all; fi done
 
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.board }}
         path: ${{ env.BIN_PATH }}
