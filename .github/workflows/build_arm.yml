@@ -60,7 +60,7 @@ jobs:
         - 'stm32l4'
     with:
       port: ${{ matrix.port }}
-      boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)[matrix.port].boards) }}
+      boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)[matrix.port].board) }}
       build-system: 'make'
       toolchain: 'arm-gcc'
 
