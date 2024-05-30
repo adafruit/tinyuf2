@@ -117,22 +117,17 @@ jobs:
         working-directory: ports/test_ghostfat
 
       - name: Execute native self-test
-        if: always()
         run: |
           chmod +x ./tinyuf2-${{ matrix.board }}.elf
           ./tinyuf2-${{ matrix.board }}.elf
-        working-directory: ports/test_ghostfat/_build/${{ matrix.board }}
 
-      - name: Compress newly generated self-test images
-        if: always()
-        run: |
+          # Compress (double) newly generated self-test images
           mv ghostfat.img ghostfat_${{ matrix.board }}.img
           gzip --keep ghostfat_${{ matrix.board }}.img
           gzip --keep --force --best ghostfat_${{ matrix.board }}.img.gz
         working-directory: ports/test_ghostfat/_build/${{ matrix.board }}
 
       - name: Save newly generated self-test images as CI artifacts
-        if: always()
         uses: actions/upload-artifact@v3
         with:
           name: ghostfat_selftest_images
