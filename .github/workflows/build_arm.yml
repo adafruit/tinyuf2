@@ -26,89 +26,90 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ---------------------------------------
-  # Build ARM family
-  # ---------------------------------------
-  ARM:
+  set-matrix:
     runs-on: ubuntu-latest
+    outputs:
+      json: ${{ steps.set-matrix-json.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate matrix json
+        id: set-matrix-json
+        run: |
+          MATRIX_JSON=$(python .github/workflows/ci_set_matrix.py)
+          echo "matrix=$MATRIX_JSON"
+          echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
+
+  # ---------------------------------------
+  # Build ARM
+  # ---------------------------------------
+  arm:
+    needs: set-matrix
+    uses: ./.github/workflows/build_util.yml
     strategy:
       fail-fast: false
       matrix:
-        board:
-        # Alphabetical order by family
-        # lpc55
-        - 'double_m33_express'
-        - 'lpcxpresso55s28'
-        - 'lpcxpresso55s69'
-        # mimxrt10xx
-        - 'imxrt1010_evk'
-        - 'imxrt1015_evk'
-        - 'imxrt1020_evk'
-        - 'imxrt1024_evk'
-        - 'imxrt1040_evk'
-        - 'imxrt1050_evkb'
-        - 'imxrt1060_evk'
-        - 'metro_m7_1011'
-        - 'metro_m7_1011_sd'
-        - 'teensy40'
-        - 'teensy41'
-        # stm32f3
-        - 'stm32f303disco'
-        # stm32f4
-        - 'feather_stm32f405_express'
-        - 'stm32f411ve_discovery'
-        - 'stm32f411ce_blackpill'
-        - 'stm32f401_blackpill'
-        - 'sparkfun_micromod_stm32'
-        - 'sparkfun_stm32_thing_plus'
-        # stm32l4
-        - 'swan_r5'
+        port:
+        # Alphabetical order
+        - 'kinetis_k32l2'
+        - 'lpc55'
+        - 'mimxrt10xx'
+        - 'stm32f3'
+        - 'stm32f4'
+        - 'stm32l4'
+    with:
+      port: '${{ matrix.port }}'
+      boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)[matrix.port]) }}
+      build-system: 'make'
+      toolchain: 'arm-gcc'
 
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+#    steps:
+#    - name: Checkout code
+#      uses: actions/checkout@v4
+#      with:
+#        fetch-depth: 0
+#        fetch-tags: true
+#
+#    - name: Install ARM GCC
+#      uses: carlosperate/arm-none-eabi-gcc-action@v1
+#      with:
+#        release: '11.2-2022.02'
+#
+#    - name: Get Dependencies
+#      run: |
+#        git submodule update --init lib/tinyusb lib/uf2
+#        #make -C $ENV_PORT BOARD=${{ matrix.board }} get-deps
+#        python tools/get_deps.py --board ${{ matrix.board }}
+#
+#    - name: Find Port
+#      run: |
+#        ENV_PORT=`echo ports/*/boards/${{ matrix.board }}`
+#        ENV_PORT=`dirname $ENV_PORT`
+#        ENV_PORT=`dirname $ENV_PORT`
+#        echo ENV_PORT=$ENV_PORT >> $GITHUB_ENV
+#        echo BIN_PATH=$ENV_PORT/_bin/${{ matrix.board }} >> $GITHUB_ENV
 
-    - name: Install ARM GCC
-      uses: carlosperate/arm-none-eabi-gcc-action@v1
-      with:
-        release: '11.2-2022.02'
-
-    - name: Get Dependencies
-      run: |
-        git submodule update --init lib/tinyusb lib/uf2
-        #make -C $ENV_PORT BOARD=${{ matrix.board }} get-deps
-        python tools/get_deps.py --board ${{ matrix.board }}
-
-    - name: Find Port
-      run: |
-        ENV_PORT=`echo ports/*/boards/${{ matrix.board }}`
-        ENV_PORT=`dirname $ENV_PORT`
-        ENV_PORT=`dirname $ENV_PORT`
-        echo ENV_PORT=$ENV_PORT >> $GITHUB_ENV
-        echo BIN_PATH=$ENV_PORT/_bin/${{ matrix.board }} >> $GITHUB_ENV
-
-    - name: Build
-      run: |
-        make -C $ENV_PORT BOARD=${{ matrix.board }} all self-update copy-artifact
-        for app in ${{ env.ENV_PORT }}/apps/*/; do if [ $app != 'apps/self_update/' ]; then make -C $app BOARD=${{ matrix.board }} all; fi done
-
-    - uses: actions/upload-artifact@v4
-      with:
-        name: ${{ matrix.board }}
-        path: ${{ env.BIN_PATH }}
-
-    - name: Prepare Release Asset
-      if: ${{ github.event_name == 'release' }}
-      run: |
-        for f in ${{ env.BIN_PATH }}/*; do mv $f ${f%.*}-${{ github.event.release.tag_name }}."${f#*.}"; done
-        zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ${{ env.BIN_PATH }}
-
-    - name: Upload Release Asset
-      uses: softprops/action-gh-release@v1
-      if: ${{ github.event_name == 'release' }}
-      with:
-        files: |
-          tinyuf2-${{ matrix.board }}-*.zip
-          ${{ env.BIN_PATH }}/update-tinyuf2-${{ matrix.board }}-*.uf2
+#    - name: Build
+#      run: |
+#        make -C $ENV_PORT BOARD=${{ matrix.board }} all self-update copy-artifact
+#        for app in ${{ env.ENV_PORT }}/apps/*/; do if [ $app != 'apps/self_update/' ]; then make -C $app BOARD=${{ matrix.board }} all; fi done
+#
+#    - uses: actions/upload-artifact@v4
+#      with:
+#        name: ${{ matrix.board }}
+#        path: ${{ env.BIN_PATH }}
+#
+#    - name: Prepare Release Asset
+#      if: ${{ github.event_name == 'release' }}
+#      run: |
+#        for f in ${{ env.BIN_PATH }}/*; do mv $f ${f%.*}-${{ github.event.release.tag_name }}."${f#*.}"; done
+#        zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ${{ env.BIN_PATH }}
+#
+#    - name: Upload Release Asset
+#      uses: softprops/action-gh-release@v1
+#      if: ${{ github.event_name == 'release' }}
+#      with:
+#        files: |
+#          tinyuf2-${{ matrix.board }}-*.zip
+#          ${{ env.BIN_PATH }}/update-tinyuf2-${{ matrix.board }}-*.uf2

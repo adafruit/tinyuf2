@@ -1,0 +1,58 @@
+name: Reusable build util
+
+on:
+  workflow_call:
+    inputs:
+      port:
+        required: true
+        type: string
+      boards:
+        required: true
+        type: string
+      build-system:
+        required: false
+        type: string
+        default: 'make'
+      toolchain:
+        required: true
+        type: string
+      toolchain_url:
+        required: false
+        type: string
+
+jobs:
+  family:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        board: ${{ fromJSON(inputs.boards) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Setup Toolchain
+        id: setup-toolchain
+        uses: ./.github/actions/setup_toolchain
+        with:
+          toolchain: ${{ inputs.toolchain }}
+          toolchain_url: ${{ inputs.toolchain_url }}
+
+      - name: Get Dependencies
+        run: |
+          git submodule update --init lib/tinyusb lib/uf2
+          #make -C $ENV_PORT BOARD=${{ matrix.board }} get-deps
+          python tools/get_deps.py --board ${{ matrix.board }}
+
+      - name: Build
+        if: inputs.toolchain != 'esp-idf'
+        run: |
+          echo Building ${{ matrix.board }}
+
+#      - name: Build using ESP-IDF docker
+#        if: inputs.toolchain == 'esp-idf'
+#        run: |
+#          docker run --rm -v $PWD:/project -w /project espressif/idf:${{ inputs.toolchain_url }} python3 tools/build.py ${{ matrix.board }}
