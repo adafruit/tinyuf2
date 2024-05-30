@@ -11,34 +11,34 @@ deps_mandatory = {}
 # Optional Dependencies per MCU
 # path, url, commit, family (Alphabet sorted by path)
 deps_optional = {
-    'lib/nxp/mcux-sdk': ['https://github.com/hathach/mcux-sdk.git',
-                         '9990f264f98430f6d885041ab0f24224d68f4958',
-                         'kinetis_k kinetis_k32l2 kinetis_kl lpc51 lpc54 lpc55 mcx mimxrt10xx'],
-    'lib/st/cmsis_device_f3': ['https://github.com/STMicroelectronics/cmsis_device_f3.git',
-                               '5e4ee5ed7a7b6c85176bb70a9fd3c72d6eb99f1b',
-                               'stm32f3'],
-    'lib/st/cmsis_device_f4': ['https://github.com/STMicroelectronics/cmsis_device_f4.git',
-                               '2615e866fa48fe1ff1af9e31c348813f2b19e7ec',
-                               'stm32f4'],
-    'lib/st/cmsis_device_h7': ['https://github.com/STMicroelectronics/cmsis_device_h7.git',
-                               '60dc2c913203dc8629dc233d4384dcc41c91e77f',
-                               'stm32h7'],
-    'lib/st/cmsis_device_l4': ['https://github.com/STMicroelectronics/cmsis_device_l4.git',
-                               '6ca7312fa6a5a460b5a5a63d66da527fdd8359a6',
-                               'stm32l4'],
-    'lib/st/stm32f3xx_hal_driver': ['https://github.com/STMicroelectronics/stm32f3xx_hal_driver.git',
-                                    '1761b6207318ede021706e75aae78f452d72b6fa',
-                                    'stm32f3'],
-    'lib/st/stm32f4xx_hal_driver': ['https://github.com/STMicroelectronics/stm32f4xx_hal_driver.git',
-                                    '04e99fbdabd00ab8f370f377c66b0a4570365b58',
-                                    'stm32f4'],
-    'lib/st/stm32h7xx_hal_driver': ['https://github.com/STMicroelectronics/stm32h7xx_hal_driver.git',
-                                    'd8461b980b59b1625207d8c4f2ce0a9c2a7a3b04',
-                                    'stm32h7'],
-    'lib/st/stm32l4xx_hal_driver': ['https://github.com/STMicroelectronics/stm32l4xx_hal_driver.git',
-                                    'aee3d5bf283ae5df87532b781bdd01b7caf256fc',
-                                    'stm32l4'],
-    # 'lib/wch/ch32v20x': ['https://github.com/openwch/ch32v20x.git',
+    'lib/mcu/nxp/mcux-sdk': ['https://github.com/nxp-mcuxpresso/mcux-sdk.git',
+                             '0906a567e26a1b41fcdf1a217825e126872bda32',
+                             'kinetis_k kinetis_k32l2 kinetis_kl lpc51 lpc54 lpc55 mcx mimxrt10xx'],
+    'lib/mcu/st/cmsis_device_f3': ['https://github.com/STMicroelectronics/cmsis_device_f3.git',
+                                   '5e4ee5ed7a7b6c85176bb70a9fd3c72d6eb99f1b',
+                                   'stm32f3'],
+    'lib/mcu/st/cmsis_device_f4': ['https://github.com/STMicroelectronics/cmsis_device_f4.git',
+                                   '2615e866fa48fe1ff1af9e31c348813f2b19e7ec',
+                                   'stm32f4'],
+    'lib/mcu/st/cmsis_device_h7': ['https://github.com/STMicroelectronics/cmsis_device_h7.git',
+                                   '60dc2c913203dc8629dc233d4384dcc41c91e77f',
+                                   'stm32h7'],
+    'lib/mcu/st/cmsis_device_l4': ['https://github.com/STMicroelectronics/cmsis_device_l4.git',
+                                   '6ca7312fa6a5a460b5a5a63d66da527fdd8359a6',
+                                   'stm32l4'],
+    'lib/mcu/st/stm32f3xx_hal_driver': ['https://github.com/STMicroelectronics/stm32f3xx_hal_driver.git',
+                                        '1761b6207318ede021706e75aae78f452d72b6fa',
+                                        'stm32f3'],
+    'lib/mcu/st/stm32f4xx_hal_driver': ['https://github.com/STMicroelectronics/stm32f4xx_hal_driver.git',
+                                        '04e99fbdabd00ab8f370f377c66b0a4570365b58',
+                                        'stm32f4'],
+    'lib/mcu/st/stm32h7xx_hal_driver': ['https://github.com/STMicroelectronics/stm32h7xx_hal_driver.git',
+                                        'd8461b980b59b1625207d8c4f2ce0a9c2a7a3b04',
+                                        'stm32h7'],
+    'lib/mcu/st/stm32l4xx_hal_driver': ['https://github.com/STMicroelectronics/stm32l4xx_hal_driver.git',
+                                        'aee3d5bf283ae5df87532b781bdd01b7caf256fc',
+                                        'stm32l4'],
+    # 'lib/mcu/wch/ch32v20x': ['https://github.com/openwch/ch32v20x.git',
     #                      'c4c38f507e258a4e69b059ccc2dc27dde33cea1b',
     #                      'ch32v20x'],
     'lib/sct_neopixel': ['https://github.com/gsteiert/sct_neopixel.git',
@@ -79,11 +79,13 @@ def get_a_dep(d):
         p.mkdir(parents=True)
         run_cmd(f"{git_cmd} init")
         run_cmd(f"{git_cmd} remote add origin {url}")
+        head = None
+    else:
+        # Check if commit is already fetched
+        result = run_cmd(f"{git_cmd} rev-parse HEAD")
+        head = result.stdout.decode("utf-8").splitlines()[0]
+        run_cmd(f"{git_cmd} reset --hard")
 
-    # Check if commit is already fetched
-    result = run_cmd(f"{git_cmd} rev-parse HEAD")
-    head = result.stdout.decode("utf-8").splitlines()[0]
-    run_cmd(f"{git_cmd} reset --hard")
     if commit != head:
         run_cmd(f"{git_cmd} fetch --depth 1 origin {commit}")
         run_cmd(f"{git_cmd} checkout FETCH_HEAD")
@@ -130,8 +132,15 @@ def main():
                 if d not in deps and f in deps_optional[d][2]:
                     deps.append(d)
 
-    with Pool() as pool:
-        status = sum(pool.map(get_a_dep, deps))
+    if print_only:
+        pvalue = {}
+        for d in deps:
+            commit = deps_all[d][1]
+            pvalue[d] = commit
+        print(pvalue)
+    else:
+        with Pool() as pool:
+            status = sum(pool.map(get_a_dep, deps))
     return status
 
 

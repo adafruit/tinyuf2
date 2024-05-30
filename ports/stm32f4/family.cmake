@@ -5,8 +5,8 @@ include_guard()
 #------------------------------------
 
 set(UF2_FAMILY_ID 0x57755a57)
-set(ST_HAL_DRIVER ${TOP}/lib/st/stm32f4xx_hal_driver)
-set(ST_CMSIS ${TOP}/lib/st/cmsis_device_f4)
+set(ST_HAL_DRIVER ${TOP}/lib/mcu/st/stm32f4xx_hal_driver)
+set(ST_CMSIS ${TOP}/lib/mcu/st/cmsis_device_f4)
 set(CMSIS_5 ${TOP}/lib/CMSIS_5)
 
 include(${CMAKE_CURRENT_LIST_DIR}/boards/${BOARD}/board.cmake)

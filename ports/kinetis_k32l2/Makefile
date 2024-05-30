@@ -7,7 +7,7 @@ include ../make.mk
 UF2_FAMILY_ID = 0x7f83e793
 CROSS_COMPILE = arm-none-eabi-
 
-SDK_DIR = lib/nxp/mcux-sdk
+SDK_DIR = lib/mcu/nxp/mcux-sdk
 MCU_DIR = $(SDK_DIR)/devices/$(MCU)
 
 # Port Compiler Flags

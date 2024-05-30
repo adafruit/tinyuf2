@@ -137,7 +137,7 @@ jobs:
     - name: Build
       run: docker run --rm -v $PWD:/project -w /project espressif/idf:v5.1.1 /bin/bash -c "git config --global --add safe.directory /project && make -C ports/espressif/ BOARD=${{ matrix.board }} all self-update copy-artifact"
 
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.board }}
         path: ${{ env.BIN_PATH }}

@@ -1,7 +1,7 @@
 UF2_FAMILY_ID = 0x2abc77ec
 CROSS_COMPILE = arm-none-eabi-
 
-SDK_DIR = lib/nxp/mcux-sdk
+SDK_DIR = lib/mcu/nxp/mcux-sdk
 MCU_DIR = $(SDK_DIR)/devices/$(MCU)
 CMSIS_5 = lib/CMSIS_5
 
