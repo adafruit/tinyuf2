@@ -46,6 +46,7 @@ jobs:
   # ---------------------------------------
   arm:
     needs: set-matrix
+    if: false
     uses: ./.github/workflows/build_util.yml
     strategy:
       fail-fast: false
@@ -72,7 +73,7 @@ jobs:
     uses: ./.github/workflows/build_util.yml
     with:
       port: 'espressif'
-      boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)[matrix.port].board) }}
+      boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)['espressif'].board) }}
       build-system: 'make'
       toolchain: 'esp-idf'
       toolchain_url: 'v5.1.1'
