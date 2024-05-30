@@ -82,7 +82,7 @@
 #define DISPLAY_MADCTL        (TFT_MADCTL_MX)
 #define DISPLAY_VSCSAD        0
 
-#define DISPLAY_TITLE         "M5Stamp S3 TFT"
+#define DISPLAY_TITLE         "M5Stamp S3"
 
 //--------------------------------------------------------------------+
 // USB UF2
@@ -91,7 +91,7 @@
 #define USB_VID                  0x303A
 #define USB_PID                  0x811A
 
-#define USB_MANUFACTURER         "M5Stamp"
+#define USB_MANUFACTURER         "M5Stack"
 #define USB_PRODUCT              "Stamp S3"
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
