@@ -75,7 +75,7 @@ jobs:
             tinyuf2-${{ matrix.board }}-*.zip
             ${{ env.BIN_PATH }}/update-tinyuf2-${{ matrix.board }}-*.uf2
 
-      - name: Upload Assets To AWS S3
+      - name: Upload Release Assets To AWS S3
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
