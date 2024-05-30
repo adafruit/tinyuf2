@@ -50,7 +50,6 @@ jobs:
   # Build ARM
   # ---------------------------------------
   arm:
-    if: false
     needs: set-matrix
     uses: ./.github/workflows/build_util.yml
     strategy:
@@ -74,7 +73,6 @@ jobs:
   # Build ESP
   # ---------------------------------------
   esp:
-    if: false
     needs: set-matrix
     uses: ./.github/workflows/build_util.yml
     with:
