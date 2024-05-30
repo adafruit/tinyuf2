@@ -28,6 +28,7 @@ jobs:
   # Build ESP32SX family
   # ---------------------------------------
   ESP:
+    if: false
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

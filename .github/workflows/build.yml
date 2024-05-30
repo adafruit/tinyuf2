@@ -1,4 +1,4 @@
-name: Build ARM
+name: Build
 
 on:
   push:
@@ -52,7 +52,7 @@ jobs:
       matrix:
         port:
         # Alphabetical order
-        - 'kinetis_k32l2'
+        #- 'kinetis_k32l2' skip since self-update is not implemented
         - 'lpc55'
         - 'mimxrt10xx'
         - 'stm32f3'
@@ -63,6 +63,20 @@ jobs:
       boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)[matrix.port].board) }}
       build-system: 'make'
       toolchain: 'arm-gcc'
+
+  # ---------------------------------------
+  # Build ESP
+  # ---------------------------------------
+  esp:
+    needs: set-matrix
+    uses: ./.github/workflows/build_util.yml
+    with:
+      port: 'espressif'
+      boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)[matrix.port].board) }}
+      build-system: 'make'
+      toolchain: 'esp-idf'
+      toolchain_url: 'v5.1.1'
+
 
 #    - name: Find Port
 #      run: |
