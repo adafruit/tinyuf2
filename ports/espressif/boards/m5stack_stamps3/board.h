@@ -37,7 +37,7 @@
 
 // GPIO that implement 1-bit memory with RC components which hold the
 // pin value long enough for double reset detection.
-#define PIN_DOUBLE_RESET_RC   38
+//#define PIN_DOUBLE_RESET_RC
 
 //--------------------------------------------------------------------+
 // LED
