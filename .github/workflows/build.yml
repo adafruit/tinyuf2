@@ -1,0 +1,132 @@
+name: Build
+
+on:
+  push:
+    paths:
+      - 'apps/**'
+      - 'lib/**'
+      - 'ports/**'
+      - 'src/**'
+      - '.github/actions/**'
+      - '.github/workflows/build.yml'
+  pull_request:
+    branches: [ master ]
+    paths:
+      - 'apps/**'
+      - 'lib/**'
+      - 'ports/**'
+      - 'src/**'
+      - '.github/actions/**'
+      - '.github/workflows/build.yml'
+  repository_dispatch:
+  release:
+    types:
+      - created
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  set-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      json: ${{ steps.set-matrix-json.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run pre-commit
+        uses: pre-commit/action@v3.0.1
+
+      - name: Generate matrix json
+        id: set-matrix-json
+        run: |
+          MATRIX_JSON=$(python .github/workflows/ci_set_matrix.py)
+          echo "matrix=$MATRIX_JSON"
+          echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
+
+  # ---------------------------------------
+  # Build ARM
+  # ---------------------------------------
+  arm:
+    needs: set-matrix
+    uses: ./.github/workflows/build_util.yml
+    strategy:
+      fail-fast: false
+      matrix:
+        port:
+        # Alphabetical order
+        #- 'kinetis_k32l2' skip since self-update is not implemented
+        - 'lpc55'
+        - 'mimxrt10xx'
+        - 'stm32f3'
+        - 'stm32f4'
+        - 'stm32l4'
+    with:
+      port: ${{ matrix.port }}
+      boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)[matrix.port].board) }}
+      build-system: 'make'
+      toolchain: 'arm-gcc'
+
+  # ---------------------------------------
+  # Build ESP
+  # ---------------------------------------
+  esp:
+    needs: set-matrix
+    uses: ./.github/workflows/build_util.yml
+    with:
+      port: 'espressif'
+      boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)['espressif'].board) }}
+      build-system: 'make'
+      toolchain: 'esp-idf'
+      toolchain_url: 'v5.1.1'
+
+  # ---------------------------------------
+  # Unit testing with ghostfat
+  # ---------------------------------------
+  ghostfat:
+    needs: set-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        board: ${{ fromJSON(needs.set-matrix.outputs.json)['test_ghostfat'].board }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          make -C ports/test_ghostfat/ BOARD=${{ matrix.board }} all
+
+      - name: Decompress known good filesystem image
+        run: |
+          # copy
+          cp ./boards/${{ matrix.board }}/knowngood.img.gz.gz ./_build/${{ matrix.board }}/
+
+          # NOTE: test_huge's knowngood.img file starts as 1.5 GiB
+          #       Compressing once with GZip results gives 85 MiB
+          #       Compressing it a second time gives 10 MiB ...
+          #       Therefore, store known good images double-compressed...
+          gzip --decompress ./_build/${{ matrix.board }}/knowngood.img.gz.gz
+          gzip --decompress ./_build/${{ matrix.board }}/knowngood.img.gz
+        working-directory: ports/test_ghostfat
+
+      - name: Execute native self-test
+        run: |
+          chmod +x ./tinyuf2-${{ matrix.board }}.elf
+          ./tinyuf2-${{ matrix.board }}.elf
+
+          # Compress (double) newly generated self-test images
+          mv ghostfat.img ghostfat_${{ matrix.board }}.img
+          gzip --keep ghostfat_${{ matrix.board }}.img
+          gzip --keep --force --best ghostfat_${{ matrix.board }}.img.gz
+        working-directory: ports/test_ghostfat/_build/${{ matrix.board }}
+
+      - name: Save newly generated self-test images as CI artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: ghostfat_selftest_images
+          path: ./ports/test_ghostfat/_build/${{ matrix.board }}/ghostfat_${{ matrix.board }}.img.gz.gz

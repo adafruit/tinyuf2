@@ -1,5 +1,5 @@
 # List of git submodules that is included as part of the UF2 version
-GIT_SUBMODULES = nxp/mcux-sdk tinyusb
+GIT_SUBMODULES = tinyusb
 
 include ../make.mk
 
@@ -9,6 +9,7 @@ CROSS_COMPILE = arm-none-eabi-
 
 SDK_DIR = lib/mcu/nxp/mcux-sdk
 MCU_DIR = $(SDK_DIR)/devices/$(MCU)
+CMSIS_5 = lib/CMSIS_5
 
 # Port Compiler Flags
 CFLAGS += \
@@ -44,7 +45,7 @@ SRC_S += $(MCU_DIR)/gcc/startup_$(MCU).S
 INC += \
   $(TOP)/$(PORT_DIR) \
 	$(TOP)/$(BOARD_DIR) \
-	$(TOP)/$(SDK_DIR)/CMSIS/Include \
+	$(TOP)/$(CMSIS_5)/CMSIS/Core/Include \
 	$(TOP)/$(MCU_DIR) \
 	$(TOP)/$(MCU_DIR)/drivers \
 	$(TOP)/$(SDK_DIR)/drivers/smc \

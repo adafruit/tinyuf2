@@ -41,13 +41,11 @@ jobs:
         - 'stm32f411ve_discovery'
 
     steps:
-    - name: Checkout code
+    - name: Checkout
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0
-
-    - name: Checkout common submodules in lib
-      run: git submodule update --init lib/tinyusb lib/uf2
+        submodules: true
+        fetch-tags: true
 
     - name: Install ARM GCC
       uses: carlosperate/arm-none-eabi-gcc-action@v1

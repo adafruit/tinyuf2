@@ -1,0 +1,85 @@
+name: Reusable build util
+
+on:
+  workflow_call:
+    inputs:
+      port:
+        required: true
+        type: string
+      boards:
+        required: true
+        type: string
+      build-system:
+        required: false
+        type: string
+        default: 'make'
+      toolchain:
+        required: true
+        type: string
+      toolchain_url:
+        required: false
+        type: string
+
+jobs:
+  board:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        board: ${{ fromJSON(inputs.boards) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-tags: true
+
+      - name: Setup Toolchain
+        id: setup-toolchain
+        uses: ./.github/actions/setup_toolchain
+        with:
+          toolchain: ${{ inputs.toolchain }}
+          toolchain_url: ${{ inputs.toolchain_url }}
+
+      - name: Get Dependencies
+        run: |
+          python tools/get_deps.py --board ${{ matrix.board }}
+          echo BIN_PATH=ports/${{ inputs.port }}/_bin/${{ matrix.board }} >> $GITHUB_ENV
+
+      - name: Build
+        if: inputs.toolchain != 'esp-idf'
+        run: |
+          make -C ports/${{ inputs.port }} BOARD=${{ matrix.board }} all self-update copy-artifact
+          for app in ports/${{ inputs.port }}/apps/*/; do if [ $app != 'apps/self_update/' ]; then make -C $app BOARD=${{ matrix.board }} all; fi done
+
+      - name: Build using ESP-IDF docker
+        if: inputs.toolchain == 'esp-idf'
+        run: docker run --rm -v $PWD:/project -w /project espressif/idf:${{ inputs.toolchain_url }} /bin/bash -c "git config --global --add safe.directory /project && make -C ports/espressif/ BOARD=${{ matrix.board }} all self-update copy-artifact"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.board }}
+          path: ${{ env.BIN_PATH }}
+
+      - name: Prepare Release Asset
+        if: github.event_name == 'release'
+        run: |
+          for f in ${{ env.BIN_PATH }}/*; do mv $f ${f%.*}-${{ github.event.release.tag_name }}."${f#*.}"; done
+          zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ${{ env.BIN_PATH }}
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v1
+        if: github.event_name == 'release'
+        with:
+          files: |
+            tinyuf2-${{ matrix.board }}-*.zip
+            ${{ env.BIN_PATH }}/update-tinyuf2-${{ matrix.board }}-*.uf2
+
+      - name: Upload Release Assets To AWS S3
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        if: github.event_name == 'release' && inputs.port == 'espressif'
+        run: |
+          [ -z \"$AWS_ACCESS_KEY_ID\" ] || aws s3 cp tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip s3://adafruit-circuit-python/bootloaders/esp32/tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip --no-progress --region us-east-1
+          [ -z \"$AWS_ACCESS_KEY_ID\" ] || aws s3 cp ${{ env.BIN_PATH }}/update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2 s3://adafruit-circuit-python/bootloaders/esp32/update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2 --no-progress --region us-east-1
