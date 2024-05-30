@@ -1,15 +1,15 @@
 if (NOT DEFINED CMAKE_C_COMPILER)
-  set(CMAKE_C_COMPILER "arm-none-eabi-gcc")
+  set(CMAKE_C_COMPILER "aarch64-none-elf-gcc")
 endif ()
 
 if (NOT DEFINED CMAKE_CXX_COMPILER)
-  set(CMAKE_CXX_COMPILER "arm-none-eabi-g++")
+  set(CMAKE_CXX_COMPILER "aarch64-none-elf-g++")
 endif ()
 
 set(CMAKE_ASM_COMPILER ${CMAKE_C_COMPILER})
-set(CMAKE_SIZE "arm-none-eabi-size" CACHE FILEPATH "")
-set(CMAKE_OBJCOPY "arm-none-eabi-objcopy" CACHE FILEPATH "")
-set(CMAKE_OBJDUMP "arm-none-eabi-objdump" CACHE FILEPATH "")
+set(CMAKE_SIZE "aarch64-none-elf-size" CACHE FILEPATH "")
+set(CMAKE_OBJCOPY "aarch64-none-elf-objcopy" CACHE FILEPATH "")
+set(CMAKE_OBJDUMP "aarch64-none-elf-objdump" CACHE FILEPATH "")
 
 include(${CMAKE_CURRENT_LIST_DIR}/common.cmake)
 
