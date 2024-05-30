@@ -2,27 +2,15 @@ name: Build
 
 on:
   push:
-    paths:
-      - 'src/**'
-      - 'ports/**'
-      - '!ports/espressif/**'
-      - 'lib/**'
-      - '.github/workflows/build_arm.yml'
   pull_request:
     branches: [ master ]
-    paths:
-      - 'src/**'
-      - 'ports/**'
-      - '!ports/espressif/**'
-      - 'lib/**'
-      - '.github/workflows/build_arm.yml'
   repository_dispatch:
   release:
     types:
       - created
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -33,6 +21,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Run pre-commit
+        uses: pre-commit/action@v3.0.1
 
       - name: Generate matrix json
         id: set-matrix-json
