@@ -50,7 +50,9 @@ jobs:
         if: inputs.toolchain != 'esp-idf'
         run: |
           make -C ports/${{ inputs.port }} BOARD=${{ matrix.board }} all self-update copy-artifact
-          for app in ports/${{ inputs.port }}/apps/*/; do if [ $app != 'apps/self_update/' ]; then make -C $app BOARD=${{ matrix.board }} all; fi done
+          if [ -d "ports/${{ inputs.port }}/apps" ]; then
+            for app in ports/${{ inputs.port }}/apps/*/; do if [ $app != 'apps/self_update/' ]; then make -C $app BOARD=${{ matrix.board }} all; fi done
+          fi
 
       - name: Build using ESP-IDF docker
         if: inputs.toolchain == 'esp-idf'
