@@ -83,6 +83,25 @@ jobs:
       toolchain_url: 'v5.1.1'
 
   # ---------------------------------------
+  # Build RISC-V
+  # ---------------------------------------
+  riscv:
+    needs: set-matrix
+    uses: ./.github/workflows/build_util.yml
+    strategy:
+      fail-fast: false
+      matrix:
+        port:
+          # Alphabetical order
+          - 'ch32v20x'
+    with:
+      port: ${{ matrix.port }}
+      boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)[matrix.port].board) }}
+      build-system: 'make'
+      toolchain: 'riscv-gcc'
+      toolchain_url: 'https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases/download/v13.2.0-2/xpack-riscv-none-elf-gcc-13.2.0-2-linux-x64.tar.gz'
+
+  # ---------------------------------------
   # Unit testing with ghostfat
   # ---------------------------------------
   ghostfat:
