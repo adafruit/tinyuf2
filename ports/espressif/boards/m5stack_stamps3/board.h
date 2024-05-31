@@ -37,7 +37,7 @@
 
 // GPIO that implement 1-bit memory with RC components which hold the
 // pin value long enough for double reset detection.
-#define PIN_DOUBLE_RESET_RC   38
+//#define PIN_DOUBLE_RESET_RC
 
 //--------------------------------------------------------------------+
 // LED
@@ -69,7 +69,7 @@
 #define DISPLAY_PIN_BL        45
 #define DISPLAY_BL_ON          1  // GPIO state to enable back light
 
-#define DISPLAY_PIN_POWER     21
+#define DISPLAY_PIN_POWER     38
 #define DISPLAY_POWER_ON       1  // GPIO state to enable TFT
 
 #define DISPLAY_WIDTH         240
@@ -82,7 +82,7 @@
 #define DISPLAY_MADCTL        (TFT_MADCTL_MX)
 #define DISPLAY_VSCSAD        0
 
-#define DISPLAY_TITLE         "M5 Stamp S3 TFT"
+#define DISPLAY_TITLE         "M5Stamp S3"
 
 //--------------------------------------------------------------------+
 // USB UF2
@@ -91,7 +91,7 @@
 #define USB_VID                  0x303A
 #define USB_PID                  0x811A
 
-#define USB_MANUFACTURER         "M5"
+#define USB_MANUFACTURER         "M5Stack"
 #define USB_PRODUCT              "Stamp S3"
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
