@@ -62,7 +62,3 @@ function(family_add_board_target BOARD_TARGET)
     --specs=nosys.specs --specs=nano.specs
     )
 endfunction()
-
-#------------------------------------
-# Main target
-#------------------------------------

@@ -23,42 +23,42 @@
  */
 
 #include "board_api.h"
-#include "tusb.h" // for logging
+
+#ifndef BUILD_NO_TINYUSB
+#include "tusb.h"
+#endif
 
 //--------------------------------------------------------------------+
 //
 //--------------------------------------------------------------------+
-void board_flash_init(void)
-{
+void board_flash_init(void) {
 
 }
 
-uint32_t board_flash_size(void)
-{
+uint32_t board_flash_size(void) {
   return 0;
 }
 
-void board_flash_read(uint32_t addr, void* buffer, uint32_t len)
-{
-  (void) addr; (void) buffer; (void) len;
+void board_flash_read(uint32_t addr, void* buffer, uint32_t len) {
+  (void) addr;
+  (void) buffer;
+  (void) len;
 }
 
-void board_flash_flush(void)
-{
+void board_flash_flush(void) {
 }
 
-void board_flash_write (uint32_t addr, void const *data, uint32_t len)
-{
-  (void) addr; (void) data; (void) len;
+void board_flash_write(uint32_t addr, void const* data, uint32_t len) {
+  (void) addr;
+  (void) data;
+  (void) len;
 }
 
-void board_flash_erase_app(void)
-{
+void board_flash_erase_app(void) {
   // TODO implement later
 }
 
-bool board_flash_protect_bootloader(bool protect)
-{
+bool board_flash_protect_bootloader(bool protect) {
   // TODO implement later
   (void) protect;
   return false;

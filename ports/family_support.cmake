@@ -208,14 +208,11 @@ function(family_configure_tinyuf2 TARGET OPT_MCU)
   add_tinyuf2(${TARGET})
 
   family_add_uf2version(${TARGET} "${FAMILY_SUBMODULE_DEPS}")
-
-  family_add_tinyusb(tinyuf2 ${OPT_MCU} none)
+  family_add_tinyusb(${TARGET} ${OPT_MCU} none)
 endfunction()
 
-#----------------------------------
-# Output
-#----------------------------------
 
+# Add bin/hex output
 function(family_add_bin_hex TARGET)
   add_custom_command(TARGET ${TARGET} POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -Obinary $<TARGET_FILE:${TARGET}> $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin
@@ -243,7 +240,6 @@ function(family_add_uf2 TARGET FAMILY_ID)
     VERBATIM)
 endfunction()
 
-
 #----------------------------------
 # Flashing target
 #----------------------------------
@@ -252,6 +248,10 @@ endfunction()
 function(family_flash_jlink TARGET)
   if (NOT DEFINED JLINKEXE)
     set(JLINKEXE JLinkExe)
+  endif ()
+
+  if (NOT DEFINED JLINK_IF)
+    set(JLINK_IF swd)
   endif ()
 
   if (ARGC GREATER 1)
@@ -271,7 +271,7 @@ exit"
 
   add_custom_target(${TARGET}-jlink
     DEPENDS ${TARGET}
-    COMMAND ${JLINKEXE} -device ${JLINK_DEVICE} -if swd -JTAGConf -1,-1 -speed auto -CommandFile ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}.jlink
+    COMMAND ${JLINKEXE} -device ${JLINK_DEVICE} -if ${JLINK_IF} -JTAGConf -1,-1 -speed auto -CommandFile ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}.jlink
     )
 endfunction()
 
@@ -289,45 +289,35 @@ function(family_flash_stlink TARGET)
 endfunction()
 
 
-# Add flash pycod targe,t optional parameter is the extension of the binary file (default is elf)
-## If bin file is used, address is also required
-function(family_flash_pyocd TARGET)
-  if (NOT DEFINED PYOC)
-    set(PYOCD pyocd)
+# Add flash openocd target
+function(family_flash_openocd TARGET)
+  if (NOT DEFINED OPENOCD)
+    set(OPENOCD openocd)
   endif ()
 
-  set(ADDR_OPT "")
-  if (ARGC GREATER 1)
-    set(BIN_FILE $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.${ARGV1})
-    if (${ARGV1} STREQUAL bin)
-      set(ADDR_OPT "-a ${ARGV2}")
-    endif ()
-  else ()
-    set(BIN_FILE $<TARGET_FILE:${TARGET}>)
+  if (NOT DEFINED OPENOCD_OPTION2)
+    set(OPENOCD_OPTION2 "")
   endif ()
 
-  add_custom_target(${TARGET}-pyocd
+  separate_arguments(OPTION_LIST UNIX_COMMAND ${OPENOCD_OPTION})
+  separate_arguments(OPTION_LIST2 UNIX_COMMAND ${OPENOCD_OPTION2})
+
+  # note skip verify since it has issue with rp2040
+  add_custom_target(${TARGET}-openocd
     DEPENDS ${TARGET}
-    COMMAND ${PYOCD} flash -t ${PYOCD_TARGET} ${ADDR_OPT} ${BIN_FILE}
+    COMMAND ${OPENOCD} ${OPTION_LIST} -c "program $<TARGET_FILE:${TARGET}> reset" ${OPTION_LIST2} -c exit
+    VERBATIM
     )
 endfunction()
 
-
-# Add flash using NXP's LinkServer (redserver)
-# https://www.nxp.com/design/software/development-software/mcuxpresso-software-and-tools-/linkserver-for-microcontrollers:LINKERSERVER
-function(family_flash_nxplink TARGET)
-  if (NOT DEFINED LINKSERVER)
-    set(LINKSERVER LinkServer)
+# Add flash openocd-wch target
+# compiled from https://github.com/hathach/riscv-openocd-wch or https://github.com/dragonlock2/miscboards/blob/main/wch/SDK/riscv-openocd.tar.xz
+function(family_flash_openocd_wch TARGET)
+  if (NOT DEFINED OPENOCD)
+    set(OPENOCD $ENV{HOME}/app/riscv-openocd-wch/src/openocd)
   endif ()
 
-  # LinkServer has a bug that can only execute with full path otherwise it throws:
-  # realpath error: No such file or directory
-  execute_process(COMMAND which ${LINKSERVER} OUTPUT_VARIABLE LINKSERVER_PATH OUTPUT_STRIP_TRAILING_WHITESPACE)
-
-  add_custom_target(${TARGET}-nxplink
-    DEPENDS ${TARGET}
-    COMMAND ${LINKSERVER_PATH} flash ${NXPLINK_DEVICE} load $<TARGET_FILE:${TARGET}>
-    )
+  family_flash_openocd(${TARGET})
 endfunction()
 
 
