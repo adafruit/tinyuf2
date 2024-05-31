@@ -177,7 +177,7 @@ LDFLAGS += \
 # libc
 LIBS += -lgcc -lm -lc
 
-# nanolib
+# nanolib: TODO remove
 ifneq ($(SKIP_NANOLIB), 1)
   LDFLAGS += -specs=nosys.specs -specs=nano.specs
   LIBS += -lnosys

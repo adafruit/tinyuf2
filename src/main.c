@@ -91,7 +91,7 @@ int main(void) {
   screen_draw_drag();
 #endif
 
-#if (CFG_TUSB_OS == OPT_OS_NONE || CFG_TUSB_OS == OPT_OS_PICO)
+#if CFG_TUSB_OS == OPT_OS_NONE || CFG_TUSB_OS == OPT_OS_PICO
   while(1) {
     tud_task();
   }
