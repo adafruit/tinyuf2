@@ -34,17 +34,14 @@
 #include "clock_config.h"
 
 #ifndef BUILD_NO_TINYUSB
-#include "tusb.h"
-
+  #include "tusb.h"
 #else
-
-#define TU_LOG1(...)
-#define TU_LOG2(...)
+  #define TU_LOG1(...)
+  #define TU_LOG2(...)
 #endif
 
 #if NEOPIXEL_NUMBER
 #include "sct_neopixel.h"
-
 static uint32_t _pixelData[NEOPIXEL_NUMBER] = {0};
 #endif
 
@@ -276,7 +273,7 @@ void board_dfu_init(void)
   RESET_PeripheralReset(kUSB1_RST_SHIFT_RSTn);
   RESET_PeripheralReset(kUSB1RAM_RST_SHIFT_RSTn);
 
-#if CFG_TUD_ENABLED
+#ifndef BUILD_NO_TINYUSB
   #if BOARD_TUD_RHPORT == 0
   // Enable USB Clock Adjustments to trim the FRO for the full speed controller
   ANACTRL->FRO192M_CTRL |= ANACTRL_FRO192M_CTRL_USBCLKADJ_MASK;

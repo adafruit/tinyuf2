@@ -46,8 +46,6 @@ uint32_t SysTick_Config(uint32_t ticks) {
 void board_init(void) {
   __disable_irq();
 
-  SysTick_Config(SystemCoreClock / 1000);
-
   RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
 
   uint8_t usb_div;
@@ -151,11 +149,11 @@ void board_rgb_write(uint8_t const rgb[]) {
 // Timer
 //--------------------------------------------------------------------+
 void board_timer_start(uint32_t ms) {
-//  SysTick_Config( (SystemCoreClock/1000) * ms );
+  SysTick_Config( (SystemCoreClock/1000) * ms );
 }
 
 void board_timer_stop(void) {
-//  SysTick->CTLR = 0;
+  SysTick->CTLR = 0;
 }
 
 __attribute__((interrupt)) __attribute__((used))
