@@ -9,7 +9,6 @@ set(CMAKE_EXECUTABLE_SUFFIX .elf)
 # TinyUF2
 #------------------------------------
 add_executable(tinyuf2
-  board_flash.c
   boards.c
   )
 target_link_options(tinyuf2 PUBLIC

@@ -26,7 +26,6 @@
 
 #include <string.h>
 #include <stdio.h>
-#include <assert.h>
 #include <inttypes.h>
 
 #include "compile_date.h"
@@ -141,7 +140,7 @@ char infoUf2File[128*3] =
     "Date: " COMPILE_DATE "\r\n"
     "Flash Size: 0x";
 
-const char indexFile[] =
+TINYUF2_CONST char indexFile[] =
     "<!doctype html>\n"
     "<html>"
     "<body>"
@@ -201,7 +200,7 @@ STATIC_ASSERT( CLUSTER_COUNT >= 0x1015 && CLUSTER_COUNT < 0xFFD5 );
 //
 //--------------------------------------------------------------------+
 
-static FAT_BootBlock const BootBlock = {
+static FAT_BootBlock TINYUF2_CONST BootBlock = {
     .JumpInstruction      = {0xeb, 0x3c, 0x90},
     .OEMInfo              = "UF2 UF2 ",
     .SectorSize           = BPB_SECTOR_SIZE,

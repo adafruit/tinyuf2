@@ -64,8 +64,8 @@
 #endif
 
 // Bootloader often has limited ROM than RAM and prefer to use RAM for data
-#ifndef TINYUF2_DESC_CONST
-#define TINYUF2_DESC_CONST
+#ifndef TINYUF2_CONST
+#define TINYUF2_CONST
 #endif
 
 #ifndef TUF2_LOG
