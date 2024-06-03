@@ -40,13 +40,12 @@ LDFLAGS += \
 ifdef BUILD_APPLICATION
   LD_FILES ?= $(PORT_DIR)/linker/${CH32_FAMILY}.ld
 else
-  LD_FILES ?= $(PORT_DIR)/linker/${CH32_FAMILY}.ld
+  LD_FILES ?= $(PORT_DIR)/linker/${CH32_FAMILY}_boot.ld
 endif
 
 # Port source
 SRC_C += \
 	$(PORT_DIR)/boards.c \
-	$(PORT_DIR)/board_flash.c \
 	$(PORT_DIR)/system_ch32v20x.c \
 	$(SDK_SRC_DIR)/Core/core_riscv.c \
 	$(SDK_SRC_DIR)/Peripheral/src/ch32v20x_gpio.c \

@@ -1,6 +1,6 @@
 /* Define default values if not already defined */
 __FLASH_SIZE = DEFINED(__flash_size) ? __flash_size : 64K;
-__FLASH_BOOT_SIZE = DEFINED(__flash_boot_size) ? __flash_boot_size : 16K;
+__FLASH_BOOT_SIZE = DEFINED(__flash_boot_size) ? __flash_boot_size : 24K;
 __FLASH_APP_SIZE = __FLASH_SIZE - __FLASH_BOOT_SIZE;
 
 __RAM_SIZE = DEFINED(__ram_size) ? __ram_size : 20K;
