@@ -423,19 +423,16 @@ int board_uart_read(uint8_t* buf, int len)
 
 #else
 
-void board_uart_init(uint32_t baud_rate)
-{
+void board_uart_init(uint32_t baud_rate) {
   (void) baud_rate;
 }
 
-int board_uart_write(void const * buf, int len)
-{
+int board_uart_write(void const * buf, int len) {
   (void) buf; (void) len;
   return 0;
 }
 
-int board_uart_read(uint8_t* buf, int len)
-{
+int board_uart_read(uint8_t* buf, int len) {
   (void) buf; (void) len;
   return 0;
 }
@@ -449,37 +446,16 @@ int board_uart_read(uint8_t* buf, int len)
 
 // The iMX RT 1040 is named without a number. We can always have this because
 // it'll get GC'd when not used.
-void USB_OTG_IRQHandler(void)
-{
-  #if CFG_TUSB_RHPORT0_MODE & OPT_MODE_HOST
-    tuh_int_handler(0);
-  #endif
-
-  #if CFG_TUSB_RHPORT0_MODE & OPT_MODE_DEVICE
-    tud_int_handler(0);
-  #endif
+void USB_OTG_IRQHandler(void) {
+  tud_int_handler(0);
 }
 
-void USB_OTG1_IRQHandler(void)
-{
-  #if CFG_TUSB_RHPORT0_MODE & OPT_MODE_HOST
-    tuh_int_handler(0);
-  #endif
-
-  #if CFG_TUSB_RHPORT0_MODE & OPT_MODE_DEVICE
-    tud_int_handler(0);
-  #endif
+void USB_OTG1_IRQHandler(void) {
+  tud_int_handler(0);
 }
 
-void USB_OTG2_IRQHandler(void)
-{
-  #if CFG_TUSB_RHPORT1_MODE & OPT_MODE_HOST
-    tuh_int_handler(1);
-  #endif
-
-  #if CFG_TUSB_RHPORT1_MODE & OPT_MODE_DEVICE
-    tud_int_handler(1);
-  #endif
+void USB_OTG2_IRQHandler(void) {
+  tud_int_handler(1);
 }
 
 #endif

@@ -67,7 +67,7 @@ SRC_C += \
 
 
 ifndef BUILD_NO_TINYUSB
-SRC_C += lib/tinyusb/src/portable/st/synopsys/dcd_synopsys.c
+SRC_C += lib/tinyusb/src/portable/synopsys/dwc2/dcd_dwc2.c
 endif
 
 # Includes

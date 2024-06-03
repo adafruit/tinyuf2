@@ -53,7 +53,7 @@ void board_init(void)
 void board_dfu_init(void)
 {
   // Not quite sure what an RHPORT is :/
-#if BOARD_DEVICE_RHPORT_NUM == 0
+#if BOARD_TUD_RHPORT == 0
   GPIO_InitTypeDef GPIO_InitStruct;
 
   // Init USB Pins
@@ -81,9 +81,9 @@ void board_dfu_init(void)
   USB_OTG_FS->GOTGCTL |= USB_OTG_GOTGCTL_BVALOEN;
   USB_OTG_FS->GOTGCTL |= USB_OTG_GOTGCTL_BVALOVAL;
 
-#elif BOARD_DEVICE_RHPORT_NUM == 1
-// TODO: implement whatever this is
-#error "Sorry, not implemented yet"
+#elif BOARD_TUD_RHPORT == 1
+  // TODO: implement whatever this is
+  #error "Sorry, not implemented yet"
 #endif
 
 }

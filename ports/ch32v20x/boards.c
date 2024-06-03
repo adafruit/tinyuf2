@@ -32,8 +32,23 @@
 //--------------------------------------------------------------------+
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
 //--------------------------------------------------------------------+
+
+uint32_t SysTick_Config(uint32_t ticks) {
+  NVIC_EnableIRQ(SysTicK_IRQn);
+  SysTick->CTLR = 0;
+  SysTick->SR = 0;
+  SysTick->CNT = 0;
+  SysTick->CMP = ticks - 1;
+  SysTick->CTLR = 0xF;
+  return 0;
+}
+
 void board_init(void) {
   __disable_irq();
+
+  SysTick_Config(SystemCoreClock / 1000);
+
+  RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
 
   uint8_t usb_div;
   switch (SystemCoreClock) {
@@ -45,8 +60,6 @@ void board_init(void) {
   RCC_USBCLKConfig(usb_div);
   RCC_APB1PeriphClockCmd(RCC_APB1Periph_USB, ENABLE);  // FSDEV
   RCC_AHBPeriphClockCmd(RCC_AHBPeriph_OTG_FS, ENABLE); // USB FS
-
-  RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
 
   GPIO_InitTypeDef GPIO_InitStructure = {
       .GPIO_Pin = LED_PIN,
@@ -78,6 +91,8 @@ void board_init(void) {
 
   __enable_irq();
   // board_delay(2);
+
+  TU_LOG2_INT(SystemCoreClock);
 }
 
 void board_dfu_init(void) {
@@ -135,27 +150,17 @@ void board_rgb_write(uint8_t const rgb[]) {
 //--------------------------------------------------------------------+
 // Timer
 //--------------------------------------------------------------------+
-
-uint32_t SysTick_Config(uint32_t ticks) {
-  NVIC_EnableIRQ(SysTicK_IRQn);
-  SysTick->CTLR = 0;
-  SysTick->SR = 0;
-  SysTick->CNT = 0;
-  SysTick->CMP = ticks - 1;
-  SysTick->CTLR = 0xF;
-  return 0;
-}
-
 void board_timer_start(uint32_t ms) {
-  SysTick_Config( (SystemCoreClock/1000) * ms );
+//  SysTick_Config( (SystemCoreClock/1000) * ms );
 }
 
 void board_timer_stop(void) {
-  SysTick->CTLR = 0;
+//  SysTick->CTLR = 0;
 }
 
 __attribute__((interrupt)) __attribute__((used))
 void SysTick_Handler(void) {
+  SysTick->SR = 0;
   board_timer_handler();
 }
 

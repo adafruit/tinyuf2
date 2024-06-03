@@ -111,7 +111,7 @@ function(family_configure_common TARGET)
   # Generate map file
   target_link_options(${TARGET} PUBLIC "LINKER:-Map=$<TARGET_FILE:${TARGET}>.map")
 
-  # All executable target linked with board target
+  # executable target linked with board target
   family_add_board_target(board_${BOARD})
   target_link_libraries(${TARGET} PUBLIC board_${BOARD})
 
@@ -162,7 +162,6 @@ function(family_add_tinyusb TARGET OPT_MCU RTOS)
   add_subdirectory(${TOP}/lib/tinyusb/src ${CMAKE_CURRENT_BINARY_DIR}/tinyusb)
 
   if (RTOS STREQUAL "freertos")
-    # link tinyusb with freeRTOS kernel
     target_link_libraries(${TARGET}-tinyusb PUBLIC freertos_kernel)
   endif ()
 
@@ -202,8 +201,6 @@ endfunction()
 function(family_configure_tinyuf2 TARGET OPT_MCU)
   family_configure_common(${TARGET})
 
-  #target_include_directories(${TARGET} PUBLIC)
-  #target_compile_definitions(${TARGET} PUBLIC)
   include(${TOP}/src/tinyuf2.cmake)
   add_tinyuf2(${TARGET})
 

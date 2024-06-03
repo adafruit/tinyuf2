@@ -40,7 +40,7 @@ void board_flash_init(void) {
 
 uint32_t board_flash_size(void) {
   uint32_t flash_size = (uint32_t) __flash_size;
-  TU_LOG1("board_flash_size: %lu\n", flash_size);
+  TU_LOG1("board_flash_size: %lu\r\n", flash_size);
   return flash_size;
 }
 

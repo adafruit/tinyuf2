@@ -82,7 +82,8 @@ int main(void) {
   board_dfu_init();
   board_flash_init();
   uf2_init();
-  tusb_init();
+
+  tud_init(BOARD_TUD_RHPORT);
 
   indicator_set(STATE_USB_UNPLUGGED);
 
@@ -254,7 +255,7 @@ void board_timer_handler(void) {
 //--------------------------------------------------------------------+
 
 // Enable only with LOG is enabled (Note: ESP32-S2 has built-in support already)
-#if CFG_TUSB_DEBUG && (CFG_TUSB_MCU != OPT_MCU_ESP32S2 && CFG_TUSB_MCU != OPT_MCU_RP2040)
+#if (CFG_TUSB_DEBUG || TUF2_LOG) && (CFG_TUSB_MCU != OPT_MCU_ESP32S2 && CFG_TUSB_MCU != OPT_MCU_RP2040)
 #if defined(LOGGER_RTT)
 #include "SEGGER_RTT.h"
 #endif

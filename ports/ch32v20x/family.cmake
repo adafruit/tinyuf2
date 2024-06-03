@@ -1,9 +1,5 @@
 include_guard()
 
-#------------------------------------
-# Config
-#------------------------------------
-
 set(UF2_FAMILY_ID 0x699b62ec)
 set(CH32_FAMILY ch32v20x)
 set(SDK_DIR ${TOP}/lib/mcu/wch/${CH32_FAMILY})
