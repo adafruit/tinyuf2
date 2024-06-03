@@ -52,7 +52,7 @@ enum {
 //--------------------------------------------------------------------+
 // Device Descriptors
 //--------------------------------------------------------------------+
-tusb_desc_device_t TINYUF2_CONST desc_device = {
+tusb_desc_device_t TINYUF2_DESC_CONST desc_device = {
     .bLength            = sizeof(tusb_desc_device_t),
     .bDescriptorType    = TUSB_DESC_DEVICE,
     .bcdUSB             = 0x0200,

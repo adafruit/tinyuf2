@@ -35,7 +35,7 @@
 
 #define LED_PORT       GPIOA
 #define LED_PIN        GPIO_Pin_15
-#define LED_STATE_ON   0
+#define LED_STATE_ON   1
 
 //--------------------------------------------------------------------+
 // USB UF2

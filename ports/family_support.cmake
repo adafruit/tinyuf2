@@ -110,6 +110,7 @@ function(family_configure_common TARGET)
 
   # Generate map file
   target_link_options(${TARGET} PUBLIC "LINKER:-Map=$<TARGET_FILE:${TARGET}>.map")
+  #family_add_linkermap(${TARGET})
 
   # executable target linked with board target
   family_add_board_target(board_${BOARD})
@@ -234,6 +235,12 @@ function(family_add_uf2 TARGET FAMILY_ID)
 
   add_custom_command(TARGET ${TARGET} POST_BUILD
     COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} -f ${FAMILY_ID} ${ADDR_OPT} -c -o $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.uf2 ${BIN_FILE}
+    VERBATIM)
+endfunction()
+
+function(family_add_linkermap TARGET)
+  add_custom_command(TARGET ${TARGET} POST_BUILD
+    COMMAND linkermap -v $<TARGET_FILE:${TARGET}>.map
     VERBATIM)
 endfunction()
 

@@ -48,17 +48,6 @@ void board_init(void) {
 
   RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
 
-  uint8_t usb_div;
-  switch (SystemCoreClock) {
-    case 48000000: usb_div = RCC_USBCLKSource_PLLCLK_Div1; break;
-    case 96000000: usb_div = RCC_USBCLKSource_PLLCLK_Div2; break;
-    case 144000000: usb_div = RCC_USBCLKSource_PLLCLK_Div3; break;
-    default: TU_ASSERT(0,); break;
-  }
-  RCC_USBCLKConfig(usb_div);
-  RCC_APB1PeriphClockCmd(RCC_APB1Periph_USB, ENABLE);  // FSDEV
-  RCC_AHBPeriphClockCmd(RCC_AHBPeriph_OTG_FS, ENABLE); // USB FS
-
   GPIO_InitTypeDef GPIO_InitStructure = {
       .GPIO_Pin = LED_PIN,
       .GPIO_Mode = GPIO_Mode_Out_OD,
@@ -66,7 +55,7 @@ void board_init(void) {
   };
   GPIO_Init(LED_PORT, &GPIO_InitStructure);
 
-  #if CFG_TUSB_DEBUG || 1
+  #if CFG_TUSB_DEBUG || TUF2_LOG
   RCC_APB2PeriphClockCmd(RCC_APB2Periph_USART1, ENABLE);
   GPIO_InitTypeDef usart_init = {
       .GPIO_Pin = GPIO_Pin_9,
@@ -88,27 +77,29 @@ void board_init(void) {
   #endif
 
   __enable_irq();
-  // board_delay(2);
-
-  TU_LOG2_INT(SystemCoreClock);
 }
 
 void board_dfu_init(void) {
-//  __disable_irq();
+  __disable_irq();
 
-  // Init USB for DFU
-//  uint8_t usb_div;
-//  switch (SystemCoreClock) {
-//    case 48000000: usb_div = RCC_USBCLKSource_PLLCLK_Div1; break;
-//    case 96000000: usb_div = RCC_USBCLKSource_PLLCLK_Div2; break;
-//    case 144000000: usb_div = RCC_USBCLKSource_PLLCLK_Div3; break;
-//    default: TU_ASSERT(0,); break;
-//  }
-//  RCC_USBCLKConfig(usb_div);
-//  RCC_APB1PeriphClockCmd(RCC_APB1Periph_USB, ENABLE);  // FSDEV
-//  RCC_AHBPeriphClockCmd(RCC_AHBPeriph_OTG_FS, ENABLE); // USB FS
+  uint8_t usb_div;
+  switch (SystemCoreClock) {
+    case 48000000: usb_div = RCC_USBCLKSource_PLLCLK_Div1; break;
+    case 96000000: usb_div = RCC_USBCLKSource_PLLCLK_Div2; break;
+    case 144000000: usb_div = RCC_USBCLKSource_PLLCLK_Div3; break;
+    default: TU_ASSERT(0,); break;
+  }
+  RCC_USBCLKConfig(usb_div);
 
-//  __enable_irq();
+#if CFG_TUD_WCH_USBIP_USBFS
+  RCC_AHBPeriphClockCmd(RCC_AHBPeriph_OTG_FS, ENABLE); // USB FS
+#endif
+
+#if CFG_TUD_WCH_USBIP_FSDEV
+  RCC_APB1PeriphClockCmd(RCC_APB1Periph_USB, ENABLE);  // FSDEV
+#endif
+
+  __enable_irq();
 }
 
 void board_reset(void) {
@@ -163,13 +154,18 @@ void SysTick_Handler(void) {
 }
 
 int board_uart_write(void const* buf, int len) {
+#if CFG_TUSB_DEBUG || TUF2_LOG
   const char *bufc = (const char *) buf;
   for (int i = 0; i < len; i++) {
     while (USART_GetFlagStatus(USART1, USART_FLAG_TC) == RESET);
     USART_SendData(USART1, *bufc++);
   }
-
   return len;
+#else
+  (void) buf;
+  (void) len;
+  return 0;
+#endif
 }
 
 #ifndef BUILD_NO_TINYUSB

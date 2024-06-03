@@ -182,27 +182,27 @@ void tud_umount_cb(void) {
 // Indicator
 //--------------------------------------------------------------------+
 
-static uint32_t _indicator_state = STATE_BOOTLOADER_STARTED;
-static uint8_t _indicator_rgb[3];
+static uint32_t indicator_state = STATE_BOOTLOADER_STARTED;
+static uint8_t indicator_rgb[3];
 
 void indicator_set(uint32_t state) {
-  _indicator_state = state;
+  indicator_state = state;
   switch (state) {
     case STATE_USB_UNPLUGGED:
       board_timer_start(1);
-      memcpy(_indicator_rgb, RGB_USB_UNMOUNTED, 3);
-      board_rgb_write(_indicator_rgb);
+      memcpy(indicator_rgb, RGB_USB_UNMOUNTED, 3);
+      board_rgb_write(indicator_rgb);
       break;
 
     case STATE_USB_PLUGGED:
       board_timer_start(5);
-      memcpy(_indicator_rgb, RGB_USB_MOUNTED, 3);
-      board_rgb_write(_indicator_rgb);
+      memcpy(indicator_rgb, RGB_USB_MOUNTED, 3);
+      board_rgb_write(indicator_rgb);
       break;
 
     case STATE_WRITING_STARTED:
       board_timer_start(25);
-      memcpy(_indicator_rgb, RGB_WRITING, 3);
+      memcpy(indicator_rgb, RGB_WRITING, 3);
       break;
 
     case STATE_WRITING_FINISHED:
@@ -218,7 +218,7 @@ void indicator_set(uint32_t state) {
 void board_timer_handler(void) {
   _timer_count++;
 
-  switch (_indicator_state) {
+  switch (indicator_state) {
     case STATE_USB_UNPLUGGED:
     case STATE_USB_PLUGGED: {
       // Fading with LED TODO option to skip for unsupported MCUs
@@ -241,7 +241,7 @@ void board_timer_handler(void) {
       board_led_write(is_on ? 0xff : 0x000);
 
       // blink RGB if available
-      board_rgb_write(is_on ? _indicator_rgb : RGB_OFF);
+      board_rgb_write(is_on ? indicator_rgb : RGB_OFF);
       break;
     }
 
