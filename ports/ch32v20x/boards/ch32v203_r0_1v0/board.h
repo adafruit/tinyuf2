@@ -48,7 +48,7 @@
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID      "Dummy"
-#define UF2_VOLUME_LABEL  "DUMMYBOOT"
+#define UF2_VOLUME_LABEL  "CH32V2BOOT"
 #define UF2_INDEX_URL     "https://www.adafruit.com"
 
 //--------------------------------------------------------------------+

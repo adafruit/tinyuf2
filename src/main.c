@@ -37,21 +37,12 @@
 //--------------------------------------------------------------------+
 //#define USE_DFU_BUTTON    1
 
-// timeout for double tap detection
-#define DBL_TAP_DELAY             500
-
-#ifndef DBL_TAP_REG
-// defined by linker script
-extern uint32_t _board_dfu_dbl_tap[];
-#define DBL_TAP_REG   _board_dfu_dbl_tap[0]
-#endif
-
-uint8_t const RGB_USB_UNMOUNTED[] = { 0xff, 0x00, 0x00 }; // Red
-uint8_t const RGB_USB_MOUNTED[]   = { 0x00, 0xff, 0x00 }; // Green
-uint8_t const RGB_WRITING[]       = { 0xcc, 0x66, 0x00 };
-uint8_t const RGB_DOUBLE_TAP[]    = { 0x80, 0x00, 0xff }; // Purple
-uint8_t const RGB_UNKNOWN[]       = { 0x00, 0x00, 0x88 }; // for debug
-uint8_t const RGB_OFF[]           = { 0x00, 0x00, 0x00 };
+uint8_t RGB_USB_UNMOUNTED[] = { 0xff, 0x00, 0x00 }; // Red
+uint8_t RGB_USB_MOUNTED[]   = { 0x00, 0xff, 0x00 }; // Green
+uint8_t RGB_WRITING[]       = { 0xcc, 0x66, 0x00 };
+uint8_t RGB_DOUBLE_TAP[]    = { 0x80, 0x00, 0xff }; // Purple
+uint8_t RGB_UNKNOWN[]       = { 0x00, 0x00, 0x88 }; // for debug
+uint8_t RGB_OFF[]           = { 0x00, 0x00, 0x00 };
 
 static volatile uint32_t _timer_count = 0;
 
@@ -63,7 +54,7 @@ static bool check_dfu_mode(void);
 int main(void) {
   board_init();
   if (board_init2) board_init2();
-  TU_LOG1("TinyUF2\r\n");
+  TUF2_LOG1("TinyUF2\r\n");
 
 #if TINYUF2_PROTECT_BOOTLOADER
   board_flash_protect_bootloader(true);
@@ -78,7 +69,7 @@ int main(void) {
     while (1) {}
   }
 
-  TU_LOG1("Start DFU mode\r\n");
+  TUF2_LOG1("Start DFU mode\r\n");
   board_dfu_init();
   board_flash_init();
   uf2_init();
@@ -101,8 +92,11 @@ int main(void) {
 
 // return true if start DFU mode, else App mode
 static bool check_dfu_mode(void) {
-  // TODO enable for all port instead of one with double tap
-#if TINYUF2_DFU_DOUBLE_TAP
+  // Check if app is valid
+  if (!board_app_valid()) return true;
+  if (board_app_valid2 && !board_app_valid2()) return true;
+
+#if TINYUF2_DBL_TAP_DFU
   // TUF2_LOG1_HEX(&DBL_TAP_REG);
 
   // Erase application
@@ -113,16 +107,8 @@ static bool check_dfu_mode(void) {
     board_flash_erase_app();
     indicator_set(STATE_WRITING_FINISHED);
 
-    // TODO maybe reset is better than continue
+    return true;
   }
-#endif
-
-  // Check if app is valid
-  if (!board_app_valid()) return true;
-  if (board_app_valid2 && !board_app_valid2()) return true;
-
-#if TINYUF2_DFU_DOUBLE_TAP
-  //  TU_LOG1_HEX(DBL_TAP_REG);
 
   // App want to reboot quickly
   if (DBL_TAP_REG == DBL_TAP_MAGIC_QUICK_BOOT) {
@@ -151,7 +137,7 @@ static bool check_dfu_mode(void) {
   board_rgb_write(RGB_DOUBLE_TAP);
 
   // delay a fraction of second if Reset pin is tap during this delay --> we will enter dfu
-  while(_timer_count < DBL_TAP_DELAY) {}
+  while(_timer_count < TINYUF2_DBL_TAP_DELAY) {}
   board_timer_stop();
 
   // Turn off indicator

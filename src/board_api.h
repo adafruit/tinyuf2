@@ -30,6 +30,9 @@
 #include <string.h>
 #include "boards.h"
 
+#define ATTR_WEAK __attribute__ ((weak))
+#define ATTR_ALWAYS_INLINE __attribute__ ((always_inline))
+
 //--------------------------------------------------------------------+
 // Features
 //--------------------------------------------------------------------+
@@ -49,8 +52,13 @@
 #endif
 
 // Use Double Tap method to enter DFU mode
-#ifndef TINYUF2_DFU_DOUBLE_TAP
-#define TINYUF2_DFU_DOUBLE_TAP      0
+#ifndef TINYUF2_DBL_TAP_DFU
+#define TINYUF2_DBL_TAP_DFU      0
+#endif
+
+// timeout for double tap detection in ms
+#ifndef TINYUF2_DBL_TAP_DELAY
+#define TINYUF2_DBL_TAP_DELAY    500
 #endif
 
 // Use Display to draw DFU image
@@ -69,7 +77,7 @@
 #endif
 
 #ifndef TUF2_LOG
-  #define TUF2_LOG 0
+  #define TUF2_LOG 2
 #endif
 
 // Use favicon.ico + autorun.inf (only works with windows)
@@ -82,6 +90,13 @@
 #define DBL_TAP_MAGIC            0xf01669ef // Enter DFU magic
 #define DBL_TAP_MAGIC_QUICK_BOOT 0xf02669ef // Skip double tap delay detection
 #define DBL_TAP_MAGIC_ERASE_APP  0xf5e80ab4 // Erase entire application !!
+
+#ifndef DBL_TAP_REG
+// defined by linker script
+extern uint32_t _board_dfu_dbl_tap[];
+#define DBL_TAP_REG   _board_dfu_dbl_tap[0]
+#endif
+
 
 //--------------------------------------------------------------------+
 // Basic API
@@ -163,8 +178,8 @@ uint32_t board_flash_size(void);
 // Read from flash
 void board_flash_read (uint32_t addr, void* buffer, uint32_t len);
 
-// Write to flash
-void board_flash_write(uint32_t addr, void const *data, uint32_t len);
+// Write to flash, len is uf2's payload size (often 256 bytes)
+bool board_flash_write(uint32_t addr, void const* data, uint32_t len);
 
 // Flush/Sync flash contents
 void board_flash_flush(void);
@@ -224,7 +239,7 @@ void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len);
 #define TUF2_LOG1_FAILED()      tuf2_printf("%s: %d: Failed\r\n", __PRETTY_FUNCTION__, __LINE__)
 
 // Log with debug level 2
-#if CFG_TUSB_DEBUG > 1
+#if TUF2_LOG > 1
   #define TUF2_LOG2             TUF2_LOG1
   #define TUF2_LOG2_MEM         TUF2_LOG1_MEM
   #define TUF2_LOG2_VAR         TUF2_LOG1_VAR
@@ -268,10 +283,8 @@ enum {
 
 void indicator_set(uint32_t state);
 
-static inline void rgb_brightness(uint8_t out[3], uint8_t const in[3], uint8_t brightness)
-{
-  for(uint32_t i=0; i<3; i++ )
-  {
+static inline void rgb_brightness(uint8_t out[3], uint8_t const in[3], uint8_t brightness) {
+  for(uint32_t i=0; i<3; i++ ) {
     out[i] = (in[i]*brightness) >> 8;
   }
 }

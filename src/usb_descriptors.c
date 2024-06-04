@@ -152,7 +152,6 @@ static uint16_t _desc_str[48 + 1];
 // Application return pointer to descriptor, whose contents must exist long enough for transfer to complete
 uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
   (void) langid;
-
   uint8_t chr_count;
 
   switch (index) {
@@ -164,9 +163,7 @@ uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
     // TODO light alternation such as +1 to prevent conflict with application
     case STRID_SERIAL: {
       uint8_t serial_id[16] TU_ATTR_ALIGNED(4);
-      uint8_t serial_len;
-
-      serial_len = board_usb_get_serial(serial_id);
+      uint8_t serial_len = board_usb_get_serial(serial_id);
       chr_count = 2 * serial_len;
 
       for (uint8_t i = 0; i < serial_len; i++) {
@@ -174,7 +171,6 @@ uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
           const char nibble_to_hex[16] = {
               '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'
           };
-
           uint8_t nibble = (serial_id[i] >> (j * 4)) & 0xf;
           _desc_str[1 + i * 2 + (1 - j)] = nibble_to_hex[nibble]; // UTF-16-LE
         }

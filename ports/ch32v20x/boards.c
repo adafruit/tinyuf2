@@ -29,13 +29,18 @@
 #include "tusb.h"
 #endif
 
-// symbol from linker
-extern uint32_t __flash_size[];
-extern uint32_t __flash_boot_size[];
+#define CH32_UUID    ((volatile uint32_t *) 0x1FFFF7E8UL)
+
+#define BOARD_PAGE_SIZE  0x800
+#define FLASH_ADDR_PHY_BASE  0x08000000UL
 
 //--------------------------------------------------------------------+
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
 //--------------------------------------------------------------------+
+
+ATTR_ALWAYS_INLINE static inline uint32_t addr_base0(uint32_t addr) {
+  return addr & ~FLASH_ADDR_PHY_BASE;
+}
 
 uint32_t SysTick_Config(uint32_t ticks) {
   NVIC_EnableIRQ(SysTicK_IRQn);
@@ -107,16 +112,19 @@ void board_dfu_init(void) {
 }
 
 void board_reset(void) {
-   NVIC_SystemReset();
+  NVIC_SystemReset();
 }
 
 void board_dfu_complete(void) {
   // Mostly reset
- NVIC_SystemReset();
+  NVIC_SystemReset();
 }
 
 bool board_app_valid(void) {
-  return false;
+  uint32_t app_start = *((volatile uint32_t const*) BOARD_FLASH_APP_START);
+  app_start = addr_base0(app_start);
+
+  return app_start >= BOARD_FLASH_APP_START && app_start < BOARD_FLASH_SIZE;
 }
 
 void board_app_jump(void) {
@@ -124,14 +132,19 @@ void board_app_jump(void) {
 }
 
 uint8_t board_usb_get_serial(uint8_t serial_id[16]) {
-  (void) serial_id;
-  return 0;
+  uint8_t const len = 12;
+  uint32_t* serial_id32 = (uint32_t*) (uintptr_t) serial_id;
+
+  serial_id32[0] = CH32_UUID[0];
+  serial_id32[1] = CH32_UUID[1];
+  serial_id32[2] = CH32_UUID[2];
+
+  return len;
 }
 
 //--------------------------------------------------------------------+
 // LED pattern
 //--------------------------------------------------------------------+
-
 void board_led_write(uint32_t state) {
   GPIO_WriteBit(LED_PORT, LED_PIN, state ? LED_STATE_ON : (1-LED_STATE_ON));
 }
@@ -176,26 +189,39 @@ int board_uart_write(void const* buf, int len) {
 // Flash
 //--------------------------------------------------------------------+
 void board_flash_init(void) {
-
+  // nothing to do
 }
 
 uint32_t board_flash_size(void) {
-  return (uint32_t) __flash_size;
+  return BOARD_FLASH_SIZE;
 }
 
 void board_flash_read(uint32_t addr, void* buffer, uint32_t len) {
-  (void) addr;
-  (void) buffer;
-  (void) len;
+  memcpy(buffer, (void*) addr, len);
 }
 
 void board_flash_flush(void) {
+  // nothing to do
 }
 
-void board_flash_write(uint32_t addr, void const* data, uint32_t len) {
-  (void) addr;
-  (void) data;
-  (void) len;
+bool board_flash_write(uint32_t addr, void const* data, uint32_t len) {
+  TUF2_ASSERT(len == 256);
+
+  // addr = addr_phy(addr);
+
+  FLASH_Unlock();
+
+  FLASH_ErasePage(addr);
+  FLASH_ProgramPage_Fast(addr, (uint32_t*) (uintptr_t ) data);
+
+  FLASH_Lock();
+
+  // verify contents
+  if (memcmp((void*) addr, data, len) != 0) {
+    TUF2_LOG1("Failed to write\r\n");
+  }
+
+  return true;
 }
 
 void board_flash_erase_app(void) {

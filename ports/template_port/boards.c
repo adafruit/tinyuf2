@@ -115,10 +115,12 @@ void board_flash_read(uint32_t addr, void* buffer, uint32_t len) {
 void board_flash_flush(void) {
 }
 
-void board_flash_write(uint32_t addr, void const* data, uint32_t len) {
+bool board_flash_write(uint32_t addr, void const* data, uint32_t len) {
   (void) addr;
   (void) data;
   (void) len;
+
+  return true;
 }
 
 void board_flash_erase_app(void) {

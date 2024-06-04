@@ -47,7 +47,7 @@
 #define BOARD_RAM_SIZE 0x9FFF
 
 // Double Reset tap to enter DFU
-#define TINYUF2_DFU_DOUBLE_TAP      1
+#define TINYUF2_DBL_TAP_DFU      1
 
 // Enable write protection
 #ifndef TINYUF2_PROTECT_BOOTLOADER

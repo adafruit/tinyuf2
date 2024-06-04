@@ -193,12 +193,14 @@ void board_flash_flush(void)
 }
 
 // TODO not working quite yet
-void board_flash_write (uint32_t addr, void const *data, uint32_t len)
+bool board_flash_write(uint32_t addr, void const* data, uint32_t len)
 {
   // TODO skip matching contents
   HAL_FLASH_Unlock();
   flash_write(addr, data, len);
   HAL_FLASH_Lock();
+
+  return true;
 }
 
 void board_flash_erase_app(void)

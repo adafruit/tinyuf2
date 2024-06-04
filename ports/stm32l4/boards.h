@@ -44,7 +44,7 @@
 #define BOARD_PAGE_SIZE 0x1000
 
 // Double Reset tap to enter DFU
-#define TINYUF2_DFU_DOUBLE_TAP  1
+#define TINYUF2_DBL_TAP_DFU  1
 
 // Brightness percentage from 1 to 255
 #ifndef NEOPIXEL_BRIGHTNESS

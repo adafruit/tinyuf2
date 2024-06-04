@@ -8,7 +8,7 @@ set(SDK_SRC_DIR ${SDK_DIR}/EVT/EXAM/SRC)
 include(${CMAKE_CURRENT_LIST_DIR}/boards/${BOARD}/board.cmake)
 
 # enable LTO
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+#set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
 
 set(CMAKE_SYSTEM_PROCESSOR rv32imac-ilp32 CACHE INTERNAL "System Processor")
 set(CMAKE_TOOLCHAIN_FILE ${TOP}/cmake/toolchain/riscv_${TOOLCHAIN}.cmake)
@@ -37,6 +37,7 @@ function(family_add_board_target BOARD_TARGET)
 
   add_library(${BOARD_TARGET} STATIC
     ${SDK_SRC_DIR}/Core/core_riscv.c
+    ${SDK_SRC_DIR}/Peripheral/src/${CH32_FAMILY}_flash.c
     ${SDK_SRC_DIR}/Peripheral/src/${CH32_FAMILY}_gpio.c
     ${SDK_SRC_DIR}/Peripheral/src/${CH32_FAMILY}_misc.c
     ${SDK_SRC_DIR}/Peripheral/src/${CH32_FAMILY}_rcc.c

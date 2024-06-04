@@ -45,8 +45,8 @@
 // Flash Start Address of Application
 #define BOARD_FLASH_APP_START   0
 
-// Double Reset tap to enter DFU
-#define TINYUF2_DFU_DOUBLE_TAP  0
+// Double Reset tap to enter DFU, for ESP this is done in bootloader subproject
+#define TINYUF2_DBL_TAP_DFU     0
 
 #ifdef DISPLAY_PIN_SCK
  #define TINYUF2_DISPLAY 1
