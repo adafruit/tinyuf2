@@ -149,8 +149,8 @@ void board_teardown(void) __attribute__ ((weak));
 // board_teardown2() is called immediately after board_init()
 void board_teardown2(void) __attribute__ ((weak));
 
-// Reset board, not return
-void board_reset(void);
+// Reset board
+void board_reset(void) __attribute__ ((noreturn));
 
 // Write PWM duty value to LED
 void board_led_write(uint32_t value);
@@ -180,7 +180,7 @@ bool board_app_valid(void);
 bool board_app_valid2(void) __attribute__ ((weak));
 
 // Jump to Application
-void board_app_jump(void);
+void board_app_jump(void) __attribute__ ((noreturn));
 
 // Init USB hardware (not used for now)
 void board_usb_init(void);

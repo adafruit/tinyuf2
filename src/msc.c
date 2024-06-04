@@ -172,6 +172,7 @@ void tud_msc_write10_complete_cb(uint8_t lun) {
       printf("Speed : %.02f KB/s\r\n", (wr_byte / 1000.0F) / (_write_ms / 1000.0F));
       #endif
 
+      TUF2_LOG1("Writing finished\r\n");
       indicator_set(STATE_WRITING_FINISHED);
       board_dfu_complete();
 

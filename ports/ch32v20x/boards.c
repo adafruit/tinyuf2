@@ -38,9 +38,11 @@
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
 //--------------------------------------------------------------------+
 
-ATTR_ALWAYS_INLINE static inline uint32_t addr_base0(uint32_t addr) {
-  return addr & ~FLASH_ADDR_PHY_BASE;
-}
+// convert to zero-based address
+#define ADDR_BASE0(_addr) ((_addr) & ~FLASH_ADDR_PHY_BASE)
+
+// convert to absolute address
+#define ADDR_ABS(_addr) ((_addr) | FLASH_ADDR_PHY_BASE)
 
 uint32_t SysTick_Config(uint32_t ticks) {
   NVIC_EnableIRQ(SysTicK_IRQn);
@@ -92,6 +94,9 @@ void board_init(void) {
   __enable_irq();
 }
 
+void board_teardown(void) {
+}
+
 void board_dfu_init(void) {
   __disable_irq();
 
@@ -125,14 +130,17 @@ void board_dfu_complete(void) {
 }
 
 bool board_app_valid(void) {
-  uint32_t app_start = *((volatile uint32_t const*) BOARD_FLASH_APP_START);
-  app_start = addr_base0(app_start);
-
-  return app_start >= BOARD_FLASH_APP_START && app_start < BOARD_FLASH_SIZE;
+  uint32_t app_start_contents = *((volatile uint32_t const*) ADDR_ABS(BOARD_FLASH_APP_START));
+  TUF2_LOG1_HEX(app_start_contents);
+  // for ch32 after erased the flash value is 0xe339e339 (mentioned in RM) instead of 0xffffffff
+  return app_start_contents != 0xe339e339;
 }
 
+// Jump to application code
 void board_app_jump(void) {
-  // Jump to application code
+  TUF2_LOG2("Jump to app\r\n");
+  board_timer_stop();
+  asm volatile("j __flash_boot_size");
 }
 
 uint8_t board_usb_get_serial(uint8_t serial_id[16]) {
@@ -178,8 +186,8 @@ int board_uart_write(void const* buf, int len) {
 #if CFG_TUSB_DEBUG || TUF2_LOG
   const char *bufc = (const char *) buf;
   for (int i = 0; i < len; i++) {
-    while (USART_GetFlagStatus(USART1, USART_FLAG_TC) == RESET);
     USART_SendData(USART1, *bufc++);
+    while (USART_GetFlagStatus(USART1, USART_FLAG_TXE) == RESET);
   }
   return len;
 #else
@@ -211,14 +219,14 @@ void board_flash_flush(void) {
 bool board_flash_write(uint32_t addr, void const* data, uint32_t len) {
   TUF2_ASSERT(len == 256);
 
-  // addr = addr_phy(addr);
+  addr = ADDR_ABS(addr);
 
-  FLASH_Unlock();
+  FLASH_Unlock_Fast();
 
-  FLASH_ErasePage(addr);
+  FLASH_ErasePage_Fast(addr);
   FLASH_ProgramPage_Fast(addr, (uint32_t*) (uintptr_t ) data);
 
-  FLASH_Lock();
+  FLASH_Lock_Fast();
 
   // verify contents
   if (memcmp((void*) addr, data, len) != 0) {

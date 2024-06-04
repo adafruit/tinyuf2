@@ -34,6 +34,9 @@
 void board_init(void) {
 }
 
+void board_teardown(void) {
+}
+
 void board_dfu_init(void) {
   // Init USB for DFU
 }
