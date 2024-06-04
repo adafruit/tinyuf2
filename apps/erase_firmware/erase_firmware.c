@@ -40,7 +40,7 @@ int main(void) {
   printf("Erase Application Firmware\r\n");
 
   // set magic then reset
-  DBL_TAP_REG = DBL_TAP_MAGIC_ERASE_APP;
+  TINYUF2_DBL_TAP_REG = DBL_TAP_MAGIC_ERASE_APP;
 
   board_reset();
 

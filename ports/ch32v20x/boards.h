@@ -31,7 +31,7 @@
 
 #include "board.h"
 
-#define TINYUF2_DBL_TAP_DFU     0
+#define TINYUF2_DBL_TAP_DFU     1
 
 // symbol from linker
 extern uint32_t __flash_size[];

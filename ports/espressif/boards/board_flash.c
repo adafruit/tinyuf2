@@ -58,7 +58,7 @@ void board_flash_read(uint32_t addr, void* buffer, uint32_t len) {
 void board_flash_flush(void) {
   if (_fl_addr == FLASH_CACHE_INVALID_ADDR) return;
 
-  TUF2_LOG1("Erase and Write at 0x%08X", _fl_addr);
+  TUF2_LOG1("Erase and Write at 0x%08lX", _fl_addr);
 
   // Check if contents already matched
   bool content_matches = true;

@@ -201,7 +201,7 @@ void board_init(void)
   // Init 96 MHz clock
   BOARD_BootClockFROHF96M();
 
-  // Init RTC for access to DBL_TAP_REG
+  // Init RTC for access to TINYUF2_DBL_TAP_REG
   RTC_Init(RTC);
 
   // disable systick

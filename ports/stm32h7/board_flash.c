@@ -152,9 +152,10 @@ void board_flash_read(uint32_t addr, void * data, uint32_t len)
   }
 }
 
-void board_flash_write(uint32_t addr, void const * data, uint32_t len)
+bool board_flash_write(uint32_t addr, void const * data, uint32_t len)
 {
   TUF2_LOG1("Programming %lu byte(s) at 0x%08lx\r\n", len, addr);
+
   // For external flash, W25Qx
   // TODO: these should be configurable parameters
   // Page size = 256 bytes
@@ -163,7 +164,7 @@ void board_flash_write(uint32_t addr, void const * data, uint32_t len)
   if (IS_SPI_ADDR(addr) && IS_SPI_ADDR(addr + len - 1))
   {
     W25Qx_Write((uint8_t *) data, (addr - SPI_BASE_ADDR), len);
-    return;
+    return true;
   }
 #endif
 
@@ -176,7 +177,7 @@ void board_flash_write(uint32_t addr, void const * data, uint32_t len)
     {
       __asm("bkpt #9");
     }
-    return;
+    return true;
   }
 #endif
 
@@ -186,7 +187,7 @@ void board_flash_write(uint32_t addr, void const * data, uint32_t len)
     // This memory is cached, DCache is cleaned in dfu_complete
     SET_BOOT_ADDR(BOARD_AXISRAM_APP_ADDR);
     memcpy((void *) addr, data, len);
-    return;
+    return true;
   }
 #endif // BOARD_AXISRAM_EN
 
@@ -198,13 +199,12 @@ void board_flash_write(uint32_t addr, void const * data, uint32_t len)
   {
     // TODO: Implement this
     // SET_BOOT_ADDR(BOARD_PFLASH_APP_ADDR);
-    return;
+    return false;
   }
 
-  {
-    // Invalid address write
-    __asm("bkpt #4");
-  }
+  // Invalid address write
+  __asm("bkpt #4");
+  return false;
 }
 
 void board_flash_erase_app(void)

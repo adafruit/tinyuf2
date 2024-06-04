@@ -36,7 +36,7 @@
 #define BOARD_FLASH_APP_START    0x10000
 
 #define TINYUF2_DBL_TAP_DFU      1
-#define DBL_TAP_REG              RTC->GPREG[7]
+#define TINYUF2_DBL_TAP_REG      RTC->GPREG[7]
 
 #ifdef __cplusplus
  }

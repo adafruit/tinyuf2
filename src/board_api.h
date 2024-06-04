@@ -61,6 +61,12 @@
 #define TINYUF2_DBL_TAP_DELAY    500
 #endif
 
+#ifndef TINYUF2_DBL_TAP_REG
+// defined by linker script
+extern uint32_t _board_dfu_dbl_tap[];
+#define TINYUF2_DBL_TAP_REG   _board_dfu_dbl_tap[0]
+#endif
+
 // Use Display to draw DFU image
 #ifndef TINYUF2_DISPLAY
 #define TINYUF2_DISPLAY 0
@@ -90,13 +96,6 @@
 #define DBL_TAP_MAGIC            0xf01669ef // Enter DFU magic
 #define DBL_TAP_MAGIC_QUICK_BOOT 0xf02669ef // Skip double tap delay detection
 #define DBL_TAP_MAGIC_ERASE_APP  0xf5e80ab4 // Erase entire application !!
-
-#ifndef DBL_TAP_REG
-// defined by linker script
-extern uint32_t _board_dfu_dbl_tap[];
-#define DBL_TAP_REG   _board_dfu_dbl_tap[0]
-#endif
-
 
 //--------------------------------------------------------------------+
 // Basic API
