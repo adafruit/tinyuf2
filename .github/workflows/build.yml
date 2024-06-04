@@ -61,7 +61,7 @@ jobs:
       matrix:
         port:
         # Alphabetical order
-        #- 'kinetis_k32l2' skip since self-update is not implemented
+        - 'kinetis_k32l2'
         - 'lpc55'
         - 'mimxrt10xx'
         - 'stm32f3'
