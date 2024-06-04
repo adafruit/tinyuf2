@@ -62,7 +62,6 @@ UF2_MIMXRT1176_ADDR= 0x30000000
 SDP_PID = $(SDP_$(MCU)_PID)
 UF2_ADDR = $(UF2_$(MCU)_ADDR)
 
-DBL_TAP_MAGIC_ERASE_APP = 0xf5e80ab4
 DBL_TAP_REG_ADDR = 0x400D410C
 
 # extract _fcfb_origin and _ivt_origin from linker file

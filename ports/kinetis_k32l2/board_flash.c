@@ -121,8 +121,7 @@ void board_flash_flush(void)
 }
 
 
-void board_flash_write (uint32_t addr, void const *data, uint32_t len)
-{
+bool board_flash_write(uint32_t addr, void const* data, uint32_t len) {
   uint32_t newAddr = addr & ~(FLASH_PAGE_SIZE - 1);
   // int32_t result;
 
@@ -136,8 +135,9 @@ void board_flash_write (uint32_t addr, void const *data, uint32_t len)
     // }
   }
   memcpy(bf_flash_cache + (addr & (FLASH_PAGE_SIZE - 1)), data, len);
-}
 
+  return true;
+}
 
 void board_flash_erase_app(void)
 {

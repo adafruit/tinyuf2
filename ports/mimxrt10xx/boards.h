@@ -57,16 +57,16 @@ extern uint32_t _board_boot_length[];
 #endif
 
 // Double Reset tap to enter DFU
-#define TINYUF2_DFU_DOUBLE_TAP  1
-#define DBL_TAP_REG             SNVS->LPGPR[3]
+#define TINYUF2_DBL_TAP_DFU     1
+#define TINYUF2_DBL_TAP_REG     SNVS->LPGPR[3]
 
 // Brightness percentage from 1 to 255
 #ifndef NEOPIXEL_BRIGHTNESS
-#define NEOPIXEL_BRIGHTNESS   0x10
+#define NEOPIXEL_BRIGHTNESS     0x10
 #endif
 
 #ifdef LED_PIN
-#define TINYUF2_LED           1
+#define TINYUF2_LED             1
 #endif
 
 #ifdef __cplusplus

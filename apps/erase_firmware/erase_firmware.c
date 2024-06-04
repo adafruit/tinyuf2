@@ -24,8 +24,6 @@
 
 #include <stdlib.h>
 #include <stdio.h>
-#include <stdbool.h>
-#include <string.h>
 
 #include "board_api.h"
 
@@ -33,34 +31,25 @@
  * writing the erase magic and reset to let bootloader do its work
  */
 
-#ifndef DBL_TAP_REG
-// defined by linker script
-extern uint32_t _board_dfu_dbl_tap[];
-#define DBL_TAP_REG   _board_dfu_dbl_tap[0]
-#endif
-
 //--------------------------------------------------------------------+
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
 //--------------------------------------------------------------------+
 
-int main(void)
-{
+int main(void) {
   board_init();
   printf("Erase Application Firmware\r\n");
 
   // set magic then reset
-  DBL_TAP_REG = DBL_TAP_MAGIC_ERASE_APP;
+  TINYUF2_DBL_TAP_REG = DBL_TAP_MAGIC_ERASE_APP;
 
   board_reset();
 
-  while(1)
-  {
-
+  while (1) {
+    // nothing to do
   }
 }
 
-void board_timer_handler(void)
-{
+void board_timer_handler(void) {
 
 }
 
@@ -75,8 +64,7 @@ void board_timer_handler(void)
 #include "SEGGER_RTT.h"
 #endif
 
-__attribute__ ((used)) int _write (int fhdl, const void *buf, size_t count)
-{
+__attribute__ ((used)) int _write(int fhdl, const void* buf, size_t count) {
   (void) fhdl;
 
 #if defined(LOGGER_RTT)

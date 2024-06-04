@@ -23,8 +23,8 @@
  *
  */
 
-#ifndef _TUSB_CONFIG_H_
-#define _TUSB_CONFIG_H_
+#ifndef TUSB_CONFIG_H_
+#define TUSB_CONFIG_H_
 
 #ifdef __cplusplus
  extern "C" {
@@ -38,14 +38,18 @@
 #error CFG_TUSB_MCU must be defined in board.mk
 #endif
 
-#define CFG_TUSB_RHPORT0_MODE      OPT_MODE_DEVICE
-//#define CFG_TUSB_RHPORT0_MODE      OPT_MODE_NONE
-//#define CFG_TUSB_RHPORT1_MODE      (OPT_MODE_DEVICE | OPT_MODE_HIGH_SPEED)
-#define CFG_TUSB_OS                OPT_OS_NONE
+#define CFG_TUSB_OS              OPT_OS_NONE
+
+// Enable Device stack
+#define CFG_TUD_ENABLED          1
+
+#ifndef BOARD_TUD_RHPORT
+#define BOARD_TUD_RHPORT         0
+#endif
 
 // can be defined by compiler in DEBUG build
 #ifndef CFG_TUSB_DEBUG
-  #define CFG_TUSB_DEBUG           0
+#define CFG_TUSB_DEBUG           0
 #endif
 
 /* USB DMA on some MCUs can only access a specific SRAM region with restriction on alignment.
@@ -88,4 +92,4 @@
  }
 #endif
 
-#endif /* _TUSB_CONFIG_H_ */
+#endif

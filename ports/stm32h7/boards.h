@@ -77,7 +77,7 @@
 #define SET_BOOT_ADDR(x) board_save_app_start_address(x)
 
 // Double Reset tap to enter DFU
-#define TINYUF2_DFU_DOUBLE_TAP  1
+#define TINYUF2_DBL_TAP_DFU  1
 
 void board_flash_early_init(void);
 uint32_t board_get_app_start_address(void);

@@ -84,7 +84,7 @@ extern "C" {
 #define UF2_INDEX_URL     "https://github.com/WeActStudio/MiniSTM32H7xx"
 
 #define USB_NO_VBUS_PIN   1
-#define BOARD_DEVICE_RHPORT_NUM     0
+#define BOARD_TUD_RHPORT  0
 
 //--------------------------------------------------------------------+
 // UART

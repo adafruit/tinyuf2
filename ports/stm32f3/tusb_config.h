@@ -23,8 +23,8 @@
  *
  */
 
-#ifndef _TUSB_CONFIG_H_
-#define _TUSB_CONFIG_H_
+#ifndef TUSB_CONFIG_H_
+#define TUSB_CONFIG_H_
 
 #ifdef __cplusplus
  extern "C" {
@@ -38,21 +38,19 @@
 #error CFG_TUSB_MCU must be defined in board.mk
 #endif
 
-// RHPort number used for device can be defined by board.mk, default to port 0
-#ifndef BOARD_DEVICE_RHPORT_NUM
-  #define BOARD_DEVICE_RHPORT_NUM     0
-#endif
-
-// RHPort max operational speed can defined by board.mk
-// Default to Highspeed for MCU with internal HighSpeed PHY (can be port specific), otherwise FullSpeed
-#define CFG_TUSB_RHPORT0_MODE      OPT_MODE_DEVICE
-
 // This example doesn't use an RTOS
-#define CFG_TUSB_OS               OPT_OS_NONE
+#define CFG_TUSB_OS              OPT_OS_NONE
+
+// Enable Device stack
+#define CFG_TUD_ENABLED          1
+
+#ifndef BOARD_TUD_RHPORT
+#define BOARD_TUD_RHPORT         0
+#endif
 
 // can be defined by compiler in DEBUG build
 #ifndef CFG_TUSB_DEBUG
-  #define CFG_TUSB_DEBUG           0
+#define CFG_TUSB_DEBUG           0
 #endif
 
 /* USB DMA on some MCUs can only access a specific SRAM region with restriction on alignment.
@@ -67,7 +65,7 @@
 #endif
 
 #ifndef CFG_TUSB_MEM_ALIGN
-#define CFG_TUSB_MEM_ALIGN          __attribute__ ((aligned(4)))
+#define CFG_TUSB_MEM_ALIGN       __attribute__ ((aligned(4)))
 #endif
 
 //--------------------------------------------------------------------
@@ -95,4 +93,4 @@
  }
 #endif
 
-#endif /* _TUSB_CONFIG_H_ */
+#endif

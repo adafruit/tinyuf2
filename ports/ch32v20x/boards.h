@@ -1,7 +1,7 @@
 /*
  * The MIT License (MIT)
  *
- * Copyright (c) 2018 Ha Thach for Adafruit Industries
+ * Copyright (c) 2020 Ha Thach (tinyusb.org) for Adafruit Industries
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,52 +22,29 @@
  * THE SOFTWARE.
  */
 
-#include "board_api.h"
-#include "tusb.h" // for logging
+#ifndef BOARDS_H_
+#define BOARDS_H_
 
-//--------------------------------------------------------------------+
-//
-//--------------------------------------------------------------------+
-void board_flash_init(void)
-{
-
-}
-
-uint32_t board_flash_size(void)
-{
-  return 0;
-}
-
-void board_flash_read(uint32_t addr, void* buffer, uint32_t len)
-{
-  (void) addr; (void) buffer; (void) len;
-}
-
-void board_flash_flush(void)
-{
-}
-
-void board_flash_write (uint32_t addr, void const *data, uint32_t len)
-{
-  (void) addr; (void) data; (void) len;
-}
-
-void board_flash_erase_app(void)
-{
-  // TODO implement later
-}
-
-bool board_flash_protect_bootloader(bool protect)
-{
-  // TODO implement later
-  (void) protect;
-  return false;
-}
-
-#ifdef TINYUF2_SELF_UPDATE
-void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
-{
-  (void) bootloader_bin;
-  (void) bootloader_len;
-}
+#ifdef __cplusplus
+ extern "C" {
 #endif
+
+#include "ch32v20x.h"
+#include "board.h"
+
+#define TINYUF2_DBL_TAP_DFU       1
+#define TINYUF2_DBL_TAP_REG       BKP->DATAR10
+#define TINYUF2_DBL_TAP_REG_SIZE  16
+
+// symbol from linker
+extern uint32_t __flash_size[];
+extern uint32_t __flash_boot_size[];
+
+#define BOARD_FLASH_SIZE        ((uint32_t) __flash_size)
+#define BOARD_FLASH_APP_START   ((uint32_t) __flash_boot_size)
+
+#ifdef __cplusplus
+ }
+#endif
+
+#endif /* BOARDS_H_ */

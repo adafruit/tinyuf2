@@ -31,7 +31,7 @@
 
 #include "board.h"
 
-#define TINYUF2_DFU_DOUBLE_TAP     0
+#define TINYUF2_DBL_TAP_DFU     0
 
 #ifdef __cplusplus
  }

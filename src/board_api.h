@@ -31,6 +31,23 @@
 #include "boards.h"
 
 //--------------------------------------------------------------------+
+// Compiler
+//--------------------------------------------------------------------+
+
+#define TUF2_TOKEN(x)           x
+#define TUF2_STRING(x)          #x                  // stringify without expand
+#define TUF2_XSTRING(x)         TU_STRING(x)        // expand then stringify
+
+#define TUF2_STRCAT(a, b)       a##b                // concat without expand
+#define TUF2_STRCAT3(a, b, c)   a##b##c             // concat without expand
+
+#define TUF2_XSTRCAT(a, b)      TU_STRCAT(a, b)     // expand then concat
+#define TUF2_XSTRCAT3(a, b, c)  TU_STRCAT3(a, b, c) // expand then concat 3 tokens
+
+#define ATTR_WEAK __attribute__ ((weak))
+#define ATTR_ALWAYS_INLINE __attribute__ ((always_inline))
+
+//--------------------------------------------------------------------+
 // Features
 //--------------------------------------------------------------------+
 
@@ -43,14 +60,28 @@
 #define BOARD_FLASH_APP_START  0
 #endif
 
+
+#ifndef TUF2_LOG
+  #define TUF2_LOG 2
+#endif
+
 // Use LED for part of indicator
 #ifndef TINYUF2_LED
 #define TINYUF2_LED 0
 #endif
 
 // Use Double Tap method to enter DFU mode
-#ifndef TINYUF2_DFU_DOUBLE_TAP
-#define TINYUF2_DFU_DOUBLE_TAP      0
+#ifndef TINYUF2_DBL_TAP_DFU
+#define TINYUF2_DBL_TAP_DFU      0
+#endif
+
+// timeout for double tap detection in ms
+#ifndef TINYUF2_DBL_TAP_DELAY
+#define TINYUF2_DBL_TAP_DELAY    500
+#endif
+
+#ifndef TINYUF2_DBL_TAP_REG_SIZE
+#define TINYUF2_DBL_TAP_REG_SIZE  32
 #endif
 
 // Use Display to draw DFU image
@@ -68,10 +99,6 @@
 #define TINYUF2_CONST
 #endif
 
-#ifndef TUF2_LOG
-  #define TUF2_LOG 0
-#endif
-
 // Use favicon.ico + autorun.inf (only works with windows)
 // define TINYUF2_FAVICON_HEADER to enable this feature
 
@@ -79,9 +106,26 @@
 // Constant
 //--------------------------------------------------------------------+
 
-#define DBL_TAP_MAGIC            0xf01669ef // Enter DFU magic
-#define DBL_TAP_MAGIC_QUICK_BOOT 0xf02669ef // Skip double tap delay detection
-#define DBL_TAP_MAGIC_ERASE_APP  0xf5e80ab4 // Erase entire application !!
+// defined by linker script
+#if TINYUF2_DBL_TAP_REG_SIZE == 32
+  #define DBL_TAP_TYPE uint32_t
+#elif TINYUF2_DBL_TAP_REG_SIZE == 16
+  #define DBL_TAP_TYPE uint16_t
+#elif TINYUF2_DBL_TAP_REG_SIZE == 8
+  #define DBL_TAP_TYPE uint8_t
+#else
+  #error "Invalid TINYUF2_DBL_TAP_REG_SIZE"
+#endif
+
+#ifndef TINYUF2_DBL_TAP_REG
+// defined by linker script
+extern DBL_TAP_TYPE _board_dfu_dbl_tap[];
+#define TINYUF2_DBL_TAP_REG   _board_dfu_dbl_tap[0]
+#endif
+
+#define DBL_TAP_MAGIC            (0xf01669ef >> (32 - TINYUF2_DBL_TAP_REG_SIZE)) // Enter DFU magic
+#define DBL_TAP_MAGIC_QUICK_BOOT (0xf02669ef >> (32 - TINYUF2_DBL_TAP_REG_SIZE)) // Skip double tap delay detection
+#define DBL_TAP_MAGIC_ERASE_APP  (0xf5e80ab4 >> (32 - TINYUF2_DBL_TAP_REG_SIZE)) // Erase entire application !!
 
 //--------------------------------------------------------------------+
 // Basic API
@@ -105,7 +149,7 @@ void board_teardown(void) __attribute__ ((weak));
 // board_teardown2() is called immediately after board_init()
 void board_teardown2(void) __attribute__ ((weak));
 
-// Reset board, not return
+// Reset board, no return
 void board_reset(void);
 
 // Write PWM duty value to LED
@@ -135,7 +179,7 @@ bool board_app_valid(void);
 // Additional check if application is valid for custom board.
 bool board_app_valid2(void) __attribute__ ((weak));
 
-// Jump to Application
+// Jump to Application, no return
 void board_app_jump(void);
 
 // Init USB hardware (not used for now)
@@ -150,6 +194,9 @@ void board_dfu_complete(void);
 // Fill Serial Number and return its length (limit to 16 bytes)
 uint8_t board_usb_get_serial(uint8_t serial_id[16]);
 
+// Check if NRST pin is used to reset the board
+// bool board_reseted_by_nrst(void);
+
 //--------------------------------------------------------------------+
 // Flash API
 //--------------------------------------------------------------------+
@@ -163,8 +210,8 @@ uint32_t board_flash_size(void);
 // Read from flash
 void board_flash_read (uint32_t addr, void* buffer, uint32_t len);
 
-// Write to flash
-void board_flash_write(uint32_t addr, void const *data, uint32_t len);
+// Write to flash, len is uf2's payload size (often 256 bytes)
+bool board_flash_write(uint32_t addr, void const* data, uint32_t len);
 
 // Flush/Sync flash contents
 void board_flash_flush(void);
@@ -219,12 +266,12 @@ void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len);
 #define TUF2_LOG1_MEM           // tu_print_mem
 #define TUF2_LOG1_VAR(_x)       // tu_print_var((uint8_t const*)(_x), sizeof(*(_x)))
 #define TUF2_LOG1_INT(_x)       tuf2_printf(#_x " = %ld\r\n", (uint32_t) (_x) )
-#define TUF2_LOG1_HEX(_x)       tuf2_printf(#_x " = %lX\r\n", (uint32_t) (_x) )
+#define TUF2_LOG1_HEX(_x)       tuf2_printf(#_x " = 0x%lX\r\n", (uint32_t) (_x) )
 #define TUF2_LOG1_LOCATION()    tuf2_printf("%s: %d:\r\n", __PRETTY_FUNCTION__, __LINE__)
 #define TUF2_LOG1_FAILED()      tuf2_printf("%s: %d: Failed\r\n", __PRETTY_FUNCTION__, __LINE__)
 
 // Log with debug level 2
-#if CFG_TUSB_DEBUG > 1
+#if TUF2_LOG > 1
   #define TUF2_LOG2             TUF2_LOG1
   #define TUF2_LOG2_MEM         TUF2_LOG1_MEM
   #define TUF2_LOG2_VAR         TUF2_LOG1_VAR
@@ -268,10 +315,8 @@ enum {
 
 void indicator_set(uint32_t state);
 
-static inline void rgb_brightness(uint8_t out[3], uint8_t const in[3], uint8_t brightness)
-{
-  for(uint32_t i=0; i<3; i++ )
-  {
+static inline void rgb_brightness(uint8_t out[3], uint8_t const in[3], uint8_t brightness) {
+  for(uint32_t i=0; i<3; i++ ) {
     out[i] = (in[i]*brightness) >> 8;
   }
 }

@@ -5,7 +5,16 @@ if (TOOLCHAIN STREQUAL "gcc")
     -mfloat-abi=hard
     -mfpu=fpv4-sp-d16
     )
+  if (NOT DEFINED FREERTOS_PORT)
+    set(FREERTOS_PORT GCC_ARM_CM4F CACHE INTERNAL "")
+  endif ()
 
+elseif (TOOLCHAIN STREQUAL "clang")
+  set(TOOLCHAIN_COMMON_FLAGS
+    --target=arm-none-eabi
+    -mcpu=cortex-m4
+    -mfpu=fpv4-sp-d16
+    )
   if (NOT DEFINED FREERTOS_PORT)
     set(FREERTOS_PORT GCC_ARM_CM4F CACHE INTERNAL "")
   endif ()
@@ -13,7 +22,7 @@ if (TOOLCHAIN STREQUAL "gcc")
 elseif (TOOLCHAIN STREQUAL "iar")
   set(TOOLCHAIN_COMMON_FLAGS
     --cpu cortex-m4
-    --fpu VFPv4
+    --fpu VFPv4_sp
     )
 
   if (NOT DEFINED FREERTOS_PORT)

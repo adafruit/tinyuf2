@@ -34,17 +34,14 @@
 #include "clock_config.h"
 
 #ifndef BUILD_NO_TINYUSB
-#include "tusb.h"
-
+  #include "tusb.h"
 #else
-
-#define TU_LOG1(...)
-#define TU_LOG2(...)
+  #define TU_LOG1(...)
+  #define TU_LOG2(...)
 #endif
 
 #if NEOPIXEL_NUMBER
 #include "sct_neopixel.h"
-
 static uint32_t _pixelData[NEOPIXEL_NUMBER] = {0};
 #endif
 
@@ -134,7 +131,7 @@ void board_flash_flush(void)
   _flash_page_addr = NO_CACHE;
 }
 
-void board_flash_write (uint32_t addr, void const *data, uint32_t len)
+bool board_flash_write(uint32_t addr, void const* data, uint32_t len)
 {
   uint32_t newAddr = addr & ~(FLASH_PAGE_SIZE - 1);
   int32_t status;
@@ -148,6 +145,8 @@ void board_flash_write (uint32_t addr, void const *data, uint32_t len)
     }
   }
   memcpy(_flash_cache + (addr & (FLASH_PAGE_SIZE - 1)), data, len);
+
+  return true;
 }
 
 void board_flash_erase_app(void)
@@ -202,7 +201,7 @@ void board_init(void)
   // Init 96 MHz clock
   BOARD_BootClockFROHF96M();
 
-  // Init RTC for access to DBL_TAP_REG
+  // Init RTC for access to TINYUF2_DBL_TAP_REG
   RTC_Init(RTC);
 
   // disable systick
@@ -276,17 +275,8 @@ void board_dfu_init(void)
   RESET_PeripheralReset(kUSB1_RST_SHIFT_RSTn);
   RESET_PeripheralReset(kUSB1RAM_RST_SHIFT_RSTn);
 
-#if (defined CFG_TUSB_RHPORT1_MODE) && (CFG_TUSB_RHPORT1_MODE & OPT_MODE_DEVICE)
-  CLOCK_EnableClock(kCLOCK_Usbh1);
-  /* Put PHY powerdown under software control */
-  USBHSH->PORTMODE = USBHSH_PORTMODE_SW_PDCOM_MASK;
-  /* According to reference manual, device mode setting has to be set by access usb host register */
-  USBHSH->PORTMODE |= USBHSH_PORTMODE_DEV_ENABLE_MASK;
-  /* enable usb1 host clock */
-  CLOCK_DisableClock(kCLOCK_Usbh1);
-#endif
-
-#if (defined CFG_TUSB_RHPORT0_MODE) && (CFG_TUSB_RHPORT0_MODE & OPT_MODE_DEVICE)
+#ifndef BUILD_NO_TINYUSB
+  #if BOARD_TUD_RHPORT == 0
   // Enable USB Clock Adjustments to trim the FRO for the full speed controller
   ANACTRL->FRO192M_CTRL |= ANACTRL_FRO192M_CTRL_USBCLKADJ_MASK;
   CLOCK_SetClkDiv(kCLOCK_DivUsb0Clk, 1, false);
@@ -298,6 +288,17 @@ void board_dfu_init(void)
   /* disable usb0 host clock */
   CLOCK_DisableClock(kCLOCK_Usbhsl0);
   CLOCK_EnableUsbfs0DeviceClock(kCLOCK_UsbfsSrcFro, CLOCK_GetFreq(kCLOCK_FroHf)); /* enable USB Device clock */
+  #endif
+
+  #if BOARD_TUD_RHPORT == 1
+  CLOCK_EnableClock(kCLOCK_Usbh1);
+  /* Put PHY powerdown under software control */
+  USBHSH->PORTMODE = USBHSH_PORTMODE_SW_PDCOM_MASK;
+  /* According to reference manual, device mode setting has to be set by access usb host register */
+  USBHSH->PORTMODE |= USBHSH_PORTMODE_DEV_ENABLE_MASK;
+  /* enable usb1 host clock */
+  CLOCK_DisableClock(kCLOCK_Usbh1);
+  #endif
 #endif
 
   TU_LOG2("FRO192M_CTRL:  0x%08lX\r\n", ANACTRL->FRO192M_CTRL);

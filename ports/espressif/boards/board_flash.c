@@ -31,22 +31,6 @@
 #include "spi_flash_chip_driver.h"
 #include "board_api.h"
 
-// Debug helper, remove later
-#define PRINTF(...)           ESP_LOGI("uf2", __VA_ARGS__)
-#define PRINT_LOCATION()      ESP_LOGI("uf2", "%s: %d", __PRETTY_FUNCTION__, __LINE__)
-#define PRINT_MESS(x)         ESP_LOGI("uf2", "%s", (char*)(x))
-#define PRINT_STR(x)          ESP_LOGI("uf2", #x " = %s"   , (char*)(x) )
-#define PRINT_INT(x)          ESP_LOGI("uf2", #x " = %d"  , (int32_t) (x) )
-#define PRINT_HEX(x)          ESP_LOGI("uf2", #x " = 0x%X", (uint32_t) (x) )
-
-#define PRINT_BUFFER(buf, n) \
-  do {\
-    uint8_t const* p8 = (uint8_t const*) (buf);\
-    printf(#buf ": ");\
-    for(uint32_t i=0; i<(n); i++) printf("%x ", p8[i]);\
-    printf("\n");\
-  }while(0)
-
 #define FLASH_CACHE_SIZE          (64*1024)
 #define FLASH_CACHE_INVALID_ADDR  0xffffffff
 
@@ -54,42 +38,36 @@ static uint32_t _fl_addr = FLASH_CACHE_INVALID_ADDR;
 static uint8_t _fl_buf[FLASH_CACHE_SIZE] __attribute__((aligned(4)));
 
 // uf2 will always write to ota0 partition
-static esp_partition_t const * _part_ota0 = NULL;
+static esp_partition_t const* _part_ota0 = NULL;
 
-void board_flash_init(void)
-{
+void board_flash_init(void) {
   _fl_addr = FLASH_CACHE_INVALID_ADDR;
 
   _part_ota0 = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL);
   assert(_part_ota0 != NULL);
 }
 
-uint32_t board_flash_size(void)
-{
+uint32_t board_flash_size(void) {
   return _part_ota0->size;
 }
 
-void board_flash_read(uint32_t addr, void* buffer, uint32_t len)
-{
+void board_flash_read(uint32_t addr, void* buffer, uint32_t len) {
   esp_partition_read(_part_ota0, addr, buffer, len);
 }
 
-void board_flash_flush(void)
-{
-  if ( _fl_addr == FLASH_CACHE_INVALID_ADDR ) return;
+void board_flash_flush(void) {
+  if (_fl_addr == FLASH_CACHE_INVALID_ADDR) return;
 
-  //PRINTF("Erase and Write at 0x%08X", _fl_addr);
+  TUF2_LOG1("Erase and Write at 0x%08lX", _fl_addr);
 
   // Check if contents already matched
   bool content_matches = true;
   uint32_t const verify_sz = 4096;
   uint8_t* verify_buf = malloc(verify_sz);
 
-  for(uint32_t count = 0; count < FLASH_CACHE_SIZE; count += verify_sz)
-  {
+  for (uint32_t count = 0; count < FLASH_CACHE_SIZE; count += verify_sz) {
     board_flash_read(_fl_addr + count, verify_buf, verify_sz);
-    if ( 0 != memcmp(_fl_buf + count, verify_buf, verify_sz)  )
-    {
+    if (0 != memcmp(_fl_buf + count, verify_buf, verify_sz)) {
       content_matches = false;
       break;
     }
@@ -97,8 +75,7 @@ void board_flash_flush(void)
   free(verify_buf);
 
   // skip erase & write if content already matches
-  if ( !content_matches )
-  {
+  if (!content_matches) {
     esp_partition_erase_range(_part_ota0, _fl_addr, FLASH_CACHE_SIZE);
     esp_partition_write(_part_ota0, _fl_addr, _fl_buf, FLASH_CACHE_SIZE);
   }
@@ -106,12 +83,10 @@ void board_flash_flush(void)
   _fl_addr = FLASH_CACHE_INVALID_ADDR;
 }
 
-void board_flash_write (uint32_t addr, void const *data, uint32_t len)
-{
+bool board_flash_write(uint32_t addr, void const* data, uint32_t len) {
   uint32_t new_addr = addr & ~(FLASH_CACHE_SIZE - 1);
 
-  if ( new_addr != _fl_addr )
-  {
+  if (new_addr != _fl_addr) {
     board_flash_flush();
 
     _fl_addr = new_addr;
@@ -119,10 +94,11 @@ void board_flash_write (uint32_t addr, void const *data, uint32_t len)
   }
 
   memcpy(_fl_buf + (addr & (FLASH_CACHE_SIZE - 1)), data, len);
+
+  return true;
 }
 
-bool board_flash_protect_bootloader(bool protect)
-{
+bool board_flash_protect_bootloader(bool protect) {
   // TODO implement later
   (void) protect;
   return false;
@@ -134,8 +110,7 @@ bool board_flash_protect_bootloader(bool protect)
 //--------------------------------------------------------------------+
 
 #ifdef TINYUF2_SELF_UPDATE
-void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
-{
+void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len) {
   enum { SECTOR_SZ = 4096UL };
   esp_partition_t const * _part_uf2;
 

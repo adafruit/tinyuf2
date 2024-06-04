@@ -37,7 +37,7 @@ jobs:
         board:
         # Alphabetical order by family
         - 'metro_m7_1011'
-        - 'stm32f303disco'
+        # - 'stm32f303disco' # overflows flash
         - 'stm32f411ve_discovery'
 
     steps:
