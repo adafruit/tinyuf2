@@ -29,9 +29,12 @@
  extern "C" {
 #endif
 
+#include "ch32v20x.h"
 #include "board.h"
 
-#define TINYUF2_DBL_TAP_DFU     1
+#define TINYUF2_DBL_TAP_DFU       1
+#define TINYUF2_DBL_TAP_REG       BKP->DATAR10
+#define TINYUF2_DBL_TAP_REG_SIZE  16
 
 // symbol from linker
 extern uint32_t __flash_size[];

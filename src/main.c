@@ -93,34 +93,41 @@ int main(void) {
 // return true if start DFU mode, else App mode
 static bool check_dfu_mode(void) {
   // Check if app is valid
-  if (!board_app_valid()) return true;
-  if (board_app_valid2 && !board_app_valid2()) return true;
+  if (!board_app_valid()) {
+    TUF2_LOG1("App invalid\r\n");
+    return true;
+  }
+  if (board_app_valid2 && !board_app_valid2()) {
+    TUF2_LOG1("App invalid\r\n");
+    return true;
+  }
 
 #if TINYUF2_DBL_TAP_DFU
-  TUF2_LOG1_HEX(&TINYUF2_DBL_TAP_REG);
+   TUF2_LOG1_HEX(TINYUF2_DBL_TAP_REG);
 
-  // Erase application
-  if (TINYUF2_DBL_TAP_REG == DBL_TAP_MAGIC_ERASE_APP) {
-    TINYUF2_DBL_TAP_REG = 0;
+  switch(TINYUF2_DBL_TAP_REG) {
+    case DBL_TAP_MAGIC_QUICK_BOOT:
+      // Boot to app quickly
+      TUF2_LOG1("Quick boot to App\r\n");
+      TINYUF2_DBL_TAP_REG = 0;
+      return false;
 
-    indicator_set(STATE_WRITING_STARTED);
-    board_flash_erase_app();
-    indicator_set(STATE_WRITING_FINISHED);
+    case DBL_TAP_MAGIC:
+      // Double tap occurred
+      TUF2_LOG1("Double Tap Reset\r\n");
+      TINYUF2_DBL_TAP_REG = 0;
+      return true;
 
-    return true;
-  }
+    case DBL_TAP_MAGIC_ERASE_APP:
+      TUF2_LOG1("Erase app\r\n");
+      TINYUF2_DBL_TAP_REG = 0;
+      indicator_set(STATE_WRITING_STARTED);
+      board_flash_erase_app();
+      indicator_set(STATE_WRITING_FINISHED);
+      return true;
 
-  // App want to reboot quickly
-  if (TINYUF2_DBL_TAP_REG == DBL_TAP_MAGIC_QUICK_BOOT) {
-    TINYUF2_DBL_TAP_REG = 0;
-    return false;
-  }
-
-  if (TINYUF2_DBL_TAP_REG == DBL_TAP_MAGIC) {
-    // Double tap occurred
-    TINYUF2_DBL_TAP_REG = 0;
-    TU_LOG1("Double Tap Reset\r\n");
-    return true;
+    default:
+      break;
   }
 
   // Register our first reset for double reset detection

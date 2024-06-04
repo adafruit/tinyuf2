@@ -30,6 +30,20 @@
 #include <string.h>
 #include "boards.h"
 
+//--------------------------------------------------------------------+
+// Compiler
+//--------------------------------------------------------------------+
+
+#define TUF2_TOKEN(x)           x
+#define TUF2_STRING(x)          #x                  // stringify without expand
+#define TUF2_XSTRING(x)         TU_STRING(x)        // expand then stringify
+
+#define TUF2_STRCAT(a, b)       a##b                // concat without expand
+#define TUF2_STRCAT3(a, b, c)   a##b##c             // concat without expand
+
+#define TUF2_XSTRCAT(a, b)      TU_STRCAT(a, b)     // expand then concat
+#define TUF2_XSTRCAT3(a, b, c)  TU_STRCAT3(a, b, c) // expand then concat 3 tokens
+
 #define ATTR_WEAK __attribute__ ((weak))
 #define ATTR_ALWAYS_INLINE __attribute__ ((always_inline))
 
@@ -44,6 +58,11 @@
 // Flash Start Address of Application
 #ifndef BOARD_FLASH_APP_START
 #define BOARD_FLASH_APP_START  0
+#endif
+
+
+#ifndef TUF2_LOG
+  #define TUF2_LOG 2
 #endif
 
 // Use LED for part of indicator
@@ -61,10 +80,8 @@
 #define TINYUF2_DBL_TAP_DELAY    500
 #endif
 
-#ifndef TINYUF2_DBL_TAP_REG
-// defined by linker script
-extern uint32_t _board_dfu_dbl_tap[];
-#define TINYUF2_DBL_TAP_REG   _board_dfu_dbl_tap[0]
+#ifndef TINYUF2_DBL_TAP_REG_SIZE
+#define TINYUF2_DBL_TAP_REG_SIZE  32
 #endif
 
 // Use Display to draw DFU image
@@ -82,10 +99,6 @@ extern uint32_t _board_dfu_dbl_tap[];
 #define TINYUF2_CONST
 #endif
 
-#ifndef TUF2_LOG
-  #define TUF2_LOG 2
-#endif
-
 // Use favicon.ico + autorun.inf (only works with windows)
 // define TINYUF2_FAVICON_HEADER to enable this feature
 
@@ -93,9 +106,26 @@ extern uint32_t _board_dfu_dbl_tap[];
 // Constant
 //--------------------------------------------------------------------+
 
-#define DBL_TAP_MAGIC            0xf01669ef // Enter DFU magic
-#define DBL_TAP_MAGIC_QUICK_BOOT 0xf02669ef // Skip double tap delay detection
-#define DBL_TAP_MAGIC_ERASE_APP  0xf5e80ab4 // Erase entire application !!
+// defined by linker script
+#if TINYUF2_DBL_TAP_REG_SIZE == 32
+  #define DBL_TAP_TYPE uint32_t
+#elif TINYUF2_DBL_TAP_REG_SIZE == 16
+  #define DBL_TAP_TYPE uint16_t
+#elif TINYUF2_DBL_TAP_REG_SIZE == 8
+  #define DBL_TAP_TYPE uint8_t
+#else
+  #error "Invalid TINYUF2_DBL_TAP_REG_SIZE"
+#endif
+
+#ifndef TINYUF2_DBL_TAP_REG
+// defined by linker script
+extern DBL_TAP_TYPE _board_dfu_dbl_tap[];
+#define TINYUF2_DBL_TAP_REG   _board_dfu_dbl_tap[0]
+#endif
+
+#define DBL_TAP_MAGIC            (0xf01669ef >> (32 - TINYUF2_DBL_TAP_REG_SIZE)) // Enter DFU magic
+#define DBL_TAP_MAGIC_QUICK_BOOT (0xf02669ef >> (32 - TINYUF2_DBL_TAP_REG_SIZE)) // Skip double tap delay detection
+#define DBL_TAP_MAGIC_ERASE_APP  (0xf5e80ab4 >> (32 - TINYUF2_DBL_TAP_REG_SIZE)) // Erase entire application !!
 
 //--------------------------------------------------------------------+
 // Basic API
@@ -233,7 +263,7 @@ void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len);
 #define TUF2_LOG1_MEM           // tu_print_mem
 #define TUF2_LOG1_VAR(_x)       // tu_print_var((uint8_t const*)(_x), sizeof(*(_x)))
 #define TUF2_LOG1_INT(_x)       tuf2_printf(#_x " = %ld\r\n", (uint32_t) (_x) )
-#define TUF2_LOG1_HEX(_x)       tuf2_printf(#_x " = %lX\r\n", (uint32_t) (_x) )
+#define TUF2_LOG1_HEX(_x)       tuf2_printf(#_x " = 0x%lX\r\n", (uint32_t) (_x) )
 #define TUF2_LOG1_LOCATION()    tuf2_printf("%s: %d:\r\n", __PRETTY_FUNCTION__, __LINE__)
 #define TUF2_LOG1_FAILED()      tuf2_printf("%s: %d: Failed\r\n", __PRETTY_FUNCTION__, __LINE__)
 

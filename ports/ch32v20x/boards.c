@@ -55,6 +55,10 @@ uint32_t SysTick_Config(uint32_t ticks) {
 void board_init(void) {
   __disable_irq();
 
+  // double tap use backup register: enable PWR and BKP clock, and BKP write enable
+  RCC_APB1PeriphClockCmd(RCC_APB1Periph_BKP | RCC_APB1Periph_PWR, ENABLE);
+  PWR->CTLR |= PWR_CTLR_DBP;
+
   RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
 
   GPIO_InitTypeDef GPIO_InitStructure = {
