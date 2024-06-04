@@ -48,6 +48,7 @@ SRC_C += \
 	$(PORT_DIR)/boards.c \
 	$(PORT_DIR)/system_ch32v20x.c \
 	$(SDK_SRC_DIR)/Core/core_riscv.c \
+	$(SDK_SRC_DIR)/Peripheral/src/ch32v20x_flash.c \
 	$(SDK_SRC_DIR)/Peripheral/src/ch32v20x_gpio.c \
 	$(SDK_SRC_DIR)/Peripheral/src/ch32v20x_misc.c \
 	$(SDK_SRC_DIR)/Peripheral/src/ch32v20x_rcc.c \

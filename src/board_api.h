@@ -194,6 +194,9 @@ void board_dfu_complete(void);
 // Fill Serial Number and return its length (limit to 16 bytes)
 uint8_t board_usb_get_serial(uint8_t serial_id[16]);
 
+// Check if NRST pin is used to reset the board
+// bool board_reseted_by_nrst(void);
+
 //--------------------------------------------------------------------+
 // Flash API
 //--------------------------------------------------------------------+
