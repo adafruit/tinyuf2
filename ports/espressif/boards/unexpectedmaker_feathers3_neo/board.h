@@ -69,7 +69,7 @@
 #define USB_PRODUCT       "FeatherS3 Neo"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "ESP32S3-FeatherS3-Neo-01"
+#define UF2_BOARD_ID      "ESP32S3-FeatherS3Neo-01"
 #define UF2_VOLUME_LABEL  "UFTHS3NBOOT"
 #define UF2_INDEX_URL     "https://circuitpython.org/board/unexpectedmaker_feathers3_neo/"
 
