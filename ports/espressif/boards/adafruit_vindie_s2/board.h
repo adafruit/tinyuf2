@@ -49,7 +49,7 @@
 #define NEOPIXEL_BRIGHTNESS   0x10
 
 // Number of neopixels
-#define NEOPIXEL_NUMBER       1
+#define NEOPIXEL_NUMBER       4
 
 // LED for indicator and writing flash
 // If not defined neopixel will be use for flash writing instead
