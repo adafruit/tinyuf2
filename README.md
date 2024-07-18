@@ -41,6 +41,16 @@ Not all features are implemented for all MCUs, following is supported MCUs and i
 
 Following is generic compiling information. Each port may require extra set-up and slight different process e.g esp32s2 require setup IDF.
 
+### Clone
+
+Clone this repo with its submodule
+
+```
+$ git clone git@github.com:adafruit/tinyuf2.git tinyuf2
+$ cd tinyuf2
+$ git submodule update --init
+```
+
 ### Compile
 
 To build this for a specific board, we need to change current directory to its port folder
