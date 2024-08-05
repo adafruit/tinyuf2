@@ -71,8 +71,9 @@
 #define DISPLAY_ROW_OFFSET    0
 
 // Memory Data Access Control & // Vertical Scroll Start Address
-#define DISPLAY_MADCTL        (TFT_MADCTL_MX)
-#define DISPLAY_VSCSAD        0
+#define DISPLAY_MADCTL        (TFT_MADCTL_MX | TFT_MADCTL_MY | TFT_MADCTL_MV)
+#define DISPLAY_VSCSAD        80
+// Display rotated 90 degrees
 
 #define DISPLAY_TITLE         "T-Watch-S3"
 
