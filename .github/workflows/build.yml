@@ -28,7 +28,7 @@ on:
       - created
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -54,6 +54,7 @@ jobs:
   # Build ARM
   # ---------------------------------------
   arm:
+    #if: false
     needs: set-matrix
     uses: ./.github/workflows/build_util.yml
     strategy:
@@ -91,6 +92,7 @@ jobs:
   # Build RISC-V
   # ---------------------------------------
   riscv:
+    if: false
     needs: set-matrix
     uses: ./.github/workflows/build_util.yml
     strategy:
@@ -114,3 +116,41 @@ jobs:
     uses: ./.github/workflows/build_ghostfat.yml
     with:
         boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)['test_ghostfat'].board) }}
+
+  # ---------------------------------------
+  # Build ARM with CMake
+  # ---------------------------------------
+  arm-cmake:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        board:
+          # Alphabetical order by family
+          - 'metro_m7_1011'
+          # - 'stm32f303disco' # overflows flash
+          - 'stm32f411ve_discovery'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Fetch tags
+        run: git fetch --tags
+
+      - name: Install ARM GCC
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: '11.2-2022.02'
+
+      - name: Get Dependencies
+        run: |
+          sudo apt install -y ninja-build
+          python tools/get_deps.py --board ${{ matrix.board }}
+
+      - name: Build
+        run: |
+          cmake . -B _build -G Ninja -DCMAKE_BUILD_TYPE=MinSizeRel -DBOARD=${{ matrix.board }}
+          cmake --build _build

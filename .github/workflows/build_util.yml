@@ -32,7 +32,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: true
-          fetch-tags: true
+
+      - name: Fetch tags
+        run: git fetch --tags
 
       - name: Setup Toolchain
         id: setup-toolchain
@@ -66,8 +68,13 @@ jobs:
       - name: Prepare Release Asset
         if: github.event_name == 'release'
         run: |
-          for f in ${{ env.BIN_PATH }}/*; do mv $f ${f%.*}-${{ github.event.release.tag_name }}."${f#*.}"; done
-          zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ${{ env.BIN_PATH }}
+          if [ ${{ inputs.toolchain }} == 'esp-idf' ]; then
+            zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ${{ env.BIN_PATH }}
+            cp ${{ env.BIN_PATH }}/update-tinyuf2.uf2 update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
+          else
+            for f in ${{ env.BIN_PATH }}/*; do mv $f ${f%.*}-${{ github.event.release.tag_name }}."${f#*.}"; done
+            zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ${{ env.BIN_PATH }}
+          fi
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v1
@@ -84,4 +91,4 @@ jobs:
         if: github.event_name == 'release' && inputs.port == 'espressif'
         run: |
           [ -z \"$AWS_ACCESS_KEY_ID\" ] || aws s3 cp tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip s3://adafruit-circuit-python/bootloaders/esp32/tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip --no-progress --region us-east-1
-          [ -z \"$AWS_ACCESS_KEY_ID\" ] || aws s3 cp ${{ env.BIN_PATH }}/update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2 s3://adafruit-circuit-python/bootloaders/esp32/update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2 --no-progress --region us-east-1
+          [ -z \"$AWS_ACCESS_KEY_ID\" ] || aws s3 cp update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2 s3://adafruit-circuit-python/bootloaders/esp32/update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2 --no-progress --region us-east-1
