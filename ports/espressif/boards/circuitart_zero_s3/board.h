@@ -43,13 +43,13 @@
 //--------------------------------------------------------------------+
 
 // GPIO connected to Neopixel data
-#define NEOPIXEL_PIN          3
+#define NEOPIXEL_PIN          47
 
 // Brightness percentage from 1 to 255
 #define NEOPIXEL_BRIGHTNESS   0x10
 
 // Number of neopixels
-#define NEOPIXEL_NUMBER       1
+#define NEOPIXEL_NUMBER       4
 
 // LED for indicator and writing flash
 // If not defined neopixel will be use for flash writing instead
@@ -99,7 +99,7 @@
 #define USB_PRODUCT              "ZeroS3"
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID             "ESP32S3-Zero-R1"
+#define UF2_BOARD_ID             "ESP32S3-Zero-R2"
 #define UF2_VOLUME_LABEL         "ZEROS3BOOT"
 #define UF2_INDEX_URL            "https://github.com/CircuitART"
 
