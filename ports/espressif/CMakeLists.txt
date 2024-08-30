@@ -39,8 +39,8 @@ add_custom_command(TARGET app POST_BUILD
 # Post build: update arduino-esp32 bootloader for debug purpose
 # -------------------------------------------------------------
 if (0)
-  #set(ARDUINO_VARIANT_DIR /home/hathach/code/arduino-esp32/variants/${BOARD})
-  set(ARDUINO_VARIANT_DIR /home/hathach/code/arduino-esp32/variants/adafruit_feather_esp32s3)
+  set(ARDUINO_VARIANT_DIR $ENV{HOME}/code/arduino-esp32/variants/${BOARD})
+  #set(ARDUINO_VARIANT_DIR $ENV{HOME}/code/arduino-esp32/variants/adafruit_feather_esp32s3)
 
   add_custom_command(TARGET bootloader POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/bootloader/bootloader.bin ${ARDUINO_VARIANT_DIR}/bootloader-tinyuf2.bin

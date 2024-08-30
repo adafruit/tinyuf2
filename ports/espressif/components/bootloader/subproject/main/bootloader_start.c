@@ -185,7 +185,7 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
         }
 #endif // CONFIG_BOOTLOADER_APP_TEST
 
-        // UF2: check if Application want to load uf2 "bootloader" with reset reason hint.
+        // TinyUF2: check if Application want to load uf2 "bootloader" with reset reason hint.
         if ( boot_index != FACTORY_INDEX ) {
           // Application request to enter UF2 with Software Reset with reason hint
           if ( reset_reason == RESET_REASON_CORE_SW ||  reset_reason == RESET_REASON_CPU0_SW ) {
@@ -199,10 +199,10 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
           }
         }
 
-        // UF2: check if GPIO0 is pressed and/or 1-bit RC on specific GPIO detect double reset
+        // TinyUF2: when reset by EN/nRST pin: check if GPIO0 is pressed and/or 1-bit RC on specific GPIO detect double reset
         // during this time. If yes then to load uf2 "bootloader".
-        if ( boot_index != FACTORY_INDEX ) {
-#ifdef PIN_DOUBLE_RESET_RC
+        if (boot_index != FACTORY_INDEX && reset_reason == RESET_REASON_CHIP_POWER_ON) {
+          #ifdef PIN_DOUBLE_RESET_RC
           // Double reset detect if board implements 1-bit memory with RC components
           esp_rom_gpio_pad_select_gpio(PIN_DOUBLE_RESET_RC);
           PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[PIN_DOUBLE_RESET_RC]);
@@ -215,11 +215,18 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
             // Set to high to charge the RC, indicating we are in reset
             gpio_ll_output_enable(&GPIO, PIN_DOUBLE_RESET_RC);
             gpio_ll_set_level(&GPIO, PIN_DOUBLE_RESET_RC, 1);
-#else
-          {
-#endif
-            // turn led on if there is actually waiting
+          }
+          #endif
+
+          if (boot_index != FACTORY_INDEX) {
             if (UF2_DETECTION_DELAY_MS > 0){
+              #if CONFIG_IDF_TARGET_ESP32S3
+              // S3 startup with USB JTAG, while delaying here, USB JTAG will be enumerated which can cause confusion when
+              // switching to OTG in application. Switch to OTG PHY here to avoid this.
+              SET_PERI_REG_MASK(RTC_CNTL_USB_CONF_REG,
+                                RTC_CNTL_SW_HW_USB_PHY_SEL | RTC_CNTL_SW_USB_PHY_SEL | RTC_CNTL_USB_PAD_ENABLE);
+              #endif
+
               board_led_on();
             }
 
@@ -232,14 +239,19 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
             do {
               if ( gpio_ll_get_level(&GPIO, PIN_BUTTON_UF2) == 0 ) {
                 ESP_LOGI(TAG, "Detect GPIO %d active to enter UF2 bootloader", PIN_BUTTON_UF2);
-
-                // Simply return factory index without erasing any other partition
                 boot_index = FACTORY_INDEX;
                 break;
               }
             } while (UF2_DETECTION_DELAY_MS > (esp_log_early_timestamp() - tm_start) );
 
-            board_led_off();
+            if (UF2_DETECTION_DELAY_MS > 0){
+              #if CONFIG_IDF_TARGET_ESP32S3
+              CLEAR_PERI_REG_MASK(RTC_CNTL_USB_CONF_REG,
+                                  RTC_CNTL_SW_HW_USB_PHY_SEL | RTC_CNTL_SW_USB_PHY_SEL | RTC_CNTL_USB_PAD_ENABLE);
+              #endif
+
+              board_led_off();
+            }
           }
 
 #if PIN_DOUBLE_RESET_RC

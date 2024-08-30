@@ -446,6 +446,8 @@ void tud_cdc_line_state_cb(uint8_t instance, bool dtr, bool rts) {
       // copied from Arduino's usb_persist_restart()
       esp_register_shutdown_handler(usb_persist_shutdown_handler);
 #if CONFIG_IDF_TARGET_ESP32S3
+      // Switch to JTAG since S3 bootrom has issue with uploading with USB OTG
+      // https://github.com/espressif/arduino-esp32/issues/6762#issuecomment-1128621518
       usb_switch_to_cdc_jtag();
 #endif
       esp_restart();
