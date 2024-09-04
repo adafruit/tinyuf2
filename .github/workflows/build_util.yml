@@ -16,7 +16,7 @@ on:
       toolchain:
         required: true
         type: string
-      toolchain_url:
+      toolchain_version:
         required: false
         type: string
 
@@ -41,7 +41,7 @@ jobs:
         uses: ./.github/actions/setup_toolchain
         with:
           toolchain: ${{ inputs.toolchain }}
-          toolchain_url: ${{ inputs.toolchain_url }}
+          toolchain_version: ${{ inputs.toolchain_version }}
 
       - name: Get Dependencies
         run: |
@@ -58,7 +58,7 @@ jobs:
 
       - name: Build using ESP-IDF docker
         if: inputs.toolchain == 'esp-idf'
-        run: docker run --rm -v $PWD:/project -w /project espressif/idf:${{ inputs.toolchain_url }} /bin/bash -c "git config --global --add safe.directory /project && make -C ports/espressif/ BOARD=${{ matrix.board }} all self-update copy-artifact"
+        run: docker run --rm -v $PWD:/project -w /project espressif/idf:${{ inputs.toolchain_version }} /bin/bash -c "git config --global --add safe.directory /project && make -C ports/espressif/ BOARD=${{ matrix.board }} all self-update copy-artifact"
 
       - uses: actions/upload-artifact@v4
         with:

@@ -345,7 +345,7 @@ void board_timer_stop(void) {
 
 #if CONFIG_IDF_TARGET_ESP32S3
 #include "hal/usb_serial_jtag_ll.h"
-#include "hal/usb_phy_ll.h"
+#include "hal/usb_fsls_phy_ll.h"
 
 static void hw_cdc_reset_handler(void *arg) {
   portBASE_TYPE xTaskWoken = 0;
@@ -389,7 +389,7 @@ static void usb_switch_to_cdc_jtag(void) {
   gpio_set_level((gpio_num_t)USBPHY_DP_NUM, 0);
 
   // Initialize CDC+JTAG ISR to listen for BUS_RESET
-  usb_phy_ll_int_jtag_enable(&USB_SERIAL_JTAG);
+  usb_fsls_phy_ll_int_jtag_enable(&USB_SERIAL_JTAG);
   usb_serial_jtag_ll_disable_intr_mask(USB_SERIAL_JTAG_LL_INTR_MASK);
   usb_serial_jtag_ll_clr_intsts_mask(USB_SERIAL_JTAG_LL_INTR_MASK);
   usb_serial_jtag_ll_ena_intr_mask(USB_SERIAL_JTAG_INTR_BUS_RESET);
@@ -446,6 +446,8 @@ void tud_cdc_line_state_cb(uint8_t instance, bool dtr, bool rts) {
       // copied from Arduino's usb_persist_restart()
       esp_register_shutdown_handler(usb_persist_shutdown_handler);
 #if CONFIG_IDF_TARGET_ESP32S3
+      // Switch to JTAG since S3 bootrom has issue with uploading with USB OTG
+      // https://github.com/espressif/arduino-esp32/issues/6762#issuecomment-1128621518
       usb_switch_to_cdc_jtag();
 #endif
       esp_restart();

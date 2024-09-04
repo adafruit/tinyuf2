@@ -86,7 +86,7 @@ jobs:
       boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)['espressif'].board) }}
       build-system: 'make'
       toolchain: 'esp-idf'
-      toolchain_url: 'v5.1.1'
+      toolchain_version: 'v5.1.4'
 
   # ---------------------------------------
   # Build RISC-V
@@ -106,7 +106,6 @@ jobs:
       boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)[matrix.port].board) }}
       build-system: 'make'
       toolchain: 'riscv-gcc'
-      toolchain_url: 'https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases/download/v13.2.0-2/xpack-riscv-none-elf-gcc-13.2.0-2-linux-x64.tar.gz'
 
   # ---------------------------------------
   # Unit testing with ghostfat
