@@ -68,7 +68,7 @@
 
 #define DISPLAY_PIN_CS        39
 #define DISPLAY_PIN_DC        5
-#define DISPLAY_PIN_RST       4
+#define DISPLAY_PIN_RST       40
 
 #define DISPLAY_PIN_BL        18
 #define DISPLAY_BL_ON          0  // GPIO state to enable back light
