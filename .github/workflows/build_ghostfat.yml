@@ -45,7 +45,7 @@ jobs:
         working-directory: ports/test_ghostfat/_build/${{ matrix.board }}
 
       - name: Save newly generated self-test images as CI artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: ghostfat_selftest_images
+          name: ghostfat_${{ matrix.board }}_image
           path: ./ports/test_ghostfat/_build/${{ matrix.board }}/ghostfat_${{ matrix.board }}.img.gz.gz
