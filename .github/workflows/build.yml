@@ -81,6 +81,7 @@ jobs:
     #if: false
     needs: set-matrix
     uses: ./.github/workflows/build_util.yml
+    secrets: inherit
     with:
       port: 'espressif'
       boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)['espressif'].board) }}
