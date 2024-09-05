@@ -35,8 +35,7 @@ list(APPEND srcs
   ${tusb_src}/class/hid/hid_device.c
   ${tusb_src}/class/msc/msc_device.c
 #  ${tusb_src}/class/vendor/vendor_device.c
-  ${tusb_src}/portable/espressif/esp32sx/dcd_esp32sx.c
-  #${tusb_src}/portable/synopsys/dwc2/dcd_dwc2.c
+  ${tusb_src}/portable/synopsys/dwc2/dcd_dwc2.c
   )
 
 if (DEFINED LOG)
