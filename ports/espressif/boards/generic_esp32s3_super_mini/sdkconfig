@@ -1,0 +1,9 @@
+# Board Specific Config
+
+# Partition Table
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-4MB-noota.csv"
+
+# Serial flasher config
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_FLASHMODE_DIO=n
+CONFIG_FLASHMODE_QIO=y
