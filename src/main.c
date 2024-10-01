@@ -37,10 +37,17 @@
 //--------------------------------------------------------------------+
 //#define USE_DFU_BUTTON    1
 
+#ifndef NEOPIXEL_INVERT_RG
 uint8_t RGB_USB_UNMOUNTED[] = { 0xff, 0x00, 0x00 }; // Red
 uint8_t RGB_USB_MOUNTED[]   = { 0x00, 0xff, 0x00 }; // Green
 uint8_t RGB_WRITING[]       = { 0xcc, 0x66, 0x00 };
 uint8_t RGB_DOUBLE_TAP[]    = { 0x80, 0x00, 0xff }; // Purple
+#else
+uint8_t RGB_USB_UNMOUNTED[] = { 0x00, 0xff, 0x00 }; // Red
+uint8_t RGB_USB_MOUNTED[]   = { 0xff, 0x00, 0x00 }; // Green
+uint8_t RGB_WRITING[]       = { 0x66, 0xcc, 0x00 };
+uint8_t RGB_DOUBLE_TAP[]    = { 0x00, 0x80, 0xff }; // Purple
+#endif
 uint8_t RGB_UNKNOWN[]       = { 0x00, 0x00, 0x88 }; // for debug
 uint8_t RGB_OFF[]           = { 0x00, 0x00, 0x00 };
 
