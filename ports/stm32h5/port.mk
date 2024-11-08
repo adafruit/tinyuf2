@@ -19,6 +19,10 @@ CFLAGS += \
 # suppress warning caused by vendor mcu driver
 CFLAGS += -Wno-error=cast-align -Wno-error=unused-parameter
 
+ifndef __CC_ARM
+  CFLAGS += -D__ARMCC_VERSION=0
+endif
+
 # default linker file
 ifdef BUILD_APPLICATION
   LD_FILES ?= $(PORT_DIR)/linker/stm32h5_app.ld
