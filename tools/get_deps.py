@@ -22,7 +22,7 @@ deps_optional = {
                                    'stm32f4'],
     'lib/mcu/st/cmsis_device_h5': ['https://github.com/STMicroelectronics/cmsis_device_h5.git',
                                    '9a778e0f162bd21200647adafb922d50b2c60f81',
-                                   'stm32h5'],                               
+                                   'stm32h5'],
     'lib/mcu/st/cmsis_device_h7': ['https://github.com/STMicroelectronics/cmsis_device_h7.git',
                                    '60dc2c913203dc8629dc233d4384dcc41c91e77f',
                                    'stm32h7'],
