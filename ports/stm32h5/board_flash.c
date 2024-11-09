@@ -198,8 +198,6 @@ static bool flash_erase(uint32_t addr)
 
 static void flash_write(uint32_t dst, const uint8_t *src, int len)
 {
-  HAL_FLASH_Unlock();
-
   flash_erase(dst);
 
   TUF2_LOG1("Write flash at address %08lX\r\n", dst);
@@ -209,12 +207,6 @@ static void flash_write(uint32_t dst, const uint8_t *src, int len)
     {
       TUF2_LOG1("Failed to write flash at address %08lX\r\n", dst + i);
       break;
-    }
-
-    if ( FLASH_WaitForLastOperation(HAL_MAX_DELAY) != HAL_OK )
-    {
-      TUF2_LOG1("Waiting on last operation failed\r\n");
-      return;
     }
   }
 
