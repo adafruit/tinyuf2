@@ -22,6 +22,8 @@ CFLAGS += -Wno-error=cast-align -Wno-error=unused-parameter
 # default linker file
 ifdef BUILD_APPLICATION
   LD_FILES ?= $(PORT_DIR)/linker/stm32f4_app.ld
+else ifdef COMPACT_BOOTLOADER
+  LD_FILES ?= $(PORT_DIR)/linker/stm32f4_boot_compact.ld
 else
   LD_FILES ?= $(PORT_DIR)/linker/stm32f4_boot.ld
 endif
