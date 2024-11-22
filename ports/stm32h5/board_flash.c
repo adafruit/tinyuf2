@@ -350,8 +350,8 @@ void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
   __disable_irq();
   HAL_FLASH_Unlock();
 
-  HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, BOARD_FLASH_APP_START , 0);
-  HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, BOARD_FLASH_APP_START+4, 0);
+  uint32_t null_arr[4] = {0};
+  HAL_FLASH_Program(FLASH_TYPEPROGRAM_QUADWORD, BOARD_FLASH_APP_START, (uint32_t) null_arr);
 
   HAL_FLASH_Lock();
 
