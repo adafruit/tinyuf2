@@ -22,10 +22,10 @@
  * THE SOFTWARE.
  */
 
-#ifndef MATRIX_H_
-#define MATRIX_H_
+#ifndef Mystrix_H_
+#define Mystrix_H_
 
-#define CUSTOM_BOOTLOADER_NAME "Matrix"
+#define CUSTOM_BOOTLOADER_NAME "Mystrix"
 #define FASTBOOT
 #define CUSTOM_LED
 
@@ -65,11 +65,11 @@
 
 #define USB_VID           0x0203
 #define USB_PID           0x00A1
-#define USB_MANUFACTURER  "203 Electronics"
-#define USB_PRODUCT       "Matrix DFU"
+#define USB_MANUFACTURER  "203 Systems"
+#define USB_PRODUCT       "Mystrix DFU"
 
-#define UF2_PRODUCT_NAME  "203 | Matrix"
-#define UF2_BOARD_ID      "203-MATRIX"
+#define UF2_PRODUCT_NAME  "203 Systems Mystrix"
+#define UF2_BOARD_ID      "203-MYSTRIX"
 #define UF2_VOLUME_LABEL  "MATRIXDFU"
 #define UF2_INDEX_URL     "https://matrix.203.io"
 
