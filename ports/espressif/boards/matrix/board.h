@@ -22,8 +22,8 @@
  * THE SOFTWARE.
  */
 
-#ifndef MATRIX_BLOCK6_PT2_H_
-#define MATRIX_BLOCK6_PT2_H_
+#ifndef MATRIX_H_
+#define MATRIX_H_
 
 #define CUSTOM_BOOTLOADER_NAME "Matrix"
 #define FASTBOOT
@@ -68,8 +68,8 @@
 #define USB_MANUFACTURER  "203 Electronics"
 #define USB_PRODUCT       "Matrix DFU"
 
-#define UF2_PRODUCT_NAME  "203 | Matrix Pro"
-#define UF2_BOARD_ID      "203-MATRIX-PRO"
+#define UF2_PRODUCT_NAME  "203 | Matrix"
+#define UF2_BOARD_ID      "203-MATRIX"
 #define UF2_VOLUME_LABEL  "MATRIXDFU"
 #define UF2_INDEX_URL     "https://matrix.203.io"
 
