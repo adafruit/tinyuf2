@@ -67,10 +67,10 @@
 
 #define USB_VID           0x0203
 #define USB_PID           0x00B1
-#define USB_MANUFACTURER  "203 Electronics"
+#define USB_MANUFACTURER  "203 Systems"
 #define USB_PRODUCT       "Type60 DFU"
 
-#define UF2_PRODUCT_NAME  "203 | Type 60"
+#define UF2_PRODUCT_NAME  "203 Systems Type 60"
 #define UF2_BOARD_ID      "293-TYPE-60"
 #define UF2_VOLUME_LABEL  "TYPE60DFU"
 #define UF2_INDEX_URL     "https://203.io"
