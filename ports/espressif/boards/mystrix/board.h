@@ -27,6 +27,7 @@
 
 #define CUSTOM_BOOTLOADER_NAME "Mystrix"
 #define CUSTOM_LED
+#define NO_FLASH_SIZE
 
 //--------------------------------------------------------------------+
 // Button

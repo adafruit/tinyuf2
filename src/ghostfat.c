@@ -142,7 +142,10 @@ const char infoUf2File[] =
     "Model: " UF2_PRODUCT_NAME "\r\n"
     "Board-ID: " UF2_BOARD_ID "\r\n"
     "Date: " COMPILE_DATE "\r\n"
-    "Flash Size: 0x";
+    #ifndef NO_FLASH_SIZE
+    "Flash Size: 0x"
+    #endif
+    ;
 
 TINYUF2_CONST char indexFile[] =
     "<!doctype html>\n"
@@ -288,8 +291,9 @@ void uf2_init(void) {
   // update CURRENT.UF2 file size
   info[FID_UF2].size = UF2_BYTE_COUNT;
 
-  // update INFO_UF2.TXT with flash size if having enough space (8 bytes)
   size_t txt_len = strlen(infoUf2File);
+  #ifndef NO_FLASH_SIZE
+  // update INFO_UF2.TXT with flash size if having enough space (8 bytes)
   size_t const max_len = sizeof(infoUf2File) - 1;
   if ( max_len - txt_len > 8) {
     u32_to_hexstr(_flash_size, infoUf2File + txt_len);
@@ -300,6 +304,8 @@ void uf2_init(void) {
       txt_len += 6;
     }
   }
+  #endif
+
   info[FID_INFO].size = txt_len;
 
   init_starting_clusters();
