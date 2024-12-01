@@ -72,7 +72,7 @@
 
 #define UF2_PRODUCT_NAME  "203 Systems Mystrix"
 #define UF2_BOARD_ID      "203-MYSTRIX"
-#define UF2_VOLUME_LABEL  "MATRIXDFU"
+#define UF2_VOLUME_LABEL  "MYSTRIX-DFU"
 #define UF2_INDEX_URL     "https://matrix.203.io"
 
 // Use favicon
