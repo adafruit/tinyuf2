@@ -241,6 +241,8 @@ void board_init(void) {
 
   ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &led_strip));
 
+  led_strip_spi_config_t spi_config = {
+
   led_strip_clear(led_strip); // off
 #endif
 
