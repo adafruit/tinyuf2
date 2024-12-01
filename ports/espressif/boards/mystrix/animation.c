@@ -1,24 +1,23 @@
 #include "board_api.h"
 #include "led_strip.h"
 
-extern led_strip_t *strip;
+extern led_strip_handle_t led_strip;
 
 uint8_t upload_symbol[10] = {19, 20, 27, 28, 34, 35, 36, 37, 43, 44};
 
 #define WAVE_STEP 16
 uint8_t* grayscale_wave;
 
-
-
-
-
 void show_upload_symbol(uint8_t r, uint8_t g, uint8_t b)
 {
+  r = r * NEOPIXEL_BRIGHTNESS / 255;
+  g = g * NEOPIXEL_BRIGHTNESS / 255;
+  b = b * NEOPIXEL_BRIGHTNESS / 255;
   for(uint32_t i = 0; i < sizeof(upload_symbol); i++)
   {
-    strip->set_pixel(strip, upload_symbol[i], r, g, b);
+    led_strip_set_pixel(led_strip, upload_symbol[i], r, g, b);
   }
-  strip->refresh(strip, 100);
+  led_strip_refresh(led_strip);
 }
 
 void generate_wave()
@@ -55,7 +54,7 @@ void board_rgb_state(uint32_t state)
 
     case STATE_WRITING_FINISHED:
         board_timer_stop();
-        strip->clear(strip, 100);
+        led_strip_clear(led_strip);
         break;
 
     default:
@@ -73,10 +72,10 @@ void animation_handler(void)
             uint8_t y = upload_symbol[i] / 8 - 2;
             if(y >= led_index)
                 break;
-            uint8_t brightness = grayscale_wave[((4-y) + led_index) % WAVE_STEP];
-            strip->set_pixel(strip, upload_symbol[i], 0, brightness, brightness);
+            uint8_t brightness = grayscale_wave[((4-y) + led_index) % WAVE_STEP] * NEOPIXEL_BRIGHTNESS / 255;
+            led_strip_set_pixel(led_strip, upload_symbol[i], 0, brightness, brightness);
         }
     }
     led_index ++;
-    strip->refresh(strip, 100);
+    led_strip_refresh(led_strip);
 }

@@ -53,7 +53,7 @@ static esp_timer_handle_t timer_hdl;
 
 #ifdef NEOPIXEL_PIN
 #include "led_strip.h"
-static led_strip_handle_t led_strip;
+led_strip_handle_t led_strip;
 #endif
 
 #ifdef DOTSTAR_PIN_DATA
@@ -239,9 +239,15 @@ void board_init(void) {
       .flags.invert_out = false,                // whether to invert the output signal
   };
 
-  ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &led_strip));
+  // ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &led_strip));
 
   led_strip_spi_config_t spi_config = {
+      .clk_src = SPI_CLK_SRC_DEFAULT, // SPI clock source
+      .spi_bus = SPI3_HOST,           // SPI bus ID. Which buses are available depends on the specific chip
+      .flags.with_dma = 1,        // Use DMA to transmit data
+  };
+
+  ESP_ERROR_CHECK(led_strip_new_spi_device(&strip_config, &spi_config, &led_strip));
 
   led_strip_clear(led_strip); // off
 #endif
