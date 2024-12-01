@@ -9,3 +9,4 @@ _bin/
 sdkconfig~
 *.yml~
 ports/espressif/apps/self_update/main/bootloader_bin.c
+ports/espressif/build

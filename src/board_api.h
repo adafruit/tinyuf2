@@ -179,8 +179,7 @@ void board_timer_stop(void);
 extern void board_timer_handler(void);
 
 #ifdef CUSTOM_LED
-// Give board the current state and let it handle the RGB
-void board_rgb_state(uint32_t state);
+void animation_handler(void);
 #endif
 
 // Check if application is valid

@@ -25,7 +25,6 @@
 #pragma once
 
 #define CUSTOM_BOOTLOADER_NAME "Type 60"
-#define FASTBOOT
 
 //--------------------------------------------------------------------+
 // Button
@@ -38,6 +37,10 @@
 //This is ESC key
 #define PIN_BUTTON_ENABLE     2
 #define PIN_BUTTON_UF2        8
+
+// Fastboot
+#define UF2_DETECTION_DELAY_MS  10
+
 #define BUTTON_ACTIVE_HIGH
 
 // GPIO that implement 1-bit memory with RC components which hold the

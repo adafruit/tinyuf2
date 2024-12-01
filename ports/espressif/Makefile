@@ -40,12 +40,12 @@ fullclean:
 	@rm -rf $(SELF_BUILD)
 
 app bootloader clean flash bootloader-flash app-flash erase-flash monitor dfu-flash dfu size size-components size-files:
-	idf.py -B$(BUILD) -DBOARD=$(BOARD) $(SERIAL_OPT) $@ 
+	idf.py -B$(BUILD) -DBOARD=$(BOARD) $(SERIAL_OPT) $@
 
 combined.bin: $(BUILD)/combined.bin
 
 $(BUILD)/combined.bin: app
-	cd $(BUILD)
+	cd $(BUILD); \
 	esptool.py --chip $(IDF_TARGET) merge_bin --output combined.bin $(strip $(file < $(BUILD)/flash_args))
 
 combined-flash: $(BUILD)/combined.bin

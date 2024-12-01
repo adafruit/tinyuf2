@@ -230,8 +230,6 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
               board_led_on();
             }
 
-          if ( boot_index != FACTORY_INDEX )
-          {
 #ifdef PIN_BUTTON_ENABLE
             esp_rom_gpio_pad_select_gpio(PIN_BUTTON_ENABLE);
             gpio_ll_input_disable(&GPIO, PIN_BUTTON_ENABLE);
@@ -241,28 +239,19 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
             esp_rom_gpio_pad_select_gpio(PIN_BUTTON_UF2);
             PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[PIN_BUTTON_UF2]);
             #ifdef BUTTON_ACTIVE_HIGH
-            gpio_pad_pulldown(PIN_BUTTON_UF2);
+            esp_rom_gpio_pad_pulldown_only(PIN_BUTTON_UF2);
             #else
-            gpio_pad_pullup(PIN_BUTTON_UF2);
+            esp_rom_gpio_pad_pullup_only(PIN_BUTTON_UF2);
             #endif
-            for(volatile uint16_t i = 0; i < 100; i++){} //Add small delay
-#ifndef FASTBOOT
-            uint32_t tm_start = esp_log_early_timestamp();
-            while (UF2_DETECTION_DELAY_MS > (esp_log_early_timestamp() - tm_start) )
-            {
-#endif
-              #ifdef BUTTON_ACTIVE_HIGH
-              if ( gpio_ll_get_level(&GPIO, PIN_BUTTON_UF2) == 1 )
-              #else
-              if ( gpio_ll_get_level(&GPIO, PIN_BUTTON_UF2) == 0 )
-              #endif
-                {
-                ESP_LOGI(TAG, "Detect GPIO %d active to enter UF2 bootloader", PIN_BUTTON_UF2);
 
             // run the GPIO detection at least once even if UF2_DETECTION_DELAY_MS is set to zero
             uint32_t tm_start = esp_log_early_timestamp();
-            do {
+            do {              
+            #ifdef BUTTON_ACTIVE_HIGH
+              if ( gpio_ll_get_level(&GPIO, PIN_BUTTON_UF2) == 1 ) {
+              #else
               if ( gpio_ll_get_level(&GPIO, PIN_BUTTON_UF2) == 0 ) {
+            #endif
                 ESP_LOGI(TAG, "Detect GPIO %d active to enter UF2 bootloader", PIN_BUTTON_UF2);
                 boot_index = FACTORY_INDEX;
                 break;

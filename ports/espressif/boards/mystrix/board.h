@@ -26,7 +26,6 @@
 #define Mystrix_H_
 
 #define CUSTOM_BOOTLOADER_NAME "Mystrix"
-#define FASTBOOT
 #define CUSTOM_LED
 
 //--------------------------------------------------------------------+
@@ -37,6 +36,9 @@
 // is on e.g RGB = Purple. If it is GPIO0, user should not hold this while
 // reset since that will instead run the 1st stage ROM bootloader
 #define PIN_BUTTON_UF2        16
+
+// Fastboot
+#define UF2_DETECTION_DELAY_MS  0
 
 // GPIO that implement 1-bit memory with RC components which hold the
 // pin value long enough for double reset detection.
