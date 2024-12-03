@@ -20,8 +20,6 @@ set(CMAKE_TOOLCHAIN_FILE ${TOP}/cmake/toolchain/arm_${TOOLCHAIN}.cmake)
 # increase flash size if debug build
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
   set(LD_FLASH_BOOT_SIZE 64K)
-else ()
-  set(LD_FLASH_BOOT_SIZE 24K)
 endif ()
 
 #------------------------------------

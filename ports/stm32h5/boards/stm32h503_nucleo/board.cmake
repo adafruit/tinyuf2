@@ -1,3 +1,4 @@
+set(LD_FLASH_BOOT_SIZE 24K)
 set(LD_RAM_SIZE 32K)
 set(JLINK_DEVICE stm32h503rb)
 

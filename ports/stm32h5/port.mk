@@ -31,9 +31,7 @@ else
 endif
 
 ifeq (DEBUG,1)
-LD_FLASH_BOOT_SIZE = 64K
-else
-LD_FLASH_BOOT_SIZE = 24K
+LD_FLASH_BOOT_SIZE := 64K
 endif
 
 LDFLAGS += \

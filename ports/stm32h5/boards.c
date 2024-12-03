@@ -36,20 +36,37 @@
 
 #define STM32_UUID    ((volatile uint32_t *) UID_BASE)
 
-//--------------------------------------------------------------------+
-// Forward USB interrupt events to TinyUSB IRQ Handler
-//--------------------------------------------------------------------+
-void USB_DRD_FS_IRQHandler(void) {
-  tud_int_handler(0);
-}
 
 //--------------------------------------------------------------------+
 // MACRO TYPEDEF CONSTANT ENUM
 //--------------------------------------------------------------------+
-UART_HandleTypeDef UartHandle;
+#if defined(UART_DEV) && CFG_TUSB_DEBUG
+  #define USE_UART 1
+#else
+  #define USE_UART 0
+#endif
+
+#if USE_UART
+UART_HandleTypeDef UartHandle = {
+  .Instance        = UART_DEV,
+  .Init.BaudRate   = BOARD_UART_BAUDRATE,
+  .Init.WordLength = UART_WORDLENGTH_8B,
+  .Init.StopBits   = UART_STOPBITS_1,
+  .Init.Parity     = UART_PARITY_NONE,
+  .Init.HwFlowCtl  = UART_HWCONTROL_NONE,
+  .Init.Mode       = UART_MODE_TX_RX,
+  .Init.OverSampling = UART_OVERSAMPLING_16,
+  .AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT
+};
+#endif
 
 void board_init(void)
 {
+#ifdef BUILD_APPLICATION
+  // system_stm32h5xx.c: SystemInit() will reset vector table, set it here if we are building application
+  SCB->VTOR = (uint32_t) BOARD_FLASH_APP_START;
+#endif
+
   HAL_Init();           // required for HAL_RCC_Osc TODO check with freeRTOS
   SystemClock_Config(); // implemented in board.h
   SystemCoreClockUpdate();
@@ -64,24 +81,13 @@ void board_init(void)
   #ifdef __HAL_RCC_GPIOE_CLK_ENABLE
   __HAL_RCC_GPIOE_CLK_ENABLE();
   #endif
+
   #ifdef __HAL_RCC_GPIOG_CLK_ENABLE
-  __HAL_RCC_GPIOE_CLK_ENABLE();
+  __HAL_RCC_GPIOG_CLK_ENABLE();
   #endif
+
   #ifdef __HAL_RCC_GPIOI_CLK_ENABLE
-  __HAL_RCC_GPIOE_CLK_ENABLE();
-  #endif
-
-  UART_CLOCK_ENABLE();
-
-  #if CFG_TUSB_OS == OPT_OS_NONE
-  // 1ms tick timer
-  SysTick_Config(SystemCoreClock / 1000);
-  #elif CFG_TUSB_OS == OPT_OS_FREERTOS
-  // Explicitly disable systick to prevent its ISR runs before scheduler start
-  SysTick->CTRL &= ~1U;
-
-  // If freeRTOS is used, IRQ priority is limit by max syscall ( smaller is higher )
-  NVIC_SetPriority(USB_DRD_FS_IRQn, configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY);
+  __HAL_RCC_GPIOI_CLK_ENABLE();
   #endif
 
   GPIO_InitTypeDef GPIO_InitStruct;
@@ -102,7 +108,8 @@ void board_init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(BUTTON_PORT, &GPIO_InitStruct);
 
-  #ifdef UART_DEV
+  #if USE_UART
+  UART_CLOCK_ENABLE();
   // UART
   GPIO_InitStruct.Pin = UART_TX_PIN | UART_RX_PIN;
   GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
@@ -110,35 +117,7 @@ void board_init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   GPIO_InitStruct.Alternate = UART_GPIO_AF;
   HAL_GPIO_Init(UART_GPIO_PORT, &GPIO_InitStruct);
-
-  UartHandle = (UART_HandleTypeDef) {
-      .Instance        = UART_DEV,
-      .Init.BaudRate   = BOARD_UART_BAUDRATE,
-      .Init.WordLength = UART_WORDLENGTH_8B,
-      .Init.StopBits   = UART_STOPBITS_1,
-      .Init.Parity     = UART_PARITY_NONE,
-      .Init.HwFlowCtl  = UART_HWCONTROL_NONE,
-      .Init.Mode       = UART_MODE_TX_RX,
-      .Init.OverSampling = UART_OVERSAMPLING_16,
-      .AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT
-  };
   HAL_UART_Init(&UartHandle);
-  #endif
-
-  // USB Pins TODO double check USB clock and pin setup
-  // Configure USB DM and DP pins. This is optional, and maintained only for user guidance.
-  GPIO_InitStruct.Pin = (GPIO_PIN_11 | GPIO_PIN_12);
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /* Peripheral clock enable */
-  __HAL_RCC_USB_CLK_ENABLE();
-
-  /* Enable VDDUSB */
-  #if defined (PWR_USBSCR_USB33DEN)
-  HAL_PWREx_EnableVddUSB();
   #endif
 }
 
@@ -192,12 +171,7 @@ bool board_app_valid(void)
   return true;
 }
 
-void board_app_jump(void)
-{
-  volatile uint32_t const * app_vector = (volatile uint32_t const*) BOARD_FLASH_APP_START;
-  uint32_t sp = app_vector[0];
-  uint32_t app_entry = app_vector[1];
-
+void board_teardown(void) {
 #ifdef BUTTON_PIN
   HAL_GPIO_DeInit(BUTTON_PORT, BUTTON_PIN);
 #endif
@@ -210,30 +184,54 @@ void board_app_jump(void)
   HAL_GPIO_DeInit(NEOPIXEL_PORT, NEOPIXEL_PIN);
 #endif
 
-#if defined(UART_DEV) && CFG_TUSB_DEBUG
+#if USE_UART
   HAL_UART_DeInit(&UartHandle);
   HAL_GPIO_DeInit(UART_GPIO_PORT, UART_TX_PIN | UART_RX_PIN);
   UART_CLOCK_DISABLE();
 #endif
 
+#if defined (PWR_USBSCR_USB33DEN)
+  HAL_PWREx_DisableVddUSB();
+#endif
+  __HAL_RCC_USB_CLK_DISABLE();
+  HAL_GPIO_DeInit(GPIOA, GPIO_PIN_11 | GPIO_PIN_12); // USB
+
   __HAL_RCC_GPIOA_CLK_DISABLE();
   __HAL_RCC_GPIOB_CLK_DISABLE();
   __HAL_RCC_GPIOC_CLK_DISABLE();
-#ifdef __HAL_RCC_GPIOD_CLK_DISABLE
   __HAL_RCC_GPIOD_CLK_DISABLE();
+  __HAL_RCC_GPIOH_CLK_DISABLE();
+
+#ifdef __HAL_RCC_GPIOE_CLK_DISABLE
+  __HAL_RCC_GPIOE_CLK_DISABLE();
+#endif
+
+#ifdef __HAL_RCC_GPIOG_CLK_DISABLE
+  __HAL_RCC_GPIOG_CLK_DISABLE();
+#endif
+
+#ifdef __HAL_RCC_GPIOI_CLK_DISABLE
+  __HAL_RCC_GPIOI_CLK_DISABLE();
 #endif
 
   HAL_RCC_DeInit();
+  HAL_DeInit();
 
   SysTick->CTRL = 0;
   SysTick->LOAD = 0;
   SysTick->VAL = 0;
+}
+
+void board_app_jump(void)
+{
+  volatile uint32_t const * app_vector = (volatile uint32_t const*) BOARD_FLASH_APP_START;
+  uint32_t sp = app_vector[0];
+  uint32_t app_entry = app_vector[1];
 
   // Disable all Interrupts
-  NVIC->ICER[0] = 0xFFFFFFFF;
-  NVIC->ICER[1] = 0xFFFFFFFF;
-  NVIC->ICER[2] = 0xFFFFFFFF;
-  NVIC->ICER[3] = 0xFFFFFFFF;
+  for (uint8_t i=0; i<sizeof(NVIC->ICER)/sizeof(NVIC->ICER[0]); i++) {
+    NVIC->ICER[i] = 0xFFFFFFFFu;
+  }
 
   /* switch exception handlers to the application */
   SCB->VTOR = (uint32_t) BOARD_FLASH_APP_START;
@@ -354,27 +352,24 @@ void board_timer_stop(void)
   SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk;
 }
 
-void SysTick_Handler(void)
-{
+void SysTick_Handler(void) {
   board_timer_handler();
 }
 
 int board_uart_write(void const * buf, int len)
 {
-#if defined(UART_DEV) && CFG_TUSB_DEBUG
+#if USE_UART
   HAL_UART_Transmit(&UartHandle, (uint8_t*) buf, len, 0xffff);
   return len;
 #else
   (void) buf; (void) len;
-  (void) UartHandle;
   return 0;
 #endif
 }
 
 #ifndef BUILD_NO_TINYUSB
 // Forward USB interrupt events to TinyUSB IRQ Handler
-void OTG_FS_IRQHandler(void)
-{
+void USB_DRD_FS_IRQHandler(void) {
   tud_int_handler(0);
 }
 #endif

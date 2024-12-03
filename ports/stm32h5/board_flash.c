@@ -34,185 +34,98 @@
 
 #define FLASH_BASE_ADDR         0x08000000UL
 
+// H503 is 1 bit per sector, the rest of the family H523/33/62/63 is 1 bit per 4 sectors
 // TinyUF2 resides in the first 8 flash sectors on STM32H5s, therefore these are write protected
-#define BOOTLOADER_SECTOR_MASK  0x3UL
+#ifdef STM32H503xx
+#define BOARD_FLASH_PROTECT_MASK  0x7u // protect 3 sector
+#else
+#define BOARD_FLASH_PROTECT_MASK  0x1u // protect 1 group of sector 0-3
+#endif
 
-/* flash parameters that we should not really know */
-static const uint32_t sector_size[] =
-{
-  // First 8 sectors are for bootloader (64KB)
-  8 * 1024,
-	8 * 1024,
-	8 * 1024,
-	8 * 1024,
-  8 * 1024,
-	8 * 1024,
-	8 * 1024,
-	8 * 1024,
-	// Application (BOARD_FLASH_APP_START) 64kB
-	8 * 1024,
-	8 * 1024,
-	8 * 1024,
-	8 * 1024,
-  8 * 1024,
-	8 * 1024,
-	8 * 1024,
-	8 * 1024,
+// H5 has uniform sector size of 8KB, max is 2MB
+enum {
+  SECTOR_COUNT = (2*1024*1024) / FLASH_SECTOR_SIZE
 };
-
-enum
-{
-  SECTOR_COUNT = sizeof(sector_size)/sizeof(sector_size[0])
-};
-
-static uint8_t erased_sectors[SECTOR_COUNT] = { 0 };
+static uint8_t erased_sectors[SECTOR_COUNT];
 
 //--------------------------------------------------------------------+
 // Internal Helper
 //--------------------------------------------------------------------+
-
-static inline uint32_t flash_sector_size(uint32_t sector)
-{
-  return sector_size[sector];
-}
-
-static bool is_blank(uint32_t addr, uint32_t size)
-{
-  for ( uint32_t i = 0; i < size; i += sizeof(uint32_t) )
-  {
-    if ( *(uint32_t*) (addr + i) != 0xffffffff )
-    {
+static bool is_blank(uint32_t addr, uint32_t size) {
+  for (uint32_t i = 0; i < size; i += sizeof(uint32_t)) {
+    if (*(uint32_t*)(addr + i) != 0xffffffff) {
       return false;
     }
   }
   return true;
 }
 
-static uint32_t flash_get_bank(uint32_t addr)
-{
-  uint32_t bank = 0;
+static bool flash_erase(uint32_t addr) {
+  TUF2_ASSERT(addr < FLASH_BASE_ADDR + BOARD_FLASH_SIZE);
 
-  if (READ_BIT(FLASH->OPTSR_CUR, FLASH_OPTSR_SWAP_BANK) == 0)
-  {
-    /* No Bank swap */
-    if (addr < (FLASH_BASE + FLASH_BANK_SIZE))
-    {
-      bank = FLASH_BANK_1;
-    }
-    else
-    {
-      bank = FLASH_BANK_2;
-    }
-  }
-  else
-  {
-    /* Bank swap */
-    if (addr < (FLASH_BASE + FLASH_BANK_SIZE))
-    {
-      bank = FLASH_BANK_2;
-    }
-    else
-    {
-      bank = FLASH_BANK_1;
-    }
-  }
+  const uint32_t sector_addr = addr & ~(FLASH_SECTOR_SIZE - 1);
+  const uint32_t sector_id = (sector_addr - FLASH_BASE_ADDR) / FLASH_SECTOR_SIZE;
 
-  return bank;
-}
-
-static uint32_t flash_get_sector(uint32_t addr)
-{
-  uint32_t sector = 0;
-
-  if((addr >= FLASH_BASE) && (addr < FLASH_BASE + FLASH_BANK_SIZE))
-  {
-    sector = (addr & ~FLASH_BASE) / FLASH_SECTOR_SIZE;
-  }
-  else if ((addr >= FLASH_BASE + FLASH_BANK_SIZE) && (addr < FLASH_BASE + FLASH_SIZE))
-  {
-    sector = ((addr & ~FLASH_BASE) - FLASH_BANK_SIZE) / FLASH_SECTOR_SIZE;
-  }
-  else
-  {
-    sector = 0xFFFFFFFF; /* Address out of range */
-  }
-
-  return sector;
-}
-
-static bool flash_erase(uint32_t addr)
-{
-  // starting address from 0x08000000
-  uint32_t sector_addr = FLASH_BASE_ADDR;
-  bool erased = false;
-
-  uint32_t sector = 0;
-  uint32_t size = 0;
-  uint32_t bank;
-  uint32_t sector_to_erase;
-  uint32_t sector_error = 0;
-  FLASH_EraseInitTypeDef erase_struct;
-
-  for ( uint32_t i = 0; i < SECTOR_COUNT; i++ )
-  {
-    TUF2_ASSERT(sector_addr < FLASH_BASE_ADDR + BOARD_FLASH_SIZE);
-
-    size = flash_sector_size(i);
-    if ( sector_addr + size > addr )
-    {
-      sector = i;
-      erased = erased_sectors[i];
-      erased_sectors[i] = 1;    // don't erase anymore - we will continue writing here!
-      break;
-    }
-    sector_addr += size;
-  }
+  const uint8_t erased = erased_sectors[sector_id];
+  erased_sectors[sector_id] = 1; // mark as erased
 
 #ifndef TINYUF2_SELF_UPDATE
-  // skip erasing sector0 if not self-update
-  TUF2_ASSERT(sector);
+  // skip erasing bootloader
+  TUF2_ASSERT(sector_addr >= BOARD_FLASH_APP_START);
 #endif
 
-  if ( !erased && !is_blank(sector_addr, size) )
-  {
-    bank = flash_get_bank(sector_addr);
-    sector_to_erase = flash_get_sector(sector_addr);
-    TUF2_LOG1("Erase: %08lX size = %lu KB, bank = %lu ... ", sector_addr, size / 1024, bank);
+  if ( !erased && !is_blank(sector_addr, FLASH_SECTOR_SIZE) ) {
+    uint32_t bank;
+    uint32_t sector_to_erase;
+    const uint32_t sector_per_bank = FLASH_BANK_SIZE / FLASH_SECTOR_SIZE;
 
-    erase_struct.TypeErase     = FLASH_TYPEERASE_SECTORS;
-    erase_struct.Banks         = bank;
-    erase_struct.Sector        = sector_to_erase;
-    erase_struct.NbSectors     = 1;
+    if (sector_id < sector_per_bank) {
+      sector_to_erase = sector_id;
+      bank = FLASH_BANK_1;
+    } else {
+      sector_to_erase = sector_id - sector_per_bank;
+      bank = FLASH_BANK_2;
+    }
+
+    // bank swap
+    if (READ_BIT(FLASH->OPTSR_CUR, FLASH_OPTSR_SWAP_BANK)) {
+      bank = FLASH_BANK_BOTH - bank;
+    }
+
+    FLASH_EraseInitTypeDef erase_struct= {
+      .TypeErase     = FLASH_TYPEERASE_SECTORS,
+      .Banks         = bank,
+      .Sector        = sector_to_erase,
+      .NbSectors     = 1
+    };
 
     // FLASH_Erase_Sector(sector, bank);
     // FLASH_WaitForLastOperation(HAL_MAX_DELAY);
-
-    HAL_FLASHEx_Erase(&erase_struct, &sector_error);
+    uint32_t sector_error;
+    TUF2_LOG1("Erase: %08lX size = %lu KB, bank = %lu ... ", sector_addr, FLASH_SECTOR_SIZE / 1024, bank);
+    TUF2_ASSERT(HAL_OK ==HAL_FLASHEx_Erase(&erase_struct, &sector_error));
+    (void) sector_error;
 
     TUF2_LOG1("OK\r\n");
-    TUF2_ASSERT( is_blank(sector_addr, size) );
+    TUF2_ASSERT( is_blank(sector_addr, FLASH_SECTOR_SIZE) );
   }
 
   return true;
 }
 
-static void flash_write(uint32_t dst, const uint8_t *src, int len)
-{
+static void flash_write(uint32_t dst, const uint8_t* src, int len) {
   flash_erase(dst);
 
   TUF2_LOG1("Write flash at address %08lX\r\n", dst);
-  for ( int i = 0; i < len; i += 16 )
-  {
-    if ( HAL_FLASH_Program(FLASH_TYPEPROGRAM_QUADWORD, dst + i, (uint32_t) src + i) != HAL_OK )
-    {
+  for (int i = 0; i < len; i += 16) {
+    if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_QUADWORD, dst + i, (uint32_t)src + i) != HAL_OK) {
       TUF2_LOG1("Failed to write flash at address %08lX\r\n", dst + i);
       break;
     }
   }
 
   // verify contents
-  if ( memcmp((void*) dst, src, len) != 0 )
-  {
+  if (memcmp((void*)dst, src, len) != 0) {
     TUF2_LOG1("Failed to write\r\n");
   }
 }
@@ -220,43 +133,35 @@ static void flash_write(uint32_t dst, const uint8_t *src, int len)
 //--------------------------------------------------------------------+
 // Board API
 //--------------------------------------------------------------------+
-void board_flash_init(void)
-{
-  HAL_FLASH_Unlock();
+void board_flash_init(void) {
+  memset(erased_sectors, 0, sizeof(erased_sectors));
 }
 
-uint32_t board_flash_size(void)
-{
+uint32_t board_flash_size(void) {
   return BOARD_FLASH_SIZE;
 }
 
-void board_flash_read(uint32_t addr, void* buffer, uint32_t len)
-{
-  memcpy(buffer, (void*) addr, len);
+void board_flash_read(uint32_t addr, void* buffer, uint32_t len) {
+  memcpy(buffer, (void*)addr, len);
 }
 
-void board_flash_flush(void)
-{
+void board_flash_flush(void) {
 }
 
-// TODO not working quite yet
-bool board_flash_write(uint32_t addr, void const* data, uint32_t len)
-{
-  // TODO skip matching contents
+bool board_flash_write(uint32_t addr, void const* data, uint32_t len) {
+  // TODO skip matching contents need to compare a whole sector
   HAL_FLASH_Unlock();
   flash_write(addr, data, len);
   HAL_FLASH_Lock();
-
   return true;
 }
 
-void board_flash_erase_app(void)
-{
-  // TODO implement later
+void board_flash_erase_app(void) {
+  // erase 1st sector of app region is enough to invalid the app
+  flash_erase(BOARD_FLASH_APP_START);
 }
 
-bool board_flash_protect_bootloader(bool protect)
-{
+bool board_flash_protect_bootloader(bool protect) {
   bool ret = true;
 
   HAL_FLASH_OB_Unlock();
@@ -265,24 +170,21 @@ bool board_flash_protect_bootloader(bool protect)
   HAL_FLASHEx_OBGetConfig(&ob_current);
 
   // Flash sectors are protected if the bit is cleared
-  bool const already_protected = (ob_current.WRPSector & BOOTLOADER_SECTOR_MASK) == 0;
+  bool const already_protected = (ob_current.WRPSector & BOARD_FLASH_PROTECT_MASK) == 0;
 
   TUF2_LOG1("Protection: current = %u, request = %u\r\n", already_protected, protect);
 
   // request and current state mismatched --> require ob program
-  if (protect != already_protected)
-  {
-    FLASH_OBProgramInitTypeDef ob_update = {0};
+  if (protect != already_protected) {
+    FLASH_OBProgramInitTypeDef ob_update = { 0 };
     ob_update.OptionType = OPTIONBYTE_WRP;
-    ob_update.Banks      = FLASH_BANK_1;
-    ob_update.WRPSector  = BOOTLOADER_SECTOR_MASK;
-    ob_update.WRPState   = protect ? OB_WRPSTATE_ENABLE : OB_WRPSTATE_DISABLE;
+    ob_update.Banks = FLASH_BANK_1;
+    ob_update.WRPSector = BOARD_FLASH_PROTECT_MASK;
+    ob_update.WRPState = protect ? OB_WRPSTATE_ENABLE : OB_WRPSTATE_DISABLE;
 
-    if (HAL_FLASHEx_OBProgram(&ob_update) == HAL_OK)
-    {
+    if (HAL_FLASHEx_OBProgram(&ob_update) == HAL_OK) {
       HAL_FLASH_OB_Launch();
-    }else
-    {
+    } else {
       ret = false;
     }
   }
