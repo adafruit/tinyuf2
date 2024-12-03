@@ -1,5 +1,7 @@
+LD_RAM_SIZE = 32K
 CFLAGS += \
-  -DSTM32H503xx
+  -DSTM32H503xx \
+  -DHSE_VALUE=24000000 \
 
 SRC_S += \
 	$(ST_CMSIS)/Source/Templates/gcc/startup_stm32h503xx.s

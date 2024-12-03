@@ -28,9 +28,8 @@
 //--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
-
-#define LED_PORT              GPIOA
-#define LED_PIN               GPIO_PIN_5
+#define LED_PORT              GPIOG
+#define LED_PIN               GPIO_PIN_4
 #define LED_STATE_ON          1
 
 //--------------------------------------------------------------------+
@@ -43,14 +42,14 @@
 //--------------------------------------------------------------------+
 // UART Enable for STLink VCOM
 //--------------------------------------------------------------------+
-#define UART_DEV              USART3
-#define UART_CLOCK_ENABLE     __HAL_RCC_USART3_CLK_ENABLE
-#define UART_CLOCK_DISABLE    __HAL_RCC_USART3_CLK_DISABLE
+#define UART_DEV              USART1
+#define UART_CLOCK_ENABLE     __HAL_RCC_USART1_CLK_ENABLE
+#define UART_CLOCK_DISABLE    __HAL_RCC_USART1_CLK_DISABLE
 #define UART_GPIO_PORT        GPIOA
-#define UART_GPIO_AF          GPIO_AF13_USART3
+#define UART_GPIO_AF          GPIO_AF7_USART1
 
-#define UART_TX_PIN           GPIO_PIN_3
-#define UART_RX_PIN           GPIO_PIN_4
+#define UART_TX_PIN           GPIO_PIN_9
+#define UART_RX_PIN           GPIO_PIN_10
 
 //--------------------------------------------------------------------+
 // Neopixel
@@ -58,19 +57,13 @@
 
 // Number of neopixels
 #define NEOPIXEL_NUMBER       0
-// Brightness percentage from 1 to 255
-#define NEOPIXEL_BRIGHTNESS   0x10
-
-#define NEOPIXEL_PORT         GPIOC
-#define NEOPIXEL_PIN          GPIO_PIN_0
-#define NEOPIXEL_PIN_MODE     GPIO_MODE_OUTPUT_PP
 
 //--------------------------------------------------------------------+
 // Flash
 //--------------------------------------------------------------------+
 
 // Flash size of the board
-#define BOARD_FLASH_SIZE      (128 * 1024)
+#define BOARD_FLASH_SIZE      FLASH_SIZE
 
 //--------------------------------------------------------------------+
 // USB UF2
@@ -82,15 +75,17 @@
 #define USB_PRODUCT       "STM32H503 Nucleo"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "STM32H503-Nucleo"
-#define UF2_VOLUME_LABEL  "STMH503BOOT"
-#define UF2_INDEX_URL     "https://www.st.com/en/evaluation-tools/nucleo-h503rb.html"
+#define UF2_BOARD_ID      "STM32H563-Nucleo"
+#define UF2_VOLUME_LABEL  "STMH563BOOT"
+#define UF2_INDEX_URL     "https://www.st.com/en/evaluation-tools/nucleo-h563zi.html"
 
 //--------------------------------------------------------------------+
 // RCC Clock
 //--------------------------------------------------------------------+
-static inline void SystemClock_Config(void)
-{
+static inline void Error_Handler(void) {
+}
+
+static inline void SystemClock_Config(void) {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
@@ -103,12 +98,11 @@ static inline void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI48|RCC_OSCILLATORTYPE_HSE;
-  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
-  RCC_OscInitStruct.HSI48State = RCC_HSI48_ON;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLL1_SOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLM = 12;
+  RCC_OscInitStruct.PLL.PLLM = 4;
   RCC_OscInitStruct.PLL.PLLN = 250;
   RCC_OscInitStruct.PLL.PLLP = 2;
   RCC_OscInitStruct.PLL.PLLQ = 2;
@@ -116,39 +110,49 @@ static inline void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1_VCIRANGE_1;
   RCC_OscInitStruct.PLL.PLLVCOSEL = RCC_PLL1_VCORANGE_WIDE;
   RCC_OscInitStruct.PLL.PLLFRACN = 0;
-  HAL_RCC_OscConfig(&RCC_OscInitStruct);
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
   /** Initializes the CPU, AHB and APB buses clocks
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                                |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2
-                                |RCC_CLOCKTYPE_PCLK3;
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2
+                              |RCC_CLOCKTYPE_PCLK3;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB3CLKDivider = RCC_HCLK_DIV1;
-  HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5);
 
-  // Configure CRS clock source
-  __HAL_RCC_CRS_CLK_ENABLE();
-  RCC_CRSInitTypeDef RCC_CRSInitStruct = {0};
-  RCC_CRSInitStruct.Prescaler = RCC_CRS_SYNC_DIV1;
-  RCC_CRSInitStruct.Source = RCC_CRS_SYNC_SOURCE_USB;
-  RCC_CRSInitStruct.Polarity = RCC_CRS_SYNC_POLARITY_RISING;
-  RCC_CRSInitStruct.ReloadValue = __HAL_RCC_CRS_RELOADVALUE_CALCULATE(48000000, 1000);
-  RCC_CRSInitStruct.ErrorLimitValue = 34;
-  RCC_CRSInitStruct.HSI48CalibrationValue = 32;
-  HAL_RCCEx_CRSConfig(&RCC_CRSInitStruct);
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
-  /* Select HSI48 as USB clock source */
-  RCC_PeriphCLKInitTypeDef usb_clk = {0 };
-  usb_clk.PeriphClockSelection = RCC_PERIPHCLK_USB;
-  usb_clk.UsbClockSelection = RCC_USBCLKSOURCE_HSI48;
-  HAL_RCCEx_PeriphCLKConfig(&usb_clk);
+  /** Configure the programming delay
+  */
+  __HAL_FLASH_SET_PROGRAM_DELAY(FLASH_PROGRAMMING_DELAY_2);
 
-  /* Peripheral clock enable */
-  __HAL_RCC_USB_CLK_ENABLE();
+  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
+  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_USB;
+  PeriphClkInitStruct.PLL3.PLL3Source = RCC_PLL3_SOURCE_HSE;
+  PeriphClkInitStruct.PLL3.PLL3M = 1;
+  PeriphClkInitStruct.PLL3.PLL3N = 18;
+  PeriphClkInitStruct.PLL3.PLL3P = 2;
+  PeriphClkInitStruct.PLL3.PLL3Q = 3;
+  PeriphClkInitStruct.PLL3.PLL3R = 2;
+  PeriphClkInitStruct.PLL3.PLL3RGE = RCC_PLL3_VCIRANGE_1;
+  PeriphClkInitStruct.PLL3.PLL3VCOSEL = RCC_PLL3_VCORANGE_WIDE;
+  PeriphClkInitStruct.PLL3.PLL3FRACN = 0.0;
+  PeriphClkInitStruct.PLL3.PLL3ClockOut = RCC_PLL3_DIVQ;
+  PeriphClkInitStruct.UsbClockSelection = RCC_USBCLKSOURCE_PLL3Q;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
 }
+
 
 #endif

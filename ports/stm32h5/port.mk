@@ -30,6 +30,16 @@ else
   LD_FILES ?= $(PORT_DIR)/linker/stm32h5_boot.ld
 endif
 
+ifeq (DEBUG,1)
+LD_FLASH_BOOT_SIZE = 64K
+else
+LD_FLASH_BOOT_SIZE = 24K
+endif
+
+LDFLAGS += \
+	-Wl,--defsym=__flash_boot_size=${LD_FLASH_BOOT_SIZE} \
+  -Wl,--defsym=__ram_size=${LD_RAM_SIZE} \
+
 # Port source
 SRC_C += \
 	ports/stm32h5/boards.c \
@@ -40,6 +50,8 @@ SRC_C += \
 	$(ST_HAL_DRIVER)/Src/stm32h5xx_hal_rcc.c \
 	$(ST_HAL_DRIVER)/Src/stm32h5xx_hal_rcc_ex.c \
 	$(ST_HAL_DRIVER)/Src/stm32h5xx_hal_gpio.c \
+	${ST_HAL_DRIVER}/Src/stm32h5xx_hal_pwr.c \
+	${ST_HAL_DRIVER}/Src/stm32h5xx_hal_pwr_ex.c \
 	$(ST_HAL_DRIVER)/Src/stm32h5xx_hal_flash.c \
 	$(ST_HAL_DRIVER)/Src/stm32h5xx_hal_flash_ex.c \
 	$(ST_HAL_DRIVER)/Src/stm32h5xx_hal_uart.c

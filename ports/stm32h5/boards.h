@@ -38,7 +38,8 @@
 
 // Flash Start Address of Application
 #ifndef BOARD_FLASH_APP_START
-#define BOARD_FLASH_APP_START   0x08010000
+extern uint32_t __flash_boot_size[];
+#define BOARD_FLASH_APP_START   (BOARD_FLASH_ADDR_ZERO+(uint32_t) __flash_boot_size)
 #endif
 
 // Double Reset tap to enter DFU

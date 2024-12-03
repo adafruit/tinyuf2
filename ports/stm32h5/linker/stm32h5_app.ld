@@ -29,6 +29,9 @@
 *****************************************************************************
 */
 
+__flash_boot_size = DEFINED(__flash_boot_size) ? __flash_boot_size : 24K;
+__ram_size = DEFINED(__ram_size) ? __ram_size : 32K;
+
 /* Entry Point */
 ENTRY(Reset_Handler)
 
@@ -43,9 +46,9 @@ _Min_Stack_Size = 0x400; /* required amount of stack */
 /* Specify the memory areas */
 MEMORY
 {
-  RAM (xrw)     : ORIGIN = 0x20000000, LENGTH = 32K - 4     /* reserve 4 bytes for double tap   */
-  FLASH (rx)    : ORIGIN = 0x08010000, LENGTH = 64K         /* must match BOARD_FLASH_APP_START */
-  CONFIG (rx)   : ORIGIN = 0x08008000 - 1024, LENGTH = 1024
+  RAM (xrw)     : ORIGIN = 0x20000000, LENGTH = __ram_size - 4     /* reserve 4 bytes for double tap   */
+  CONFIG (rx)   : ORIGIN = 0x08000000 + __flash_boot_size - 1K, LENGTH = 1K  /* 1 KByte for config              */
+  FLASH (rx)    : ORIGIN = 0x08000000 + __flash_boot_size, LENGTH = 64K         /* must match BOARD_FLASH_APP_START */
 }
 
 /* Define output sections */

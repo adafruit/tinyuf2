@@ -17,27 +17,33 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
 set(CMAKE_SYSTEM_PROCESSOR cortex-m33 CACHE INTERNAL "System Processor")
 set(CMAKE_TOOLCHAIN_FILE ${TOP}/cmake/toolchain/arm_${TOOLCHAIN}.cmake)
 
+# increase flash size if debug build
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+  set(LD_FLASH_BOOT_SIZE 64K)
+else ()
+  set(LD_FLASH_BOOT_SIZE 24K)
+endif ()
 
 #------------------------------------
 # BOARD_TARGET
 #------------------------------------
-# used by all executable targets
-
 function(family_add_board_target BOARD_TARGET)
   if (TARGET ${BOARD_TARGET})
     return()
   endif ()
 
   add_library(${BOARD_TARGET} STATIC
-    ${ST_CMSIS}/Source/Templates/system_stm32f4xx.c
+    ${ST_CMSIS}/Source/Templates/system_stm32h5xx.c
     ${ST_HAL_DRIVER}/Src/stm32h5xx_hal.c
     ${ST_HAL_DRIVER}/Src/stm32h5xx_hal_cortex.c
     ${ST_HAL_DRIVER}/Src/stm32h5xx_hal_rcc.c
     ${ST_HAL_DRIVER}/Src/stm32h5xx_hal_rcc_ex.c
     ${ST_HAL_DRIVER}/Src/stm32h5xx_hal_gpio.c
+    ${ST_HAL_DRIVER}/Src/stm32h5xx_hal_pwr.c
+    ${ST_HAL_DRIVER}/Src/stm32h5xx_hal_pwr_ex.c
     ${ST_HAL_DRIVER}/Src/stm32h5xx_hal_flash.c
     ${ST_HAL_DRIVER}/Src/stm32h5xx_hal_flash_ex.c
-    ${ST_HAL_DRIVER}/Src/stm32h5xx_hal_uart.c
+    #${ST_HAL_DRIVER}/Src/stm32h5xx_hal_uart.c
     )
   target_include_directories(${BOARD_TARGET} PUBLIC
     # port & board
@@ -59,6 +65,8 @@ function(family_add_board_target BOARD_TARGET)
   target_link_options(${BOARD_TARGET} PUBLIC
     -nostartfiles
     --specs=nosys.specs --specs=nano.specs
+    -Wl,--defsym=__flash_boot_size=${LD_FLASH_BOOT_SIZE}
+    -Wl,--defsym=__ram_size=${LD_RAM_SIZE}
     )
 endfunction()
 
