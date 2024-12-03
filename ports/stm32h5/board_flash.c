@@ -196,13 +196,12 @@ bool board_flash_protect_bootloader(bool protect) {
 
 #ifdef TINYUF2_SELF_UPDATE
 
-bool is_new_bootloader_valid(const uint8_t * bootloader_bin, uint32_t bootloader_len)
-{
+bool is_new_bootloader_valid(const uint8_t* bootloader_bin, uint32_t bootloader_len) {
   // at least larger than vector table
-  if (bootloader_len < 512 ) return false;
+  if (bootloader_len < 1024) return false;
 
   // similar to board_app_valid() check
-  uint32_t const * app_vector = (uint32_t const*) bootloader_bin;
+  uint32_t const* app_vector = (uint32_t const*)bootloader_bin;
   uint32_t sp = app_vector[0];
   uint32_t boot_entry = app_vector[1];
 
@@ -217,27 +216,23 @@ bool is_new_bootloader_valid(const uint8_t * bootloader_bin, uint32_t bootloader
   return true;
 }
 
-void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
-{
+void board_self_update(const uint8_t* bootloader_bin, uint32_t bootloader_len) {
   // check if the bootloader payload is valid
-  if ( is_new_bootloader_valid(bootloader_bin, bootloader_len) )
-  {
-#if TINYUF2_PROTECT_BOOTLOADER
+  if (is_new_bootloader_valid(bootloader_bin, bootloader_len)) {
+    #if TINYUF2_PROTECT_BOOTLOADER
     // Note: Don't protect bootloader when done, leave that to the new bootloader
     // since it may or may not enable protection.
     board_flash_protect_bootloader(false);
-#endif
+    #endif
 
     // keep writing until flash contents matches new bootloader data
-    while( memcmp((const void*) FLASH_BASE_ADDR, bootloader_bin, bootloader_len) )
-    {
+    while (memcmp((const void*)FLASH_BASE_ADDR, bootloader_bin, bootloader_len)) {
       uint32_t sector_addr = FLASH_BASE_ADDR;
-      const uint8_t * data = bootloader_bin;
+      const uint8_t* data = bootloader_bin;
       uint32_t len = bootloader_len;
 
-      for ( uint32_t i = 0; i < 4 && len > 0; i++ )
-      {
-        uint32_t const size = (flash_sector_size(i) < len ? flash_sector_size(i) : len);
+      for (uint32_t i = 0; i < 4 && len > 0; i++) {
+        uint32_t const size = (FLASH_SECTOR_SIZE < len ? FLASH_SECTOR_SIZE : len);
         board_flash_write(sector_addr, data, size);
 
         sector_addr += size;
@@ -252,8 +247,8 @@ void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
   __disable_irq();
   HAL_FLASH_Unlock();
 
-  uint32_t null_arr[4] = {0};
-  HAL_FLASH_Program(FLASH_TYPEPROGRAM_QUADWORD, BOARD_FLASH_APP_START, (uint32_t) null_arr);
+  uint32_t null_arr[4] = { 0 };
+  HAL_FLASH_Program(FLASH_TYPEPROGRAM_QUADWORD, BOARD_FLASH_APP_START, (uint32_t)null_arr);
 
   HAL_FLASH_Lock();
 
