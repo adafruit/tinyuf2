@@ -234,6 +234,7 @@ function(family_add_uf2 TARGET FAMILY_ID)
   set(BIN_FILE $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.${BIN_EXT})
 
   add_custom_command(TARGET ${TARGET} POST_BUILD
+    COMMAND echo ${Python_EXECUTABLE} ${UF2CONV_PY} -f ${FAMILY_ID} ${ADDR_OPT} -c -o $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.uf2 ${BIN_FILE}
     COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} -f ${FAMILY_ID} ${ADDR_OPT} -c -o $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.uf2 ${BIN_FILE}
     VERBATIM)
 endfunction()
@@ -264,6 +265,7 @@ function(family_flash_jlink TARGET)
     set(BIN_FILE $<TARGET_FILE:${TARGET}>)
   endif ()
 
+  # flash with jlink
   file(GENERATE
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}.jlink
     CONTENT "halt
@@ -276,6 +278,17 @@ exit"
   add_custom_target(${TARGET}-jlink
     DEPENDS ${TARGET}
     COMMAND ${JLINKEXE} -device ${JLINK_DEVICE} -if ${JLINK_IF} -JTAGConf -1,-1 -speed auto -CommandFile ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}.jlink
+    )
+
+  # erase with jlink
+  file(GENERATE
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}-erase.jlink
+    CONTENT "halt
+erase
+exit
+  ")
+  add_custom_target(${TARGET}-erase-jlink
+    COMMAND ${JLINKEXE} -device ${JLINK_DEVICE} -if ${JLINK_IF} -JTAGConf -1,-1 -speed auto -CommandFile ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}-erase.jlink
     )
 endfunction()
 

@@ -207,3 +207,8 @@ OPENOCD_WCH ?= /home/${USER}/app/riscv-openocd-wch/src/openocd
 OPENOCD_WCH_OPTION ?=
 flash-openocd-wch: $(BUILD)/$(OUTNAME).elf
 	$(OPENOCD_WCH) $(OPENOCD_WCH_OPTION) -c init -c halt -c "flash write_image $<" -c reset -c exit
+
+#-------------------- Flash with uf2 -----------------
+UF2CONV_PY = $(TOP)/lib/uf2/utils/uf2conv.py
+flash-uf2: $(BUILD)/$(OUTNAME).uf2
+	python ${UF2CONV_PY} -f ${UF2_FAMILY_ID} --deploy $^
