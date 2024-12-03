@@ -54,7 +54,6 @@ jobs:
   # Build ARM
   # ---------------------------------------
   arm:
-    #if: false
     needs: set-matrix
     uses: ./.github/workflows/build_util.yml
     strategy:
@@ -67,6 +66,7 @@ jobs:
         - 'mimxrt10xx'
         - 'stm32f3'
         - 'stm32f4'
+        - 'stm32h5'
         - 'stm32l4'
     with:
       port: ${{ matrix.port }}
@@ -78,7 +78,6 @@ jobs:
   # Build ESP
   # ---------------------------------------
   esp:
-    #if: false
     needs: set-matrix
     uses: ./.github/workflows/build_util.yml
     secrets: inherit
@@ -121,6 +120,7 @@ jobs:
   # Build ARM with CMake
   # ---------------------------------------
   arm-cmake:
+    if: false
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
