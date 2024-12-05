@@ -141,13 +141,11 @@ void board_dfu_init(void)
   __HAL_RCC_USB_CLK_ENABLE();
 }
 
-void board_reset(void)
-{
+void board_reset(void) {
   NVIC_SystemReset();
 }
 
-void board_dfu_complete(void)
-{
+void board_dfu_complete(void) {
   NVIC_SystemReset();
 }
 
@@ -331,8 +329,7 @@ void board_rgb_write(uint8_t const rgb[]) {
 
 #else
 
-void board_rgb_write(uint8_t const rgb[])
-{
+void board_rgb_write(uint8_t const rgb[]) {
   (void) rgb;
 }
 
@@ -341,14 +338,11 @@ void board_rgb_write(uint8_t const rgb[])
 //--------------------------------------------------------------------+
 // Timer
 //--------------------------------------------------------------------+
-
-void board_timer_start(uint32_t ms)
-{
-  SysTick_Config( (SystemCoreClock/1000) * ms );
+void board_timer_start(uint32_t ms) {
+  SysTick_Config((SystemCoreClock / 1000) * ms);
 }
 
-void board_timer_stop(void)
-{
+void board_timer_stop(void) {
   SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk;
 }
 

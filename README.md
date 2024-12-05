@@ -36,7 +36,7 @@ Not all features are implemented for all MCUs, following is supported MCUs and i
 | iMXRT       |  ✔   |      ✔       |      ✔      |                  |    ✔     |      |
 | STM32F3     |  ✔   |      ✔       |      ✔      |        ✔         |    ✔     |      |
 | STM32F4     |  ✔   |      ✔       |      ✔      |        ✔         |    ✔     |      |
-| STM32H5     |  ✔   |      ✔       |             |        ✔         |          |      |
+| STM32H5     |  ✔   |      ✔       |      ✔      |        ✔         |          |      |
 
 ## Build and Flash
 
