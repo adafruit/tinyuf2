@@ -70,16 +70,17 @@
 //--------------------------------------------------------------------+
 
 // Flash size of the board
-#define BOARD_FLASH_SIZE      (128 * 1024)
+#define BOARD_FLASH_SIZE      FLASH_SIZE
 
 //--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
 
+// 239A:0163 is a generic VID/PID for STM32H5, when using it USB_MANUFACTURER/USB_PRODUCT cannot be changed
 #define USB_VID           0x239A
-#define USB_PID           0x0069
+#define USB_PID           0x0163
 #define USB_MANUFACTURER  "ST"
-#define USB_PRODUCT       "STM32H503 Nucleo"
+#define USB_PRODUCT       "TinyUF2 for STM32H5"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID      "STM32H503-Nucleo"
