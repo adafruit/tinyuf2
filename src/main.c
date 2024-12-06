@@ -69,11 +69,11 @@ int main(void) {
 
   // if not DFU mode, jump to App
   if (!check_dfu_mode()) {
-    TU_LOG1("Jump to application\r\n");
+    TUF2_LOG1("Jump to application\r\n");
     if (board_teardown) board_teardown();
     if (board_teardown2) board_teardown2();
     board_app_jump();
-    TU_LOG1("Failed to jump\r\n");
+    TUF2_LOG1("Failed to jump\r\n");
     while (1) {}
   }
 

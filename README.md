@@ -29,13 +29,14 @@ Supported features are
 Not all features are implemented for all MCUs, following is supported MCUs and its feature
 
 | MCU         | MSC  | Double Reset | Self-update | Write Protection | Neopixel | TFT  |
-| :---------- | :--: | :----------: | :---------: | :--------------: | :------: | :--: |
+|:------------| :--: | :----------: |:-----------:| :--------------: |:--------:| :--: |
 | ESP32 S2/S3 |  ✔   |   Need RC    |      ✔      |                  |    ✔     |  ✔   |
 | K32L2       |  ✔   |      ✔       |             |                  |          |      |
 | LPC55       |  ✔   |      ✔       |             |                  |    ✔     |      |
 | iMXRT       |  ✔   |      ✔       |      ✔      |                  |    ✔     |      |
 | STM32F3     |  ✔   |      ✔       |      ✔      |        ✔         |    ✔     |      |
 | STM32F4     |  ✔   |      ✔       |      ✔      |        ✔         |    ✔     |      |
+| STM32H5     |  ✔   |      ✔       |      ✔      |        ✔         |          |      |
 
 ## Build and Flash
 
@@ -108,12 +109,7 @@ By default log message is printed via on-board UART which is slow and take lots 
   - Cons: requires jlink as the debugger.
   - Pros: work with most if not all MCUs
   - Software viewer is JLink RTT Viewer/Client/Logger which is bundled with JLink driver package.
-- `LOGGER=swo`: Use dedicated SWO pin of ARM Cortex SWD debug header.
-  - Cons: only work with ARM Cortex MCUs minus M0
-  - Pros: should be compatible with more debugger that support SWO.
-  - Software viewer should be provided along with your debugger driver.
 
 ```
 $ make BOARD=feather_stm32f405_express LOG=2 LOGGER=rtt all
-$ make BOARD=feather_stm32f405_express LOG=2 LOGGER=swo all
 ```
