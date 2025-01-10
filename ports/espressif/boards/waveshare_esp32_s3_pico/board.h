@@ -51,6 +51,8 @@
 // Number of neopixels
 #define NEOPIXEL_NUMBER       1
 
+// Invert Neopixel red and green
+#define NEOPIXEL_INVERT_RG    1
 
 // LED for indicator and writing flash
 // If not defined neopixel will be use for flash writing instead
