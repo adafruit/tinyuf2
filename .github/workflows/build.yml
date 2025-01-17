@@ -86,7 +86,7 @@ jobs:
       boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)['espressif'].board) }}
       build-system: 'make'
       toolchain: 'esp-idf'
-      toolchain_version: 'v5.1.4'
+      toolchain_version: 'v5.3.2'
 
   # ---------------------------------------
   # Build RISC-V
