@@ -260,15 +260,16 @@ void board_init(void) {
 }
 
 static usb_phy_handle_t phy_hdl;
-
 void board_dfu_init(void) {
+
   // Configure USB PHY
   usb_phy_config_t phy_conf = {
     .controller = USB_PHY_CTRL_OTG,
     .target = USB_PHY_TARGET_INT,
     .otg_mode = USB_OTG_MODE_DEVICE,
-    // .otg_speed = (CFG_TUSB_MCU == OPT_MCU_ESP32P4 ? USB_PHY_SPEED_HIGH : USB_PHY_SPEED_FULL),
-    .otg_speed = USB_PHY_SPEED_FULL,
+    // https://github.com/hathach/tinyusb/issues/2943#issuecomment-2601888322
+    // Set speed to undefined (auto detect) to avoid timinng/racing issue with S3 with host such as macOS
+    .otg_speed = USB_PHY_SPEED_UNDEFINED,
   };
 
   usb_new_phy(&phy_conf, &phy_hdl);
