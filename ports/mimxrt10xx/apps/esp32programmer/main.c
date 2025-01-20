@@ -59,22 +59,18 @@ static uint32_t baud_rate = 115200;
 // Timer
 //--------------------------------------------------------------------+
 
-TU_ATTR_ALWAYS_INLINE static inline uint32_t millis(void)
-{
+TU_ATTR_ALWAYS_INLINE static inline uint32_t millis(void) {
   return _timer_count;
 }
 
-static inline void delay_blocking(uint32_t ms)
-{
+static inline void delay_blocking(uint32_t ms) {
   uint32_t start = _timer_count;
-  while(_timer_count - start < ms)
-  {
+  while (_timer_count - start < ms) {
     tud_task();
   }
 }
 
-void board_timer_handler(void)
-{
+void board_timer_handler(void) {
   _timer_count++;
 }
 
@@ -82,18 +78,15 @@ void board_timer_handler(void)
 // ESP32 Helper
 //--------------------------------------------------------------------+
 
-static inline void esp32_set_io0(uint8_t state)
-{
+static inline void esp32_set_io0(uint8_t state) {
   GPIO_PinWrite(ESP32_GPIO0_PORT, ESP32_GPIO0_PIN, state);
 }
 
-static inline void esp32_set_en(uint8_t state)
-{
+static inline void esp32_set_en(uint8_t state) {
   GPIO_PinWrite(ESP32_RESET_PORT, ESP32_RESET_PIN, state);
 }
 
-void esp32_manual_enter_dfu(void)
-{
+void esp32_manual_enter_dfu(void) {
   // Put ESP into upload mode
   esp32_set_io0(1);
   esp32_set_en(0);
@@ -109,8 +102,7 @@ void esp32_manual_enter_dfu(void)
 //--------------------------------------------------------------------+
 // Main
 //--------------------------------------------------------------------+
-int main(void)
-{
+int main(void) {
   board_init();
 
   gpio_pin_config_t pin_config = { kGPIO_DigitalOutput, 1, kGPIO_NoIntmode };
@@ -127,7 +119,7 @@ int main(void)
 
   board_uart_init(115200);
   board_usb_init();
-  tusb_init();
+  tud_init(BOARD_TUD_RHPORT);
 
   board_timer_start(1);
 
@@ -135,15 +127,13 @@ int main(void)
   esp32_manual_enter_dfu();
 #endif
 
-  while(1)
-  {
+  while (1) {
     uint8_t serial_buf[512];
     uint32_t count;
 
     // UART -> USB
-    count = (uint32_t) board_uart_read(serial_buf, sizeof(serial_buf));
-    if (count)
-    {
+    count = (uint32_t)board_uart_read(serial_buf, sizeof(serial_buf));
+    if (count) {
       board_led_write(0xff);
 
       tud_cdc_write(serial_buf, count);
@@ -153,8 +143,7 @@ int main(void)
     }
 
     // USB -> UART
-    while ( tud_cdc_available() )
-    {
+    while (tud_cdc_available()) {
       board_led_write(0xff);
 
       count = tud_cdc_read(serial_buf, sizeof(serial_buf));
@@ -184,12 +173,10 @@ int main(void)
 //}
 
 // Invoked when line coding is change via SET_LINE_CODING
-void tud_cdc_line_coding_cb(uint8_t itf, cdc_line_coding_t const* line_coding)
-{
-  (void) itf;
+void tud_cdc_line_coding_cb(uint8_t itf, cdc_line_coding_t const* line_coding) {
+  (void)itf;
 
-  if ( baud_rate != line_coding->bit_rate )
-  {
+  if (baud_rate != line_coding->bit_rate) {
     baud_rate = line_coding->bit_rate;
 
     // must be the same freq as board_init()
@@ -197,9 +184,7 @@ void tud_cdc_line_coding_cb(uint8_t itf, cdc_line_coding_t const* line_coding)
     if (CLOCK_GetMux(kCLOCK_UartMux) == 0) /* PLL3 div6 80M */
     {
       freq = (CLOCK_GetPllFreq(kCLOCK_PllUsb1) / 6U) / (CLOCK_GetDiv(kCLOCK_UartDiv) + 1U);
-    }
-    else
-    {
+    } else {
       freq = CLOCK_GetOscFreq() / (CLOCK_GetDiv(kCLOCK_UartDiv) + 1U);
     }
 
