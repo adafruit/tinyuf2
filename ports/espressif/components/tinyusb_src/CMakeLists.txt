@@ -30,12 +30,10 @@ list(APPEND srcs
   ${tusb_src}/device/usbd.c
   ${tusb_src}/device/usbd_control.c
   ${tusb_src}/class/cdc/cdc_device.c
-#  ${tusb_src}/class/dfu/dfu_device.c
-#  ${tusb_src}/class/dfu/dfu_rt_device.c
   ${tusb_src}/class/hid/hid_device.c
   ${tusb_src}/class/msc/msc_device.c
-#  ${tusb_src}/class/vendor/vendor_device.c
   ${tusb_src}/portable/synopsys/dwc2/dcd_dwc2.c
+  ${tusb_src}/portable/synopsys/dwc2/dwc2_common.c
   )
 
 if (DEFINED LOG)

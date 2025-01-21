@@ -77,7 +77,7 @@ jobs:
   # ---------------------------------------
   # Build ESP
   # ---------------------------------------
-  esp:
+  espressif:
     needs: set-matrix
     uses: ./.github/workflows/build_util.yml
     secrets: inherit
@@ -86,7 +86,7 @@ jobs:
       boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)['espressif'].board) }}
       build-system: 'make'
       toolchain: 'esp-idf'
-      toolchain_version: 'v5.1.4'
+      toolchain_version: 'v5.3.2'
 
   # ---------------------------------------
   # Build RISC-V

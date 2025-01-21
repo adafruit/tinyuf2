@@ -219,14 +219,15 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
           #endif
 
           if (boot_index != FACTORY_INDEX) {
-            if (UF2_DETECTION_DELAY_MS > 0){
-              #if CONFIG_IDF_TARGET_ESP32S3
-              // S3 startup with USB JTAG, while delaying here, USB JTAG will be enumerated which can cause confusion when
-              // switching to OTG in application. Switch to OTG PHY here to avoid this.
-              SET_PERI_REG_MASK(RTC_CNTL_USB_CONF_REG,
-                                RTC_CNTL_SW_HW_USB_PHY_SEL | RTC_CNTL_SW_USB_PHY_SEL | RTC_CNTL_USB_PAD_ENABLE);
-              #endif
+            #if SOC_USB_SERIAL_JTAG_SUPPORTED
+            // startup with USB JTAG, while delaying here, USB JTAG will be enumerated which can cause confusion when
+            // switching to OTG in application. Switch to OTG PHY here to avoid this.
+            uint32_t const rtc_cntl_usb_conf = READ_PERI_REG(RTC_CNTL_USB_CONF_REG);
+            SET_PERI_REG_MASK(RTC_CNTL_USB_CONF_REG,
+                              RTC_CNTL_SW_HW_USB_PHY_SEL | RTC_CNTL_SW_USB_PHY_SEL | RTC_CNTL_USB_PAD_ENABLE);
+            #endif
 
+            if (UF2_DETECTION_DELAY_MS > 0){
               board_led_on();
             }
 
@@ -245,13 +246,12 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
             } while (UF2_DETECTION_DELAY_MS > (esp_log_early_timestamp() - tm_start) );
 
             if (UF2_DETECTION_DELAY_MS > 0){
-              #if CONFIG_IDF_TARGET_ESP32S3
-              CLEAR_PERI_REG_MASK(RTC_CNTL_USB_CONF_REG,
-                                  RTC_CNTL_SW_HW_USB_PHY_SEL | RTC_CNTL_SW_USB_PHY_SEL | RTC_CNTL_USB_PAD_ENABLE);
-              #endif
-
               board_led_off();
             }
+
+            #if SOC_USB_SERIAL_JTAG_SUPPORTED
+            WRITE_PERI_REG(RTC_CNTL_USB_CONF_REG, rtc_cntl_usb_conf);
+            #endif
           }
 
 #if PIN_DOUBLE_RESET_RC

@@ -61,7 +61,7 @@ int main(void) {
   board_timer_start(1);
 
   board_usb_init();
-  tusb_init();
+  tud_init(BOARD_TUD_RHPORT);
 
   setColor(0);
   pinMode(13, OUTPUT);

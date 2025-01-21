@@ -2,7 +2,14 @@
 <project version="4">
   <component name="CMakeSharedSettings">
     <configurations>
-      <configuration PROFILE_NAME="espressif_esp32s2_devkitc_1" ENABLED="false" CONFIG_NAME="Debug" TOOLCHAIN_NAME="ESP-IDF" GENERATION_OPTIONS="-DBOARD=espressif_esp32s2_devkitc_1">
+      <configuration PROFILE_NAME="espressif_esp32s2_devkitc_1" ENABLED="false" TOOLCHAIN_NAME="ESP-IDF" GENERATION_OPTIONS="-DBOARD=espressif_esp32s2_devkitc_1">
+        <ADDITIONAL_GENERATION_ENVIRONMENT>
+          <envs>
+            <env name="ESPBAUD" value="1500000" />
+          </envs>
+        </ADDITIONAL_GENERATION_ENVIRONMENT>
+      </configuration>
+      <configuration PROFILE_NAME="adafruit_feather_esp32s2" ENABLED="false" CONFIG_NAME="Debug" TOOLCHAIN_NAME="ESP-IDF" GENERATION_OPTIONS="-DBOARD=adafruit_feather_esp32s2">
         <ADDITIONAL_GENERATION_ENVIRONMENT>
           <envs>
             <env name="ESPBAUD" value="1500000" />
@@ -16,7 +23,21 @@
           </envs>
         </ADDITIONAL_GENERATION_ENVIRONMENT>
       </configuration>
+      <configuration PROFILE_NAME="adafruit_funhouse_esp32s2" ENABLED="false" CONFIG_NAME="Debug" TOOLCHAIN_NAME="ESP-IDF" GENERATION_OPTIONS="-DBOARD=adafruit_funhouse_esp32s2">
+        <ADDITIONAL_GENERATION_ENVIRONMENT>
+          <envs>
+            <env name="ESPBAUD" value="1500000" />
+          </envs>
+        </ADDITIONAL_GENERATION_ENVIRONMENT>
+      </configuration>
       <configuration PROFILE_NAME="espressif_esp32s3_devkitc_1" ENABLED="false" CONFIG_NAME="Debug" TOOLCHAIN_NAME="ESP-IDF" GENERATION_OPTIONS="-DBOARD=espressif_esp32s3_devkitc_1">
+        <ADDITIONAL_GENERATION_ENVIRONMENT>
+          <envs>
+            <env name="ESPBAUD" value="1500000" />
+          </envs>
+        </ADDITIONAL_GENERATION_ENVIRONMENT>
+      </configuration>
+      <configuration PROFILE_NAME="espressif_esp32s3_devkitm_1" ENABLED="false" TOOLCHAIN_NAME="ESP-IDF" GENERATION_OPTIONS="-DBOARD=espressif_esp32s3_devkitm_1">
         <ADDITIONAL_GENERATION_ENVIRONMENT>
           <envs>
             <env name="ESPBAUD" value="1500000" />
@@ -56,6 +77,8 @@
       <configuration PROFILE_NAME="stm32f303disco" ENABLED="false" CONFIG_NAME="MinSizeRel" GENERATION_OPTIONS="-DBOARD=stm32f303disco" />
       <configuration PROFILE_NAME="stm32f411ve_discovery" ENABLED="false" CONFIG_NAME="MinSizeRel" GENERATION_OPTIONS="-DBOARD=stm32f411ve_discovery" />
       <configuration PROFILE_NAME="test 4k" ENABLED="false" CONFIG_NAME="Debug" GENERATION_OPTIONS="-DBOARD=4k" />
+      <configuration PROFILE_NAME="stm32h503_nucleo" ENABLED="false" CONFIG_NAME="MinSizeRel" GENERATION_OPTIONS="-DBOARD=stm32h503_nucleo" />
+      <configuration PROFILE_NAME="stm32h563_nucleo" ENABLED="false" CONFIG_NAME="MinSizeRel" GENERATION_OPTIONS="-DBOARD=stm32h563_nucleo -DLOGGER=RTT" />
     </configurations>
   </component>
 </project>

@@ -27,7 +27,10 @@
 #include "freertos/semphr.h"
 
 #include "hal/gpio_ll.h"
-#include "hal/usb_hal.h"
+
+#include "esp_private/usb_phy.h"
+#include "soc/usb_pins.h"
+
 #include "soc/usb_periph.h"
 #include "esp_private/periph_ctrl.h"
 
@@ -89,7 +92,6 @@ extern bool board_init_extension();
 #endif
 
 extern int main(void);
-static void configure_pins(usb_hal_context_t* usb);
 static void internal_timer_cb(void* arg);
 
 //--------------------------------------------------------------------+
@@ -257,16 +259,19 @@ void board_init(void) {
   esp_timer_create(&periodic_timer_args, &timer_hdl);
 }
 
+static usb_phy_handle_t phy_hdl;
 void board_dfu_init(void) {
-  // USB Controller Hal init
-  periph_module_reset(PERIPH_USB_MODULE);
-  periph_module_enable(PERIPH_USB_MODULE);
-
-  usb_hal_context_t hal = {
-      .use_external_phy = false // use built-in PHY
+  // Configure USB PHY
+  usb_phy_config_t phy_conf = {
+    .controller = USB_PHY_CTRL_OTG,
+    .target = USB_PHY_TARGET_INT,
+    .otg_mode = USB_OTG_MODE_DEVICE,
+    // https://github.com/hathach/tinyusb/issues/2943#issuecomment-2601888322
+    // Set speed to undefined (auto-detect) to avoid timinng/racing issue with S3 with host such as macOS
+    .otg_speed = USB_PHY_SPEED_UNDEFINED,
   };
-  usb_hal_init(&hal);
-  configure_pins(&hal);
+
+  usb_new_phy(&phy_conf, &phy_hdl);
 }
 
 void board_reset(void) {
@@ -345,7 +350,6 @@ void board_timer_stop(void) {
 
 #if CONFIG_IDF_TARGET_ESP32S3
 #include "hal/usb_serial_jtag_ll.h"
-#include "hal/usb_fsls_phy_ll.h"
 
 static void hw_cdc_reset_handler(void *arg) {
   portBASE_TYPE xTaskWoken = 0;
@@ -389,7 +393,7 @@ static void usb_switch_to_cdc_jtag(void) {
   gpio_set_level((gpio_num_t)USBPHY_DP_NUM, 0);
 
   // Initialize CDC+JTAG ISR to listen for BUS_RESET
-  usb_fsls_phy_ll_int_jtag_enable(&USB_SERIAL_JTAG);
+  usb_serial_jtag_ll_phy_enable_external(false);
   usb_serial_jtag_ll_disable_intr_mask(USB_SERIAL_JTAG_LL_INTR_MASK);
   usb_serial_jtag_ll_clr_intsts_mask(USB_SERIAL_JTAG_LL_INTR_MASK);
   usb_serial_jtag_ll_ena_intr_mask(USB_SERIAL_JTAG_INTR_BUS_RESET);
@@ -579,32 +583,3 @@ void dotstar_write(uint8_t const rgb[]) {
 }
 
 #endif
-
-//--------------------------------------------------------------------+
-// Helper
-//--------------------------------------------------------------------+
-static void configure_pins(usb_hal_context_t* usb) {
-  /* usb_periph_iopins currently configures USB_OTG as USB Device.
-   * Introduce additional parameters in usb_hal_context_t when adding support
-   * for USB Host.
-   */
-  for (const usb_iopin_dsc_t* iopin = usb_periph_iopins; iopin->pin != -1; ++iopin) {
-    if ((usb->use_external_phy) || (iopin->ext_phy_only == 0)) {
-      esp_rom_gpio_pad_select_gpio(iopin->pin);
-      if (iopin->is_output) {
-        esp_rom_gpio_connect_out_signal(iopin->pin, iopin->func, false, false);
-      } else {
-        esp_rom_gpio_connect_in_signal(iopin->pin, iopin->func, false);
-        if ((iopin->pin != GPIO_MATRIX_CONST_ZERO_INPUT) && (iopin->pin != GPIO_MATRIX_CONST_ONE_INPUT)) {
-          gpio_ll_input_enable(&GPIO, iopin->pin);
-        }
-      }
-      esp_rom_gpio_pad_unhold(iopin->pin);
-    }
-  }
-
-  if (!usb->use_external_phy) {
-    gpio_set_drive_capability(USBPHY_DM_NUM, GPIO_DRIVE_CAP_3);
-    gpio_set_drive_capability(USBPHY_DP_NUM, GPIO_DRIVE_CAP_3);
-  }
-}
