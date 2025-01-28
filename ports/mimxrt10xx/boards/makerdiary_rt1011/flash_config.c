@@ -36,7 +36,7 @@ const BOOT_DATA_T g_boot_data = {
   0xFFFFFFFF                  /* empty - extra data word */
 };
 
-// Config for AT25SF128A with QSPI routed.
+// Config for W25Q128VPQ with QSPI routed.
 __attribute__((section(".boot_hdr.conf")))
 const flexspi_nor_config_t qspiflash_config = {
     .pageSize           = 256u,
@@ -64,7 +64,7 @@ const flexspi_nor_config_t qspiflash_config = {
         .deviceModeArg = 0x200,
         .deviceType    = kFlexSpiDeviceType_SerialNOR,
         .sflashPadType = kSerialFlash_4Pads,
-        .serialClkFreq = kFlexSpiSerialClk_60MHz,
+        .serialClkFreq = kFlexSpiSerialClk_100MHz,
         .sflashA1Size  = FLASH_SIZE,
         .lookupTable =
         {
