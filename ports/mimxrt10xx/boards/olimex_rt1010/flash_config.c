@@ -36,7 +36,7 @@ const BOOT_DATA_T g_boot_data = {
   0xFFFFFFFF                  /* empty - extra data word */
 };
 
-// Config for W25Q16DVSSIG with QSPI routed.
+// Config for EN25Q16B-104HIP with QSPI routed.
 __attribute__((section(".boot_hdr.conf")))
 const flexspi_nor_config_t qspiflash_config = {
     .pageSize           = 256u,
@@ -61,7 +61,7 @@ const flexspi_nor_config_t qspiflash_config = {
           .seqId = 4u,
           .seqNum = 1u,
         },
-        .deviceModeArg = 0x200,
+        .deviceModeArg = 0x40,
         .deviceType    = kFlexSpiDeviceType_SerialNOR,
         .sflashPadType = kSerialFlash_4Pads,
         .serialClkFreq = kFlexSpiSerialClk_100MHz,
@@ -110,7 +110,7 @@ const flexspi_nor_config_t qspiflash_config = {
 
             // 4: Config: Write Status
             SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR,   FLEXSPI_1PAD, 0x01  /* the command to send */,
-                                     WRITE_SDR, FLEXSPI_1PAD, 0x02),
+                                     WRITE_SDR, FLEXSPI_1PAD, 0x01),
                      TWO_EMPTY_STEPS,
                      TWO_EMPTY_STEPS,
                      TWO_EMPTY_STEPS),
