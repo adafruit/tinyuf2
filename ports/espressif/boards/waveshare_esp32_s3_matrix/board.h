@@ -46,10 +46,14 @@
 #define NEOPIXEL_PIN          14
 
 // Brightness percentage from 1 to 255
-#define NEOPIXEL_BRIGHTNESS   0x08
+#define NEOPIXEL_BRIGHTNESS   0x05
 
 // 8x8 grid, 64 total
 #define NEOPIXEL_NUMBER       64
+
+// Invert Neopixel red and green
+#define NEOPIXEL_INVERT_RG    1
+
 
 // LED for indicator and writing flash
 // If not defined neopixel will be use for flash writing instead
