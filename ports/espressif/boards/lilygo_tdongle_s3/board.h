@@ -67,7 +67,7 @@
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID             "ESP32S3-T_Dongle_S3-rev2" // Rev. 2 added a QWIIC connector
-#define UF2_VOLUME_LABEL         "TDNGLBOOT"
+#define UF2_VOLUME_LABEL         "LILYGOBOOT"
 #define UF2_INDEX_URL            "https://github.com/Xinyuan-LilyGO/T-Dongle-S3"
 
 #endif
