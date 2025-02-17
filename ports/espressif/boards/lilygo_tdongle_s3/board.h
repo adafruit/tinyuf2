@@ -54,6 +54,34 @@
 //
 
 // LCD is ST7735 and may need a custom init cmd to use the ILI9341 driver.
+// #define CONFIG_LCD_TYPE_ILI9341
+
+// #define DISPLAY_PIN_MISO       -1 // required if use CONFIG_LCD_TYPE_AUTO
+// #define DISPLAY_PIN_MOSI        3
+// #define DISPLAY_PIN_SCK         5
+
+// #define DISPLAY_PIN_CS          4
+// #define DISPLAY_PIN_DC          2
+// #define DISPLAY_PIN_RST         1
+
+// #define DISPLAY_PIN_BL         38
+// #define DISPLAY_BL_ON           1 // GPIO state to enable back light
+
+// #define DISPLAY_PIN_POWER      -1
+// #define DISPLAY_POWER_ON        1 // GPIO state to enable TFT
+
+// #define DISPLAY_WIDTH         160
+// #define DISPLAY_HEIGHT         80
+
+// #define DISPLAY_COL_OFFSET     26
+// #define DISPLAY_ROW_OFFSET      1
+
+// Memory Data Access Control & // Vertical Scroll Start Address
+// #define DISPLAY_MADCTL        (TFT_MADCTL_BGR | TFT_MADCTL_MY | TFT_MADCTL_MV)
+// #define DISPLAY_VSCSAD        80
+// Display rotated 90 degrees
+
+// #define DISPLAY_TITLE         "T-Dongle-S3"
 
 //--------------------------------------------------------------------+
 // USB UF2
