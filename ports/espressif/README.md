@@ -22,6 +22,7 @@ Following boards are supported:
 - [LILYGO® TTGO T8 ESP32-S2-WROOM](http://www.lilygo.cn/prod_view.aspx?TypeId=50063&Id=1320&FId=t3:50063:3)
 - [LILYGO® TTGO T-Beam Supreme](https://www.lilygo.cc/products/softrf-t-beamsupreme)
 - [LILYGO® TTGO T-TWR Plus](https://www.lilygo.cc/products/t-twr-plus)
+- [LILYGO® T-Dongle S3](https://www.lilygo.cc/products/t-dongle-s3)
 - [LOLIN Wemos® S2 Pico](https://www.wemos.cc/en/latest/s2/s2_pico.html)
 - [Maker badge](https://github.com/dronecz/maker_badge)
 - [MicroDev microS2](https://github.com/microDev1/microS2/wiki)
