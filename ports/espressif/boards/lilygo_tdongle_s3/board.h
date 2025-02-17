@@ -45,6 +45,9 @@
 #define DOTSTAR_PIN_DATA      40
 #define DOTSTAR_PIN_SCK       39
 
+// Brightness percentage from 1 to 255
+#define DOTSTAR_BRIGHTNESS     127
+
 //--------------------------------------------------------------------+
 // TFT
 //--------------------------------------------------------------------+
