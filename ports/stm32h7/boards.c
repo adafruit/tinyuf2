@@ -112,8 +112,8 @@ bool board_app_valid(void)
   switch ((app_vector[0] & 0xFFFF0003u))
   {
     case 0x00000000u: // ITCM 64K       [0x0000_0000u--0x0000_FFFFu]
-    case 0x20000000u: // DTCM 64K       [0x2000_0000u--0x2000_FFFFu]
-    case 0x20010000u: // DTCM 64K       [0x2001_0000u--0x2001_FFFFu]
+    case 0x20010000u: // DTCM 64K       [0x2000_0000u--0x2000_FFFFu]
+    case 0x20020000u: // DTCM 64K       [0x2001_0000u--0x2001_FFFFu]
     case 0x24000000u: // AXI SRAM 512K  [0x2400_0000u--0x2407_FFFFu]
     case 0x30010000u: // SRAM1 64K      [0x3001_0000u--0x3001_FFFFu]
     case 0x30020000u: // SRAM2 64K      [0x3002_0000u--0x3002_FFFFu]
