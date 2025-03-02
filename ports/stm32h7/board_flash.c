@@ -84,7 +84,7 @@ static void qspi_Startup(void) {
   #endif
   #ifdef IS25LP064A
   if (CSP_QSPI_EnableMemoryMappedMode() != qspi_OK) {
-    TUF2_LOG1("Error enabing memory map for QSPI Flash\r\n");
+    TUF2_LOG1("Error enabling memory map for QSPI Flash\r\n");
   }
   #endif
 }
