@@ -68,7 +68,7 @@ extern "C" {
 #define USB_PRODUCT "STM32FH750IB"
 
 #define UF2_PRODUCT_NAME USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID "DaisySeed"
+#define UF2_BOARD_ID "STM32FH750IB-DaisySeed"
 #define UF2_VOLUME_LABEL "DaisySeed"
 #define UF2_INDEX_URL "https://electro-smith.com/products/daisy-seed"
 
