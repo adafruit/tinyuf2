@@ -68,6 +68,7 @@ jobs:
         - 'stm32f4'
         - 'stm32h5'
         - 'stm32l4'
+        - 'stm32h7'
     with:
       port: ${{ matrix.port }}
       boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)[matrix.port].board) }}
