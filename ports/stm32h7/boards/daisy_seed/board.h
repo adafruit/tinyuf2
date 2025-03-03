@@ -62,8 +62,8 @@ extern "C" {
 // USB UF2
 //--------------------------------------------------------------------+
 
-#define USB_VID 0x239A
-#define USB_PID 0x005D
+#define USB_VID 0x0483
+#define USB_PID 0x5740
 #define USB_MANUFACTURER "STM32"
 #define USB_PRODUCT "STM32FH750IB"
 
