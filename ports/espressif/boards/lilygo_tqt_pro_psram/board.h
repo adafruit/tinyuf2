@@ -22,8 +22,8 @@
  * THE SOFTWARE.
  */
 
-#ifndef ADAFRUIT_QTPY_S3_H_
-#define ADAFRUIT_QTPY_S3_H_
+#ifndef LILYGO_TQT_PRO_PSRAM_H_
+#define LILYGO_TQT_PRO_PSRAM_H_
 
 //--------------------------------------------------------------------+
 // Button
