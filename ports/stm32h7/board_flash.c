@@ -12,6 +12,7 @@
 
 #ifdef IS25LP064A
 #include "components/is25lp064a/is25lp064a_qspi.h"
+#include "components/is25lp064a/is25lp064a.h"
 #endif
 
 #if defined (BOARD_QSPI_FLASH_EN) && (BOARD_QSPI_FLASH_EN == 1)
@@ -239,8 +240,18 @@ bool board_flash_write(uint32_t addr, void const * data, uint32_t len)
   {
     // SET_BOOT_ADDR(BOARD_AXISRAM_APP_ADDR);
     // handles erasing internally
+    #ifdef IS25LP064A
+    // flash needs to be erased before writing
+    if (addr % IS25LP064A_SECTOR_SIZE == 0) {
+      // erase 4k sector ahead of next page writes
+      if (CSP_QSPI_EraseSector(addr, addr+IS25LP064A_SECTOR_SIZE) != qspi_OK) {
+        TUF2_LOG1("Error erasing sector at address: %lx \r\n",addr);
+      }
+    }
+    #endif
     if (qspi_Write((uint8_t *)data, (addr - QSPI_BASE_ADDR), len) != qspi_OK)
     {
+      TUF2_LOG1("Error QSPI Flash write\r\n");
       __asm("bkpt #9");
     }
     return true;
