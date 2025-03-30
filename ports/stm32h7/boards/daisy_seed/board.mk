@@ -12,7 +12,7 @@ CFLAGS += \
 
 MCU = h750xx
 
-LOG = 1
+LOG = 0
 
 SRC_S += \
   $(ST_CMSIS)/Source/Templates/gcc/startup_stm32h750xx.s
