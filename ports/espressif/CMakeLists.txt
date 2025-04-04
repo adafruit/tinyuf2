@@ -38,6 +38,18 @@ add_custom_command(TARGET app POST_BUILD
   COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} --carray -o ${CMAKE_CURRENT_LIST_DIR}/apps/self_update/main/bootloader_bin.c ${CMAKE_BINARY_DIR}/tinyuf2.bin
   )
 
+# External project for self-update
+externalproject_add(self_update
+  SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/apps/self_update
+  BINARY_DIR ${CMAKE_BINARY_DIR}/self_update
+  # Modiying the list separator for the arguments, as such, we won't need to manually
+  # replace the new separator by the default ';' in the subproject
+  CMAKE_ARGS -DBOARD=${BOARD}
+  INSTALL_COMMAND ""
+  BUILD_ALWAYS 1
+  DEPENDS app
+  )
+
 # -------------------------------------------------------------
 # Post build: update arduino-esp32 bootloader for debug purpose
 # -------------------------------------------------------------
