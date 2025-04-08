@@ -7,6 +7,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/../../boards/${BOARD}/board.cmake)
 
 # Must be set before including IDF project.cmake
 set(EXTRA_COMPONENT_DIRS "../../boards" "../../components")
+set(SDKCONFIG ${CMAKE_BINARY_DIR}/sdkconfig)
 
 set(SELFUPDATE_BUILD 1)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)

@@ -50,15 +50,8 @@ combined-flash: $(BUILD)/combined.bin
 	esptool.py --chip $(IDF_TARGET) write_flash 0x0 $<
 
 #-------------- Self Update --------------
-SELF_APP = apps/self_update
-SELF_BUILD = ${SELF_APP}/${BUILD}
-
-# cmake post build of tinyuf2's app will generate bootloader_bin.c
-# cmake post build of self-update's app will generate update-tinyuf2.uf2
-$(SELF_BUILD)/update-tinyuf2.uf2: app
-	idf.py -C ${SELF_APP} -B${SELF_BUILD} -DBOARD=${BOARD} app
-
-self-update: $(SELF_BUILD)/update-tinyuf2.uf2
+# Self_update is a sub/external project, will be built by cmake's all target
+SELF_BUILD = ${BUILD}/self_update
 
 #-------------- Artifacts --------------
 $(BIN):
@@ -67,7 +60,7 @@ $(BIN):
 # get the partition csv from sdkconfig
 PARTITION_CSV := $(strip $(foreach csv,$(wildcard partitions-*.csv),$(findstring $(csv),$(file < boards/$(BOARD)/sdkconfig))))
 
-copy-artifact: $(BIN) all self-update $(BUILD)/combined.bin
+copy-artifact: $(BIN) all $(BUILD)/combined.bin
 	@cp $(BUILD)/bootloader/bootloader.bin $<
 	@cp $(BUILD)/partition_table/partition-table.bin $<
 	@cp $(BUILD)/ota_data_initial.bin $<
