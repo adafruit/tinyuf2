@@ -1,7 +1,26 @@
 #include "stm32h7xx_hal.h"
 #include "board_api.h"
+#include <stdint.h>
 
 #define STM32_UUID ((uint32_t *)0x1FF1E800)
+
+#ifdef UART_DEV
+static UART_HandleTypeDef UartHandle;
+#endif
+
+// fixes for linker warnings: _syscall is not implemented and will always fail
+void __weak _close(void) {
+}
+void __weak _lseek(void) {
+}
+void __weak _read(void) {
+}
+void __weak _write(void) {
+}
+void __weak _fstat(void) {
+}
+void __weak _isatty(void) {
+}
 
 void board_init(void)
 {
@@ -26,9 +45,31 @@ void board_init(void)
   __HAL_RCC_GPIOI_CLK_ENABLE();
   __HAL_RCC_GPIOJ_CLK_ENABLE();
   __HAL_RCC_GPIOK_CLK_ENABLE();
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+  // UART
+  #ifdef UART_DEV
+  UART_CLOCK_ENABLE();
+  GPIO_InitStruct.Pin = UART_TX_PIN | UART_RX_PIN;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  GPIO_InitStruct.Alternate = UART_GPIO_AF;
+  HAL_GPIO_Init(UART_GPIO_PORT, &GPIO_InitStruct);
 
-  GPIO_InitTypeDef GPIO_InitStruct;
-
+  UartHandle.Instance = UART_DEV;
+  UartHandle.Init.BaudRate = 115200;
+  UartHandle.Init.WordLength = UART_WORDLENGTH_8B;
+  UartHandle.Init.StopBits = UART_STOPBITS_1;
+  UartHandle.Init.Parity = UART_PARITY_NONE;
+  UartHandle.Init.Mode = UART_MODE_TX_RX;
+  UartHandle.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  UartHandle.Init.OverSampling = UART_OVERSAMPLING_16;
+  UartHandle.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  UartHandle.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+  UartHandle.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  HAL_UART_Init(&UartHandle);
+  #endif
+  memset(&GPIO_InitStruct,0,sizeof(GPIO_InitStruct));
 #ifdef BUTTON_PIN
   GPIO_InitStruct.Pin = BUTTON_PIN;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
@@ -53,8 +94,8 @@ void board_init(void)
 void board_dfu_init(void)
 {
   // Not quite sure what an RHPORT is :/
-#if BOARD_TUD_RHPORT == 0
-  GPIO_InitTypeDef GPIO_InitStruct;
+#if defined (BOARD_TUD_RHPORT) && (BOARD_TUD_RHPORT == 0)
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   // Init USB Pins
   // Configure DM DP pins
@@ -81,7 +122,7 @@ void board_dfu_init(void)
   USB_OTG_FS->GOTGCTL |= USB_OTG_GOTGCTL_BVALOEN;
   USB_OTG_FS->GOTGCTL |= USB_OTG_GOTGCTL_BVALOVAL;
 
-#elif BOARD_TUD_RHPORT == 1
+#elif defined (BOARD_TUD_RHPORT) && (BOARD_TUD_RHPORT == 1)
   // TODO: implement whatever this is
   #error "Sorry, not implemented yet"
 #endif
@@ -112,8 +153,8 @@ bool board_app_valid(void)
   switch ((app_vector[0] & 0xFFFF0003u))
   {
     case 0x00000000u: // ITCM 64K       [0x0000_0000u--0x0000_FFFFu]
-    case 0x20000000u: // DTCM 64K       [0x2000_0000u--0x2000_FFFFu]
-    case 0x20010000u: // DTCM 64K       [0x2001_0000u--0x2001_FFFFu]
+    case 0x20010000u: // DTCM 64K       [0x2000_0000u--0x2000_FFFFu]
+    case 0x20020000u: // DTCM 64K       [0x2001_0000u--0x2001_FFFFu]
     case 0x24000000u: // AXI SRAM 512K  [0x2400_0000u--0x2407_FFFFu]
     case 0x30010000u: // SRAM1 64K      [0x3001_0000u--0x3001_FFFFu]
     case 0x30020000u: // SRAM2 64K      [0x3002_0000u--0x3002_FFFFu]
@@ -170,22 +211,43 @@ void board_app_jump(void)
   __HAL_RCC_GPIOJ_CLK_DISABLE();
   __HAL_RCC_GPIOK_CLK_DISABLE();
   // Lotsa GPIOs
+uint8_t allow_rcc_deinit = 1;
 
-  HAL_RCC_DeInit();
+// rcc clock needs to be enabled when executing code from external flash
+#if defined(BOARD_QSPI_FLASH_EN) && (BOARD_QSPI_FLASH_EN == 1)
+  allow_rcc_deinit = 0;
+#endif
+
+#if defined(BOARD_SPI_FLASH_EN) && (BOARD_SPI_FLASH_EN == 1)
+  allow_rcc_deinit = 0;
+#endif
+
+  if (allow_rcc_deinit) {
+    HAL_RCC_DeInit();
+  }
+
   SCB_DisableICache();
   SCB_DisableDCache();
 
   // Clear temporary boot address
   board_clear_temp_boot_addr();
 
-  // Setup VTOR to point to application vectors
-  SCB->VTOR = (uint32_t) app_addr;
+#ifdef UART_DEV
+  HAL_UART_DeInit(&UartHandle);
+  HAL_GPIO_DeInit(UART_GPIO_PORT, UART_TX_PIN | UART_RX_PIN);
+  UART_CLOCK_DISABLE();
+#endif
 
   // Set stack pointer
   __set_MSP(app_vector[0]);
   __set_PSP(app_vector[0]);
 
   TUF2_LOG1("App address: %08lx\r\n", app_vector[1]);
+
+  // Setup VTOR to point to application vectors
+  __DMB(); //ARM says to use a DMB instruction before relocating VTOR */
+  SCB->VTOR = (uint32_t) app_addr;
+  __DSB(); //ARM says to use a DSB instruction just after relocating VTOR */
 
   // Jump to application reset vector
   asm("bx %0" :: "r"(app_vector[1]));
@@ -217,9 +279,14 @@ void board_timer_stop(void)
 
 int board_uart_write(void const * buf, int len)
 {
+#ifdef UART_DEV
+  HAL_UART_Transmit(&UartHandle, (uint8_t*) buf, len, 0xFFFFFFFFU);
+  return len;
+#else
   (void) buf;
   (void) len;
   return 0;
+#endif
 }
 
 #ifdef TINYUF2_SELF_UPDATE

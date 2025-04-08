@@ -39,12 +39,21 @@ SRC_C += \
 	$(TOP)/$(PORT_DIR)/components/w25qxx/w25qxx_qspi.c
 endif
 
-ifeq ($(DISPLAY_DRV),ST7735)
+ifeq ($(QSPI_FLASH),IS25LP064A)
 INC += \
-  $(CURRENT_PATH)/components/w25qxx/ \
+  $(CURRENT_PATH)/components/is25lp064a/ \
 
 SRC_C += \
-	$(TOP)/$(PORT_DIR)/components/st7735/st7735.c
+  $(TOP)/$(PORT_DIR)/components/is25lp064a/is25lp064a_qspi.c
+endif
+
+ifeq ($(DISPLAY_DRV),ST7735)
+INC += \
+  $(CURRENT_PATH)/components/st7735/ \
+
+SRC_C += \
+	$(TOP)/$(PORT_DIR)/components/st7735/st7735.c \
+  $(TOP)/$(PORT_DIR)/components/st7735/fonts.c
 endif
 
 # Source
@@ -63,7 +72,6 @@ SRC_C += \
   $(ST_HAL_DRIVER)/Src/stm32h7xx_hal_qspi.c \
   $(ST_HAL_DRIVER)/Src/stm32h7xx_hal_mdma.c \
   $(ST_HAL_DRIVER)/Src/stm32h7xx_hal_pwr_ex.c \
-  $(TOP)/$(PORT_DIR)/components/st7735/fonts.c \
 
 
 ifndef BUILD_NO_TINYUSB
@@ -75,8 +83,6 @@ endif
 INC += \
   $(TOP)/$(BOARD_PATH) \
   $(TOP)/$(CMSIS_5)/CMSIS/Core/Include \
-  $(CURRENT_PATH)/components/st7735/ \
-  $(CURRENT_PATH)/components/w25qxx/ \
   $(TOP)/$(PORT_DIR)/ \
   $(TOP)/$(BOARD_DIR) \
   $(TOP)/$(ST_CMSIS)/Include \
