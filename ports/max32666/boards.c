@@ -33,7 +33,6 @@
 #include "gpio.h"
 #include "icc.h"
 #include "mxc_sys.h"
-#include "mcr_regs.h"
 #include "mxc_device.h"
 #include "uart.h"
 
@@ -54,7 +53,7 @@ void board_init(void) {
   board_led_write(false);
 
   // UART
-  MXC_UART_Init(ConsoleUart, BOARD_UART_BAUDRATE, MXC_UART_IBRO_CLK);
+  MXC_UART_Init(ConsoleUart, BOARD_UART_BAUDRATE, UART_MAP);
 }
 
 void board_teardown(void) {
@@ -62,11 +61,13 @@ void board_teardown(void) {
 }
 
 void board_dfu_init(void) {
-  // Init USB for DFU
-  MXC_SYS_ClockSourceEnable(MXC_SYS_CLOCK_IPO);
-  MXC_MCR->ldoctrl |= MXC_F_MCR_LDOCTRL_0P9EN;
+  // Startup the HIRC96M clock if it's not on already
+  if (!(MXC_GCR->clkcn & MXC_F_GCR_CLKCN_HIRC96M_EN)) {
+      MXC_GCR->clkcn |= MXC_F_GCR_CLKCN_HIRC96M_EN;
+  }
+
   MXC_SYS_ClockEnable(MXC_SYS_PERIPH_CLOCK_USB);
-  MXC_SYS_Reset_Periph(MXC_SYS_RESET0_USB);
+  MXC_SYS_Reset_Periph(MXC_SYS_RESET_USB);
 }
 
 void board_reset(void) {
@@ -109,7 +110,7 @@ void board_app_jump(void) {
   // Do a soft reset to reset all the peripherals to POR state. Does not impact
   // CPU state, RAM retention or the Always-On domain.  This should make the
   // application think it was as close to POR as possible
-  MXC_GCR->rst0 |= MXC_F_GCR_RST0_SOFT;
+  MXC_GCR->rstr0 |= MXC_F_GCR_RSTR0_SRST;
 
   // switch exception handlers to the application
   SCB->VTOR = (uint32_t) BOARD_FLASH_APP_START;
@@ -123,12 +124,10 @@ void board_app_jump(void) {
 }
 
 uint8_t board_usb_get_serial(uint8_t serial_id[16]) {
-  uint8_t hw_id[MXC_SYS_USN_CHECKSUM_LEN]; //USN Buffer
+  uint8_t hw_id[MXC_SYS_USN_CHECKSUM_LEN];//USN Buffer
   uint8_t act_len;
-  // 2nd parameter is optional checksum buffer
   MXC_SYS_GetUSN(hw_id, NULL);
-
-  act_len = TUF2_MIN(16, MXC_SYS_USN_CHECKSUM_LEN);
+  act_len = TUF2_MIN(16, MXC_SYS_USN_LEN);
   memcpy(serial_id, hw_id, act_len);
   return act_len;
 }
