@@ -26,10 +26,10 @@
 
 // MAX MSDK Includes
 #include "flc.h"
+#include "flc_reva.h" //Needed for the fixed erase function
 #include "gpio.h"
 #include "icc.h"
 #include "mxc_sys.h"
-#include "mcr_regs.h"
 #include "mxc_device.h"
 #include "uart.h"
 
@@ -83,12 +83,26 @@ void board_flash_read(uint32_t addr, void* buffer, uint32_t len) {
   MXC_FLC_Read(addr, buffer, len);
 }
 
+// There is/was a bug in the MAX32650 Page erase function which incorrectly
+// generated the page base address when performing an erase operation. This
+// was resolved in PR #1354 https://github.com/analogdevicesinc/msdk/pull/1354.
+// For now manually include a workaround until the fix is included in a
+// release of the MSDK.
+static int fix_MXC_FLC_PageErase(uint32_t address) {
+  int err;
+  if ((err = MXC_FLC_RevA_PageErase((mxc_flc_reva_regs_t *)MXC_FLC, address - MXC_FLASH_MEM_BASE)) != E_NO_ERROR) {
+      return err;
+  }
+  MXC_ICC_Flush();
+  return E_NO_ERROR;
+}
+
 static void flash_erase_page(uint32_t page_addr) {
-  MXC_ICC_Disable(MXC_ICC0);
+  MXC_ICC_Disable();
   MXC_CRITICAL(
-    MXC_FLC_PageErase(page_addr);
+    fix_MXC_FLC_PageErase(page_addr);
   )
-  MXC_ICC_Enable(MXC_ICC0);
+  MXC_ICC_Enable();
 }
 
 static void flash_prepare_page_buffer(uint32_t addr) {
@@ -109,11 +123,11 @@ static void flash_prepare_page_buffer(uint32_t addr) {
 void board_flash_flush(void) {
   if(page_buffer_addr != INVALID_PAGE_ADDR) {
     flash_erase_page(page_buffer_addr);
-    MXC_ICC_Disable(MXC_ICC0);
+    MXC_ICC_Disable();
     MXC_CRITICAL(
         MXC_FLC_Write(page_buffer_addr, BOARD_FLASH_PAGE_SIZE, page_buffer);
     )
-    MXC_ICC_Enable(MXC_ICC0);
+    MXC_ICC_Enable();
     page_buffer_addr = INVALID_PAGE_ADDR;
   }
 }
@@ -158,16 +172,6 @@ void board_flash_erase_app(void) {
 
 bool board_flash_protect_bootloader(bool protect) {
   // TODO implement later
-  // On the MAX32690 firmware protection is done via a register write, with each
-  // bit protecting a page of flash.  The only way to clear a protection bit is
-  // a POR, so currently its not viable to protect the bootloader as I don't
-  // think there is anyway for the bootloader to know the self-update app is the
-  // one that is about about to be run.  In the future if the bootloader could
-  // distinguish regular apps from self update apps, then this could be used.
-  //
-  // Alternately, maybe a MAGIC value that launches the app without bootloader
-  // protection could be used, so the self-update app could request a reload
-  // without protection.
   (void) protect;
   return false;
 }
@@ -181,18 +185,18 @@ bool board_flash_protect_bootloader(bool protect) {
 // well, just do the handful of register writes to clear the first application
 // page and reset the device
 static void __attribute__((section(".flashprog"))) erase_app_reboot_from_ram(void) {
-  while(MXC_FLC0->ctrl & MXC_F_FLC_CTRL_PEND);   //Wait for busy to clear
-  MXC_FLC0->clkdiv = SystemCoreClock / 1000000;  //Set up the Flash clock
-  MXC_FLC0->addr = BOARD_FLASH_APP_START;        //Erase starting at the app
-  MXC_FLC0->ctrl =                               //Unlock the flash to allow writing
-    (MXC_FLC0->ctrl & ~MXC_F_FLC_CTRL_UNLOCK) | MXC_S_FLC_CTRL_UNLOCK_UNLOCKED;
-  MXC_FLC0->ctrl =                               //Set the erase mode to page
-    (MXC_FLC0->ctrl & ~MXC_F_FLC_CTRL_ERASE_CODE) | MXC_S_FLC_CTRL_ERASE_CODE_ERASEPAGE;
-  MXC_FLC0->ctrl |= MXC_F_FLC_CTRL_PGE;          //Erase the page
-  while(MXC_FLC0->ctrl & MXC_F_FLC_CTRL_PEND);   //Wait for busy to clear
-  MXC_FLC0->ctrl =                               //Relock the flash
-    (MXC_FLC0->ctrl & ~MXC_F_FLC_CTRL_UNLOCK) | MXC_S_FLC_CTRL_UNLOCK_LOCKED;
-  MXC_GCR->rst0 |= MXC_F_GCR_RST0_SYS;           //Reset the device
+  while(MXC_FLC->ctrl & MXC_S_FLC_CTRL_BUSY_BUSY);      //Wait for busy to clear
+  MXC_FLC->clkdiv = SystemCoreClock / 1000000;          //Set up the Flash clock
+  MXC_FLC->addr = BOARD_FLASH_APP_START;                //Erase starting at the app
+  MXC_FLC->ctrl =                                       //Unlock the flash to allow writing
+    (MXC_FLC->ctrl & ~MXC_F_FLC_CTRL_UNLOCK_CODE) | MXC_S_FLC_CTRL_UNLOCK_CODE_UNLOCKED;
+  MXC_FLC->ctrl =                                       //Set the erase mode to page
+    (MXC_FLC->ctrl & ~MXC_F_FLC_CTRL_ERASE_CODE) | MXC_S_FLC_CTRL_ERASE_CODE_PGE;
+  MXC_FLC->ctrl |= MXC_S_FLC_CTRL_PAGE_ERASE_START_PGE; //Erase the page
+  while(MXC_FLC->ctrl & MXC_S_FLC_CTRL_BUSY_BUSY);      //Wait for busy to clear
+  MXC_FLC->ctrl =                                       //Relock the flash
+    (MXC_FLC->ctrl & ~MXC_F_FLC_CTRL_UNLOCK_CODE) | MXC_S_FLC_CTRL_UNLOCK_CODE_LOCKED;
+  MXC_GCR->rst0 |= MXC_F_GCR_RST0_SYS;                   //Reset the device
 }
 
 void board_self_update( const uint8_t * bootloader_bin, uint32_t bootloader_len) {
