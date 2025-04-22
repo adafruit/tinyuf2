@@ -51,7 +51,7 @@
 #define USB_PRODUCT       "AD-APARD32690-SL"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "AD-APARD32690-SL"
+#define UF2_BOARD_ID      "MAX32690=APARD32690"
 #define UF2_VOLUME_LABEL  "32690BOOT"
 #define UF2_INDEX_URL     "https://www.analog.com/en/resources/evaluation-hardware-and-software/evaluation-boards-kits/ad-apard32690-sl.html"
 

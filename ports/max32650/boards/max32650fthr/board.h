@@ -51,7 +51,7 @@
 #define USB_PRODUCT       "MAX32650FTHR"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "MAX32650FTHR"
+#define UF2_BOARD_ID      "MAX32650-FTHR"
 #define UF2_VOLUME_LABEL  "32650BOOT"
 #define UF2_INDEX_URL     "https://www.analog.com/en/resources/evaluation-hardware-and-software/evaluation-boards-kits/max32650fthr.html"
 

@@ -112,4 +112,3 @@ flash-msdk: $(BUILD)/$(OUTNAME).elf
 	$(MAXIM_PATH)/Tools/OpenOCD/openocd -s $(MAXIM_PATH)/Tools/OpenOCD/scripts \
 		-f interface/cmsis-dap.cfg -f target/max32650.cfg \
 		-c "program $(BUILD)/$(OUTNAME).elf verify; init; reset; exit"
-
