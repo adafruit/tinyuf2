@@ -30,4 +30,3 @@ blinky:
 
 blinky-clean:
 	$(MAKE) -C $(TOP)/$(PORT_DIR)/apps/blinky clean
-

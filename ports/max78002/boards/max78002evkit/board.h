@@ -29,10 +29,10 @@
 // LED
 //--------------------------------------------------------------------+
 
-#define LED_PORT              MXC_GPIO0
-#define LED_PIN               MXC_GPIO_PIN_29
+#define LED_PORT              MXC_GPIO2
+#define LED_PIN               MXC_GPIO_PIN_4
 #define LED_VDDIO             MXC_GPIO_VSSEL_VDDIOH
-#define LED_STATE_ON          0
+#define LED_STATE_ON          1
 
 //--------------------------------------------------------------------+
 // Neopixel
@@ -48,19 +48,20 @@
 #define USB_VID           0x0D28 //0x0456 //ADI
 #define USB_PID           0x0204 //0x0154 TODO: Get a PID assigned
 #define USB_MANUFACTURER  "Analog Devices"
-#define USB_PRODUCT       "MAX32666FTHR"
+#define USB_PRODUCT       "MAX78002EvKit"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "MAX32666-FTHR"
-#define UF2_VOLUME_LABEL  "32666BOOT"
-#define UF2_INDEX_URL     "https://www.analog.com/en/resources/evaluation-hardware-and-software/evaluation-boards-kits/max32666fthr.html"
+#define UF2_BOARD_ID      "MAX78002-EvKit"
+#define UF2_VOLUME_LABEL  "78002BOOT"
+#define UF2_INDEX_URL     "https://www.analog.com/en/resources/evaluation-hardware-and-software/evaluation-boards-kits/max78002evkit.html"
 
 //--------------------------------------------------------------------+
 // UART
 //--------------------------------------------------------------------+
 
-// UART via SWD Connector
-#define UART_NUM            1
-#define UART_MAP            MAP_B
+// UART Enable for EvKit's Integrated FTDI Adapter. Pin Mux handled by the HAL
+#define UART_NUM        0
+#define UART_PORT       MXC_GPIO0
+#define UART_VDDIO_BITS 0xF
 
 #endif
