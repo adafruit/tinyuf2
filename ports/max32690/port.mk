@@ -108,6 +108,9 @@ erase: erase-jlink
 # Mainline OpenOCD does not yet have the MAX32's flash algorithm integrated.
 # If the MSDK is installed, flash-msdk can be run to utilize the the modified
 # openocd with the algorithms
+
+
+# Convert Windows-style \ to /
 MAXIM_PATH := $(subst \,/,$(MAXIM_PATH))
 flash-msdk: $(BUILD)/$(OUTNAME).elf
 	$(MAXIM_PATH)/Tools/OpenOCD/openocd -s $(MAXIM_PATH)/Tools/OpenOCD/scripts \
