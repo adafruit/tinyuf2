@@ -45,8 +45,8 @@
 // USB UF2
 //--------------------------------------------------------------------+
 
-#define USB_VID           0x0D28 //0x0456 //ADI
-#define USB_PID           0x0204 //0x0154 TODO: Get a PID assigned
+#define USB_VID           0x0456 //ADI
+#define USB_PID           0xA010 //MAX32 TinyUF2
 #define USB_MANUFACTURER  "Analog Devices"
 #define USB_PRODUCT       "MAX32666EvKit"
 
