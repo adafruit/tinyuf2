@@ -1,6 +1,6 @@
 [submodule "lib/tinyusb"]
 	path = lib/tinyusb
-	url = https://github.com/hathach/tinyusb.git
+	url = https://github.com/FrostCat/tinyusb.git
 [submodule "lib/uf2"]
 	path = lib/uf2
 	url = https://github.com/microsoft/uf2.git
