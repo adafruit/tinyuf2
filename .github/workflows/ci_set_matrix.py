@@ -18,7 +18,7 @@ def set_matrix_json():
                     if b.is_dir():
                         matrix[p.name]['board'].append(b.name)
                         # For quick testing by only build 1 espressif board
-                        #if p.name == 'espressif':
+                        # if p.name == 'espressif':
                         #    break
     print(json.dumps(matrix))
 

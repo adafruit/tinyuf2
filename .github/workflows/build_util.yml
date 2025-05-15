@@ -58,7 +58,7 @@ jobs:
 
       - name: Build using ESP-IDF docker
         if: inputs.toolchain == 'esp-idf'
-        run: docker run --rm -v $PWD:/project -w /project espressif/idf:${{ inputs.toolchain_version }} /bin/bash -c "git config --global --add safe.directory /project && make -C ports/espressif/ BOARD=${{ matrix.board }} all copy-artifact"
+        run: docker run --rm -v $PWD:/project -w /project espressif/idf:${{ inputs.toolchain_version }} /bin/bash -c "git config --global --add safe.directory /project && idf.py -C ports/espressif -DBOARD=${{ matrix.board }} build"
 
       - uses: actions/upload-artifact@v4
         with:
