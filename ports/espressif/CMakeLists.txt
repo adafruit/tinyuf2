@@ -32,23 +32,36 @@ cmake_print_variables(GIT_VERSION GIT_SUBMODULE_VERSIONS)
 
 project(tinyuf2)
 
-# Post build: generate bootloader_bin.c for self-update and combined.bin
-add_custom_command(TARGET tinyuf2.elf POST_BUILD
-  COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} --carray -o ${CMAKE_CURRENT_LIST_DIR}/apps/self_update/main/bootloader_bin.c ${CMAKE_BINARY_DIR}/tinyuf2.bin
-  )
+set(ARTIFACT_PATH ${CMAKE_CURRENT_LIST_DIR}/_bin/${BOARD})
+execute_process(COMMAND mkdir -p ${ARTIFACT_PATH})
 
-add_custom_command(TARGET tinyuf2.elf POST_BUILD
-  BYPRODUCTS ${CMAKE_BINARY_DIR}/combined.bin
-  COMMAND ${CMAKE_COMMAND} -E echo "Creating combined.bin"
-  COMMAND bash -c "esptool.py --chip ${IDF_TARGET} merge_bin --output combined.bin $(tr '\\n' ' ' < ${CMAKE_BINARY_DIR}/flash_args)"
+# Create post-build script for combined.bin / combined-ota.bin
+file(WRITE ${CMAKE_BINARY_DIR}/tinyuf2.postbuild.sh
+  "#!/bin/bash\n"
+  "echo \"Creating combined.bin\"\n"
+  "esptool.py --chip ${IDF_TARGET} merge_bin --output combined.bin $(tr '\\n' ' ' < ${CMAKE_BINARY_DIR}/flash_args)\n"
+)
+
+# check if board is 4MB flash and create combined-ota.bin
+file(READ ${CMAKE_CURRENT_LIST_DIR}/boards/${BOARD}/sdkconfig BOARD_SDKCONFIG_CONTENTS)
+string(FIND ${BOARD_SDKCONFIG_CONTENTS} "partitions-4MB-noota.csv" MATCH_INDEX)
+if(NOT MATCH_INDEX EQUAL -1)
+  file(APPEND ${CMAKE_BINARY_DIR}/tinyuf2.postbuild.sh
+    "echo \"Creating combined-ota.bin\"\n"
+    "gen_esp32part.py ${CMAKE_CURRENT_LIST_DIR}/partitions-4MB.csv ${CMAKE_BINARY_DIR}/partition_table/partitions-table-4MB-ota.bin\n"
+    "esptool.py --chip ${IDF_TARGET} merge_bin --output combined_ota.bin $(tr '\\n' ' ' < ${CMAKE_BINARY_DIR}/flash_args | sed 's/partition-table.bin/partitions-table-4MB-ota.bin/g')\n"
+    "cp combined_ota.bin ${ARTIFACT_PATH}/combined_ota.bin\n"
+    )
+endif()
+
+add_custom_command(TARGET app POST_BUILD
+  COMMAND bash ${CMAKE_BINARY_DIR}/tinyuf2.postbuild.sh
   VERBATIM
   )
 
-## Post build: copy binaries for artifact
-set(ARTIFACT_PATH ${CMAKE_CURRENT_LIST_DIR}/_bin/${BOARD})
-add_custom_command(TARGET tinyuf2.elf POST_BUILD
+# Post build: copy binaries for artifact
+add_custom_command(TARGET app POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E echo "Copy binaries for artifact"
-  COMMAND mkdir -p ${ARTIFACT_PATH}
   COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/bootloader/bootloader.bin ${ARTIFACT_PATH}/bootloader.bin
   COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/ota_data_initial.bin ${ARTIFACT_PATH}/ota_data_initial.bin
   COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/partition_table/partition-table.bin ${ARTIFACT_PATH}/partition-table.bin
@@ -57,21 +70,12 @@ add_custom_command(TARGET tinyuf2.elf POST_BUILD
   VERBATIM
   )
 
-# check if board is 4MB flash and create combined-ota.bin
-file(READ ${CMAKE_CURRENT_LIST_DIR}/boards/${BOARD}/sdkconfig BOARD_SDKCONFIG_CONTENTS)
-string(FIND ${BOARD_SDKCONFIG_CONTENTS} "partitions-4MB-noota.csv" MATCH_INDEX)
-if(NOT MATCH_INDEX EQUAL -1)
-  add_custom_command(TARGET tinyuf2.elf POST_BUILD
-    BYPRODUCTS ${CMAKE_BINARY_DIR}/combined_ota.bin
-    COMMAND ${CMAKE_COMMAND} -E echo "Creating combined_ota.bin"
-    COMMAND gen_esp32part.py ${CMAKE_CURRENT_LIST_DIR}/partitions-4MB.csv ${CMAKE_BINARY_DIR}/partition_table/partitions-table-4MB-ota.bin
-    COMMAND bash -c "esptool.py --chip ${IDF_TARGET} merge_bin --output combined_ota.bin $(tr '\\n' ' ' < ${CMAKE_BINARY_DIR}/flash_args | sed 's/partition-table.bin/partitions-table-4MB-ota.bin/g')"
-    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/combined_ota.bin ${ARTIFACT_PATH}/combined_ota.bin
-    VERBATIM
-    )
-endif()
-
 # External project for self-update
+# Post build: generate bootloader_bin.c for self-update and combined.bin
+add_custom_command(TARGET app POST_BUILD
+  COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} --carray -o ${CMAKE_CURRENT_LIST_DIR}/apps/self_update/main/bootloader_bin.c ${CMAKE_BINARY_DIR}/tinyuf2.bin
+  )
+
 externalproject_add(self_update
   SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/apps/self_update
   BINARY_DIR ${CMAKE_BINARY_DIR}/self_update
