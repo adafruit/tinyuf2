@@ -48,9 +48,10 @@ string(FIND ${BOARD_SDKCONFIG_CONTENTS} "partitions-4MB-noota.csv" MATCH_INDEX)
 if(NOT MATCH_INDEX EQUAL -1)
   file(APPEND ${CMAKE_BINARY_DIR}/tinyuf2.postbuild.sh
     "echo \"Creating combined-ota.bin\"\n"
-    "gen_esp32part.py ${CMAKE_CURRENT_LIST_DIR}/partitions-4MB.csv ${CMAKE_BINARY_DIR}/partition_table/partitions-table-4MB-ota.bin\n"
-    "esptool.py --chip ${IDF_TARGET} merge_bin --output combined_ota.bin $(tr '\\n' ' ' < ${CMAKE_BINARY_DIR}/flash_args | sed 's/partition-table.bin/partitions-table-4MB-ota.bin/g')\n"
-    "cp combined_ota.bin ${ARTIFACT_PATH}/combined_ota.bin\n"
+    "gen_esp32part.py ${CMAKE_CURRENT_LIST_DIR}/partitions-4MB.csv ${CMAKE_BINARY_DIR}/partition_table/partitions-table-ota.bin\n"
+    "esptool.py --chip ${IDF_TARGET} merge_bin --output combined-ota.bin $(tr '\\n' ' ' < ${CMAKE_BINARY_DIR}/flash_args | sed 's/partition-table.bin/partitions-table-ota.bin/g')\n"
+    "cp ${CMAKE_BINARY_DIR}/partition_table/partitions-table-ota.bin ${ARTIFACT_PATH}/partitions-table-ota.bin\n"
+    "cp combined-ota.bin ${ARTIFACT_PATH}/combined-ota.bin\n"
     )
 endif()
 
