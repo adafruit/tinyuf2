@@ -1,0 +1,3 @@
+# Ignore build logs
+logs/
+*.log
