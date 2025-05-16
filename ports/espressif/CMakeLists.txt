@@ -48,9 +48,10 @@ string(FIND ${BOARD_SDKCONFIG_CONTENTS} "partitions-4MB-noota.csv" MATCH_INDEX)
 if(NOT MATCH_INDEX EQUAL -1)
   file(APPEND ${CMAKE_BINARY_DIR}/tinyuf2.postbuild.sh
     "echo \"Creating combined-ota.bin\"\n"
-    "gen_esp32part.py ${CMAKE_CURRENT_LIST_DIR}/partitions-4MB.csv ${CMAKE_BINARY_DIR}/partition_table/partitions-table-4MB-ota.bin\n"
-    "esptool.py --chip ${IDF_TARGET} merge_bin --output combined_ota.bin $(tr '\\n' ' ' < ${CMAKE_BINARY_DIR}/flash_args | sed 's/partition-table.bin/partitions-table-4MB-ota.bin/g')\n"
-    "cp combined_ota.bin ${ARTIFACT_PATH}/combined_ota.bin\n"
+    "gen_esp32part.py ${CMAKE_CURRENT_LIST_DIR}/partitions-4MB.csv ${CMAKE_BINARY_DIR}/partition_table/partitions-table-ota.bin\n"
+    "esptool.py --chip ${IDF_TARGET} merge_bin --output combined-ota.bin $(tr '\\n' ' ' < ${CMAKE_BINARY_DIR}/flash_args | sed 's/partition-table.bin/partitions-table-ota.bin/g')\n"
+    "cp ${CMAKE_BINARY_DIR}/partition_table/partitions-table-ota.bin ${ARTIFACT_PATH}/partitions-table-ota.bin\n"
+    "cp combined-ota.bin ${ARTIFACT_PATH}/combined-ota.bin\n"
     )
 endif()
 
@@ -62,6 +63,7 @@ add_custom_command(TARGET app POST_BUILD
 # Post build: copy binaries for artifact
 add_custom_command(TARGET app POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E echo "Copy binaries for artifact"
+  COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/flash_args ${ARTIFACT_PATH}/flash_args
   COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/bootloader/bootloader.bin ${ARTIFACT_PATH}/bootloader.bin
   COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/ota_data_initial.bin ${ARTIFACT_PATH}/ota_data_initial.bin
   COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/partition_table/partition-table.bin ${ARTIFACT_PATH}/partition-table.bin
