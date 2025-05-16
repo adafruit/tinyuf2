@@ -67,6 +67,7 @@ jobs:
         - 'stm32f3'
         - 'stm32f4'
         - 'stm32h5'
+        - 'stm32h7'
         - 'stm32l4'
     with:
       port: ${{ matrix.port }}
