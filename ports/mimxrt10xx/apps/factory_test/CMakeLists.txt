@@ -22,4 +22,4 @@ target_include_directories(factory_test PUBLIC
   )
 
 configure_app(factory_test)
-family_add_tinyusb(factory_test OPT_MCU_MIMXRT1XXX none)
+family_add_tinyusb(factory_test OPT_MCU_MIMXRT1XXX)

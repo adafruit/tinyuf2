@@ -120,14 +120,13 @@ jobs:
   # Build ARM with CMake
   # ---------------------------------------
   arm-cmake:
-    if: false
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         board:
           # Alphabetical order by family
-          - 'metro_m7_1011'
+          #- 'metro_m7_1011'
           # - 'stm32f303disco' # overflows flash
           - 'stm32f411ve_discovery'
 

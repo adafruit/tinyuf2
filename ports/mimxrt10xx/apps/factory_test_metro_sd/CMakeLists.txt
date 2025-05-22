@@ -28,7 +28,7 @@ include(middleware-sdmmc/CMakeLists.txt)
 add_sdmmc(factory_test_metro_sd)
 
 configure_app(factory_test_metro_sd)
-family_add_tinyusb(factory_test_metro_sd OPT_MCU_MIMXRT1XXX none)
+family_add_tinyusb(factory_test_metro_sd OPT_MCU_MIMXRT1XXX)
 
 #------------------------------------
 #
