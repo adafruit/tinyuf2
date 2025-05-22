@@ -57,6 +57,7 @@ endif()
 
 add_custom_command(TARGET app POST_BUILD
   COMMAND bash ${CMAKE_BINARY_DIR}/tinyuf2.postbuild.sh
+  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
   VERBATIM
   )
 
