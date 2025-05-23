@@ -52,7 +52,7 @@ jobs:
         if: inputs.toolchain != 'esp-idf'
         run: |
           if [[ ${{ inputs.build-system }} == cmake ]]; then
-            cmake -B build -G Ninja -DBOARD=${{ matrix.board }} ports/${{ inputs.port }}
+            cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=MinSizeRel -DBOARD=${{ matrix.board }} ports/${{ inputs.port }}
             cmake --build build
           else
             make -C ports/${{ inputs.port }} BOARD=${{ matrix.board }} all self-update copy-artifact
