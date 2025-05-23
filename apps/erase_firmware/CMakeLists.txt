@@ -19,3 +19,5 @@ target_compile_definitions(erase_firmware PUBLIC
   )
 
 family_configure_app(erase_firmware)
+family_gen_uf2(erase_firmware ${UF2_FAMILY_ID})
+family_flash_uf2(erase_firmware ${UF2_FAMILY_ID})

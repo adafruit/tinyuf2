@@ -185,7 +185,7 @@ function(family_configure_tinyuf2 TARGET OPT_MCU)
   family_configure_common(${TARGET})
 
   include(${TOP}/src/tinyuf2.cmake)
-  add_tinyuf2(${TARGET})
+  add_tinyuf2_src(${TARGET})
 
   family_add_tinyusb(${TARGET} ${OPT_MCU})
 
@@ -197,12 +197,20 @@ function(family_configure_tinyuf2 TARGET OPT_MCU)
     UF2_VERSION_BASE="${GIT_VERSION}"
     UF2_VERSION="${GIT_VERSION}"
     )
+
+  # copy bin,hex to ARTIFACT_PATH
+  add_custom_command(TARGET ${TARGET} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin ${ARTIFACT_PATH}/${TARGET}.bin
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.hex ${ARTIFACT_PATH}/${TARGET}.hex
+    VERBATIM)
+
 endfunction()
 
 # generate .uf2 file from hex
 function(family_gen_uf2 TARGET FAMILY_ID)
   add_custom_command(TARGET ${TARGET} POST_BUILD
     COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} -f ${FAMILY_ID} -c -o $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.uf2 $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.hex
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.uf2 ${ARTIFACT_PATH}/apps/${TARGET}.uf2
     VERBATIM)
 endfunction()
 

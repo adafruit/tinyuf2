@@ -24,11 +24,18 @@ family_configure_tinyuf2(tinyuf2 OPT_MCU_MIMXRT1XXX)
 
 family_flash_sdp(tinyuf2)
 family_flash_jlink(tinyuf2 hex)
+
+# imxrt run entirely on SRAM and can update its self using uf2
 family_gen_uf2_from_bin(tinyuf2 ${UF2_FAMILY_ID} ${UF2_ADDR})
 family_flash_uf2(tinyuf2 ${UF2_FAMILY_ID})
 
+# copy to ARTIFACT_PATH
+add_custom_command(TARGET tinyuf2 POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE_DIR:tinyuf2>/tinyuf2.uf2 ${ARTIFACT_PATH}/apps/update-tinyuf2.uf2
+  VERBATIM)
+
 #------------------------------------
-# Application (e.g self update)
+# Application
 #------------------------------------
 add_subdirectory(${TOP}/apps/blinky ${CMAKE_BINARY_DIR}/apps/blinky)
 add_subdirectory(${TOP}/apps/erase_firmware ${CMAKE_BINARY_DIR}/apps/erase_firmware)

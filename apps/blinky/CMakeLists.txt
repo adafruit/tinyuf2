@@ -20,3 +20,5 @@ target_compile_definitions(blinky PUBLIC
   )
 
 family_configure_app(blinky)
+family_gen_uf2(blinky ${UF2_FAMILY_ID})
+family_flash_uf2(blinky ${UF2_FAMILY_ID})

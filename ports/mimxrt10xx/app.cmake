@@ -15,7 +15,4 @@ function(family_configure_app TARGET)
     "LINKER:--script=${CMAKE_CURRENT_FUNCTION_LIST_DIR}/linker/app.ld"
     "LINKER:--script=${CMAKE_CURRENT_FUNCTION_LIST_DIR}/linker/common.ld"
     )
-
-  family_gen_uf2(${TARGET} ${UF2_FAMILY_ID})
-  family_flash_uf2(${TARGET} ${UF2_FAMILY_ID})
 endfunction()
