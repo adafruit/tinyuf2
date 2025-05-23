@@ -25,6 +25,6 @@ family_flash_stlink(tinyuf2)
 #------------------------------------
 # Application
 #------------------------------------
-add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/apps/self_update)
+add_subdirectory(${TOP}/apps/self_update ${CMAKE_BINARY_DIR}/apps/self_update)
 add_subdirectory(${TOP}/apps/blinky ${CMAKE_BINARY_DIR}/apps/blinky)
 add_subdirectory(${TOP}/apps/erase_firmware ${CMAKE_BINARY_DIR}/apps/erase_firmware)
