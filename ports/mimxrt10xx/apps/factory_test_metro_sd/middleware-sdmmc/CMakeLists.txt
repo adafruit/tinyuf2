@@ -1,4 +1,4 @@
-include_guard()
+include_guard(GLOBAL)
 
 function(add_sdmmc TARGET)
   target_sources(${TARGET} PUBLIC

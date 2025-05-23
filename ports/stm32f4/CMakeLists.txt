@@ -22,6 +22,7 @@ family_configure_tinyuf2(tinyuf2 OPT_MCU_STM32F4)
 family_flash_jlink(tinyuf2)
 
 #------------------------------------
-# Application (e.g self update)
+# Application
 #------------------------------------
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/apps/self_update)
+add_subdirectory(${TOP}/apps/blinky ${CMAKE_BINARY_DIR}/apps/blinky)

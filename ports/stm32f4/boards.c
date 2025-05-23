@@ -36,8 +36,12 @@
 
 UART_HandleTypeDef UartHandle;
 
-void board_init(void)
-{
+void board_init(void) {
+#ifdef BUILD_APPLICATION
+  // system_stm32h5xx.c: SystemInit() will reset vector table, set it here if we are building application
+  SCB->VTOR = (uint32_t) BOARD_FLASH_APP_START;
+#endif
+
   clock_init();
   SystemCoreClockUpdate();
 

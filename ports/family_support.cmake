@@ -111,21 +111,6 @@ function(family_add_default_warnings TARGET)
     if (CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 12.0)
       target_link_options(${TARGET} PUBLIC "LINKER:--no-warn-rwx-segments")
     endif ()
-
-    # GCC 10
-    if (CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 10.0)
-      target_compile_options(${TARGET} PUBLIC -Wconversion)
-    endif ()
-
-    # GCC 8
-    if (CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 8.0)
-      target_compile_options(${TARGET} PUBLIC -Wcast-function-type -Wstrict-overflow)
-    endif ()
-
-    # GCC 6
-    if (CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 6.0)
-      target_compile_options(${TARGET} PUBLIC -Wno-strict-aliasing)
-    endif ()
   endif ()
 endfunction()
 

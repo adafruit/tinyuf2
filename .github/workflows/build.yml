@@ -129,6 +129,7 @@ jobs:
           - 'metro_m7_1011'
           # - 'stm32f303disco' # overflows flash
           - 'stm32f411ve_discovery'
+          - 'stm32h563_nucleo'
 
     steps:
       - name: Checkout

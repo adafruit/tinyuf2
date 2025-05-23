@@ -1,4 +1,4 @@
-include_guard()
+include_guard(GLOBAL)
 
 # override bin hex output
 function(family_gen_bin_hex TARGET)

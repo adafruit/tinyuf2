@@ -44,7 +44,7 @@
 
 #include "board_api.h"
 
-#ifndef TINYUF2_SELF_UPDATE
+#ifndef BUILD_NO_TINYUSB
 #include "tusb.h"
 #endif
 
@@ -98,7 +98,7 @@ static void internal_timer_cb(void* arg);
 // TinyUSB thread
 //--------------------------------------------------------------------+
 
-#ifdef TINYUF2_SELF_UPDATE
+#ifdef BUILD_NO_TINYUSB
 void app_main(void) {
   main();
 }
@@ -346,7 +346,7 @@ void board_timer_stop(void) {
 //--------------------------------------------------------------------+
 // CDC Touch1200
 //--------------------------------------------------------------------+
-#ifndef TINYUF2_SELF_UPDATE
+#ifndef BUILD_NO_TINYUSB
 
 #if CONFIG_IDF_TARGET_ESP32S3
 #include "hal/usb_serial_jtag_ll.h"
@@ -458,7 +458,7 @@ void tud_cdc_line_state_cb(uint8_t instance, bool dtr, bool rts) {
     }
   }
 }
-#endif // TINYUF2_SELF_UPDATE
+#endif
 
 //--------------------------------------------------------------------+
 // Display

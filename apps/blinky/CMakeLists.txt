@@ -7,7 +7,7 @@ cmake_minimum_required(VERSION 3.17)
 include(${FAMILY_PATH}/app.cmake)
 
 add_executable(blinky
-  blinky.c
+  src/blinky.c
   ${FAMILY_PATH}/boards.c
 #  ${FAMILY_PATH}/board_flash.c
   )

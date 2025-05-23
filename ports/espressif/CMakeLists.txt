@@ -3,7 +3,6 @@
 cmake_minimum_required(VERSION 3.17)
 
 include(${CMAKE_CURRENT_LIST_DIR}/../family_support.cmake)
-include(${CMAKE_CURRENT_LIST_DIR}/boards/${BOARD}/board.cmake)
 
 # Must be set before including IDF project.cmake
 set(EXTRA_COMPONENT_DIRS ${TOP}/src ${CMAKE_CURRENT_LIST_DIR}/boards)
@@ -34,6 +33,7 @@ project(tinyuf2)
 
 set(ARTIFACT_PATH ${CMAKE_CURRENT_LIST_DIR}/_bin/${BOARD})
 execute_process(COMMAND mkdir -p ${ARTIFACT_PATH})
+execute_process(COMMAND mkdir -p ${ARTIFACT_PATH}/apps)
 
 # Create post-build script for combined.bin / combined-ota.bin
 file(WRITE ${CMAKE_BINARY_DIR}/tinyuf2.postbuild.sh
@@ -73,7 +73,18 @@ add_custom_command(TARGET app POST_BUILD
   VERBATIM
   )
 
-# External project for self-update
+# flash combined.bin
+add_custom_target(combined-flash
+  DEPENDS tinyuf2.elf
+  COMMAND ${CMAKE_COMMAND} -E echo "Flashing combined.bin"
+  COMMAND esptool.py --chip ${IDF_TARGET} write_flash 0x0 combined.bin
+  VERBATIM
+  )
+
+#------------------------------
+# External project (self_update, blinky etc ...)
+#------------------------------
+
 # Post build: generate bootloader_bin.c for self-update and combined.bin
 add_custom_command(TARGET app POST_BUILD
   COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} --carray -o ${CMAKE_CURRENT_LIST_DIR}/apps/self_update/main/bootloader_bin.c ${CMAKE_BINARY_DIR}/tinyuf2.bin
@@ -81,7 +92,7 @@ add_custom_command(TARGET app POST_BUILD
 
 externalproject_add(self_update
   SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/apps/self_update
-  BINARY_DIR ${CMAKE_BINARY_DIR}/self_update
+  BINARY_DIR ${CMAKE_BINARY_DIR}/apps/self_update
   # Modifying the list separator for the arguments, as such, we won't need to manually
   # replace the new separator by the default ';' in the subproject
   CMAKE_ARGS -DBOARD=${BOARD}
@@ -90,12 +101,14 @@ externalproject_add(self_update
   DEPENDS tinyuf2.elf
   )
 
-# flash combined.bin
-add_custom_target(combined-flash
-  DEPENDS tinyuf2.elf
-  COMMAND ${CMAKE_COMMAND} -E echo "Flashing combined.bin"
-  COMMAND esptool.py --chip ${IDF_TARGET} write_flash 0x0 combined.bin
-  VERBATIM
+externalproject_add(blinky
+  SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/apps/blinky
+  BINARY_DIR ${CMAKE_BINARY_DIR}/apps/blinky
+  # Modifying the list separator for the arguments, as such, we won't need to manually
+  # replace the new separator by the default ';' in the subproject
+  CMAKE_ARGS -DBOARD=${BOARD}
+  INSTALL_COMMAND ""
+  BUILD_ALWAYS 1
   )
 
 # -------------------------------------------------------------
