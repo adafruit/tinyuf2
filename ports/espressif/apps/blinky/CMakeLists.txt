@@ -16,11 +16,4 @@ add_compile_definitions(
   )
 
 project(blinky)
-
-set(ARTIFACT_PATH ${CMAKE_CURRENT_LIST_DIR}/../../_bin/${BOARD})
-cmake_print_variables(UF2_FAMILY_ID)
-add_custom_command(TARGET app POST_BUILD
-  COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} -f ${UF2_FAMILY_ID} -b 0x0 -c -o ${CMAKE_BINARY_DIR}/blinky.uf2 ${CMAKE_BINARY_DIR}/blinky.bin
-  COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/blinky.uf2 ${ARTIFACT_PATH}/apps/blinky.uf2
-  VERBATIM
-  )
+family_gen_uf2(blinky ${UF2_FAMILY_ID})

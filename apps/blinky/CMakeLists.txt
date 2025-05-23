@@ -15,6 +15,7 @@ target_include_directories(blinky PUBLIC
   ${TOP}/src
   )
 target_compile_definitions(blinky PUBLIC
+  BUILD_APPLICATION
   BUILD_NO_TINYUSB
   )
 

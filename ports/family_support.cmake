@@ -59,6 +59,10 @@ endif ()
 set(FAMILY_PATH ${TOP}/ports/${FAMILY} CACHE INTERNAL "FAMILY_PATH")
 set(BOARD_PATH ${TOP}/ports/${FAMILY}/boards/${BOARD} CACHE INTERNAL "BOARD_PATH")
 
+set(ARTIFACT_PATH ${FAMILY_PATH}/_bin/${BOARD})
+execute_process(COMMAND mkdir -p ${ARTIFACT_PATH})
+execute_process(COMMAND mkdir -p ${ARTIFACT_PATH}/apps)
+
 # enable LTO if supported
 include(CheckIPOSupported)
 check_ipo_supported(RESULT IPO_SUPPORTED)

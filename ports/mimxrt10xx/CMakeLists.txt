@@ -31,7 +31,7 @@ family_flash_uf2(tinyuf2 ${UF2_FAMILY_ID})
 # Application (e.g self update)
 #------------------------------------
 add_subdirectory(${TOP}/apps/blinky ${CMAKE_BINARY_DIR}/apps/blinky)
-add_subdirectory(apps/erase_firmware)
+add_subdirectory(${TOP}/apps/erase_firmware ${CMAKE_BINARY_DIR}/apps/erase_firmware)
 
 if (BOARD STREQUAL metro_m7_1011)
   add_subdirectory(apps/esp32programmer)

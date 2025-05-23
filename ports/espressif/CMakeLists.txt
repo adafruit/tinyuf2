@@ -31,10 +31,6 @@ cmake_print_variables(GIT_VERSION GIT_SUBMODULE_VERSIONS)
 
 project(tinyuf2)
 
-set(ARTIFACT_PATH ${CMAKE_CURRENT_LIST_DIR}/_bin/${BOARD})
-execute_process(COMMAND mkdir -p ${ARTIFACT_PATH})
-execute_process(COMMAND mkdir -p ${ARTIFACT_PATH}/apps)
-
 # Create post-build script for combined.bin / combined-ota.bin
 file(WRITE ${CMAKE_BINARY_DIR}/tinyuf2.postbuild.sh
   "#!/bin/bash\n"
@@ -110,6 +106,17 @@ externalproject_add(blinky
   INSTALL_COMMAND ""
   BUILD_ALWAYS 1
   )
+
+# erase firmware need to use reset reason, not implemented yet
+#externalproject_add(erase_firmware
+#  SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/apps/erase_firmware
+#  BINARY_DIR ${CMAKE_BINARY_DIR}/apps/erase_firmware
+#  # Modifying the list separator for the arguments, as such, we won't need to manually
+#  # replace the new separator by the default ';' in the subproject
+#  CMAKE_ARGS -DBOARD=${BOARD}
+#  INSTALL_COMMAND ""
+#  BUILD_ALWAYS 1
+#  )
 
 # -------------------------------------------------------------
 # Post build: update arduino-esp32 bootloader for debug purpose

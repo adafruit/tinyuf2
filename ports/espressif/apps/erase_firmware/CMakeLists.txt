@@ -11,10 +11,9 @@ set(SDKCONFIG ${CMAKE_BINARY_DIR}/sdkconfig)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 add_compile_definitions(
-  TINYUF2_SELF_UPDATE
   BUILD_APPLICATION
   BUILD_NO_TINYUSB
   )
 
-project(update-tinyuf2)
-family_gen_uf2(update-tinyuf2 ${UF2_FAMILY_ID})
+project(erase_firmware)
+family_gen_uf2(erase_firmware ${UF2_FAMILY_ID})
