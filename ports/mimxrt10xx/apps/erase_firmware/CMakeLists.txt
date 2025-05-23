@@ -4,11 +4,8 @@
 #------------------------------------
 cmake_minimum_required(VERSION 3.17)
 
-include(${CMAKE_CURRENT_LIST_DIR}/../app.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/../../app.cmake)
 
-#------------------------------------
-# Application
-#------------------------------------
 add_executable(erase_firmware
   ${TOP}/apps/erase_firmware/erase_firmware.c
   ${CMAKE_CURRENT_LIST_DIR}/../../boards.c
@@ -20,4 +17,4 @@ target_compile_definitions(erase_firmware PUBLIC
   BUILD_NO_TINYUSB
   )
 
-configure_app(erase_firmware)
+family_configure_app(erase_firmware)

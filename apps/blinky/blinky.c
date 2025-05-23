@@ -32,14 +32,12 @@
 //--------------------------------------------------------------------+
 // MACRO TYPEDEF CONSTANT ENUM DECLARATION
 //--------------------------------------------------------------------+
-uint8_t const RGB_WRITING[]       = { 0xcc, 0x66, 0x00 };
-uint8_t const RGB_OFF[]           = { 0x00, 0x00, 0x00 };
+uint8_t const RGB_WRITING[] = { 0xcc, 0x66, 0x00 };
+uint8_t const RGB_OFF[] = { 0x00, 0x00, 0x00 };
 static volatile uint32_t _timer_count = 0;
 
 int main(void) {
-  TUF2_LOG1_LOCATION();
   board_init();
-  TUF2_LOG1_LOCATION();
   board_timer_start(1);
 
   while (1) {
@@ -47,19 +45,12 @@ int main(void) {
   }
 }
 
-void board_timer_handler(void)
-{
+void board_timer_handler(void) {
   _timer_count++;
-
   if ((_timer_count & 0xfful) == 0) {
-    // Fast toggle with both LED and RGB
-    static  bool is_on = false;
-    is_on = !is_on;
+    const uint32_t is_on = (_timer_count >> 8) & 0x1u;
 
-    // fast blink LED if available
     board_led_write(is_on ? 0xff : 0x000);
-
-    // blink RGB if available
     board_rgb_write(is_on ? RGB_WRITING : RGB_OFF);
   }
 }
@@ -75,9 +66,8 @@ void board_timer_handler(void)
 #include "SEGGER_RTT.h"
 #endif
 
-__attribute__ ((used)) int _write (int fhdl, const void *buf, size_t count)
-{
-  (void) fhdl;
+__attribute__ ((used)) int _write(int fhdl, const void* buf, size_t count) {
+  (void)fhdl;
 
 #if defined(LOGGER_RTT)
   SEGGER_RTT_Write(0, (char*) buf, (int) count);

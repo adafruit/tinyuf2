@@ -24,12 +24,13 @@ family_configure_tinyuf2(tinyuf2 OPT_MCU_MIMXRT1XXX)
 
 family_flash_sdp(tinyuf2)
 family_flash_jlink(tinyuf2 hex)
-family_add_uf2(tinyuf2 ${UF2_FAMILY_ID} bin ${UF2_ADDR})
+family_gen_uf2_from_bin(tinyuf2 ${UF2_FAMILY_ID} ${UF2_ADDR})
 family_flash_uf2(tinyuf2 ${UF2_FAMILY_ID})
 
 #------------------------------------
 # Application (e.g self update)
 #------------------------------------
+add_subdirectory(${TOP}/apps/blinky ${CMAKE_BINARY_DIR}/apps/blinky)
 add_subdirectory(apps/erase_firmware)
 
 if (BOARD STREQUAL metro_m7_1011)

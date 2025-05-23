@@ -56,6 +56,9 @@ if (NOT DEFINED FAMILY)
   list(GET BOARD_PATH 0 FAMILY)
 endif ()
 
+set(FAMILY_PATH ${TOP}/ports/${FAMILY} CACHE INTERNAL "FAMILY_PATH")
+set(BOARD_PATH ${TOP}/ports/${FAMILY}/boards/${BOARD} CACHE INTERNAL "BOARD_PATH")
+
 # enable LTO if supported
 include(CheckIPOSupported)
 check_ipo_supported(RESULT IPO_SUPPORTED)
@@ -67,8 +70,12 @@ endif ()
 # Functions
 #------------------------------------
 
-function(family_add_bin_hex TARGET)
-  # placeholder, will be override by family specific
+# Generate bin/hex output, can be override by family specific
+function(family_gen_bin_hex TARGET)
+  add_custom_command(TARGET ${TARGET} POST_BUILD
+    COMMAND ${CMAKE_OBJCOPY} -Obinary $<TARGET_FILE:${TARGET}> $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin
+    COMMAND ${CMAKE_OBJCOPY} -Oihex $<TARGET_FILE:${TARGET}> $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.hex
+    VERBATIM)
 endfunction()
 
 function(family_add_default_warnings TARGET)
@@ -122,7 +129,6 @@ function(family_add_default_warnings TARGET)
   endif ()
 endfunction()
 
-
 function(family_configure_common TARGET)
   # Add BOARD_${BOARD} define
   string(TOUPPER ${BOARD} BOARD_UPPER)
@@ -167,10 +173,8 @@ function(family_configure_common TARGET)
     )
 
   # add hex, bin and uf2 targets
-  family_add_bin_hex(${TARGET})
-
+  family_gen_bin_hex(${TARGET})
 endfunction()
-
 
 # Add tinyusb to example
 function(family_add_tinyusb TARGET OPT_MCU)
@@ -206,33 +210,17 @@ function(family_configure_tinyuf2 TARGET OPT_MCU)
     )
 endfunction()
 
-
-# Add bin/hex output
-function(family_add_bin_hex TARGET)
+# generate .uf2 file from hex
+function(family_gen_uf2 TARGET FAMILY_ID)
   add_custom_command(TARGET ${TARGET} POST_BUILD
-    COMMAND ${CMAKE_OBJCOPY} -Obinary $<TARGET_FILE:${TARGET}> $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin
-    COMMAND ${CMAKE_OBJCOPY} -Oihex $<TARGET_FILE:${TARGET}> $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.hex
+    COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} -f ${FAMILY_ID} -c -o $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.uf2 $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.hex
     VERBATIM)
 endfunction()
 
-
-# Add uf2 target, optional parameter is the extension of the binary file (default is hex)
-# If bin file is used, address is also required
-function(family_add_uf2 TARGET FAMILY_ID)
-  set(BIN_EXT hex)
-  set(ADDR_OPT "")
-  if (ARGC GREATER 2)
-    set(BIN_EXT ${ARGV2})
-    if (BIN_EXT STREQUAL bin)
-      set(ADDR_OPT "-b ${ARGV3}")
-    endif ()
-  endif ()
-
-  set(BIN_FILE $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.${BIN_EXT})
-
+# generate .uf2 file from bin with address
+function(family_gen_uf2_from_bin TARGET FAMILY_ID BIN_ADDR)
   add_custom_command(TARGET ${TARGET} POST_BUILD
-    COMMAND echo ${Python_EXECUTABLE} ${UF2CONV_PY} -f ${FAMILY_ID} ${ADDR_OPT} -c -o $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.uf2 ${BIN_FILE}
-    COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} -f ${FAMILY_ID} ${ADDR_OPT} -c -o $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.uf2 ${BIN_FILE}
+    COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} -f ${FAMILY_ID} -b ${BIN_ADDR} -c -o $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.uf2 $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin
     VERBATIM)
 endfunction()
 

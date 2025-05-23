@@ -1,4 +1,4 @@
-include_guard()
+include_guard(GLOBAL)
 
 #------------------------------------
 # Config
@@ -98,7 +98,6 @@ function(family_add_board_target BOARD_TARGET)
     ${SDK_DIR}/drivers/xbara
     ${SDK_DIR}/drivers/wdog01
     )
-
   update_board(${BOARD_TARGET})
 
   target_compile_definitions(${BOARD_TARGET} PUBLIC
@@ -117,7 +116,7 @@ endfunction()
 # override one in family_supoort.cmake
 #------------------------------------
 
-function(family_add_bin_hex TARGET)
+function(family_gen_bin_hex TARGET)
   math(EXPR HEX_OFFSET "${UF2_ADDR} - ${FCFB_ORIGIN}")
   add_custom_command(TARGET ${TARGET} POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -Obinary $<TARGET_FILE:${TARGET}> $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin

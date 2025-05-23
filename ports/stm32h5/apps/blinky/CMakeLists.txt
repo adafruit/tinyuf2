@@ -20,5 +20,5 @@ target_link_options(blinky PUBLIC
   )
 
 family_configure_common(blinky)
-family_add_uf2(blinky ${UF2_FAMILY_ID})
+family_gen_uf2(blinky ${UF2_FAMILY_ID})
 family_flash_uf2(blinky ${UF2_FAMILY_ID})

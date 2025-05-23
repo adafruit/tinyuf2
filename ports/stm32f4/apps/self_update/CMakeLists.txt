@@ -30,4 +30,4 @@ target_link_options(self_update PUBLIC
   )
 
 family_configure_common(self_update)
-family_add_uf2(self_update ${UF2_FAMILY_ID})
+family_gen_uf2(self_update ${UF2_FAMILY_ID})
