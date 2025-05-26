@@ -12,22 +12,22 @@ add_custom_command(OUTPUT bootloader_bin.c
   DEPENDS tinyuf2
   )
 
-add_executable(self_update
+add_executable(update-tinyuf2
   self_update.c
   ${FAMILY_PATH}/boards.c
   ${FAMILY_PATH}/board_flash.c
   ${CMAKE_CURRENT_BINARY_DIR}/bootloader_bin.c
   )
 
-target_include_directories(self_update PUBLIC
+target_include_directories(update-tinyuf2 PUBLIC
   ${TOP}/src
   )
-target_compile_definitions(self_update PUBLIC
+target_compile_definitions(update-tinyuf2 PUBLIC
   TINYUF2_SELF_UPDATE
   BUILD_NO_TINYUSB
   BUILD_APPLICATION
   )
 
-family_configure_app(self_update)
-family_gen_uf2(self_update ${UF2_FAMILY_ID})
-family_flash_uf2(self_update ${UF2_FAMILY_ID})
+family_configure_app(update-tinyuf2)
+family_gen_uf2(update-tinyuf2 ${UF2_FAMILY_ID})
+family_flash_uf2(update-tinyuf2 ${UF2_FAMILY_ID})

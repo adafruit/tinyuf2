@@ -75,9 +75,13 @@ jobs:
         run: |
           if [ ${{ inputs.toolchain }} == 'esp-idf' ]; then
             zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ${{ env.BIN_PATH }}
-            cp ${{ env.BIN_PATH }}/update-tinyuf2.uf2 update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
+            cp ${{ env.BIN_PATH }}/apps/update-tinyuf2.uf2 update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
           else
-            for f in ${{ env.BIN_PATH }}/*; do mv $f ${f%.*}-${{ github.event.release.tag_name }}."${f#*.}"; done
+            if [[ ${{ inputs.build-system }} == cmake ]]; then
+              cp ${{ env.BIN_PATH }}/apps/update-tinyuf2.uf2 update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
+            else
+              cp ${{ env.BIN_PATH }}/apps/update-tinyuf2-${{ matrix.board }}.uf2 update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
+            fi
             zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ${{ env.BIN_PATH }}
           fi
 
@@ -87,7 +91,7 @@ jobs:
         with:
           files: |
             tinyuf2-${{ matrix.board }}-*.zip
-            ${{ env.BIN_PATH }}/update-tinyuf2-${{ matrix.board }}-*.uf2
+            update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
 
       - name: Upload Release Assets To AWS S3
         env:

@@ -74,12 +74,13 @@ SELF_UF2 ?= apps/self_update/$(BUILD)/update-$(OUTNAME).uf2
 
 $(BIN):
 	@$(MKDIR) -p $@
+	@$(MKDIR) -p $@/apps
 
 copy-artifact: $(BIN)
 copy-artifact: $(BUILD)/$(OUTNAME).bin $(BUILD)/$(OUTNAME).hex
 	@$(CP) $(BUILD)/$(OUTNAME).bin $(BIN)
 	@$(CP) $(BUILD)/$(OUTNAME).hex $(BIN)
-	@if [ -f "$(SELF_UF2)" ]; then $(CP) $(SELF_UF2) $(BIN); fi
+	@if [ -f "$(SELF_UF2)" ]; then $(CP) $(SELF_UF2) $(BIN)/apps; fi
 
 #-------------- Compile Rules --------------
 
