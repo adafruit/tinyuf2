@@ -78,17 +78,17 @@ add_custom_target(combined-flash
   )
 
 #------------------------------
-# External project (self_update, blinky etc ...)
+# External project (update_tinyuf2, blinky etc ...)
 #------------------------------
 
 # Post build: generate bootloader_bin.c for update-tinyuf2 and combined.bin
 add_custom_command(TARGET app POST_BUILD
-  COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} --carray -o ${CMAKE_CURRENT_LIST_DIR}/apps/self_update/main/bootloader_bin.c ${CMAKE_BINARY_DIR}/tinyuf2.bin
+  COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} --carray -o ${CMAKE_CURRENT_LIST_DIR}/apps/update_tinyuf2/main/bootloader_bin.c ${CMAKE_BINARY_DIR}/tinyuf2.bin
   )
 
-externalproject_add(self_update
-  SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/apps/self_update
-  BINARY_DIR ${CMAKE_BINARY_DIR}/apps/self_update
+externalproject_add(update-tinyuf2
+  SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/apps/update_tinyuf2
+  BINARY_DIR ${CMAKE_BINARY_DIR}/apps/update_tinyuf2
   # Modifying the list separator for the arguments, as such, we won't need to manually
   # replace the new separator by the default ';' in the subproject
   CMAKE_ARGS -DBOARD=${BOARD}

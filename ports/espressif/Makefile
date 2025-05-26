@@ -7,6 +7,7 @@
 BUILD = _build/$(BOARD)
 BIN = _bin/$(BOARD)
 TOP = ../..
+SELF_BUILD = ${BUILD}/update_tinyuf2
 
 ifdef SERIAL
 SERIAL_OPT = --port $(SERIAL)
@@ -38,8 +39,3 @@ app bootloader clean flash bootloader-flash app-flash erase-flash monitor dfu-fl
 $(BUILD)/combined.bin: app
 combined-flash: $(BUILD)/combined.bin
 	esptool.py --chip $(IDF_TARGET) write_flash 0x0 $<
-
-# Self_update is a sub/external project, will be built by cmake's all target
-SELF_BUILD = ${BUILD}/self_update
-
-# Artifacts is generated as Cmake post build
