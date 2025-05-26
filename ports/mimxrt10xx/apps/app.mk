@@ -6,7 +6,7 @@ BUILD_APPLICATION = 1
 include ../../../make.mk
 include $(TOP)/$(PORT_DIR)/port.mk
 
-LD_FILES ?= $(PORT_DIR)/linker/$(MCU)_ram.ld $(PORT_DIR)/apps/memory.ld $(PORT_DIR)/linker/common.ld
+LD_FILES ?= $(PORT_DIR)/linker/$(MCU)_ram.ld $(PORT_DIR)/linker/app.ld $(PORT_DIR)/linker/common.ld
 
 include $(TOP)/ports/rules.mk
 

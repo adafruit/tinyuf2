@@ -1,4 +1,4 @@
-include_guard()
+include_guard(GLOBAL)
 
 #------------------------------------
 # Config
@@ -21,8 +21,6 @@ set(CMAKE_TOOLCHAIN_FILE ${TOP}/cmake/toolchain/arm_${TOOLCHAIN}.cmake)
 #------------------------------------
 # BOARD_TARGET
 #------------------------------------
-# used by all executable targets
-
 function(family_add_board_target BOARD_TARGET)
   if (TARGET ${BOARD_TARGET})
     return()
@@ -61,7 +59,3 @@ function(family_add_board_target BOARD_TARGET)
     --specs=nosys.specs --specs=nano.specs
     )
 endfunction()
-
-#------------------------------------
-# Main target
-#------------------------------------

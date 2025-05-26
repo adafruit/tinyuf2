@@ -36,8 +36,12 @@
 
 UART_HandleTypeDef UartHandle;
 
-void board_init(void)
-{
+void board_init(void) {
+#ifdef BUILD_APPLICATION
+  // system_stm32h5xx.c: SystemInit() will reset vector table, set it here if we are building application
+  SCB->VTOR = (uint32_t) BOARD_FLASH_APP_START;
+#endif
+
   clock_init();
   SystemCoreClockUpdate();
 
@@ -80,7 +84,7 @@ void board_init(void)
   HAL_GPIO_Init(NEOPIXEL_PORT, &GPIO_InitStruct);
 #endif
 
-#if defined(UART_DEV) && CFG_TUSB_DEBUG
+#if defined(UART_DEV) && defined(CFG_TUSB_DEBUG) && CFG_TUSB_DEBUG
   UART_CLOCK_ENABLE();
 
   GPIO_InitStruct.Pin       = UART_TX_PIN | UART_RX_PIN;
@@ -215,7 +219,7 @@ void board_app_jump(void)
   HAL_GPIO_DeInit(NEOPIXEL_PORT, NEOPIXEL_PIN);
 #endif
 
-#if defined(UART_DEV) && CFG_TUSB_DEBUG
+#if defined(UART_DEV) && defined(CFG_TUSB_DEBUG) && CFG_TUSB_DEBUG
   HAL_UART_DeInit(&UartHandle);
   HAL_GPIO_DeInit(UART_GPIO_PORT, UART_TX_PIN | UART_RX_PIN);
   UART_CLOCK_DISABLE();
@@ -366,7 +370,7 @@ void SysTick_Handler(void)
 
 int board_uart_write(void const * buf, int len)
 {
-#if defined(UART_DEV) && CFG_TUSB_DEBUG
+#if defined(UART_DEV) && defined(CFG_TUSB_DEBUG) && CFG_TUSB_DEBUG
   HAL_UART_Transmit(&UartHandle, (uint8_t*) buf, len, 0xffff);
   return len;
 #else

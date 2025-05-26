@@ -51,9 +51,14 @@ jobs:
       - name: Build
         if: inputs.toolchain != 'esp-idf'
         run: |
-          make -C ports/${{ inputs.port }} BOARD=${{ matrix.board }} all self-update copy-artifact
-          if [ -d "ports/${{ inputs.port }}/apps" ]; then
-            for app in ports/${{ inputs.port }}/apps/*/; do if [ $app != 'apps/self_update/' ]; then make -C $app BOARD=${{ matrix.board }} all; fi done
+          if [[ ${{ inputs.build-system }} == cmake ]]; then
+            cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=MinSizeRel -DBOARD=${{ matrix.board }} ports/${{ inputs.port }}
+            cmake --build build
+          else
+            make -C ports/${{ inputs.port }} BOARD=${{ matrix.board }} all self-update copy-artifact
+            if [ -d "ports/${{ inputs.port }}/apps" ]; then
+              for app in ports/${{ inputs.port }}/apps/*/; do if [ $app != 'apps/self_update/' ]; then make -C $app BOARD=${{ matrix.board }} all; fi done
+            fi
           fi
 
       - name: Build using ESP-IDF docker
@@ -70,9 +75,13 @@ jobs:
         run: |
           if [ ${{ inputs.toolchain }} == 'esp-idf' ]; then
             zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ${{ env.BIN_PATH }}
-            cp ${{ env.BIN_PATH }}/update-tinyuf2.uf2 update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
+            cp ${{ env.BIN_PATH }}/apps/update-tinyuf2.uf2 update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
           else
-            for f in ${{ env.BIN_PATH }}/*; do mv $f ${f%.*}-${{ github.event.release.tag_name }}."${f#*.}"; done
+            if [[ ${{ inputs.build-system }} == cmake ]]; then
+              cp ${{ env.BIN_PATH }}/apps/update-tinyuf2.uf2 update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
+            else
+              cp ${{ env.BIN_PATH }}/apps/update-tinyuf2-${{ matrix.board }}.uf2 update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
+            fi
             zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ${{ env.BIN_PATH }}
           fi
 
@@ -82,7 +91,7 @@ jobs:
         with:
           files: |
             tinyuf2-${{ matrix.board }}-*.zip
-            ${{ env.BIN_PATH }}/update-tinyuf2-${{ matrix.board }}-*.uf2
+            update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
 
       - name: Upload Release Assets To AWS S3
         env:

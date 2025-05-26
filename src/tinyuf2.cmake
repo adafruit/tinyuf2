@@ -4,7 +4,7 @@
 # The intention is to provide greater flexibility to users to
 # create their own targets using the set variables.
 
-function (add_tinyuf2 TARGET)
+function (add_tinyuf2_src TARGET)
   target_sources(${TARGET} PUBLIC
     ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/ghostfat.c
     ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/images.c
