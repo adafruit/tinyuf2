@@ -84,6 +84,7 @@ jobs:
         port:
           # Alphabetical order by family
           # - 'stm32f303disco' # overflows flash
+          - 'max32690'
           - 'stm32f4'
           - 'stm32h5'
     with:
