@@ -228,12 +228,21 @@ endfunction()
 # Add flash jlink target, optional parameter is the extension of the binary file
 function(family_flash_jlink TARGET)
   if (NOT DEFINED JLINKEXE)
-    set(JLINKEXE JLinkExe)
+    if(CMAKE_HOST_WIN32)
+      set(JLINKEXE JLink.exe)
+    else()
+      set(JLINKEXE JLinkExe)
+    endif()
   endif ()
 
   if (NOT DEFINED JLINK_IF)
     set(JLINK_IF swd)
   endif ()
+
+  if (NOT DEFINED JLINK_OPTION)
+    set(JLINK_OPTION "")
+  endif ()
+  separate_arguments(JLINK_OPTION UNIX_COMMAND ${JLINK_OPTION})
 
   if (ARGC GREATER 1)
     set(BIN_FILE $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.${ARGV1})
@@ -253,7 +262,7 @@ exit"
 
   add_custom_target(${TARGET}-jlink
     DEPENDS ${TARGET}
-    COMMAND ${JLINKEXE} -device ${JLINK_DEVICE} -if ${JLINK_IF} -JTAGConf -1,-1 -speed auto -CommandFile ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}.jlink
+    COMMAND ${JLINKEXE} -device ${JLINK_DEVICE} ${JLINK_OPTION} -if ${JLINK_IF} -JTAGConf -1,-1 -speed auto -CommandFile ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}.jlink
     )
 
   # erase with jlink

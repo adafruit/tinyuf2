@@ -25,16 +25,16 @@
 #ifndef BOARD_H_
 #define BOARD_H_
 
-#include "max32690.h"
+#include "max32665.h"
 
 //--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
 
-#define LED_PORT              MXC_GPIO2
-#define LED_PIN               MXC_GPIO_PIN_1
+#define LED_PORT              MXC_GPIO0
+#define LED_PIN               MXC_GPIO_PIN_29
 #define LED_VDDIO             MXC_GPIO_VSSEL_VDDIOH
-#define LED_STATE_ON          1
+#define LED_STATE_ON          0
 
 //--------------------------------------------------------------------+
 // Neopixel
@@ -50,18 +50,19 @@
 #define USB_VID           0x0456 //ADI
 #define USB_PID           0xA010 //MAX32 TinyUF2
 #define USB_MANUFACTURER  "Analog Devices"
-#define USB_PRODUCT       "AD-APARD32690-SL"
+#define USB_PRODUCT       "MAX32666FTHR"
 
 #define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID      "MAX32690=APARD32690"
-#define UF2_VOLUME_LABEL  "32690BOOT"
-#define UF2_INDEX_URL     "https://www.analog.com/en/resources/evaluation-hardware-and-software/evaluation-boards-kits/ad-apard32690-sl.html"
+#define UF2_BOARD_ID      "MAX32666-FTHR"
+#define UF2_VOLUME_LABEL  "32666BOOT"
+#define UF2_INDEX_URL     "https://www.analog.com/en/resources/evaluation-hardware-and-software/evaluation-boards-kits/max32666fthr.html"
 
 //--------------------------------------------------------------------+
 // UART
 //--------------------------------------------------------------------+
 
-// UART via SWD connector
-#define UART_NUM            0
+// UART via SWD Connector
+#define UART_NUM            1
+#define UART_MAP            MAP_B
 
 #endif

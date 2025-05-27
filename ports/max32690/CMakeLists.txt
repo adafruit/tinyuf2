@@ -14,11 +14,11 @@ add_executable(tinyuf2
   ${TOP}/lib/tinyusb/src/portable/mentor/musb/dcd_musb.c
   )
 target_link_options(tinyuf2 PUBLIC
-  "LINKER:--script=${CMAKE_CURRENT_LIST_DIR}/linker/max32690_boot.ld"
-  "LINKER:--script=${CMAKE_CURRENT_LIST_DIR}/linker/max32690_common.ld"
+  "LINKER:--script=${CMAKE_CURRENT_LIST_DIR}/linker/${MAX_DEVICE}/${MAX_DEVICE}_boot.ld"
+  "LINKER:--script=${CMAKE_CURRENT_LIST_DIR}/linker/${MAX_DEVICE}/${MAX_DEVICE}_common.ld"
   )
 
-family_configure_tinyuf2(tinyuf2 OPT_MCU_MAX32690)
+family_configure_tinyuf2(tinyuf2 OPT_MCU_${MAX_DEVICE_UPPER})
 family_flash_jlink(tinyuf2)
 
 #------------------------------------

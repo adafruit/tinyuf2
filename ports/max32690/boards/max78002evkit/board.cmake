@@ -1,4 +1,4 @@
-set(MAX_DEVICE max32690)
+set(MAX_DEVICE max78002)
 set(JLINK_DEVICE ${MAX_DEVICE})
 set(JLINK_OPTION "-USB jtrace")
 

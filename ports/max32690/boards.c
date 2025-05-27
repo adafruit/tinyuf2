@@ -33,7 +33,6 @@
 #include "gpio.h"
 #include "icc.h"
 #include "mxc_sys.h"
-#include "mcr_regs.h"
 #include "mxc_device.h"
 #include "uart.h"
 
@@ -54,7 +53,15 @@ void board_init(void) {
   board_led_write(false);
 
   // UART
+#if MAX_PERIPH_ID == 14
+  MXC_UART_Init(ConsoleUart, BOARD_UART_BAUDRATE, UART_MAP);
+#elif MAX_PERIPH_ID == 18 || MAX_PERIPH_ID == 87
   MXC_UART_Init(ConsoleUart, BOARD_UART_BAUDRATE, MXC_UART_IBRO_CLK);
+  #if MAX_PERIPH_ID == 87
+  UART_PORT->vssel |= UART_VDDIO_BITS; //Set necessary bits to 3.3V
+  #endif
+#endif
+
 }
 
 void board_teardown(void) {
@@ -63,10 +70,35 @@ void board_teardown(void) {
 
 void board_dfu_init(void) {
   // Init USB for DFU
+#if defined(MAX32650)
+  // Startup the HIRC96M clock if it's not on already
+  if (!(MXC_GCR->clk_ctrl & MXC_F_GCR_CLK_CTRL_HIRC96_EN)) {
+    MXC_GCR->clk_ctrl |= MXC_F_GCR_CLK_CTRL_HIRC96_EN;
+    MXC_SYS_Clock_Timeout(MXC_F_GCR_CLK_CTRL_HIRC96_RDY);
+  }
+  MXC_SYS_ClockEnable(MXC_SYS_PERIPH_CLOCK_USB);
+  MXC_SYS_Reset_Periph(MXC_SYS_RESET_USB);
+
+#elif defined(MAX32665) || defined(MAX32666)
+  // Startup the HIRC96M clock if it's not on already
+  if (!(MXC_GCR->clkcn & MXC_F_GCR_CLKCN_HIRC96M_EN)) {
+    MXC_GCR->clkcn |= MXC_F_GCR_CLKCN_HIRC96M_EN;
+  }
+  MXC_SYS_ClockEnable(MXC_SYS_PERIPH_CLOCK_USB);
+  MXC_SYS_Reset_Periph(MXC_SYS_RESET_USB);
+
+#elif defined(MAX32690)
   MXC_SYS_ClockSourceEnable(MXC_SYS_CLOCK_IPO);
   MXC_MCR->ldoctrl |= MXC_F_MCR_LDOCTRL_0P9EN;
   MXC_SYS_ClockEnable(MXC_SYS_PERIPH_CLOCK_USB);
   MXC_SYS_Reset_Periph(MXC_SYS_RESET0_USB);
+
+#  elif  defined(MAX78002)
+  MXC_MCR->ldoctrl |= MXC_F_MCR_LDOCTRL_0P9EN;
+  MXC_SYS_ClockEnable(MXC_SYS_PERIPH_CLOCK_USB);
+#else
+  #error "Unsupported MAXIM MCU for board_dfu_init"
+#endif
 }
 
 void board_reset(void) {
@@ -109,7 +141,13 @@ void board_app_jump(void) {
   // Do a soft reset to reset all the peripherals to POR state. Does not impact
   // CPU state, RAM retention or the Always-On domain.  This should make the
   // application think it was as close to POR as possible
+#if defined(MAX32665) || defined(MAX32666)
+  MXC_GCR->rstr0 |= MXC_F_GCR_RSTR0_SRST;
+#elif defined(MAX32650) || defined(MAX32690) || defined(MAX78002)
   MXC_GCR->rst0 |= MXC_F_GCR_RST0_SOFT;
+#else
+  #error "Unsupported MAXIM MCU for board_app_jump"
+#endif
 
   // switch exception handlers to the application
   SCB->VTOR = (uint32_t) BOARD_FLASH_APP_START;
@@ -123,14 +161,19 @@ void board_app_jump(void) {
 }
 
 uint8_t board_usb_get_serial(uint8_t serial_id[16]) {
+#if defined(MAX32650)
+  // USN is 13 bytes on this device
+  MXC_SYS_GetUSN(serial_id, 13);
+  return 13;
+#else
   uint8_t hw_id[MXC_SYS_USN_CHECKSUM_LEN]; //USN Buffer
   uint8_t act_len;
-  // 2nd parameter is optional checksum buffer
-  MXC_SYS_GetUSN(hw_id, NULL);
+  MXC_SYS_GetUSN(hw_id, NULL); // 2nd parameter is optional checksum buffer
 
   act_len = TUF2_MIN(16, MXC_SYS_USN_CHECKSUM_LEN);
   memcpy(serial_id, hw_id, act_len);
   return act_len;
+#endif
 }
 
 //--------------------------------------------------------------------+
