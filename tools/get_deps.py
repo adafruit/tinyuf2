@@ -11,9 +11,9 @@ deps_mandatory = {}
 # Optional Dependencies per MCU
 # path, url, commit, family (Alphabet sorted by path)
 deps_optional = {
-    'lib/mcu/analog/max32' : ['https://github.com/analogdevicesinc/msdk.git',
+    'lib/mcu/analog/msdk' : ['https://github.com/analogdevicesinc/msdk.git',
                             'b20b398d3e5e2007594e54a74ba3d2a2e50ddd75',
-                            'max32650 max32666 max32690 max78002'],
+                            'maxim'],
     'lib/mcu/nxp/mcux-sdk': ['https://github.com/nxp-mcuxpresso/mcux-sdk.git',
                              '9990f264f98430f6d885041ab0f24224d68f4958',
                              'kinetis_k kinetis_k32l2 kinetis_kl lpc51 lpc54 lpc55 mcx mimxrt10xx'],
