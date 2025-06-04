@@ -25,8 +25,6 @@ This folder contains the port of TinyUF2 for Analog Devices' MAX32690 MCU.
 - [Port Directory Structure](#port-directory-structure)
 
 
-<br>
-
 ## Requirements
 
 This guide focuses on building TinyUF2 for Analog Devices' MAX32 parts.
@@ -40,13 +38,13 @@ All you need is a basic toolchain:
 
 - **GNU ARM Toolchain** (`arm-none-eabi-gcc`) available in your `PATH`
 - **make**
+- **CMake**
 - **git** (required for submodules)
 - **SDK Dependencies**
 
-
 ### Installing SDK Dependencies
 ```bash
-python tools/get_deps.py max32
+python tools/get_deps.py maxim
 ```
 or
 ```bash
@@ -56,21 +54,13 @@ python tools/get_deps.py --board apard32690
 
 #### macOS Dependency Install
 ```bash
-brew install arm-none-eabi-gcc make git
+brew install arm-none-eabi-gcc make cmake git
 ```
 
 #### Ubuntu Dependency Install
 ```bash
 sudo apt update
-sudo apt install gcc-arm-none-eabi make git
-```
-
-<br><br>
-
-```bash
-# Example usage:
-cd ports/max32690/
-make BOARD=apard32690 all
+sudo apt install gcc-arm-none-eabi make cmake git
 ```
 
 ---
@@ -103,9 +93,6 @@ If needed, set `MAXIM_PATH` to point to your MSDK installation:
 export MAXIM_PATH=/c/MaximSDK
 ```
 
-
-<br>
-
 ## MSDK (Windows) Environment Setup
 
 ### 1. Using MSDK's MSYS2
@@ -134,120 +121,115 @@ PATH="/c/MaximSDK/Tools/GNUTools/10.3/bin/:$PATH" make BOARD=apard32690 blinky e
 
 (Adjust the path if your MSDK installation is in a different location.)
 
-<br>
-
 ## Available Boards
 
 Each port supports multiple hardware platforms.
 The specific boards available for each device can be found inside:
 
 ```
-ports/maxxxxxx/boards/
+ports/maxim/boards/
 ```
 
-For example, for MAX32690:
+For example:
 
 ```
-tinyuf2/ports/max32690/boards/
+tinyuf2/ports/maxim/boards/
     apard32690
     max32690evkit
 ```
 
-When building or flashing, make sure to specify a valid `BOARD` name from the available list:
+When initially configuring cmake, make sure to specify a valid `BOARD` name from the available list. Otherwise, the build will fail if an invalid board name is provided.
 
 ```bash
-make BOARD=apard32690 all
-make BOARD=apard32690 flash
+cmake -DBOARD=apard32690 ..
 ```
 
-Otherwise, the build will fail if an invalid board name is provided.
+Afterward, all the cmake/cmake commands can be run within the `build` directory without needing to specify the board again, as it will be cached.
 
 <br>
 
-## Building the Bootloader
+## Building the Bootloader and Applications
 
 1. Open your MSYS2 terminal (preferably MSDK’s).
-2. Navigate to the port folder for MAX32690:
+2. Navigate to the maxim folder, create a build directory, and change into it:
 
 ```bash
-cd ports/max32690
+cd ports/maxim
+mkdir build
+cd build
 ```
 
-3. Build the TinyUF2 bootloader:
+3. Configure cmake with correct BOARD and run make to build:
 
 ```bash
-make BOARD=apard32690 all
+cmake -DBOARD=apard32690 ..
+make
 ```
 
+It will build the TinyUF2 bootloader along with all supported application e.g blinky, update-tinyuf2, erase-firmware. Tinyuf2 binaries will appear in `build/` folder while application are created in `build/apps/$(APP)/`.
 
-Output files will appear in `_build/` and build logs under `apps/$(APP)/logs/`.
+- **Blinky** (`apps/blinky`) is useful to quickly test the bootloader
+- **Erase Firmware** (`apps/erase_firmware`) put the board into a clean state
+- **Self-Update** (`apps/self_update`) allows updating the bootloader itself
 
-
-<br>
-
-## Building Demo Applications
-
-TinyUF2 for MAX32690 includes three demo applications:
-- **Blinky** (`apps/blinky`)
-- **Erase Firmware** (`apps/erase_firmware`)
-- **Self-Update** (`apps/self_update`)
-
-### To Build Individual Applications:
+To list all supported targets, run:
 
 ```bash
-make BOARD=apard32690 blinky
-make BOARD=apard32690 erase-firmware
-make BOARD=apard32690 self-update
+cmake --build . --target help
+
+The following are some of the valid targets for this Makefile:
+... all (the default if no target is provided)
+... clean
+... depend
+... edit_cache
+... rebuild_cache
+... blinky-uf2
+... erase_firmware-uf2
+... tinyuf2-erase-jlink
+... tinyuf2-jlink
+... tinyuf2-openocd
+... update-tinyuf2-uf2
+... blinky
+... board_max32666fthr
+... erase_firmware
+... tinyuf2
+... update-tinyuf2
 ```
 
-### To Clean Individual Applications:
+### To Build Individual Targets
+
+To build a specific target, you can specify it directly with `make` or using `cmake --build`:
 
 ```bash
-make BOARD=apard32690 blinky-clean
-make BOARD=apard32690 erase-firmware-clean
-make BOARD=apard32690 self-update-clean
-```
-
-You can add `SAVELOG=1` to any of these commands to generate a saved build log.
-
-```bash
- make BOARD=apard32690 SAVELOG=1 blinky erase-firmware self-update
+make blinky
+cmake --build . --target blinky
 ```
 
 <br>
 
 ## Flashing the Bootloader
 
-
-### J-Link vs OpenOCD
+### J-Link and OpenOCD
 
 TinyUF2 supports two main ways to flash firmware:
 
-- **J-Link** (default): Uses SEGGER's proprietary debug probe. Supports fast, reliable flashing and debugging over SWD or JTAG. Requires a J-Link device and SEGGER drivers.
+- **J-Link**: Uses SEGGER's proprietary debug probe. Supports fast, reliable flashing and debugging over SWD or JTAG. Requires a J-Link device and SEGGER drivers.
 
 - **OpenOCD (MSDK)**: Open-source tool for programming/debugging via CMSIS-DAP or other adapters.
   The MSDK includes a custom version of OpenOCD that supports MAX32 devices, since official OpenOCD does not yet have MAX32 flash algorithm support.
 
-
-<br>
-
-`make flash` will use **J-Link** by default.
-`make flash-msdk` to use the **OpenOCD** path with CMSIS-DAP.
-
-
-
-### 1. J-Link (default)
+### 1. J-Link
 
 To flash using a J-Link debugger:
 
 ```bash
-make BOARD=apard32690 flash
+make tinyuf2-jlink
 ```
 
 To erase before flashing:
 
 ```bash
-make BOARD=apard32690 erase flash
+make tinyuf2-erase-jlink tinyuf2-jlink
 ```
 
 ### 2. OpenOCD from MSDK (optional)
@@ -255,19 +237,22 @@ make BOARD=apard32690 erase flash
 If you prefer OpenOCD and you have it installed through MSDK:
 
 ```bash
-make BOARD=apard32690 flash-msdk
+make tinyuf2-openocd
 ```
 
-Make sure `MAXIM_PATH` is correctly set to the MSDK base folder. If your default installation of the MSDK is not `C:/MaximSDK` you can pass the MaximSDK directory's location...
+Make sure `MAXIM_PATH` is correctly set to the MSDK base folder. If your default installation of the MSDK is not `C:/MaximSDK` you can pass the MaximSDK directory's location to cmake when configuring the build:
 
 ```bash
-make BOARD=apard32690 MAXIM_PATH=C:/MaximSDK flash-msdk
+cmake -DBOARD=apard32690 -DMAXIM_PATH=/path/to/MaximSDK ..
+```
+or  after initial configuration (in the build directory):
+
+```bash
+cmake -DMAXIM_PATH=C:/MaximSDK .
 ```
 
 > ⚠️ **Note:**
-> Optional flash option when running within an installed MSDK to use OpenOCD. Mainline OpenOCD does not yet have the MAX32's flash algorithm integrated. If the MSDK is installed, flash-msdk can be run to utilize the the modified openocd with the algorithms.
-
-<br>
+> Optional flash option when running within an installed MSDK to use OpenOCD. Mainline OpenOCD does not yet have the MAX32's flash algorithm integrated. If the MSDK is installed, tinyuf2-openocd can be run to utilize the modified openocd with the algorithms.
 
 ## Notes on SAVELOG=1
 
@@ -286,8 +271,6 @@ apps/blinky/logs/blinky/blinky_20250425_134500.log
 apps/blinky/logs/blinky-clean/blinky-clean_20250425_134512.log
 ```
 
-<br>
-
 ## Cleaning Logs
 
 You can remove all saved build logs across all apps by running:
@@ -298,33 +281,38 @@ make BOARD=apard32690 clean-logs
 
 This deletes all `logs/` directories under `apps/blinky`, `apps/erase_firmware`, and `apps/self_update`.
 
-
-<br>
-
-
 ## Flashing Example Applications
 
 After building any of the demo applications (Blinky, Erase Firmware, or Self-Update), a UF2 file will be generated in:
 
 ```
-apps/<application>/_build/<board>/<application>-<board>.uf2
+build/apps/<application>/<application>.uf2
 ```
 
 For example:
 
 ```
-apps/blinky/_build/<board>/blinky-<board>.uf2
+apps/blinky/blinky.uf2
 ```
 
 ### Flashing via Drag-and-Drop
 
 1. **Enter bootloader mode** on your board:
    - Typically, perform a **double-tap on the reset button** within **500 milliseconds**.
-   - The board will appear as a **USB mass storage device** (for example, named `TINYUF2`) in your operating system's **File Explorer** (Windows) or **Finder** (macOS) or **File Manager** (Linux).
+   - The board will appear as a **USB mass storage device** (for example, named `3269BOOT`) in your operating system's **File Explorer** (Windows) or **Finder** (macOS) or **File Manager** (Linux).
 
 2. **Using your file explorer**, locate the `.uf2` file you built, and **drag and drop** it onto the mounted TinyUF2 USB drive.
 
 3. The board will automatically reboot and begin running the new application.
+
+### Flashing using make/cmake
+
+To flash an application using the command line, you can use the `make` or `cmake` command:
+
+```bash
+make blinky-uf2
+cmake --build . --target blinky-uf2
+```
 
 ### Re-Entering Bootloader Mode
 
@@ -333,47 +321,34 @@ To flash a different application or return to bootloader mode:
 - Perform another **double-tap** of the reset button within 500 milliseconds.
 - The board will reappear as a USB mass storage device for new UF2 flashing.
 
-<br>
-
 > ⚠️ **Note:**
 > If double-tap reset does not work (for example, if the running application has corrupted necessary flash metadata), you may need to manually reflash the TinyUF2 bootloader using a SWD debug tool such as J-Link or OpenOCD.
 > Refer to your board's documentation for additional recovery options if needed.
-
-<br>
 
 ## Port Directory Structure
 
 Example directory tree for the MAX32690 port:
 
 ```
-max32690
-├── Makefile
-├── README.md
-├── _build
-├── apps
-│   ├── blinky
-│   │   ├── Makefile
-│   │   └── _build
-│   ├── erase_firmware
-│   │   ├── Makefile
-│   │   └── _build
-│   └── self_update
-│       ├── Makefile
-│       └── _build
+├── app.cmake
 ├── board_flash.c
 ├── boards
 │   ├── apard32690
-│   │   ├── board.h
-│   │   └── board.mk
-│   └── max32690evkit
-│       ├── board.h
-│       └── board.mk
+│   ├── max32650evkit
+│   ├── max32650fthr
+│   ├── max32666evkit
+│   ├── max32666fthr
+│   ├── max32690evkit
+│   └── max78002evkit
 ├── boards.c
 ├── boards.h
+├── CMakeLists.txt
+├── family.cmake
 ├── linker
-│   ├── max32690_app.ld
-│   ├── max32690_boot.ld
-│   └── max32690_common.ld
-├── port.mk
+│   ├── max32650
+│   ├── max32665
+│   ├── max32690
+│   └── max78002
+├── README.md
 └── tusb_config.h
 ```

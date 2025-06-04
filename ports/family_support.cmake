@@ -335,8 +335,12 @@ endfunction()
 # included with msdk or compiled from release branch of https://github.com/analogdevicesinc/openocd
 function(family_flash_openocd_adi TARGET)
   if (DEFINED $ENV{MAXIM_PATH})
-    # use openocd from msdk
+    # use openocd from msdk with MAXIM_PATH environment variable
     set(OPENOCD ENV{MAXIM_PATH}/Tools/OpenOCD/openocd)
+    set(OPENOCD_OPTION2 "-s $ENV{MAXIM_PATH}/Tools/OpenOCD/scripts")
+  elseif (DEFINED MAXIM_PATH)
+    # use openocd from msdk with MAXIM_PATH cmake variable
+    set(OPENOCD ${MAXIM_PATH}/Tools/OpenOCD/openocd)
     set(OPENOCD_OPTION2 "-s $ENV{MAXIM_PATH}/Tools/OpenOCD/scripts")
   else()
     # compiled from source
