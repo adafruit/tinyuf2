@@ -334,14 +334,17 @@ endfunction()
 # Add flash openocd adi (Analog Devices) target
 # included with msdk or compiled from release branch of https://github.com/analogdevicesinc/openocd
 function(family_flash_openocd_adi TARGET)
-  if (DEFINED $ENV{MAXIM_PATH})
-    # use openocd from msdk with MAXIM_PATH environment variable
-    set(OPENOCD ENV{MAXIM_PATH}/Tools/OpenOCD/openocd)
-    set(OPENOCD_OPTION2 "-s $ENV{MAXIM_PATH}/Tools/OpenOCD/scripts")
-  elseif (DEFINED MAXIM_PATH)
-    # use openocd from msdk with MAXIM_PATH cmake variable
+  if (DEFINED MAXIM_PATH)
+    # use openocd from msdk with MAXIM_PATH cmake variable first if the user
+    # specified it
     set(OPENOCD ${MAXIM_PATH}/Tools/OpenOCD/openocd)
-    set(OPENOCD_OPTION2 "-s $ENV{MAXIM_PATH}/Tools/OpenOCD/scripts")
+    set(OPENOCD_OPTION2 "-s ${MAXIM_PATH}/Tools/OpenOCD/scripts")
+  elseif (DEFINED ENV{MAXIM_PATH})
+    # use openocd from msdk with MAXIM_PATH environment variable. Normalize
+    # since msdk can be Windows (MinGW) or Linux
+    file(TO_CMAKE_PATH "$ENV{MAXIM_PATH}" MAXIM_PATH_NORM)
+    set(OPENOCD ${MAXIM_PATH_NORM}/Tools/OpenOCD/openocd)
+    set(OPENOCD_OPTION2 "-s ${MAXIM_PATH_NORM}/Tools/OpenOCD/scripts")
   else()
     # compiled from source
     if (NOT DEFINED OPENOCD_ADI_PATH)

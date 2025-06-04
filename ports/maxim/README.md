@@ -1,6 +1,6 @@
 # TinyUF2 - MAX32690 Port
 
-This folder contains the port of TinyUF2 for Analog Devices' MAX32690 MCU.
+This folder contains the port of TinyUF2 for Analog Devices' MAX32xxx/MAX78000 MCUs.
 
 ## Navigation
 
@@ -17,8 +17,6 @@ This folder contains the port of TinyUF2 for Analog Devices' MAX32690 MCU.
   - [J-Link vs OpenOCD](#j-link-vs-openocd)
   - [Flashing with J-Link](#1-j-link-default)
   - [Flashing with OpenOCD (MSDK)](#2-openocd-from-msdk-optional)
-- [Notes on SAVELOG=1](#notes-on-savelog1)
-- [Cleaning Logs](#cleaning-logs)
 - [Flashing Example Applications](#flashing-example-applications)
   - [Flashing via Drag-and-Drop](#flashing-via-drag-and-drop)
   - [Re-Entering Bootloader Mode](#re-entering-bootloader-mode)
@@ -113,12 +111,6 @@ If you are using your own MSYS2 or mingw installation (not MSDK’s MSYS2), you 
 export PATH="/c/MaximSDK/Tools/GNUTools/10.3/bin/:$PATH"
 ```
 
-Or in one-line command for building:
-
-```bash
-PATH="/c/MaximSDK/Tools/GNUTools/10.3/bin/:$PATH" make BOARD=apard32690 blinky erase-firmware self-update
-```
-
 (Adjust the path if your MSDK installation is in a different location.)
 
 ## Available Boards
@@ -135,7 +127,12 @@ For example:
 ```
 tinyuf2/ports/maxim/boards/
     apard32690
+    max32650evkit
+    max32650fthr
+    max32666evkit
+    max32666fthr
     max32690evkit
+    max78002evkit
 ```
 
 When initially configuring cmake, make sure to specify a valid `BOARD` name from the available list. Otherwise, the build will fail if an invalid board name is provided.
@@ -240,7 +237,10 @@ If you prefer OpenOCD and you have it installed through MSDK:
 make tinyuf2-openocd
 ```
 
-Make sure `MAXIM_PATH` is correctly set to the MSDK base folder. If your default installation of the MSDK is not `C:/MaximSDK` you can pass the MaximSDK directory's location to cmake when configuring the build:
+CMake will automatically leverage the MAXIM_PATH system environment variable if
+a MAXIM_PATH is not manually specified. To manually specify a MSDK path,
+you can pass the MaximSDK directory's location to cmake when configuring the
+build:
 
 ```bash
 cmake -DBOARD=apard32690 -DMAXIM_PATH=/path/to/MaximSDK ..
@@ -250,36 +250,6 @@ or  after initial configuration (in the build directory):
 ```bash
 cmake -DMAXIM_PATH=C:/MaximSDK .
 ```
-
-> ⚠️ **Note:**
-> Optional flash option when running within an installed MSDK to use OpenOCD. Mainline OpenOCD does not yet have the MAX32's flash algorithm integrated. If the MSDK is installed, tinyuf2-openocd can be run to utilize the modified openocd with the algorithms.
-
-## Notes on SAVELOG=1
-
-Log export options are available for demo apps.
-
-If `SAVELOG=1` is set during a build:
-
-- Output logs are automatically saved into a `logs/` folder inside each application.
-- Each application target (e.g., `blinky`, `blinky-clean`) has its own separate subfolder and timestamped `.log` files.
-- Log files are ignored from Git version control.
-
-Example:
-
-```
-apps/blinky/logs/blinky/blinky_20250425_134500.log
-apps/blinky/logs/blinky-clean/blinky-clean_20250425_134512.log
-```
-
-## Cleaning Logs
-
-You can remove all saved build logs across all apps by running:
-
-```bash
-make BOARD=apard32690 clean-logs
-```
-
-This deletes all `logs/` directories under `apps/blinky`, `apps/erase_firmware`, and `apps/self_update`.
 
 ## Flashing Example Applications
 
@@ -326,8 +296,6 @@ To flash a different application or return to bootloader mode:
 > Refer to your board's documentation for additional recovery options if needed.
 
 ## Port Directory Structure
-
-Example directory tree for the MAX32690 port:
 
 ```
 ├── app.cmake
