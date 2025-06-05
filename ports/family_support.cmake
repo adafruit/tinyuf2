@@ -33,6 +33,10 @@ if (NOT DEFINED TOOLCHAIN)
   set(TOOLCHAIN gcc)
 endif ()
 
+if (NOT DEFINED CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
+  set(CMAKE_BUILD_TYPE MinSizeRel CACHE STRING "Build type" FORCE)
+endif ()
+
 #-------------------------------------------------------------
 # FAMILY and BOARD
 #-------------------------------------------------------------
@@ -228,12 +232,21 @@ endfunction()
 # Add flash jlink target, optional parameter is the extension of the binary file
 function(family_flash_jlink TARGET)
   if (NOT DEFINED JLINKEXE)
-    set(JLINKEXE JLinkExe)
+    if(CMAKE_HOST_WIN32)
+      set(JLINKEXE JLink.exe)
+    else()
+      set(JLINKEXE JLinkExe)
+    endif()
   endif ()
 
   if (NOT DEFINED JLINK_IF)
     set(JLINK_IF swd)
   endif ()
+
+  if (NOT DEFINED JLINK_OPTION)
+    set(JLINK_OPTION "")
+  endif ()
+  separate_arguments(JLINK_OPTION UNIX_COMMAND ${JLINK_OPTION})
 
   if (ARGC GREATER 1)
     set(BIN_FILE $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.${ARGV1})
@@ -253,7 +266,7 @@ exit"
 
   add_custom_target(${TARGET}-jlink
     DEPENDS ${TARGET}
-    COMMAND ${JLINKEXE} -device ${JLINK_DEVICE} -if ${JLINK_IF} -JTAGConf -1,-1 -speed auto -CommandFile ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}.jlink
+    COMMAND ${JLINKEXE} -device ${JLINK_DEVICE} ${JLINK_OPTION} -if ${JLINK_IF} -JTAGConf -1,-1 -speed auto -CommandFile ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}.jlink
     )
 
   # erase with jlink
@@ -292,13 +305,17 @@ function(family_flash_openocd TARGET)
     set(OPENOCD_OPTION2 "")
   endif ()
 
+  if (DEFINED OPENOCD_SERIAL)
+    set(OPENOCD_OPTION "-c \"adapter serial ${OPENOCD_SERIAL}\" ${OPENOCD_OPTION}")
+  endif ()
+
   separate_arguments(OPTION_LIST UNIX_COMMAND ${OPENOCD_OPTION})
   separate_arguments(OPTION_LIST2 UNIX_COMMAND ${OPENOCD_OPTION2})
 
   # note skip verify since it has issue with rp2040
   add_custom_target(${TARGET}-openocd
     DEPENDS ${TARGET}
-    COMMAND ${OPENOCD} ${OPTION_LIST} -c "program $<TARGET_FILE:${TARGET}> reset" ${OPTION_LIST2} -c exit
+    COMMAND ${OPENOCD} -c "tcl_port disabled; gdb_port disabled" ${OPTION_LIST} -c "init; halt; program $<TARGET_FILE:${TARGET}>" -c reset ${OPTION_LIST2} -c exit
     VERBATIM
     )
 endfunction()
@@ -308,6 +325,33 @@ endfunction()
 function(family_flash_openocd_wch TARGET)
   if (NOT DEFINED OPENOCD)
     set(OPENOCD $ENV{HOME}/app/riscv-openocd-wch/src/openocd)
+  endif ()
+
+  family_flash_openocd(${TARGET})
+endfunction()
+
+
+# Add flash openocd adi (Analog Devices) target
+# included with msdk or compiled from release branch of https://github.com/analogdevicesinc/openocd
+function(family_flash_openocd_adi TARGET)
+  if (DEFINED MAXIM_PATH)
+    # use openocd from msdk with MAXIM_PATH cmake variable first if the user
+    # specified it
+    set(OPENOCD ${MAXIM_PATH}/Tools/OpenOCD/openocd)
+    set(OPENOCD_OPTION2 "-s ${MAXIM_PATH}/Tools/OpenOCD/scripts")
+  elseif (DEFINED ENV{MAXIM_PATH})
+    # use openocd from msdk with MAXIM_PATH environment variable. Normalize
+    # since msdk can be Windows (MinGW) or Linux
+    file(TO_CMAKE_PATH "$ENV{MAXIM_PATH}" MAXIM_PATH_NORM)
+    set(OPENOCD ${MAXIM_PATH_NORM}/Tools/OpenOCD/openocd)
+    set(OPENOCD_OPTION2 "-s ${MAXIM_PATH_NORM}/Tools/OpenOCD/scripts")
+  else()
+    # compiled from source
+    if (NOT DEFINED OPENOCD_ADI_PATH)
+      set(OPENOCD_ADI_PATH $ENV{HOME}/app/openocd_adi)
+    endif ()
+    set(OPENOCD ${OPENOCD_ADI_PATH}/src/openocd)
+    set(OPENOCD_OPTION2 "-s ${OPENOCD_ADI_PATH}/tcl")
   endif ()
 
   family_flash_openocd(${TARGET})

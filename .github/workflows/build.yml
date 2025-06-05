@@ -83,6 +83,7 @@ jobs:
       matrix:
         port:
           # Alphabetical order by family
+          - 'maxim'
           # - 'stm32f303disco' # overflows flash
           - 'stm32f4'
           - 'stm32h5'
