@@ -65,6 +65,7 @@ jobs:
         - 'lpc55'
         - 'mimxrt10xx'
         - 'stm32f3'
+        - 'stm32h7'
         - 'stm32l4'
     with:
       port: ${{ matrix.port }}

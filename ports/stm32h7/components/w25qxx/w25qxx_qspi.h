@@ -7,21 +7,6 @@
 
 #include <stdint.h>
 
-typedef enum
-{
-  w25qxx_OK         = 0x00,
-  w25qxx_ERROR      = 0x01,
-  w25qxx_BUSY       = 0x02,
-  w25qxx_TIMEOUT    = 0x03,
-
-  w25qxx_QPIMode    = 0x04,
-  w25qxx_SPIMode    = 0x05,
-
-  w25qxx_DTRMode    = 0x06,
-  w25qxx_NormalMode = 0x07,
-
-} w25qxx_StatusTypeDef;
-
 /* =============== W25Qxx CMD ================ */
 #define W25X_WriteEnable         0x06
 #define W25X_WriteDisable        0x04
@@ -84,14 +69,14 @@ uint8_t   w25qxx_WriteSR(uint8_t SR,uint8_t data);
 uint8_t   w25qxx_SetReadParameters(uint8_t DummyClock,uint8_t WrapLenth);
 uint8_t   w25qxx_EnterQPI(void);
 uint8_t   w25qxx_Startup(uint8_t DTRMode);
-uint8_t   W25qxx_WriteEnable(void);
-uint8_t   W25qxx_EraseSector(uint32_t SectorAddress);
-uint8_t   W25qxx_EraseBlock(uint32_t BlockAddress);
-uint8_t   W25qxx_EraseChip(void);
-uint8_t   W25qxx_PageProgram(uint8_t *pData, uint32_t WriteAddr, uint32_t Size);
-uint8_t   W25qxx_Read(uint8_t *pData, uint32_t ReadAddr, uint32_t Size);
-void      W25qxx_WriteNoCheck(uint8_t *pBuffer,uint32_t WriteAddr,uint32_t NumByteToWrite);
-uint8_t     W25qxx_Write(uint8_t* pBuffer, uint32_t WriteAddr, uint16_t NumByteToWrite);
+uint8_t   w25qxx_WriteEnable(void);
+uint8_t   w25qxx_EraseSector(uint32_t SectorAddress);
+uint8_t   w25qxx_EraseBlock(uint32_t BlockAddress);
+uint8_t   w25qxx_EraseChip(void);
+uint8_t   w25qxx_PageProgram(uint8_t *pData, uint32_t WriteAddr, uint32_t Size);
+uint8_t   w25qxx_Read(uint8_t *pData, uint32_t ReadAddr, uint32_t Size);
+void      w25qxx_WriteNoCheck(uint8_t *pBuffer,uint32_t WriteAddr,uint32_t NumByteToWrite);
+uint8_t     w25qxx_Write(uint8_t* pBuffer, uint32_t WriteAddr, uint16_t NumByteToWrite);
 
 #ifdef __cplusplus
 }
