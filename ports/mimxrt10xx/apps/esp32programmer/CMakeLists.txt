@@ -4,11 +4,8 @@
 #------------------------------------
 cmake_minimum_required(VERSION 3.17)
 
-include(${CMAKE_CURRENT_LIST_DIR}/../app.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/../../app.cmake)
 
-#------------------------------------
-# Application
-#------------------------------------
 add_executable(esp32programmer
   main.c
   usb_descriptors.c
@@ -20,5 +17,5 @@ target_include_directories(esp32programmer PUBLIC
   ${TOP}/src
   )
 
-configure_app(esp32programmer)
-family_add_tinyusb(esp32programmer OPT_MCU_MIMXRT1XXX none)
+family_configure_app(esp32programmer)
+family_add_tinyusb(esp32programmer OPT_MCU_MIMXRT1XXX)
