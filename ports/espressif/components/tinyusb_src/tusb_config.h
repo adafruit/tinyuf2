@@ -40,6 +40,8 @@
   #define CFG_TUSB_MCU               OPT_MCU_ESP32S2
 #elif CONFIG_IDF_TARGET_ESP32S3
   #define CFG_TUSB_MCU               OPT_MCU_ESP32S3
+#elif CONFIG_IDF_TARGET_ESP32P4
+  #define CFG_TUSB_MCU               OPT_MCU_ESP32P4
 #endif
 
 #define CFG_TUSB_OS                OPT_OS_FREERTOS
