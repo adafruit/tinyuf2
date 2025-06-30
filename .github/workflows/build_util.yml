@@ -75,6 +75,8 @@ jobs:
         run: |
           if [ ${{ inputs.toolchain }} == 'esp-idf' ]; then
             zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ${{ env.BIN_PATH }}
+            cp ${{ env.BIN_PATH }}/combined.bin combined.bin
+            [ -f ${{ env.BIN_PATH }}/combined-ota.bin ] && cp ${{ env.BIN_PATH }}/combined-ota.bin combined-ota.bin
             cp ${{ env.BIN_PATH }}/apps/update-tinyuf2.uf2 update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
           else
             if [[ ${{ inputs.build-system }} == cmake ]]; then
@@ -99,5 +101,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         if: github.event_name == 'release' && inputs.port == 'espressif'
         run: |
-          [ -z \"$AWS_ACCESS_KEY_ID\" ] || aws s3 cp tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip s3://adafruit-circuit-python/bootloaders/esp32/tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip --no-progress --region us-east-1
-          [ -z \"$AWS_ACCESS_KEY_ID\" ] || aws s3 cp update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2 s3://adafruit-circuit-python/bootloaders/esp32/update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2 --no-progress --region us-east-1
+          [ -z \"$AWS_ACCESS_KEY_ID\" ] || aws s3 cp tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip s3://adafruit-circuit-python/bootloaders/esp32/${{ matrix.board }}/tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip --no-progress --region us-east-1
+          [ -z \"$AWS_ACCESS_KEY_ID\" ] || aws s3 cp update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2 s3://adafruit-circuit-python/bootloaders/esp32/${{ matrix.board }}/update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2 --no-progress --region us-east-1
+          [ -z \"$AWS_ACCESS_KEY_ID\" ] || aws s3 cp combined.bin s3://adafruit-circuit-python/bootloaders/esp32/${{ matrix.board }}/tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}-combined.bin --no-progress --region us-east-1
+          [ -z \"$AWS_ACCESS_KEY_ID\" ] || [ ! -f combined-ota.bin ] || aws s3 cp combined-ota.bin s3://adafruit-circuit-python/bootloaders/esp32/${{ matrix.board }}/tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}-combined-ota.bin --no-progress --region us-east-1
