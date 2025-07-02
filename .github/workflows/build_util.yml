@@ -73,16 +73,16 @@ jobs:
       - name: Prepare Release Asset
         if: github.event_name == 'release'
         run: |
-          if [ ${{ inputs.toolchain }} == 'esp-idf' ]; then
+          if [ ${{ inputs.toolchain }} == esp-idf ]; then
             zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ${{ env.BIN_PATH }}
             cp ${{ env.BIN_PATH }}/combined.bin combined.bin
             [ -f ${{ env.BIN_PATH }}/combined-ota.bin ] && cp ${{ env.BIN_PATH }}/combined-ota.bin combined-ota.bin
             cp ${{ env.BIN_PATH }}/apps/update-tinyuf2.uf2 update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
           else
             if [[ ${{ inputs.build-system }} == cmake ]]; then
-              cp ${{ env.BIN_PATH }}/apps/update-tinyuf2.uf2 update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
+              [ -f ${{ env.BIN_PATH }}/apps/update-tinyuf2.uf2 ] && cp ${{ env.BIN_PATH }}/apps/update-tinyuf2.uf2 update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
             else
-              cp ${{ env.BIN_PATH }}/apps/update-tinyuf2-${{ matrix.board }}.uf2 update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
+              [ -f ${{ env.BIN_PATH }}/apps/update-tinyuf2-${{ matrix.board }}.uf2] && cp ${{ env.BIN_PATH }}/apps/update-tinyuf2-${{ matrix.board }}.uf2 update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
             fi
             zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ${{ env.BIN_PATH }}
           fi
