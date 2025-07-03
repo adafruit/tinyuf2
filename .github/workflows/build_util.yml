@@ -105,5 +105,7 @@ jobs:
             aws s3 cp tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip s3://adafruit-circuit-python/bootloaders/esp32/${{ matrix.board }}/tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip --no-progress --region us-east-1
             aws s3 cp update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2 s3://adafruit-circuit-python/bootloaders/esp32/${{ matrix.board }}/update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2 --no-progress --region us-east-1
             aws s3 cp combined.bin s3://adafruit-circuit-python/bootloaders/esp32/${{ matrix.board }}/tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}-combined.bin --no-progress --region us-east-1
-            [ -f combined-ota.bin ] && aws s3 cp combined-ota.bin s3://adafruit-circuit-python/bootloaders/esp32/${{ matrix.board }}/tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}-combined-ota.bin --no-progress --region us-east-1
+            if [ -f combined-ota.bin ]; then
+              aws s3 cp combined-ota.bin s3://adafruit-circuit-python/bootloaders/esp32/${{ matrix.board }}/tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}-combined-ota.bin --no-progress --region us-east-1
+            fi
           fi
