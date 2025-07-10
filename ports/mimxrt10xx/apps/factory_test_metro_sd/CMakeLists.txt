@@ -4,7 +4,7 @@
 #------------------------------------
 cmake_minimum_required(VERSION 3.17)
 
-include(${CMAKE_CURRENT_LIST_DIR}/../app.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/../../app.cmake)
 
 #------------------------------------
 # Application
@@ -27,8 +27,8 @@ target_include_directories(factory_test_metro_sd PUBLIC
 include(middleware-sdmmc/CMakeLists.txt)
 add_sdmmc(factory_test_metro_sd)
 
-configure_app(factory_test_metro_sd)
-family_add_tinyusb(factory_test_metro_sd OPT_MCU_MIMXRT1XXX none)
+family_configure_app(factory_test_metro_sd)
+family_add_tinyusb(factory_test_metro_sd OPT_MCU_MIMXRT1XXX)
 
 #------------------------------------
 #

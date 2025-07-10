@@ -22,11 +22,13 @@ include ../rules.mk
 # This uf2 will be loaded into RAM
 # TODO: this needs to build the actual uf2 binary first
 self-update: $(BUILD)/$(OUTNAME).bin
-	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py --carray $^ -o apps/self_update/_build/bootloader_bin.c
-	$(MAKE) -C $(TOP)/$(PORT_DIR)/apps/self_update uf2
+	@echo "not implemented yet"
+#	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py --carray $^ -o apps/self_update/_build/bootloader_bin.c
+#	$(MAKE) -C $(TOP)/$(PORT_DIR)/apps/self_update uf2
 
 self-update-clean:
-	$(MAKE) -C $(TOP)/$(PORT_DIR)/apps/self_update clean
+	@echo "not implemented yet"
+#	$(MAKE) -C $(TOP)/$(PORT_DIR)/apps/self_update clean
 
 #---------- Erase app ----------
 # Compile apps/erase_firmware/erase_firmware.c

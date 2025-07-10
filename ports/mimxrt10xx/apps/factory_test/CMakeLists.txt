@@ -4,7 +4,7 @@
 #------------------------------------
 cmake_minimum_required(VERSION 3.17)
 
-include(${CMAKE_CURRENT_LIST_DIR}/../app.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/../../app.cmake)
 
 #------------------------------------
 # Application
@@ -21,5 +21,5 @@ target_include_directories(factory_test PUBLIC
   ${TOP}/src
   )
 
-configure_app(factory_test)
-family_add_tinyusb(factory_test OPT_MCU_MIMXRT1XXX none)
+family_configure_app(factory_test)
+family_add_tinyusb(factory_test OPT_MCU_MIMXRT1XXX)

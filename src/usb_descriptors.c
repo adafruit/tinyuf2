@@ -89,9 +89,16 @@ uint8_t const* tud_descriptor_device_cb(void) {
 #define CONFIG_TOTAL_LEN  (TUD_CONFIG_DESC_LEN + TUD_MSC_DESC_LEN + \
                            CFG_TUD_CDC*TUD_CDC_DESC_LEN + CFG_TUD_VENDOR*TUD_VENDOR_DESC_LEN)
 
-// MSC is mandatory, use endpoint 1
-#define EPNUM_MSC_OUT     0x01
-#define EPNUM_MSC_IN      0x81
+// MSC is mandatory
+#if defined(TUD_ENDPOINT_ONE_DIRECTION_ONLY)
+  // MCUs that don't support a same endpoint number with different direction
+  #define EPNUM_MSC_OUT     0x01
+  #define EPNUM_MSC_IN      0x82
+#else
+  // Use endpoint 1 for most devices
+  #define EPNUM_MSC_OUT     0x01
+  #define EPNUM_MSC_IN      0x81
+#endif
 
 // Board/Port can force CDC endpoint numbering
 #if defined(BOARD_EPNUM_CDC_OUT) && defined(BOARD_EPNUM_CDC_IN) && defined(BOARD_EPNUM_CDC_NOTIF)
@@ -99,9 +106,16 @@ uint8_t const* tud_descriptor_device_cb(void) {
   #define EPNUM_CDC_OUT     BOARD_EPNUM_CDC_OUT
   #define EPNUM_CDC_IN      BOARD_EPNUM_CDC_IN
 #else
-  #define EPNUM_CDC_NOTIF   0x82
-  #define EPNUM_CDC_OUT     0x03
-  #define EPNUM_CDC_IN      0x83
+  #if defined(TUD_ENDPOINT_ONE_DIRECTION_ONLY)
+    // MCUs that don't support a same endpoint number with different direction
+    #define EPNUM_CDC_NOTIF   0x83
+    #define EPNUM_CDC_OUT     0x04
+    #define EPNUM_CDC_IN      0x85
+  #else
+    #define EPNUM_CDC_NOTIF   0x82
+    #define EPNUM_CDC_OUT     0x03
+    #define EPNUM_CDC_IN      0x83
+  #endif
 #endif
 
 uint8_t TINYUF2_CONST desc_configuration[] = {

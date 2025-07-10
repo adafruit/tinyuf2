@@ -24,27 +24,29 @@ endif
 CFLAGS += -Wno-error=cast-align -Wno-error=unused-parameter -Wno-error=unused-but-set-variable -Wno-error=unused-function
 
 ifeq ($(SPI_FLASH),W25Qx_SPI)
-INC += \
-  $(CURRENT_PATH)/components/w25qxx/ \
-
+INC += ${TOP}/$(PORT_DIR)/components/w25qxx
 SRC_C += \
-	$(TOP)/$(PORT_DIR)/components/w25qxx/w25qxx.c
+	$(PORT_DIR)/components/w25qxx/w25qxx.c
 endif
 
 ifeq ($(QSPI_FLASH),W25Qx_QSPI)
-INC += \
-  $(CURRENT_PATH)/components/w25qxx/ \
-
+INC += ${TOP}/$(PORT_DIR)/components/w25qxx
 SRC_C += \
-	$(TOP)/$(PORT_DIR)/components/w25qxx/w25qxx_qspi.c
+	$(PORT_DIR)/components/w25qxx/w25qxx_qspi.c
+endif
+
+ifeq ($(QSPI_FLASH),IS25LP064A)
+INC += ${TOP}/$(PORT_DIR)/components/is25lp064a
+SRC_C += \
+  $(PORT_DIR)/components/is25lp064a/is25lp064a_qspi.c
 endif
 
 ifeq ($(DISPLAY_DRV),ST7735)
-INC += \
-  $(CURRENT_PATH)/components/w25qxx/ \
+INC += ${TOP}/$(PORT_DIR)/components/st7735/
 
 SRC_C += \
-	$(TOP)/$(PORT_DIR)/components/st7735/st7735.c
+	$(PORT_DIR)/components/st7735/st7735.c \
+  $(PORT_DIR)/components/st7735/fonts.c
 endif
 
 # Source
@@ -63,8 +65,6 @@ SRC_C += \
   $(ST_HAL_DRIVER)/Src/stm32h7xx_hal_qspi.c \
   $(ST_HAL_DRIVER)/Src/stm32h7xx_hal_mdma.c \
   $(ST_HAL_DRIVER)/Src/stm32h7xx_hal_pwr_ex.c \
-  $(TOP)/$(PORT_DIR)/components/st7735/fonts.c \
-
 
 ifndef BUILD_NO_TINYUSB
 SRC_C += lib/tinyusb/src/portable/synopsys/dwc2/dcd_dwc2.c
@@ -75,8 +75,6 @@ endif
 INC += \
   $(TOP)/$(BOARD_PATH) \
   $(TOP)/$(CMSIS_5)/CMSIS/Core/Include \
-  $(CURRENT_PATH)/components/st7735/ \
-  $(CURRENT_PATH)/components/w25qxx/ \
   $(TOP)/$(PORT_DIR)/ \
   $(TOP)/$(BOARD_DIR) \
   $(TOP)/$(ST_CMSIS)/Include \

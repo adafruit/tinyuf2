@@ -1,4 +1,4 @@
-include_guard()
+include_guard(GLOBAL)
 
 set(UF2_FAMILY_ID 0x699b62ec)
 set(CH32_FAMILY ch32v20x)

@@ -53,7 +53,7 @@ jobs:
   # ---------------------------------------
   # Build ARM
   # ---------------------------------------
-  arm:
+  arm-make:
     needs: set-matrix
     uses: ./.github/workflows/build_util.yml
     strategy:
@@ -65,14 +65,35 @@ jobs:
         - 'lpc55'
         - 'mimxrt10xx'
         - 'stm32f3'
-        - 'stm32f4'
-        - 'stm32h5'
+        - 'stm32h7'
         - 'stm32l4'
     with:
       port: ${{ matrix.port }}
       boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)[matrix.port].board) }}
       build-system: 'make'
       toolchain: 'arm-gcc'
+
+  # ---------------------------------------
+  # Build ARM with CMake
+  # ---------------------------------------
+  arm-cmake:
+    needs: set-matrix
+    uses: ./.github/workflows/build_util.yml
+    strategy:
+      fail-fast: false
+      matrix:
+        port:
+          # Alphabetical order by family
+          - 'maxim'
+          # - 'stm32f303disco' # overflows flash
+          - 'stm32f4'
+          - 'stm32h5'
+    with:
+      port: ${{ matrix.port }}
+      boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)[matrix.port].board) }}
+      build-system: 'cmake'
+      toolchain: 'arm-gcc'
+
 
   # ---------------------------------------
   # Build ESP
@@ -115,42 +136,3 @@ jobs:
     uses: ./.github/workflows/build_ghostfat.yml
     with:
         boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)['test_ghostfat'].board) }}
-
-  # ---------------------------------------
-  # Build ARM with CMake
-  # ---------------------------------------
-  arm-cmake:
-    if: false
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        board:
-          # Alphabetical order by family
-          - 'metro_m7_1011'
-          # - 'stm32f303disco' # overflows flash
-          - 'stm32f411ve_discovery'
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - name: Fetch tags
-        run: git fetch --tags
-
-      - name: Install ARM GCC
-        uses: carlosperate/arm-none-eabi-gcc-action@v1
-        with:
-          release: '11.2-2022.02'
-
-      - name: Get Dependencies
-        run: |
-          sudo apt install -y ninja-build
-          python tools/get_deps.py --board ${{ matrix.board }}
-
-      - name: Build
-        run: |
-          cmake . -B _build -G Ninja -DCMAKE_BUILD_TYPE=MinSizeRel -DBOARD=${{ matrix.board }}
-          cmake --build _build
