@@ -39,7 +39,7 @@
 // #define PIN_DOUBLE_RESET_RC
 
 // GPIO connected to Neopixel data
-#define NEOPIXEL_PIN          14
+#define NEOPIXEL_PIN          45
 
 #define NEOPIXEL_POWER_STATE  1
 
