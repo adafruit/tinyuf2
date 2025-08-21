@@ -80,9 +80,9 @@
 #define USB_VID                  0x303a  // Espressif VID
 #define USB_PID                  0x8223
 #define USB_MANUFACTURER         "Waveshare"
-#define USB_PRODUCT              "ESP32-S3-LCD-1.9"
+#define USB_PRODUCT              "ESP32S3-LCD_1.9–v0"
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID             "ESP32-S3-LCD-1.9"
+#define UF2_BOARD_ID             "ESP32S3-LCD-1.9"
 #define UF2_VOLUME_LABEL         "S3-LCD-BOOT"
 #define UF2_INDEX_URL            "https://www.waveshare.com/esp32-s3-lcd-1.9.htm"
 
