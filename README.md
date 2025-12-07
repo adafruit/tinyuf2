@@ -47,24 +47,24 @@ Following is generic compiling information. Each port may require extra set-up a
 Clone this repo with its submodule
 
 ```
-$ git clone git@github.com:adafruit/tinyuf2.git tinyuf2
-$ cd tinyuf2
-$ git submodule update --init
+git clone git@github.com:adafruit/tinyuf2.git tinyuf2
+cd tinyuf2
+git submodule update --init
 ```
 
 ### Compile
-
-To build this for a specific board, we need to change current directory to its port folder
-
-```
-$ cd ports/stm32f4
-```
 
 Firstly we need to get all submodule dependency for our board using `tools/get_deps.py` script with either family input or using --board option. You only need to do this once for each family
 
 ```
 python tools/get_deps.py stm32f4
 python tools/get_deps.py --board feather_stm32f405_express
+```
+
+To build this for a specific board, we need to change current directory to its port folder
+
+```
+cd ports/stm32f4
 ```
 
 Then compile with `all` target:
@@ -78,7 +78,7 @@ make BOARD=feather_stm32f405_express all
 `flash` target will use the default on-board debugger (jlink/cmsisdap/stlink/dfu) to flash the binary, please install those support software in advance. Some board use bootloader/DFU via serial which is required to pass to make command
 
 ```
-$ make BOARD=feather_stm32f405_express flash
+make BOARD=feather_stm32f405_express flash
 ```
 
 If you use an external debugger, there is `flash-jlink`, `flash-stlink`, `flash-pyocd` which are mostly like to work out of the box for most of the supported board.
@@ -88,7 +88,7 @@ If you use an external debugger, there is `flash-jlink`, `flash-stlink`, `flash-
 To compile for debugging add `DEBUG=1`, this will mostly change the compiler optimization
 
 ```
-$ make BOARD=feather_stm32f405_express DEBUG=1 all
+make BOARD=feather_stm32f405_express DEBUG=1 all
 ```
 
 #### Log
@@ -98,7 +98,7 @@ Should you have an issue running example and/or submitting an bug report. You co
 - **LOG=2** and **LOG=3** will print more information with TinyUSB stack events
 
 ```
-$ make BOARD=feather_stm32f405_express LOG=1 all
+make BOARD=feather_stm32f405_express LOG=1 all
 ```
 
 #### Logger
@@ -111,5 +111,5 @@ By default log message is printed via on-board UART which is slow and take lots 
   - Software viewer is JLink RTT Viewer/Client/Logger which is bundled with JLink driver package.
 
 ```
-$ make BOARD=feather_stm32f405_express LOG=2 LOGGER=rtt all
+make BOARD=feather_stm32f405_express LOG=2 LOGGER=rtt all
 ```
