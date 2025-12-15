@@ -63,6 +63,7 @@ static uint8_t  _flash_cache[SECTOR_SIZE] __attribute__((aligned(4)));
 // compare and write tinyuf2 to flash every time it is running
 #define COMPARE_AND_WRITE_TINYUF2   0
 
+#if !defined(MIMXRT1176_cm7_SERIES)
 // Check if TinyUF2 running in SRAM matches the on flash contents
 static bool compare_tinyuf2_ram_vs_flash(void)
 {
@@ -98,25 +99,50 @@ static void write_tinyuf2_to_flash(void)
   board_flash_flush();
   TUF2_LOG1("TinyUF2 copied to flash.\r\n");
 }
+#endif // !defined(MIMXRT1176_cm7_SERIES)
+
+// Check if we're executing from flash (XIP mode)
+// If PC is in the FlexSPI address range, skip FlexSPI re-initialization
+static inline bool is_running_from_flash(void) {
+  extern char __isr_vector[];
+  uint32_t vec_addr = (uint32_t)__isr_vector;
+  return (vec_addr >= FLEXSPI_FLASH_BASE) && (vec_addr < (FLEXSPI_FLASH_BASE + 0x10000000));
+}
 
 void board_flash_init(void)
 {
-  ROM_FLEXSPI_NorFlash_Init(FLEXSPI_INSTANCE, flash_cfg);
+#if defined(MIMXRT1176_cm7_SERIES)
+  // MIMXRT1176 requires ROM_API_Init to be called before using ROM API functions
+  ROM_API_Init();
+#endif
+
+  // Skip FlexSPI initialization if already running from flash (XIP mode)
+  // Re-initializing FlexSPI while executing from it would crash the system
+  if (!is_running_from_flash()) {
+    ROM_FLEXSPI_NorFlash_Init(FLEXSPI_INSTANCE, flash_cfg);
+  }
 
   // TinyUF2 will copy its image to flash if one of conditions meets:
   // - Boot Mode is '01' i.e Serial Download Mode (BootRom)
   // - Flash FCFB is invalid e.g blank flash
   // - Flash contents does not match running tinyuf2 in SRAM (depending on COMPARE_AND_WRITE_TINYUF2)
+  //
+  // NOTE: Self-flash is disabled for MIMXRT1176 because the code is linked for
+  // RAM addresses and won't run correctly from flash. Use debugger to flash
+  // firmware directly after using UF2 drag-drop.
+#if !defined(MIMXRT1176_cm7_SERIES)
   uint32_t const boot_mode = (SRC->SBMR2 & SRC_SBMR2_BMOD_MASK) >> SRC_SBMR2_BMOD_SHIFT;
   bool const fcfb_valid = (*(uint32_t*) FCFB_START_ADDRESS == FLEXSPI_CFG_BLK_TAG);
   bool const matched_flash = compare_tinyuf2_ram_vs_flash();
 
+  (void) boot_mode; // Used in TUF2_LOG1 which may be disabled
   TUF2_LOG1("Boot Mode = %lu, fcfb_valid = %u, matched_flash = %u\r\n", boot_mode, fcfb_valid, matched_flash);
 
-  if (boot_mode == 1 || !fcfb_valid || !matched_flash)
+  if (!fcfb_valid || !matched_flash)
   {
     write_tinyuf2_to_flash();
   }
+#endif
 }
 
 uint32_t board_flash_size(void)
@@ -151,7 +177,8 @@ void board_flash_flush(void)
     status = ROM_FLEXSPI_NorFlash_Erase(FLEXSPI_INSTANCE, flash_cfg, sector_addr, SECTOR_SIZE);
     __enable_irq();
 
-    SCB_InvalidateDCache_by_Addr((uint32_t *)sector_addr, SECTOR_SIZE);
+    // Use absolute address for cache invalidation, not the offset
+    SCB_InvalidateDCache_by_Addr((uint32_t *)_flash_page_addr, SECTOR_SIZE);
 
     if ( status != kStatus_Success )
     {
@@ -175,7 +202,8 @@ void board_flash_flush(void)
       }
     }
 
-    SCB_InvalidateDCache_by_Addr((uint32_t *)sector_addr, SECTOR_SIZE);
+    // Use absolute address for cache invalidation, not the offset
+    SCB_InvalidateDCache_by_Addr((uint32_t *)_flash_page_addr, SECTOR_SIZE);
   }
 
   _flash_page_addr = NO_CACHE;
@@ -210,9 +238,11 @@ void board_flash_erase_app(void)
   ROM_FLEXSPI_NorFlash_Init(FLEXSPI_INSTANCE, flash_cfg);
   ROM_FLEXSPI_NorFlash_EraseAll(FLEXSPI_INSTANCE, flash_cfg);
 
+#if !defined(MIMXRT1176_cm7_SERIES)
   // write bootloader to flash
   TUF2_LOG1("Erase app firmware: ");
   write_tinyuf2_to_flash();
+#endif
 }
 
 bool board_flash_protect_bootloader(bool protect)

@@ -63,12 +63,9 @@ function(family_add_board_target BOARD_TARGET)
     return()
   endif ()
 
-  add_library(${BOARD_TARGET} STATIC
+  # Common sources for all MIMXRT variants
+  set(BOARD_SOURCES
     ${SDK_DIR}/devices/${MCU_VARIANT}/drivers/fsl_clock.c
-    ${SDK_DIR}/devices/${MCU_VARIANT}/system_${MCU_VARIANT}.c
-    ${SDK_DIR}/devices/${MCU_VARIANT}/gcc/startup_${MCU_VARIANT}.S
-    ${SDK_DIR}/drivers/adc_12b1msps_sar/fsl_adc.c
-    ${SDK_DIR}/drivers/cache/armv7-m7/fsl_cache.c
     ${SDK_DIR}/drivers/common/fsl_common.c
     ${SDK_DIR}/drivers/igpio/fsl_gpio.c
     ${SDK_DIR}/drivers/lpspi/fsl_lpspi.c
@@ -77,17 +74,15 @@ function(family_add_board_target BOARD_TARGET)
     ${SDK_DIR}/drivers/pwm/fsl_pwm.c
     ${SDK_DIR}/drivers/xbara/fsl_xbara.c
     )
-  target_include_directories(${BOARD_TARGET} PUBLIC
-    # port & board
+
+  # Common include directories
+  set(BOARD_INCLUDES
     ${CMAKE_CURRENT_FUNCTION_LIST_DIR}
     ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/boards/${BOARD}
-    # sdk
     ${CMSIS_DIR}/CMSIS/Core/Include
     ${SDK_DIR}/devices/${MCU_VARIANT}
     ${SDK_DIR}/devices/${MCU_VARIANT}/xip
     ${SDK_DIR}/devices/${MCU_VARIANT}/drivers
-    ${SDK_DIR}/drivers/adc_12b1msps_sar
-    ${SDK_DIR}/drivers/cache/armv7-m7
     ${SDK_DIR}/drivers/common
     ${SDK_DIR}/drivers/igpio
     ${SDK_DIR}/drivers/lpspi
@@ -98,6 +93,38 @@ function(family_add_board_target BOARD_TARGET)
     ${SDK_DIR}/drivers/xbara
     ${SDK_DIR}/drivers/wdog01
     )
+
+  # MCU-specific sources and includes
+  if (MCU_VARIANT STREQUAL "MIMXRT1176")
+    # MIMXRT1176 uses CM7-specific startup/system files
+    list(APPEND BOARD_SOURCES
+      ${SDK_DIR}/devices/${MCU_VARIANT}/system_${MCU_VARIANT}_cm7.c
+      ${SDK_DIR}/devices/${MCU_VARIANT}/gcc/startup_${MCU_VARIANT}_cm7.S
+      ${SDK_DIR}/devices/${MCU_VARIANT}/drivers/fsl_dcdc.c
+      ${SDK_DIR}/devices/${MCU_VARIANT}/drivers/fsl_pmu.c
+      ${SDK_DIR}/devices/${MCU_VARIANT}/drivers/fsl_anatop_ai.c
+      ${SDK_DIR}/drivers/common/fsl_common_arm.c
+      ${SDK_DIR}/devices/${MCU_VARIANT}/drivers/cm7/fsl_cache.c
+      )
+    list(APPEND BOARD_INCLUDES
+      ${SDK_DIR}/devices/${MCU_VARIANT}/drivers/cm7
+      )
+  else()
+    # Other MIMXRT10xx variants
+    list(APPEND BOARD_SOURCES
+      ${SDK_DIR}/devices/${MCU_VARIANT}/system_${MCU_VARIANT}.c
+      ${SDK_DIR}/devices/${MCU_VARIANT}/gcc/startup_${MCU_VARIANT}.S
+      ${SDK_DIR}/drivers/adc_12b1msps_sar/fsl_adc.c
+      ${SDK_DIR}/drivers/cache/armv7-m7/fsl_cache.c
+      )
+    list(APPEND BOARD_INCLUDES
+      ${SDK_DIR}/drivers/adc_12b1msps_sar
+      ${SDK_DIR}/drivers/cache/armv7-m7
+      )
+  endif()
+
+  add_library(${BOARD_TARGET} STATIC ${BOARD_SOURCES})
+  target_include_directories(${BOARD_TARGET} PUBLIC ${BOARD_INCLUDES})
   update_board(${BOARD_TARGET})
 
   target_compile_definitions(${BOARD_TARGET} PUBLIC

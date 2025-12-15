@@ -7,10 +7,26 @@ FLASH_BIN_ADDR = $(UF2_$(MCU)_WRITE_ADDR)
 include ../make.mk
 include port.mk
 
+# Support flash-resident builds with FLASH_BUILD=1
+# Default is RAM build for SDP loading
+# MIMXRT1176 uses its own memory layout file
+ifeq ($(MCU),MIMXRT1176)
+MEMORY_LD = $(PORT_DIR)/linker/$(MCU)_memory.ld
+else
+MEMORY_LD = $(PORT_DIR)/linker/memory.ld
+endif
+
+ifeq ($(FLASH_BUILD),1)
+LD_FILES ?= \
+  $(PORT_DIR)/linker/$(MCU)_flash.ld \
+  $(MEMORY_LD) \
+  $(PORT_DIR)/linker/common.ld
+else
 LD_FILES ?= \
   $(PORT_DIR)/linker/$(MCU)_ram.ld \
-  $(PORT_DIR)/linker/memory.ld \
+  $(MEMORY_LD) \
   $(PORT_DIR)/linker/common.ld
+endif
 
 SRC_C += \
 	$(PORT_DIR)/boards.c \
@@ -57,7 +73,10 @@ UF2_MIMXRT1042_ADDR= 0x60000000
 UF2_MIMXRT1052_ADDR= 0x60000000
 UF2_MIMXRT1062_ADDR= 0x60000000
 UF2_MIMXRT1064_ADDR= 0x70000000
-UF2_MIMXRT1176_ADDR= 0x30000000
+UF2_MIMXRT1176_ADDR= 0x30000400
+
+# WRITE_ADDR used by flash-pyocd-bin target - same as UF2_ADDR for most chips
+UF2_MIMXRT1176_WRITE_ADDR= 0x30000400
 
 SDP_PID = $(SDP_$(MCU)_PID)
 UF2_ADDR = $(UF2_$(MCU)_ADDR)
@@ -65,8 +84,13 @@ UF2_ADDR = $(UF2_$(MCU)_ADDR)
 DBL_TAP_REG_ADDR = 0x400D410C
 
 # extract _fcfb_origin and _ivt_origin from linker file
+ifeq ($(FLASH_BUILD),1)
+FCFB_ORIGIN := $(shell sed -n 's/_fcfb_origin.*\(0x.*\);/\1/p' $(TOP)/$(PORT_DIR)/linker/$(MCU)_flash.ld)
+IVT_ORIGIN := $(shell sed -n 's/_ivt_origin.*\(0x.*\);/\1/p' $(TOP)/$(PORT_DIR)/linker/$(MCU)_flash.ld)
+else
 FCFB_ORIGIN := $(shell sed -n 's/_fcfb_origin.*\(0x.*\);/\1/p' $(TOP)/$(PORT_DIR)/linker/$(MCU)_ram.ld)
 IVT_ORIGIN := $(shell sed -n 's/_ivt_origin.*\(0x.*\);/\1/p' $(TOP)/$(PORT_DIR)/linker/$(MCU)_ram.ld)
+endif
 
 $(BUILD)/$(OUTNAME).hex: $(BUILD)/$(OUTNAME).elf
 	@echo CREATE $@
