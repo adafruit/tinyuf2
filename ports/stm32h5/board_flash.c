@@ -102,7 +102,7 @@ static bool flash_erase(uint32_t addr) {
     // FLASH_Erase_Sector(sector, bank);
     // FLASH_WaitForLastOperation(HAL_MAX_DELAY);
     uint32_t sector_error;
-    TUF2_LOG1("Erase: %08lX size = %lu KB, bank = %lu ... ", sector_addr, FLASH_SECTOR_SIZE / 1024, bank);
+    TUF2_LOG1("Erase: %08lX size = %u KB, bank = %lu ... ", sector_addr, FLASH_SECTOR_SIZE / 1024, bank);
     TUF2_ASSERT(HAL_OK ==HAL_FLASHEx_Erase(&erase_struct, &sector_error));
     (void) sector_error;
 
