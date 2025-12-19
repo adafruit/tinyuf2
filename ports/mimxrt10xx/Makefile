@@ -96,13 +96,58 @@ $(BUILD)/$(OUTNAME).hex: $(BUILD)/$(OUTNAME).elf
 	@echo CREATE $@
 	@$(OBJCOPY) -O ihex --change-addresses $$(( $(UF2_ADDR)-$(FCFB_ORIGIN) ))  $^ $@
 
-# SDPHOST is a variable if you need to change the path
+# SDPHOST/BLHOST are variables if you need to change the path
 SDPHOST = sdphost
+BLHOST = blhost
 
+# NXP flashloader for RT1170 two-stage flashing (set via environment or command line)
+# Obtain from MCUXpresso SDK flashloader example or NXP Secure Provisioning Tool
+FLASHLOADER ?= ivt_flashloader.bin
+
+# Flashloader USB PID (after load-image, flashloader enumerates with this PID)
+FLASHLOADER_PID = 0x0073
+
+# RT1170/RT1176 uses blhost (MCU bootloader protocol) instead of sdphost (SDP protocol)
+# Flash builds require two-stage flashloader; RAM builds can use direct load-image
+ifeq ($(MCU),MIMXRT1176)
+ifeq ($(FLASH_BUILD),1)
+# Two-stage flash process: load NXP flashloader, then use it to program TinyUF2
+flash-sdp: $(BUILD)/$(OUTNAME).bin
+	@echo "RT1176 Flash Build: Two-stage flashing via NXP flashloader"
+	@echo "Ensure board is in SDP mode"
+	@if [ ! -f "$(FLASHLOADER)" ]; then \
+		echo "ERROR: Flashloader not found: $(FLASHLOADER)"; \
+		echo "Set FLASHLOADER=/path/to/ivt_flashloader.bin or place in current directory"; \
+		echo "Obtain from MCUXpresso SDK flashloader example or NXP Secure Provisioning Tool"; \
+		exit 1; \
+	fi
+	@echo "Step 1: Loading NXP flashloader..."
+	$(BLHOST) -u 0x1fc9,$(SDP_PID) load-image $(FLASHLOADER)
+	@echo "Waiting for flashloader to enumerate (5 seconds)..."
+	@sleep 5
+	@echo "Step 2: Configuring QSPI flash..."
+	$(BLHOST) -u 0x15a2,$(FLASHLOADER_PID) fill-memory 0x00002000 4 0xCF900001
+	$(BLHOST) -u 0x15a2,$(FLASHLOADER_PID) configure-memory 9 0x00002000
+	$(BLHOST) -u 0x15a2,$(FLASHLOADER_PID) fill-memory 0x00002000 4 0xC0000007
+	$(BLHOST) -u 0x15a2,$(FLASHLOADER_PID) configure-memory 9 0x00002000
+	@echo "Step 3: Erasing flash region..."
+	$(BLHOST) -u 0x15a2,$(FLASHLOADER_PID) flash-erase-region $(UF2_ADDR) 0x10000 9
+	@echo "Step 4: Writing TinyUF2 to flash..."
+	$(BLHOST) -u 0x15a2,$(FLASHLOADER_PID) write-memory $(UF2_ADDR) $<
+	@echo "Done! Set boot switches to flash mode and reset board."
+else
+# RAM build: direct load-image (TinyUF2 runs from RAM and self-programs to flash)
+flash-sdp: $(BUILD)/$(OUTNAME).bin
+	@echo "RT1176 RAM Build: Loading TinyUF2 via blhost load-image..."
+	@echo "TinyUF2 will self-program to flash, then enumerate as USB mass storage."
+	$(BLHOST) -u 0x1fc9,$(SDP_PID) load-image $<
+endif
+else
 flash-sdp: $(BUILD)/$(OUTNAME).bin
 	@if [ -z "$(SDPHOST)" ]; then echo SDPHOST is not found for this machine; exit 1; fi
 	$(SDPHOST) -u 0x1fc9,$(SDP_PID) write-file $(FCFB_ORIGIN) $<
 	$(SDPHOST) -u 0x1fc9,$(SDP_PID) jump-address $(IVT_ORIGIN)
+endif
 
 #-------------------------- Self-update  --------------------------
 # RT10xx run entire bootloader from SRAM and can directly flash

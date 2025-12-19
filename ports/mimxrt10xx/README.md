@@ -45,70 +45,92 @@ Double tap to enter bootloader mode, then simply drag & drop `update-tinyuf2_BOA
 
 ## RT1170/RT1176 Support
 
-The RT1170/RT1176 requires a different flashing approach than other RT10xx chips. The SDP (Serial Download Protocol) method used by other chips does not work reliably for RT1170 because:
-- The RT1170 ROM bootloader uses `blhost` protocol instead of `sdphost`
-- Self-programming to flash is disabled for RT1176 builds
-
-**For RT1170, you must use `FLASH_BUILD=1` and flash via a debugger.**
+The RT1170/RT1176 uses a different ROM bootloader protocol than other RT10xx chips. While other chips use `sdphost` (SDP protocol) with direct RAM load and self-flash, the RT1170 uses `blhost` (MCU bootloader protocol) with a two-stage flashloader approach.
 
 ### Building for RT1170
 
+Build with `FLASH_BUILD=1` to create a flash-resident image:
+
 ```
-make BOARD=imxrt1170_evk FLASH_BUILD=1 all
+make BOARD=imxrt1170_evk FLASH_BUILD=1 clean all
 ```
 
-This creates a flash-resident (XIP) build that executes directly from flash. Key differences:
-- Uses `MIMXRT1176_flash.ld` linker script (code linked at 0x3000xxxx)
-- Data/BSS placed in DTCM (0x20000000)
-- Clock configuration preserves ROM bootloader settings when running from flash
+### RT1170-EVKB Boot Switch Settings
 
-The flash layout for RT1170 is:
-- **0x30000400**: FCFB (FlexSPI Configuration Block)
-- **0x30001000**: IVT (Image Vector Table)
-- **0x30002000**: Application code (vector table + text)
-
-### RT1170-EVK Boot Switch Settings
-
-The RT1170-EVK/EVKB uses SW1 (4-position DIP switch) to select boot mode:
+The RT1170-EVKB uses SW1 (8-position DIP switch) to select boot mode. Only the first 4 switches are relevant for boot mode:
 
 | Mode  | SW1[1] | SW1[2] | SW1[3] | SW1[4] | Description |
 |-------|--------|--------|--------|--------|-------------|
-| SDP   | OFF    | OFF    | OFF    | ON     | Serial Download Mode (for debugger access) |
-| Flash | OFF    | OFF    | ON     | OFF    | Internal Boot from flash (normal operation) |
+| SDP   | OFF    | OFF    | OFF    | ON     | Serial Download Mode (for initial flashing) |
+| Flash | OFF    | OFF    | ON     | OFF    | Boot from FlexSPI NOR (normal operation) |
 
-Note: OFF = switch down/open, ON = switch up/closed.
+Note: OFF = switch towards OFF marking, ON = switch towards ON marking. SW1[5-8] should be OFF.
 
-### Flashing TinyUF2 to RT1170-EVK
+### Flashing TinyUF2 to RT1170 via Serial Download Mode
 
-**Requirements:** A debug probe (MCU-Link on the EVK, or external J-Link/CMSIS-DAP) and LinkServer or equivalent flash tool.
+The RT1170 requires a two-stage flashing process using an NXP flashloader. This is automated via the `flash-sdp` make target.
 
-**Procedure:**
+#### Quick Start (Automated)
 
-1. Build the flash-resident version:
+1. **Install the NXP SPSDK**: `pip install spsdk`
+
+2. **Obtain the NXP flashloader binary** (`ivt_flashloader.bin`):
+   - Build from MCUXpresso SDK flashloader example, or
+   - Extract from NXP MCUXpresso Secure Provisioning Tool
+
+3. **Set boot switches to SDP mode** (see boot switch table above)
+
+4. **Connect USB** to the board's USB-OTG port
+
+5. **Build and flash**:
    ```
-   make BOARD=imxrt1170_evk FLASH_BUILD=1 clean all
+   make BOARD=imxrt1170_evk FLASH_BUILD=1 flash-sdp FLASHLOADER=/path/to/ivt_flashloader.bin
    ```
 
-2. Connect the debug probe (MCU-Link is built into the EVK)
+6. **Set boot switches to Flash mode** (see boot switch table above)
 
-3. Set SW1 to Flash boot mode: **0-0-1-0** (only switch 3 ON)
+7. **Reset the board** - TinyUF2 should enumerate as USB mass storage device
 
-4. Flash the ELF file using LinkServer:
+#### Manual Steps (Reference)
+
+The `flash-sdp` target executes these commands:
+
+1. **Load the flashloader** (board appears as USB 0x1fc9:0x013d):
    ```
-   LinkServer flash MIMXRT1176xxxxx:MIMXRT1170-EVK-CM7-ONLY erase
-   LinkServer flash MIMXRT1176xxxxx:MIMXRT1170-EVK-CM7-ONLY load _build/imxrt1170_evk/tinyuf2-imxrt1170_evk.elf
+   blhost -u 0x1fc9,0x013d load-image ivt_flashloader.bin
+   ```
+   Wait 2-3 seconds for USB re-enumeration. The flashloader appears as USB 0x15a2:0x0073.
+
+2. **Configure QSPI flash**:
+   ```
+   blhost -u 0x15a2,0x0073 fill-memory 0x00002000 4 0xCF900001
+   blhost -u 0x15a2,0x0073 configure-memory 9 0x00002000
+   blhost -u 0x15a2,0x0073 fill-memory 0x00002000 4 0xC0000007
+   blhost -u 0x15a2,0x0073 configure-memory 9 0x00002000
    ```
 
-5. Reset the board - TinyUF2 should enumerate as USB mass storage device "RT1170BOOT"
+3. **Erase and write TinyUF2**:
+   ```
+   blhost -u 0x15a2,0x0073 flash-erase-region 0x30000400 0x10000 9
+   blhost -u 0x15a2,0x0073 write-memory 0x30000400 _build/imxrt1170_evk/tinyuf2-imxrt1170_evk.bin
+   ```
 
-**Alternative using pyocd** (if LinkServer is not available):
+### Alternative: Flashing via Debug Probe
+
+If you have a debug probe (MCU-Link, J-Link, or CMSIS-DAP):
+
 ```
-pyocd erase -t mimxrt1170_cm7 --chip
+make BOARD=imxrt1170_evk FLASH_BUILD=1 clean all
+```
+
+Then flash using LinkServer or pyocd:
+```
+# LinkServer
+LinkServer flash MIMXRT1176xxxxx:MIMXRT1170-EVK-CM7-ONLY load _build/imxrt1170_evk/tinyuf2-imxrt1170_evk.elf
+
+# pyocd
 pyocd load -t mimxrt1170_cm7 _build/imxrt1170_evk/tinyuf2-imxrt1170_evk.elf
-pyocd reset -t mimxrt1170_cm7
 ```
-
-Note: pyocd flash programming may not work reliably on all RT1170 boards. LinkServer is recommended.
 
 ## Supported Boards
 
