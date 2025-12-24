@@ -170,12 +170,12 @@ function(family_flash_sdp TARGET)
   endif ()
 
   if (MCU_VARIANT STREQUAL "MIMXRT1176")
-    # blhost is 2-stage: first load flashloader then use it to load the image
+    # Create a ROM load-image friendly binary with IVT at file offset 0.
     add_custom_target(${TARGET}-sdp
       DEPENDS ${TARGET}
-      COMMAND ${BLHOST} -u 0x1fc9,${SDP_PID} load-image ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/flashloader/${MCU_VARIANT}_ivt_flashloader.bin
-      COMMAND ${BLHOST} -u 0x15a2,${FLASHLOADER_PID} write-memory ${FCFB_ORIGIN} $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin
-      COMMAND ${BLHOST} -u 0x15a2,${FLASHLOADER_PID} execute ${IVT_ORIGIN}
+      COMMAND python3 ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/tools/make_ivt0_image.py $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin $<TARGET_FILE_DIR:${TARGET}>/tinyuf2_ivt0.bin
+      COMMAND ${BLHOST} -u 0x1fc9,${SDP_PID} load-image $<TARGET_FILE_DIR:${TARGET}>/tinyuf2_ivt0.bin
+      VERBATIM
     )
   else ()
   add_custom_target(${TARGET}-sdp
