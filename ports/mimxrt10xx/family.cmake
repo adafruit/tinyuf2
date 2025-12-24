@@ -21,7 +21,7 @@ set(CMAKE_TOOLCHAIN_FILE ${CMAKE_CURRENT_LIST_DIR}/../../cmake/toolchain/arm_${T
 #  - "SDP Jump Address" must equal _ivt_origin
 #
 # TinyUF2 will copy itself to the correct location in flash.
-# "UF2 Write Address" shows where the image will reside in flash if you
+# "UF2 Address" shows where the image will reside in flash if you
 # want to use a tool like pyocd to write the binary into flash through SWD
 # Note: The .elf file cannot be written directly to flash since the target
 # is RAM and the addresses need to be translated.
@@ -36,23 +36,29 @@ set(SDP_MIMXRT1062_PID 0x0135)
 set(SDP_MIMXRT1064_PID 0x0135)
 set(SDP_MIMXRT1176_PID 0x013d)
 
-set(UF2_MIMXRT1011_WRITE_ADDR 0x60000400)
-set(UF2_MIMXRT1015_WRITE_ADDR 0x60000000)
-set(UF2_MIMXRT1021_WRITE_ADDR 0x60000000)
-set(UF2_MIMXRT1024_WRITE_ADDR 0x60000000)
-set(UF2_MIMXRT1042_WRITE_ADDR 0x60000000)
-set(UF2_MIMXRT1052_WRITE_ADDR 0x60000000)
-set(UF2_MIMXRT1062_WRITE_ADDR 0x60000000)
-set(UF2_MIMXRT1064_WRITE_ADDR 0x70000000)
-set(UF2_MIMXRT1176_WRITE_ADDR 0x30000000)
+set(FLASHLOADER_MIMXRT1176_PID 0x0073)
+
+set(UF2_MIMXRT1011_ADDR 0x60000400)
+set(UF2_MIMXRT1015_ADDR 0x60000000)
+set(UF2_MIMXRT1021_ADDR 0x60000000)
+set(UF2_MIMXRT1024_ADDR 0x60000000)
+set(UF2_MIMXRT1042_ADDR 0x60000000)
+set(UF2_MIMXRT1052_ADDR 0x60000000)
+set(UF2_MIMXRT1062_ADDR 0x60000000)
+set(UF2_MIMXRT1064_ADDR 0x70000000)
+set(UF2_MIMXRT1176_ADDR 0x30000000)
 
 set(SDP_PID ${SDP_${MCU_VARIANT}_PID})
-set(UF2_ADDR ${UF2_${MCU_VARIANT}_WRITE_ADDR})
+set(UF2_ADDR ${UF2_${MCU_VARIANT}_ADDR})
+set(FLASHLOADER_PID ${FLASHLOADER_${MCU_VARIANT}_PID})
+
+cmake_print_variables(MCU_VARIANT)
 
 file(STRINGS ${CMAKE_CURRENT_LIST_DIR}/linker/${MCU_VARIANT}_ram.ld FCFB_ORIGIN REGEX "_fcfb_origin *=")
-file(STRINGS ${CMAKE_CURRENT_LIST_DIR}/linker/${MCU_VARIANT}_ram.ld IVT_ORIGIN REGEX "_ivt_origin *=")
 string(REGEX REPLACE ".*= *(0x[0-9a-fA-F]+).*" "\\1" FCFB_ORIGIN ${FCFB_ORIGIN})
-string(REGEX REPLACE ".*= *(0x[0-9a-fA-F]+).*" "\\1" IVT_ORIGIN ${IVT_ORIGIN})
+math(EXPR IVT_ORIGIN "( ${FCFB_ORIGIN} & ~0xFFF ) + 0x1000" OUTPUT_FORMAT HEXADECIMAL)
+
+cmake_print_variables(FCFB_ORIGIN IVT_ORIGIN)
 
 #------------------------------------
 # BOARD_TARGET
@@ -64,7 +70,7 @@ function(family_add_board_target BOARD_TARGET)
   endif ()
 
   # Common sources for all MIMXRT variants
-  set(BOARD_SOURCES
+  add_library(${BOARD_TARGET} STATIC
     ${SDK_DIR}/devices/${MCU_VARIANT}/drivers/fsl_clock.c
     ${SDK_DIR}/drivers/common/fsl_common.c
     ${SDK_DIR}/drivers/igpio/fsl_gpio.c
@@ -75,8 +81,15 @@ function(family_add_board_target BOARD_TARGET)
     ${SDK_DIR}/drivers/xbara/fsl_xbara.c
     )
 
+  # ROM API is present on most parts except RT1011.
+  if (NOT MCU_VARIANT STREQUAL "MIMXRT1011")
+    target_sources(${BOARD_TARGET} PRIVATE
+      ${SDK_DIR}/devices/${MCU_VARIANT}/drivers/fsl_romapi.c
+    )
+  endif ()
+
   # Common include directories
-  set(BOARD_INCLUDES
+  target_include_directories(${BOARD_TARGET} PUBLIC
     ${CMAKE_CURRENT_FUNCTION_LIST_DIR}
     ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/boards/${BOARD}
     ${CMSIS_DIR}/CMSIS/Core/Include
@@ -97,7 +110,7 @@ function(family_add_board_target BOARD_TARGET)
   # MCU-specific sources and includes
   if (MCU_VARIANT STREQUAL "MIMXRT1176")
     # MIMXRT1176 uses CM7-specific startup/system files
-    list(APPEND BOARD_SOURCES
+    target_sources(${BOARD_TARGET} PRIVATE
       ${SDK_DIR}/devices/${MCU_VARIANT}/system_${MCU_VARIANT}_cm7.c
       ${SDK_DIR}/devices/${MCU_VARIANT}/gcc/startup_${MCU_VARIANT}_cm7.S
       ${SDK_DIR}/devices/${MCU_VARIANT}/drivers/fsl_dcdc.c
@@ -106,25 +119,23 @@ function(family_add_board_target BOARD_TARGET)
       ${SDK_DIR}/drivers/common/fsl_common_arm.c
       ${SDK_DIR}/devices/${MCU_VARIANT}/drivers/cm7/fsl_cache.c
       )
-    list(APPEND BOARD_INCLUDES
+    target_include_directories(${BOARD_TARGET} PUBLIC
       ${SDK_DIR}/devices/${MCU_VARIANT}/drivers/cm7
       )
   else()
     # Other MIMXRT10xx variants
-    list(APPEND BOARD_SOURCES
+    target_sources(${BOARD_TARGET} PRIVATE
       ${SDK_DIR}/devices/${MCU_VARIANT}/system_${MCU_VARIANT}.c
       ${SDK_DIR}/devices/${MCU_VARIANT}/gcc/startup_${MCU_VARIANT}.S
       ${SDK_DIR}/drivers/adc_12b1msps_sar/fsl_adc.c
       ${SDK_DIR}/drivers/cache/armv7-m7/fsl_cache.c
       )
-    list(APPEND BOARD_INCLUDES
+    target_include_directories(${BOARD_TARGET} PUBLIC
       ${SDK_DIR}/drivers/adc_12b1msps_sar
       ${SDK_DIR}/drivers/cache/armv7-m7
       )
   endif()
 
-  add_library(${BOARD_TARGET} STATIC ${BOARD_SOURCES})
-  target_include_directories(${BOARD_TARGET} PUBLIC ${BOARD_INCLUDES})
   update_board(${BOARD_TARGET})
 
   target_compile_definitions(${BOARD_TARGET} PUBLIC
@@ -142,24 +153,35 @@ endfunction()
 #------------------------------------
 # override one in family_supoort.cmake
 #------------------------------------
-
 function(family_gen_bin_hex TARGET)
-  math(EXPR HEX_OFFSET "${UF2_ADDR} - ${FCFB_ORIGIN}")
   add_custom_command(TARGET ${TARGET} POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -Obinary $<TARGET_FILE:${TARGET}> $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin
-    COMMAND ${CMAKE_OBJCOPY} -Oihex --change-addresses ${HEX_OFFSET} $<TARGET_FILE:${TARGET}> $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.hex
+    COMMAND ${CMAKE_OBJCOPY} -Ibinary -Oihex --change-addresses ${UF2_ADDR} $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.hex
     VERBATIM)
 endfunction()
-
 
 function(family_flash_sdp TARGET)
   if (NOT DEFINED SDPHOST)
     set(SDPHOST sdphost)
   endif ()
 
+  if (NOT DEFINED BLHOST)
+    set(BLHOST blhost)
+  endif ()
+
+  if (MCU_VARIANT STREQUAL "MIMXRT1176")
+    # blhost is 2-stage: first load flashloader then use it to load the image
+    add_custom_target(${TARGET}-sdp
+      DEPENDS ${TARGET}
+      COMMAND ${BLHOST} -u 0x1fc9,${SDP_PID} load-image ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/flashloader/${MCU_VARIANT}_ivt_flashloader.bin
+      COMMAND ${BLHOST} -u 0x15a2,${FLASHLOADER_PID} write-memory ${FCFB_ORIGIN} $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin
+      COMMAND ${BLHOST} -u 0x15a2,${FLASHLOADER_PID} execute ${IVT_ORIGIN}
+    )
+  else ()
   add_custom_target(${TARGET}-sdp
     DEPENDS ${TARGET}
     COMMAND ${SDPHOST} -u 0x1fc9,${SDP_PID} write-file ${FCFB_ORIGIN} $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin
     COMMAND ${SDPHOST} -u 0x1fc9,${SDP_PID} jump-address ${IVT_ORIGIN}
     )
+  endif ()
 endfunction()

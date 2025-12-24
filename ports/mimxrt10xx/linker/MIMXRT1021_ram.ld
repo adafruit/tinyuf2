@@ -1,3 +1,4 @@
+/* The default FlexRAM config has 64k ITCM so use it. */
 _itcm_base  = 0x00000000;
 _itcm_size  = 64K;
 
@@ -8,12 +9,38 @@ _ocram_base = 0x20200000;
 _ocram_size = 128K;
 
 /* The bootrom uses up to 0x20207FFF */
+_fcfb_origin = 0x20208000;
 
-/* The default FlexRAM config has 64k ITCM so use it. */
-
-/* Avoid ITCM address 0x0, start at 4K
-  See note in RT1020 Reference Manual section 9.6.1.2 FlexSPI Serial NOR Flash Boot Operation */
-_fcfb_origin = 0x1000;
-
-/* must be 4K aligned */
-_ivt_origin = 0x2000;
+/*
+ * MIMXRT1021 Memory Layout
+ *
+ * +-----------------------------+
+ * |         Text (Code)         |
+ * |   0x2020A400 - 0x20212400   |
+ * |        (Len: 0x8000)        |
+ * +-----------------------------+
+ * |         Interrupts          |
+ * |   0x2020A000 - 0x2020A400   |
+ * |        (Len: 0x400)         |
+ * +-----------------------------+
+ * |             IVT             |
+ * |   0x20209000 - 0x2020A000   |
+ * |        (Len: 0x1000)        |
+ * +-----------------------------+
+ * |            FCFB             |
+ * |   0x20208000 - 0x20209000   |
+ * |        (Len: 0x1000)        |
+ * +-----------------------------+
+ * |           BootROM           |
+ * |   0x20200000 - 0x20208000   |
+ * |        (Len: 0x8000)        |
+ * +-----------------------------+
+ * |       m_data2 (OCRAM)       |
+ * |   0x20200000 - 0x20220000   |
+ * |       (Len: 0x20000)        |
+ * +-----------------------------+
+ * |        m_data (DTCM)        |
+ * |   0x20000000 - 0x20010000   |
+ * |       (Len: 0x10000)        |
+ * +-----------------------------+
+ */
