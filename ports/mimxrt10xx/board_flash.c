@@ -56,23 +56,14 @@
 
 // Flash Configuration Structure
 extern flexspi_nor_config_t const qspiflash_config;
+static flexspi_nor_config_t       flash_cfg; // local copy since ROM API may modify it
 
 #if defined(MIMXRT1176_cm7_SERIES)
+  #define USE_BLHOST
 extern const flexspi_nor_config_t qspiflash_config_copy;
 extern const BOOT_DATA_T          g_boot_data_copy;
 extern const ivt                  image_vector_table;
-
-// SDP ivt0 image has ivt at address 0, no FCFB in RAM, cooked boot data use the copies in .text
-const uint8_t *fcfb_data = (const uint8_t *)&qspiflash_config_copy;
-const uint8_t *boot_data = (const uint8_t *)&g_boot_data_copy;
-
-#else
-const uint8_t *fcfb_data = (const uint8_t *)&qspiflash_config;
-const uint8_t *boot_data = (const uint8_t *)&g_boot_data;
-
 #endif
-
-static flexspi_nor_config_t flash_cfg;
 
 static uint32_t _flash_page_addr = FLASH_CACHE_INVALID_ADDR;
 static uint8_t  _flash_cache[SECTOR_SIZE] __attribute__((aligned(4)));
@@ -85,16 +76,24 @@ static uint8_t  _flash_cache[SECTOR_SIZE] __attribute__((aligned(4)));
 static void write_tinyuf2_to_flash(void) {
   TUF2_LOG1("Writing TinyUF2 image to flash.\r\n");
 
+#ifdef USE_BLHOST
+  // BLHOST load-image with ivt at address 0, no FCFB in RAM, manual write it using copies
   // Write FCFB
-  board_flash_write(FLASH_FCFB_ADDR, fcfb_data, sizeof(flexspi_nor_config_t));
+  board_flash_write(FLASH_FCFB_ADDR, &qspiflash_config_copy, sizeof(flexspi_nor_config_t));
 
   // Write IVT (image vector table + boot data)
   board_flash_write(FLASH_IVT_ADDR, &image_vector_table, sizeof(ivt));
-  board_flash_write(FLASH_IVT_ADDR + sizeof(ivt), boot_data, sizeof(BOOT_DATA_T));
+  board_flash_write(FLASH_IVT_ADDR + sizeof(ivt), &g_boot_data_copy, sizeof(BOOT_DATA_T));
+  // DCD is not used, skip writing it
 
   // Write Interrupts + Text
   const uint8_t *image_data = (const uint8_t *)((uint32_t)_interrupts_origin);
   uint32_t       flash_addr = FLASH_IVT_ADDR + ((uint32_t)_ivt_length);
+#else
+  // SDPHost write from fcfb to end of bootloader
+  const uint8_t *image_data = (const uint8_t *)&qspiflash_config;
+  uint32_t       flash_addr = FLASH_FCFB_ADDR;
+#endif
   const uint32_t flash_end  = FLEXSPI_FLASH_BASE + BOARD_BOOT_LENGTH;
 
   while (flash_addr < flash_end) {

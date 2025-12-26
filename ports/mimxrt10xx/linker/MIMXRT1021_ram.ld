@@ -11,6 +11,8 @@ _ocram_size = 128K;
 /* The bootrom uses up to 0x20207FFF */
 _fcfb_origin = 0x20208000;
 
+_flash_base = 0x60000000;
+
 /*
  * MIMXRT1021 Memory Layout
  *

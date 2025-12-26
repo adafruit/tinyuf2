@@ -15,6 +15,8 @@ _ocram_size = 256K;
 /* in section 9.6.1.2, so start at 0x1000 */
 _fcfb_origin = 0x20208000;
 
+_flash_base = 0x70000000;
+
 /*
  * MIMXRT1064 Memory Layout
  *

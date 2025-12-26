@@ -11,6 +11,8 @@ _ocram_size = 64K;
 _fcfb_origin = 0x20208000;
 _text_length = 32K - 0x2400;
 
+_flash_base = 0x60000000;
+
 /*
  * MIMXRT1015 Memory Layout
  *

@@ -76,13 +76,14 @@ UF2_ADDR = $(UF2_$(MCU)_ADDR)
 
 DBL_TAP_REG_ADDR = 0x400D410C
 
-# extract _fcfb_origin and _ivt_origin from linker file
+# extract _fcfb_origin from linker file
 ifeq ($(FLASH_BUILD),1)
  FCFB_ORIGIN := $(shell sed -n 's/_fcfb_origin.*\(0x.*\);/\1/p' $(TOP)/$(PORT_DIR)/linker/$(MCU)_flash.ld)
 else
   FCFB_ORIGIN := $(shell sed -n 's/_fcfb_origin.*\(0x.*\);/\1/p' $(TOP)/$(PORT_DIR)/linker/$(MCU)_ram.ld)
 endif
 IVT_ORIGIN := $(shell printf "0x%X\n" $$(( ($(FCFB_ORIGIN) & ~0xFFF) + 0x1000 )))
+$(info FCFB_ORIGIN=$(FCFB_ORIGIN) IVT_ORIGIN=$(IVT_ORIGIN))
 
 $(BUILD)/$(OUTNAME).hex: $(BUILD)/$(OUTNAME).elf
 	@echo CREATE $@
@@ -130,9 +131,9 @@ flash-sdp: $(BUILD)/$(OUTNAME).bin
 else
 # RAM build: direct load-image (TinyUF2 runs from RAM and self-programs to flash)
 flash-sdp: $(BUILD)/$(OUTNAME).bin
-	@echo "RT1176 RAM Build: Loading TinyUF2 via blhost load-image..."
-	@echo "TinyUF2 will self-program to flash, then enumerate as USB mass storage."
-	$(BLHOST) -u 0x1fc9,$(SDP_PID) load-image $<
+	@if [ -z "$(BLHOST)" ]; then echo SDPHOST is not found for this machine; exit 1; fi
+	$(PYTHON3) tools/make_ivt0_image.py $< $(BUILD)/$(OUTNAME)_ivt0.bin
+	$(BLHOST) -u 0x1fc9,$(SDP_PID) load-image $(BUILD)/$(OUTNAME)_ivt0.bin
 endif
 else
 flash-sdp: $(BUILD)/$(OUTNAME).bin

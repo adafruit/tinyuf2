@@ -14,6 +14,8 @@ _ocram_size = 128K;
 /* The bootrom uses up to 0x2024BFFF. Keep a 0x400 gap so FCFB matches flash offset. */
 _fcfb_origin = 0x2024C400;
 
+_flash_base = 0x30000000;
+
 /*
  * MIMXRT1176 Memory Layout
  *
