@@ -26,7 +26,7 @@
 #define BOARD_H_
 
 // Size of on-board external flash
-#define BOARD_FLASH_SIZE      (16*1024*1024)
+#define BOARD_FLASH_SIZE (64 * 1024 * 1024)
 
 //--------------------------------------------------------------------+
 // LED

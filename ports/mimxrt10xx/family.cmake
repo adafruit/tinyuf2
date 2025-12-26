@@ -46,7 +46,7 @@ set(UF2_MIMXRT1042_ADDR 0x60000000)
 set(UF2_MIMXRT1052_ADDR 0x60000000)
 set(UF2_MIMXRT1062_ADDR 0x60000000)
 set(UF2_MIMXRT1064_ADDR 0x70000000)
-set(UF2_MIMXRT1176_ADDR 0x30000000)
+set(UF2_MIMXRT1176_ADDR 0x30000400)
 
 set(SDP_PID ${SDP_${MCU_VARIANT}_PID})
 set(UF2_ADDR ${UF2_${MCU_VARIANT}_ADDR})
@@ -171,9 +171,12 @@ function(family_flash_sdp TARGET)
 
   if (MCU_VARIANT STREQUAL "MIMXRT1176")
     # Create a ROM load-image friendly binary with IVT at file offset 0.
+    add_custom_command(TARGET ${TARGET} POST_BUILD
+      COMMAND python3 ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/tools/make_ivt0_image.py $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin $<TARGET_FILE_DIR:${TARGET}>/tinyuf2_ivt0.bin
+      VERBATIM
+    )
     add_custom_target(${TARGET}-sdp
       DEPENDS ${TARGET}
-      COMMAND python3 ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/tools/make_ivt0_image.py $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin $<TARGET_FILE_DIR:${TARGET}>/tinyuf2_ivt0.bin
       COMMAND ${BLHOST} -u 0x1fc9,${SDP_PID} load-image $<TARGET_FILE_DIR:${TARGET}>/tinyuf2_ivt0.bin
       VERBATIM
     )

@@ -47,7 +47,7 @@
 #endif
 
 // Mask off lower 12 bits to get FCFB offset
-#define FLASH_FCFB_ADDR (FLEXSPI_FLASH_BASE + (((uint32_t)_fcfb_origin) & 0xFFFUL))
+#define FLASH_FCFB_ADDR (FLEXSPI_FLASH_BASE + (((uint32_t)_fcfb_origin) & 0xFFFl))
 #define FLASH_IVT_ADDR  (FLEXSPI_FLASH_BASE + 0x1000)
 
 //--------------------------------------------------------------------+
@@ -56,14 +56,23 @@
 
 // Flash Configuration Structure
 extern flexspi_nor_config_t const qspiflash_config;
-static flexspi_nor_config_t      *flash_cfg =
-  (flexspi_nor_config_t *)(uintptr_t)&qspiflash_config; // drop const to suppress warning
 
 #if defined(MIMXRT1176_cm7_SERIES)
 extern const flexspi_nor_config_t qspiflash_config_copy;
 extern const BOOT_DATA_T          g_boot_data_copy;
 extern const ivt                  image_vector_table;
+
+// SDP ivt0 image has ivt at address 0, no FCFB in RAM, cooked boot data use the copies in .text
+const uint8_t *fcfb_data = (const uint8_t *)&qspiflash_config_copy;
+const uint8_t *boot_data = (const uint8_t *)&g_boot_data_copy;
+
+#else
+const uint8_t *fcfb_data = (const uint8_t *)&qspiflash_config;
+const uint8_t *boot_data = (const uint8_t *)&g_boot_data;
+
 #endif
+
+static flexspi_nor_config_t flash_cfg;
 
 static uint32_t _flash_page_addr = FLASH_CACHE_INVALID_ADDR;
 static uint8_t  _flash_cache[SECTOR_SIZE] __attribute__((aligned(4)));
@@ -71,38 +80,17 @@ static uint8_t  _flash_cache[SECTOR_SIZE] __attribute__((aligned(4)));
 //--------------------------------------------------------------------+
 //
 //--------------------------------------------------------------------+
-// check if we are running as an ivt0 image (loaded via ROM load-image command)
-static inline bool is_ivt0_image(void) {
-#if defined(MIMXRT1176_cm7_SERIES)
-  // In ivt0 image, the flash config is not present in RAM
-  return qspiflash_config.memConfig.tag != FLEXSPI_CFG_BLK_TAG;
-#else
-  return false;
-#endif
-}
 
 // Write TinyUF2 from SRAM to Flash: fcfb + bootloader (ivt, interrupt, text)
 static void write_tinyuf2_to_flash(void) {
   TUF2_LOG1("Writing TinyUF2 image to flash.\r\n");
 
-  const uint8_t *fcfb_data;
-  const uint8_t *boot_data;
-#if defined(MIMXRT1176_cm7_SERIES)
-  // SDP ivt0 image has ivt at address 0, no FCFB in RAM, cooked boot data
-  // use the copies in text
-  fcfb_data = (const uint8_t *)&qspiflash_config_copy;
-  boot_data = (const uint8_t *)&g_boot_data_copy;
-#else
-  fcfb_data = (const uint8_t *)&qspiflash_config;
-  boot_data = (const uint8_t *)&g_boot_data;
-#endif
-
   // Write FCFB
-  board_flash_write(FLASH_FCFB_ADDR, &fcfb_data, sizeof(flexspi_nor_config_t));
+  board_flash_write(FLASH_FCFB_ADDR, fcfb_data, sizeof(flexspi_nor_config_t));
 
   // Write IVT (image vector table + boot data)
   board_flash_write(FLASH_IVT_ADDR, &image_vector_table, sizeof(ivt));
-  board_flash_write(FLASH_IVT_ADDR + sizeof(ivt), &boot_data, sizeof(BOOT_DATA_T));
+  board_flash_write(FLASH_IVT_ADDR + sizeof(ivt), boot_data, sizeof(BOOT_DATA_T));
 
   // Write Interrupts + Text
   const uint8_t *image_data = (const uint8_t *)((uint32_t)_interrupts_origin);
@@ -131,12 +119,15 @@ void board_flash_init(void)
 #if defined(MIMXRT1176_cm7_SERIES)
   // MIMXRT1176 requires ROM_API_Init to be called before using ROM API functions
   ROM_API_Init();
+  flash_cfg = qspiflash_config_copy;
+#else
+  flash_cfg = qspiflash_config;
 #endif
 
   // Skip FlexSPI initialization if already running from flash (XIP mode)
   // Re-initializing FlexSPI while executing from it would crash the system
   if (!is_running_from_flash()) {
-    ROM_FLEXSPI_NorFlash_Init(FLEXSPI_INSTANCE, flash_cfg);
+    ROM_FLEXSPI_NorFlash_Init(FLEXSPI_INSTANCE, &flash_cfg);
   }
 
   // TinyUF2 will copy its image to flash if one of conditions meets:
@@ -151,7 +142,7 @@ void board_flash_init(void)
     const bool     fcfb_valid = (*(uint32_t *)FLASH_FCFB_ADDR == FLEXSPI_CFG_BLK_TAG);
 
     TUF2_LOG1("Boot Mode = %lu, fcfb_valid = %u\r\n", boot_mode, fcfb_valid);
-    if (boot_mode == 1 || !fcfb_valid || 1) {
+    if (boot_mode == 1 || !fcfb_valid) {
       write_tinyuf2_to_flash();
     }
   }
@@ -185,7 +176,7 @@ void board_flash_flush(void) {
     const uint32_t sector_addr = (_flash_page_addr - FLEXSPI_FLASH_BASE);
 
     __disable_irq();
-    status = ROM_FLEXSPI_NorFlash_Erase(FLEXSPI_INSTANCE, flash_cfg, sector_addr, SECTOR_SIZE);
+    status = ROM_FLEXSPI_NorFlash_Erase(FLEXSPI_INSTANCE, &flash_cfg, sector_addr, SECTOR_SIZE);
     __enable_irq();
 
     // Use absolute address for cache invalidation, not the offset
@@ -203,7 +194,7 @@ void board_flash_flush(void) {
       void* page_data =  _flash_cache + i * FLASH_PAGE_SIZE;
 
       __disable_irq();
-      status = ROM_FLEXSPI_NorFlash_ProgramPage(FLEXSPI_INSTANCE, flash_cfg, page_addr, (uint32_t*) page_data);
+      status = ROM_FLEXSPI_NorFlash_ProgramPage(FLEXSPI_INSTANCE, &flash_cfg, page_addr, (uint32_t *)page_data);
       __enable_irq();
 
       if ( status != kStatus_Success )
@@ -244,8 +235,8 @@ void board_flash_erase_app(void)
   TUF2_LOG1("Erase whole chip\r\n");
 
   // Perform chip erase first
-  ROM_FLEXSPI_NorFlash_Init(FLEXSPI_INSTANCE, flash_cfg);
-  ROM_FLEXSPI_NorFlash_EraseAll(FLEXSPI_INSTANCE, flash_cfg);
+  ROM_FLEXSPI_NorFlash_Init(FLEXSPI_INSTANCE, &flash_cfg);
+  ROM_FLEXSPI_NorFlash_EraseAll(FLEXSPI_INSTANCE, &flash_cfg);
 
   // Re-write bootloader to flash after chip erase (only when running from RAM)
   if (!is_running_from_flash()) {

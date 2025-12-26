@@ -28,9 +28,10 @@ __attribute__((section(".boot_hdr.ivt"))) const ivt image_vector_table = {
  *  Boot Data
  *************************************/
 __attribute__((section(".boot_hdr.boot_data"))) const BOOT_DATA_T g_boot_data = {
-  BOARD_BOOT_START,               /* boot start location */
-  BOARD_BOOT_LENGTH, PLUGIN_FLAG, /* Plugin flag */
-  0xFFFFFFFF                      /* empty - extra data word */
+  BOARD_BOOT_START,  //  Dest memory that BootROM will copy to
+  BOARD_BOOT_LENGTH, /* bootloader length */
+  PLUGIN_FLAG,       /* Plugin flag */
+  0xFFFFFFFF         /* empty - extra data word */
 };
 
 // Config for IS25WP128 (16MB QSPI NOR Flash) on MIMXRT1170-EVK
@@ -182,8 +183,9 @@ __attribute__((section(".boot_hdr.conf"))) const flexspi_nor_config_t qspiflash_
 // For SDP image-load, to create ivt at zero address we cooks boot data and left-out fcfb section. We need a copy to
 // write to flash.
 const BOOT_DATA_T g_boot_data_copy = {
-  BOARD_BOOT_START,               /* boot start location */
-  BOARD_BOOT_LENGTH, PLUGIN_FLAG, /* Plugin flag */
-  0xFFFFFFFF                      /* empty - extra data word */
+  BOARD_BOOT_START,  /* boot start location */
+  BOARD_BOOT_LENGTH, /* bootloader length */
+  PLUGIN_FLAG,       /* Plugin flag */
+  0xFFFFFFFF         /* empty - extra data word */
 };
 const flexspi_nor_config_t qspiflash_config_copy = QSPI_FLASH_CONFIG_INIT;

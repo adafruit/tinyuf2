@@ -46,7 +46,7 @@ def main() -> int:
     args = ap.parse_args()
 
     data = args.input.read_bytes()
-    strip = 0x1000
+    strip = 0x1000 - 0x400
     if len(data) <= strip:
         raise SystemExit(f"input too small: {args.input}")
 
@@ -72,6 +72,7 @@ def main() -> int:
     struct.pack_into("<I", data, boot_off + 4, len(data))
 
     args.output.write_bytes(data)
+    print("Wrote IVT image to", args.output)
     return 0
 
 
