@@ -1,24 +1,21 @@
 # List of git submodules that is included as part of the UF2 version
 GIT_SUBMODULES = tinyusb
 
-# For flash-pyocd-bin target
-FLASH_BIN_ADDR = $(UF2_$(MCU)_WRITE_ADDR)
+# For flash-jlink/pyocd/openocd-bin target
+FLASH_BIN_ADDR = $(UF2_$(MCU)_ADDR)
 
 include ../make.mk
 include port.mk
 
 LD_FILES ?= \
   $(PORT_DIR)/linker/$(MCU)_ram.ld \
-  $(PORT_DIR)/linker/memory.ld \
+  $(PORT_DIR)/linker/boot.ld \
   $(PORT_DIR)/linker/common.ld
 
 SRC_C += \
 	$(PORT_DIR)/boards.c \
 	$(PORT_DIR)/board_flash.c \
 	$(PORT_DIR)/romapi_flash.c \
-
-# include
-# INC +=
 
 # iMXRT self-update file is in the same BUILD folder
 SELF_UF2 = $(BUILD)/update-$(OUTNAME).uf2
@@ -57,28 +54,42 @@ UF2_MIMXRT1042_ADDR= 0x60000000
 UF2_MIMXRT1052_ADDR= 0x60000000
 UF2_MIMXRT1062_ADDR= 0x60000000
 UF2_MIMXRT1064_ADDR= 0x70000000
-UF2_MIMXRT1176_ADDR= 0x30000000
+UF2_MIMXRT1176_ADDR= 0x30000400
 
 SDP_PID = $(SDP_$(MCU)_PID)
 UF2_ADDR = $(UF2_$(MCU)_ADDR)
 
 DBL_TAP_REG_ADDR = 0x400D410C
 
-# extract _fcfb_origin and _ivt_origin from linker file
+# extract _fcfb_origin from linker file
 FCFB_ORIGIN := $(shell sed -n 's/_fcfb_origin.*\(0x.*\);/\1/p' $(TOP)/$(PORT_DIR)/linker/$(MCU)_ram.ld)
-IVT_ORIGIN := $(shell sed -n 's/_ivt_origin.*\(0x.*\);/\1/p' $(TOP)/$(PORT_DIR)/linker/$(MCU)_ram.ld)
+IVT_ORIGIN := $(shell printf "0x%X\n" $$(( ($(FCFB_ORIGIN) & ~0xFFF) + 0x1000 )))
+$(info FCFB_ORIGIN=$(FCFB_ORIGIN) IVT_ORIGIN=$(IVT_ORIGIN))
 
 $(BUILD)/$(OUTNAME).hex: $(BUILD)/$(OUTNAME).elf
 	@echo CREATE $@
 	@$(OBJCOPY) -O ihex --change-addresses $$(( $(UF2_ADDR)-$(FCFB_ORIGIN) ))  $^ $@
 
-# SDPHOST is a variable if you need to change the path
+# SDPHOST/BLHOST are variables if you need to change the path
 SDPHOST = sdphost
+BLHOST = blhost
 
+# RT117x uses blhost (MCU bootloader protocol)
+ifeq ($(MCU),MIMXRT1176)
+$(BUILD)/$(OUTNAME)_ivt0.bin: $(BUILD)/$(OUTNAME).bin
+	$(PYTHON3) tools/make_ivt0_image.py $< $@
+
+flash-sdp: $(BUILD)/$(OUTNAME)_ivt0.bin
+	@if [ -z "$(BLHOST)" ]; then echo SDPHOST is not found for this machine; exit 1; fi
+	$(BLHOST) -u 0x1fc9,$(SDP_PID) load-image $<
+
+else
+# RT10xx use sdphost (Serial Download Protocol)
 flash-sdp: $(BUILD)/$(OUTNAME).bin
 	@if [ -z "$(SDPHOST)" ]; then echo SDPHOST is not found for this machine; exit 1; fi
 	$(SDPHOST) -u 0x1fc9,$(SDP_PID) write-file $(FCFB_ORIGIN) $<
 	$(SDPHOST) -u 0x1fc9,$(SDP_PID) jump-address $(IVT_ORIGIN)
+endif
 
 #-------------------------- Self-update  --------------------------
 # RT10xx run entire bootloader from SRAM and can directly flash

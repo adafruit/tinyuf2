@@ -16,7 +16,7 @@ add_executable(tinyuf2
   )
 target_link_options(tinyuf2 PUBLIC
   "LINKER:--script=${CMAKE_CURRENT_LIST_DIR}/linker/${MCU_VARIANT}_ram.ld"
-  "LINKER:--script=${CMAKE_CURRENT_LIST_DIR}/linker/memory.ld"
+  "LINKER:--script=${CMAKE_CURRENT_LIST_DIR}/linker/boot.ld"
   "LINKER:--script=${CMAKE_CURRENT_LIST_DIR}/linker/common.ld"
   )
 

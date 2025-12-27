@@ -36,9 +36,15 @@
 #include "fsl_device_registers.h"
 #include "board.h"
 
-// symbols defined in linker script
-extern uint32_t _ivt_origin[];
-extern uint32_t _board_boot_length[];
+// symbols defined by linker
+ extern uint32_t _fcfb_origin[];
+ extern uint32_t _fcfb_length[];
+ extern uint32_t _ivt_origin[];
+ extern uint32_t _ivt_length[];
+ extern uint32_t _interrupts_origin[];
+ extern uint32_t _interrupts_length[];
+
+ extern uint32_t _board_boot_length[];
 
 // The FCFB has different offsets, but the IVT is consistent within the family
 #define BOARD_BOOT_START        (((uint32_t) _ivt_origin) - 0x1000)

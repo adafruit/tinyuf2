@@ -1,12 +1,15 @@
-_fcfb_length = _ivt_origin - _fcfb_origin;
-_ivt_length = 0x0400;
+/* ivt must be 4K aligned */
+_ivt_origin = (_fcfb_origin & ~0xfff) + 0x1000;
+PROVIDE(_ivt_length = 0x1000);
 
-/* RT1064 is probably 0x7000C000 */
-_interrupts_origin = 0x6000C000;
-_interrupts_length = 0x0400;
+_fcfb_length = _ivt_origin - _fcfb_origin;
+
+/* interrupt */
+_interrupts_origin = _flash_base + 0xC000;
+PROVIDE(_interrupts_length = 0x0400);
 
 _text_origin = _interrupts_origin + _interrupts_length;
-_text_length =  0x8800;
+PROVIDE(_text_length = 64K);
 
 /* Specify the memory areas */
 MEMORY
@@ -17,6 +20,6 @@ MEMORY
 
   m_interrupts          (RX)  : ORIGIN = _interrupts_origin , LENGTH = _interrupts_length
   m_text                (RX)  : ORIGIN = _text_origin       , LENGTH = _text_length
-  m_data                (RW)  : ORIGIN = 0x20000000         , LENGTH = 32K
+  m_data                (RW)  : ORIGIN = _dtcm_base         , LENGTH = _dtcm_size
   m_data2               (RW)  : ORIGIN = _ocram_base        , LENGTH = _ocram_size
 }

@@ -65,7 +65,8 @@
 #endif
 
 #ifndef CFG_TUSB_MEM_ALIGN
-#define CFG_TUSB_MEM_ALIGN       __attribute__ ((aligned(4)))
+// All i.MX RT10xx chips have Cortex-M7 with DCache, requires 32-byte alignment
+#define CFG_TUSB_MEM_ALIGN       __attribute__ ((aligned(32)))
 #endif
 
 //--------------------------------------------------------------------

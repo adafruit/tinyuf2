@@ -97,9 +97,23 @@ void board_usb_init(void)
 {
   USBPHY_Type* usb_phy;
 
+#ifdef USB_PWR_PINMUX
+  // Enable USB power pin if defined by board (active high)
+  IOMUXC_SetPinMux(USB_PWR_PINMUX, 0);
+  IOMUXC_SetPinConfig(USB_PWR_PINMUX, 0x10B0U);
+  gpio_pin_config_t usb_pwr_config = { kGPIO_DigitalOutput, 1, kGPIO_NoIntmode };
+  GPIO_PinInit(USB_PWR_PORT, USB_PWR_PIN, &usb_pwr_config);
+#endif
+
 #if BOARD_TUD_RHPORT == 0
   // Clock
+#if defined(MIMXRT1176_cm7_SERIES)
+  // RT1176 USB PHY PLL expects reference clock frequency (24MHz from OSC24M)
+  // PLL multiplies by 20 to get 480MHz: 24MHz * 20 = 480MHz
+  CLOCK_EnableUsbhs0PhyPllClock(kCLOCK_Usbphy480M, 24000000U);
+#else
   CLOCK_EnableUsbhs0PhyPllClock(kCLOCK_Usbphy480M, 480000000U);
+#endif
   CLOCK_EnableUsbhs0Clock(kCLOCK_Usb480M, 480000000U);
 
   #ifdef USBPHY1
@@ -110,7 +124,11 @@ void board_usb_init(void)
 
 #elif BOARD_TUD_RHPORT == 1
   // USB1
+#if defined(MIMXRT1176_cm7_SERIES)
+  CLOCK_EnableUsbhs1PhyPllClock(kCLOCK_Usbphy480M, 24000000U);
+#else
   CLOCK_EnableUsbhs1PhyPllClock(kCLOCK_Usbphy480M, 480000000U);
+#endif
   CLOCK_EnableUsbhs1Clock(kCLOCK_Usb480M, 480000000U);
   usb_phy = USBPHY2;
 #endif
@@ -121,10 +139,19 @@ void board_usb_init(void)
   // Enable all power for normal operation
   usb_phy->PWD = 0;
 
-  // TX Timing
+  // TX Timing - use board-specific values if defined, otherwise defaults
+#ifndef BOARD_USB_PHY_D_CAL
+#define BOARD_USB_PHY_D_CAL     (0x0CU)
+#endif
+#ifndef BOARD_USB_PHY_TXCAL45DP
+#define BOARD_USB_PHY_TXCAL45DP (0x06U)
+#endif
+#ifndef BOARD_USB_PHY_TXCAL45DM
+#define BOARD_USB_PHY_TXCAL45DM (0x06U)
+#endif
   uint32_t phytx = usb_phy->TX;
   phytx &= ~(USBPHY_TX_D_CAL_MASK | USBPHY_TX_TXCAL45DM_MASK | USBPHY_TX_TXCAL45DP_MASK);
-  phytx |= USBPHY_TX_D_CAL(0x0C) | USBPHY_TX_TXCAL45DP(0x06) | USBPHY_TX_TXCAL45DM(0x06);
+  phytx |= USBPHY_TX_D_CAL(BOARD_USB_PHY_D_CAL) | USBPHY_TX_TXCAL45DP(BOARD_USB_PHY_TXCAL45DP) | USBPHY_TX_TXCAL45DM(BOARD_USB_PHY_TXCAL45DM);
   usb_phy->TX = phytx;
 }
 
@@ -376,6 +403,10 @@ void board_uart_init(uint32_t baud_rate)
   uart_config.enableRx = true;
 
   uint32_t freq;
+#if defined(MIMXRT117x_SERIES)
+  // MIMXRT1176 uses different clock API - get clock from root configuration
+  freq = CLOCK_GetRootClockFreq(kCLOCK_Root_Lpuart1);
+#else
   if (CLOCK_GetMux(kCLOCK_UartMux) == 0) /* PLL3 div6 80M */
   {
     freq = (CLOCK_GetPllFreq(kCLOCK_PllUsb1) / 6U) / (CLOCK_GetDiv(kCLOCK_UartDiv) + 1U);
@@ -384,6 +415,7 @@ void board_uart_init(uint32_t baud_rate)
   {
     freq = CLOCK_GetOscFreq() / (CLOCK_GetDiv(kCLOCK_UartDiv) + 1U);
   }
+#endif
 
   LPUART_Init(UART_DEV, &uart_config, freq);
 }
