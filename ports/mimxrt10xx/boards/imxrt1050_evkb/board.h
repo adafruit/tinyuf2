@@ -24,6 +24,10 @@
  * This file is part of the TinyUSB stack.
  */
 
+/* metadata:
+   name: i.MX RT1050 Evaluation Kit revB
+   url: https://www.nxp.com/part/IMXRT1050-EVKB
+*/
 
 #ifndef BOARD_H_
 #define BOARD_H_
