@@ -68,7 +68,7 @@
 
 
 #ifndef TUF2_LOG
-  #define TUF2_LOG 2
+  #define TUF2_LOG 1
 #endif
 
 // Use LED for part of indicator

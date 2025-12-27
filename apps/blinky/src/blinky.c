@@ -41,18 +41,22 @@ int main(void) {
   board_timer_start(1);
 
   while (1) {
-    // nothing to do
+    if ((_timer_count & 0xfful) == 0) {
+      uint32_t count = _timer_count >> 8;
+      // Toggle 2 times then pause 1
+      if (count & 0x1ul || count & 0x4ul) {
+        board_led_write(0x000);
+        board_rgb_write(RGB_OFF);
+      } else {
+        board_led_write(0xff);
+        board_rgb_write(RGB_WRITING);
+      }
+    }
   }
 }
 
 void board_timer_handler(void) {
   _timer_count++;
-  if ((_timer_count & 0xfful) == 0) {
-    const uint32_t is_on = (_timer_count >> 8) & 0x1u;
-
-    board_led_write(is_on ? 0xff : 0x000);
-    board_rgb_write(is_on ? RGB_WRITING : RGB_OFF);
-  }
 }
 
 //--------------------------------------------------------------------+
