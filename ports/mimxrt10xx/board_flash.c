@@ -26,29 +26,16 @@
 #include "romapi_flash.h"
 #include "fsl_flexspi_nor_boot.h"
 
-// compare and write tinyuf2 to flash every time it is running
-#define COMPARE_AND_WRITE_TINYUF2 0
-
-#define FLASH_CACHE_SIZE          4096
-#define SECTOR_SIZE               (4 * 1024)
-#define FLASH_CACHE_INVALID_ADDR  0xffffffff
-#define FLASH_PAGE_SIZE           256
-
-// on-board flash is connected to FLEXSPI2 on rt1064
-#if defined(MIMXRT1064_SERIES)
+// FLEXSPI_INSTANCE is based on FLASH_BASE defined in fsl_flexspi_nor_boot.h
+#if defined(MIMXRT1064_SERIES) || defined(MIMXRT1176_cm7_SERIES)
   #define FLEXSPI_INSTANCE   1
-  #define FLEXSPI_FLASH_BASE FlexSPI2_AMBA_BASE
-#elif defined(MIMXRT1176_cm7_SERIES)
-  #define FLEXSPI_INSTANCE   1
-  #define FLEXSPI_FLASH_BASE FlexSPI1_AMBA_BASE
 #else
   #define FLEXSPI_INSTANCE   0
-  #define FLEXSPI_FLASH_BASE FlexSPI_AMBA_BASE
 #endif
 
 // Mask off lower 12 bits to get FCFB offset
-#define FLASH_FCFB_ADDR (FLEXSPI_FLASH_BASE + (((uint32_t)_fcfb_origin) & 0xFFFl))
-#define FLASH_IVT_ADDR  (FLEXSPI_FLASH_BASE + 0x1000)
+#define FLASH_FCFB_ADDR (FLASH_BASE + (((uint32_t)_fcfb_origin) & 0xFFFl))
+#define FLASH_IVT_ADDR  (FLASH_BASE + 0x1000)
 
 //--------------------------------------------------------------------+
 // IVT and BOOT Data
@@ -82,15 +69,21 @@ const BOOT_DATA_T g_boot_data_copy = {
   0xFFFFFFFF         /* empty - extra data word */
 };
 
-extern const flexspi_nor_config_t qspiflash_config_copy;
+extern const flexspi_nor_config_t flash_nor_config_copy;
 #endif
 
 //--------------------------------------------------------------------+
-//
+// Flash with Caching
 //--------------------------------------------------------------------+
 // Flash Configuration Structure
-extern const flexspi_nor_config_t qspiflash_config;
+extern const flexspi_nor_config_t flash_nor_config;
 static flexspi_nor_config_t       flash_cfg; // local copy since ROM API may modify it
+
+
+#define FLASH_CACHE_SIZE         4096
+#define SECTOR_SIZE              (4 * 1024)
+#define FLASH_CACHE_INVALID_ADDR 0xffffffff
+#define FLASH_PAGE_SIZE          256
 
 static uint32_t _flash_page_addr = FLASH_CACHE_INVALID_ADDR;
 static uint8_t  _flash_cache[SECTOR_SIZE] __attribute__((aligned(4)));
@@ -106,7 +99,7 @@ static void write_tinyuf2_to_flash(void) {
 #ifdef USE_BLHOST
   // blhost load-image with ivt at address 0, no FCFB in RAM, manual write it using copies
   // Write FCFB
-  board_flash_write(FLASH_FCFB_ADDR, &qspiflash_config_copy, sizeof(flexspi_nor_config_t));
+  board_flash_write(FLASH_FCFB_ADDR, &flash_nor_config_copy, sizeof(flexspi_nor_config_t));
 
   // Write IVT (image vector table + boot data)
   board_flash_write(FLASH_IVT_ADDR, &image_vector_table, sizeof(ivt));
@@ -118,10 +111,10 @@ static void write_tinyuf2_to_flash(void) {
   uint32_t       flash_addr = FLASH_IVT_ADDR + ((uint32_t)_ivt_length);
 #else
   // sdphost write from fcfb to end of bootloader
-  const uint8_t *image_data = (const uint8_t *)&qspiflash_config;
+  const uint8_t *image_data = (const uint8_t *)&flash_nor_config;
   uint32_t       flash_addr = FLASH_FCFB_ADDR;
 #endif
-  const uint32_t flash_end = FLEXSPI_FLASH_BASE + BOARD_BOOT_LENGTH;
+  const uint32_t flash_end = FLASH_BASE + BOARD_BOOT_LENGTH;
 
   while (flash_addr < flash_end) {
     board_flash_write(flash_addr, image_data, FLASH_PAGE_SIZE);
@@ -136,9 +129,9 @@ void board_flash_init(void) {
 #if defined(MIMXRT1176_cm7_SERIES)
   // MIMXRT1176 requires ROM_API_Init to be called before using ROM API functions
   ROM_API_Init();
-  flash_cfg = qspiflash_config_copy;
+  flash_cfg = flash_nor_config_copy;
 #else
-  flash_cfg = qspiflash_config;
+  flash_cfg = flash_nor_config;
 #endif
 
   ROM_FLEXSPI_NorFlash_Init(FLEXSPI_INSTANCE, &flash_cfg);
@@ -183,7 +176,7 @@ void board_flash_flush(void) {
 
   // Skip if data is the same
   if (memcmp(_flash_cache, (void *)_flash_page_addr, SECTOR_SIZE) != 0) {
-    const uint32_t sector_addr = (_flash_page_addr - FLEXSPI_FLASH_BASE);
+    const uint32_t sector_addr = (_flash_page_addr - FLASH_BASE);
 
     __disable_irq();
     status = ROM_FLEXSPI_NorFlash_Erase(FLEXSPI_INSTANCE, &flash_cfg, sector_addr, SECTOR_SIZE);

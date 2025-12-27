@@ -9,7 +9,7 @@
 #include "fsl_flexspi_nor_boot.h"
 #include "boards.h"
 // Config for IS25WP128 (16MB QSPI NOR Flash) on MIMXRT1170-EVK
-#define QSPI_FLASH_CONFIG_INIT                                                  \
+#define FLASH_NOR_CONFIG_INIT                                                   \
   {                                                                           \
     .pageSize           = 256u,                                               \
     .sectorSize         = 4u * 1024u,                                         \
@@ -150,8 +150,8 @@
     },                                                                        \
   }
 
-__attribute__((section(".boot_hdr.conf"))) const flexspi_nor_config_t qspiflash_config = QSPI_FLASH_CONFIG_INIT;
+__attribute__((section(".boot_hdr.conf"))) const flexspi_nor_config_t flash_nor_config = FLASH_NOR_CONFIG_INIT;
 
 // For blhost image-load, to create ivt at zero address we cooks boot data and left-out fcfb section. We need a copy to
 // write to flash.
-const flexspi_nor_config_t qspiflash_config_copy = QSPI_FLASH_CONFIG_INIT;
+const flexspi_nor_config_t flash_nor_config_copy = FLASH_NOR_CONFIG_INIT;

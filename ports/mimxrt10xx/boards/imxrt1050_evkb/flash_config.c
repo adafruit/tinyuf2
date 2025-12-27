@@ -12,7 +12,7 @@
 #if 1
 // Config for IS25WP064A with QSPI after changing resistors to send signal to
 // QSPI instead of hyper flash!
-__attribute__((section(".boot_hdr.conf"))) const flexspi_nor_config_t qspiflash_config = {
+__attribute__((section(".boot_hdr.conf"))) const flexspi_nor_config_t flash_nor_config = {
   .pageSize           = 256u,
   .sectorSize         = 4u * 1024u,
   .ipcmdSerialClkFreq = kFlexSpiSerialClk_30MHz,
@@ -125,7 +125,7 @@ __attribute__((section(".boot_hdr.conf"))) const flexspi_nor_config_t qspiflash_
 
 #else
 // hyperflash
-__attribute__((section(".boot_hdr.conf"))) const flexspi_nor_config_t qspiflash_config = {
+__attribute__((section(".boot_hdr.conf"))) const flexspi_nor_config_t flash_nor_config = {
   .memConfig =
     {
       .tag                = FLEXSPI_CFG_BLK_TAG,
