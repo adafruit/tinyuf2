@@ -24,10 +24,6 @@
  * This file is part of the TinyUSB stack.
  */
 
-/* metadata:
-   name: Teensy 4.0
-   url: https://www.pjrc.com/store/teensy40.html
-*/
 
 #ifndef BOARD_H_
 #define BOARD_H_

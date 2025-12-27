@@ -38,6 +38,10 @@ Not all features are implemented for all MCUs, following is supported MCUs and i
 | STM32F4     |  ✔   |      ✔       |      ✔      |        ✔         |    ✔     |      |
 | STM32H5     |  ✔   |      ✔       |      ✔      |        ✔         |          |      |
 
+## Supported MCUs and Boards
+
+Please refer to [supported boards](./supported_boards.md) for the complete list of supported MCUs and boards.
+
 ## Build and Flash
 
 Following is generic compiling information. Each port may require extra set-up and slight different process e.g esp32s2

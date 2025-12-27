@@ -17,3 +17,7 @@ From bin
 uf2conv.py -c -b 0x08004000 -f STM32F3 firmware.bin
 uf2conv.py -c -b 0x08004000 -f 0x6b846188 firmware.bin
 ```
+
+## Supported Boards
+
+See the board list for this family in [supported_boards.md](../../supported_boards.md#stm32f3).

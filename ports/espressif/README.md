@@ -1,36 +1,12 @@
-# TinyUF2 "Bootloader Application" for ESP32-S2 and ESP32-S3
+# TinyUF2 "Bootloader Application" for Espressif (S2/S3/P4)
 
 The project is composed of customizing the 2nd stage bootloader from IDF and UF2 factory application as 3rd stage bootloader.
 
 **Note**: IDF is actively developed and change very often, TinyUF2 is developed and tested with IDF v5.3.2. Should you have a problem please try to change your IDF version.
 
-Following boards are supported:
+## Supported Boards
 
-- [Adafruit Magtag 2.9" E-Ink WiFi Display](https://www.adafruit.com/product/4800)
-- [Adafruit Metro ESP32-S2](https://www.adafruit.com/product/4775)
-- [Deneyap Kart 1A v2](https://magaza.deneyapkart.org/tr/product/detail/deneyap-kart-1a-v2-type-c)
-- [Deneyap Mini](https://magaza.deneyapkart.org/tr/product/detail/deneyap-mini)
-- [Deneyap Mini v2](https://magaza.deneyapkart.org/tr/product/detail/deneyap-mini-v2-type-c)
-- [ES3ink](https://github.com/dronecz/es3ink)
-- [Espressif Kaluga 1](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-esp32-s2-kaluga-1-kit.html)
-- [Espressif HMI 1](https://github.com/espressif/esp-dev-kits/tree/master/esp32-s2-hmi-devkit-1)
-- [Espressif Saola 1R (WROVER) and 1M (WROOM)](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-saola-1-v1.2.html)
-- [Gravitech Cucumber RIS ESP32-S2 w/Sensors ](https://www.gravitech.us/curisdebowis.html)
-- [Heltec Wireless Tracker](https://heltec.org/project/wireless-tracker)
-- [LILYGO® TTGO T8 ESP32-S2 V1.1](http://www.lilygo.cn/prod_view.aspx?TypeId=50063&Id=1300&FId=t3:50063:3)
-- [LILYGO® TTGO T8 ESP32-S2 V1.1 ST7789 ](http://www.lilygo.cn/prod_view.aspx?TypeId=50033&Id=1321&FId=t3:50033:3)
-- [LILYGO® TTGO T8 ESP32-S2-WROOM](http://www.lilygo.cn/prod_view.aspx?TypeId=50063&Id=1320&FId=t3:50063:3)
-- [LILYGO® TTGO T-Beam Supreme](https://www.lilygo.cc/products/softrf-t-beamsupreme)
-- [LILYGO® TTGO T-TWR Plus](https://www.lilygo.cc/products/t-twr-plus)
-- [LILYGO® T-Dongle S3](https://www.lilygo.cc/products/t-dongle-s3)
-- [LOLIN Wemos® S2 Pico](https://www.wemos.cc/en/latest/s2/s2_pico.html)
-- [Maker badge](https://github.com/dronecz/maker_badge)
-- [MicroDev microS2](https://github.com/microDev1/microS2/wiki)
-- [Morpheans MorphESP-240](https://github.com/ccadic/ESP32-S2-DevBoardTFT) or  [MorphESP CrowdSupply](https://www.crowdsupply.com/morpheans/morphesp-240)
-- [Olimex ESP32S2 DevKit Lipo vB1 (WROVER and WROOM)](https://www.olimex.com/Products/IoT/ESP32-S2/ESP32-S2-DevKit-Lipo/open-source-hardware)
-- [Seeed XIAO ESP32S3](https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html)
-- [Unexpected Maker FeatherS2](https://feathers2.io)
-
+See the board list for this family in [supported_boards.md](../../supported_boards.md#espressif).
 
 ## Build & Flash
 
