@@ -25,6 +25,7 @@ if (TOOLCHAIN STREQUAL "gcc")
     -ffunction-sections
     -fsingle-precision-constant
     -fno-strict-aliasing
+    -g
     )
   list(APPEND TOOLCHAIN_EXE_LINKER_FLAGS
     -Wl,--print-memory-usage
