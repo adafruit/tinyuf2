@@ -282,21 +282,19 @@ exit
     )
 endfunction()
 
-function(family_jlink_erase_64k TARGET ADDR)
+function(family_jlink_erase_external TARGET START_ADDR END_ADDR)
   file(GENERATE
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}-erase64k.jlink
     CONTENT "halt
-connect
 exec EnableEraseAllFlashBanks
-halt
 r
-erase ${ADDR} 0x10000
+erase ${START_ADDR} ${END_ADDR}
 r
 exit
 "
   )
 
-  add_custom_target(${TARGET}-erase64k-jlink
+  add_custom_target(${TARGET}-erase-external-jlink
     COMMAND ${JLINKEXE} -device ${JLINK_DEVICE} -if ${JLINK_IF} -JTAGConf -1,-1 -speed auto -CommandFile ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}-erase64k.jlink
   )
 endfunction()

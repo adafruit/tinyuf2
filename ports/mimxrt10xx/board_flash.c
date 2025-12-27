@@ -32,18 +32,18 @@
 #define FLASH_CACHE_SIZE          4096
 #define SECTOR_SIZE               (4 * 1024)
 #define FLASH_CACHE_INVALID_ADDR  0xffffffff
-#define FLASH_PAGE_SIZE 256
+#define FLASH_PAGE_SIZE           256
 
 // on-board flash is connected to FLEXSPI2 on rt1064
 #if defined(MIMXRT1064_SERIES)
-  #define FLEXSPI_INSTANCE    1
-  #define FLEXSPI_FLASH_BASE  FlexSPI2_AMBA_BASE
+  #define FLEXSPI_INSTANCE   1
+  #define FLEXSPI_FLASH_BASE FlexSPI2_AMBA_BASE
 #elif defined(MIMXRT1176_cm7_SERIES)
-  #define FLEXSPI_INSTANCE    1
-  #define FLEXSPI_FLASH_BASE  FlexSPI1_AMBA_BASE
+  #define FLEXSPI_INSTANCE   1
+  #define FLEXSPI_FLASH_BASE FlexSPI1_AMBA_BASE
 #else
-  #define FLEXSPI_INSTANCE    0
-  #define FLEXSPI_FLASH_BASE  FlexSPI_AMBA_BASE
+  #define FLEXSPI_INSTANCE   0
+  #define FLEXSPI_FLASH_BASE FlexSPI_AMBA_BASE
 #endif
 
 // Mask off lower 12 bits to get FCFB offset
@@ -51,19 +51,46 @@
 #define FLASH_IVT_ADDR  (FLEXSPI_FLASH_BASE + 0x1000)
 
 //--------------------------------------------------------------------+
-//
+// IVT and BOOT Data
 //--------------------------------------------------------------------+
+__attribute__((section(".boot_hdr.ivt"))) const ivt image_vector_table = {
+  IVT_HEADER,                    /* IVT Header */
+  IMAGE_ENTRY_ADDRESS,           /* Image Entry Function */
+  IVT_RSVD,                      /* Reserved = 0 */
+  (uint32_t)DCD_ADDRESS,         /* Address where DCD information is stored */
+  (uint32_t)BOOT_DATA_ADDRESS,   /* Address where BOOT Data Structure is stored */
+  (uint32_t)&image_vector_table, /* Pointer to IVT Self (absolute address) */
+  (uint32_t)CSF_ADDRESS,         /* Address where CSF file is stored */
+  IVT_RSVD                       /* Reserved = 0 */
+};
 
-// Flash Configuration Structure
-extern flexspi_nor_config_t const qspiflash_config;
-static flexspi_nor_config_t       flash_cfg; // local copy since ROM API may modify it
+__attribute__((section(".boot_hdr.boot_data"))) const BOOT_DATA_T g_boot_data = {
+  BOARD_BOOT_START,               /* boot start location */
+  BOARD_BOOT_LENGTH, PLUGIN_FLAG, /* Plugin flag */
+  0xFFFFFFFF                      /* empty - extra data word */
+};
 
 #if defined(MIMXRT1176_cm7_SERIES)
   #define USE_BLHOST
+
+// For blhost image-load, to create ivt at zero address we cooks boot data and left-out fcfb section. We need a copy to
+// write to flash.
+const BOOT_DATA_T g_boot_data_copy = {
+  BOARD_BOOT_START,  /* boot start location */
+  BOARD_BOOT_LENGTH, /* bootloader length */
+  PLUGIN_FLAG,       /* Plugin flag */
+  0xFFFFFFFF         /* empty - extra data word */
+};
+
 extern const flexspi_nor_config_t qspiflash_config_copy;
-extern const BOOT_DATA_T          g_boot_data_copy;
-extern const ivt                  image_vector_table;
 #endif
+
+//--------------------------------------------------------------------+
+//
+//--------------------------------------------------------------------+
+// Flash Configuration Structure
+extern const flexspi_nor_config_t qspiflash_config;
+static flexspi_nor_config_t       flash_cfg; // local copy since ROM API may modify it
 
 static uint32_t _flash_page_addr = FLASH_CACHE_INVALID_ADDR;
 static uint8_t  _flash_cache[SECTOR_SIZE] __attribute__((aligned(4)));
@@ -94,7 +121,7 @@ static void write_tinyuf2_to_flash(void) {
   const uint8_t *image_data = (const uint8_t *)&qspiflash_config;
   uint32_t       flash_addr = FLASH_FCFB_ADDR;
 #endif
-  const uint32_t flash_end  = FLEXSPI_FLASH_BASE + BOARD_BOOT_LENGTH;
+  const uint32_t flash_end = FLEXSPI_FLASH_BASE + BOARD_BOOT_LENGTH;
 
   while (flash_addr < flash_end) {
     board_flash_write(flash_addr, image_data, FLASH_PAGE_SIZE);
@@ -105,8 +132,7 @@ static void write_tinyuf2_to_flash(void) {
   TUF2_LOG1("TinyUF2 copied to flash.\r\n");
 }
 
-void board_flash_init(void)
-{
+void board_flash_init(void) {
 #if defined(MIMXRT1176_cm7_SERIES)
   // MIMXRT1176 requires ROM_API_Init to be called before using ROM API functions
   ROM_API_Init();
@@ -135,12 +161,11 @@ void board_flash_init(void)
 
 uint32_t board_flash_size(void) {
   // TODO currently limit at 8MB since the CURRENT.UF2 can occupies all 32MB virtual disk
-  uint32_t const max_size = 8*1024*1024;
+  const uint32_t max_size = 8 * 1024 * 1024;
   return (BOARD_FLASH_SIZE < max_size) ? BOARD_FLASH_SIZE : max_size;
 }
 
-void board_flash_read(uint32_t addr, void* buffer, uint32_t len)
-{
+void board_flash_read(uint32_t addr, void *buffer, uint32_t len) {
   // Must write out anything in cache before trying to read.
   // board_flash_flush();
 
@@ -167,23 +192,20 @@ void board_flash_flush(void) {
     // Use absolute address for cache invalidation, not the offset
     SCB_InvalidateDCache_by_Addr((uint32_t *)_flash_page_addr, SECTOR_SIZE);
 
-    if ( status != kStatus_Success )
-    {
+    if (status != kStatus_Success) {
       TUF2_LOG1("Erase failed: status = %ld!\r\n", status);
       return;
     }
 
-    for ( int i = 0; i < SECTOR_SIZE / FLASH_PAGE_SIZE; ++i )
-    {
-      uint32_t const page_addr = sector_addr + i * FLASH_PAGE_SIZE;
-      void* page_data =  _flash_cache + i * FLASH_PAGE_SIZE;
+    for (int i = 0; i < SECTOR_SIZE / FLASH_PAGE_SIZE; ++i) {
+      const uint32_t page_addr = sector_addr + i * FLASH_PAGE_SIZE;
+      void          *page_data = _flash_cache + i * FLASH_PAGE_SIZE;
 
       __disable_irq();
       status = ROM_FLEXSPI_NorFlash_ProgramPage(FLEXSPI_INSTANCE, &flash_cfg, page_addr, (uint32_t *)page_data);
       __enable_irq();
 
-      if ( status != kStatus_Success )
-      {
+      if (status != kStatus_Success) {
         TUF2_LOG1("Page program failed: status = %ld!\r\n", status);
         return;
       }
@@ -206,7 +228,7 @@ bool board_flash_write(uint32_t addr, const void *src, uint32_t len) {
     _flash_page_addr = page_addr;
 
     // Copy the current contents of the entire page into the cache.
-    memcpy(_flash_cache, (void*) page_addr, SECTOR_SIZE);
+    memcpy(_flash_cache, (void *)page_addr, SECTOR_SIZE);
   }
 
   // Overwrite part or all of the page cache with the src data.
@@ -215,8 +237,7 @@ bool board_flash_write(uint32_t addr, const void *src, uint32_t len) {
   return true;
 }
 
-void board_flash_erase_app(void)
-{
+void board_flash_erase_app(void) {
   TUF2_LOG1("Erase whole chip\r\n");
 
   // Perform chip erase first
@@ -228,9 +249,8 @@ void board_flash_erase_app(void)
   write_tinyuf2_to_flash();
 }
 
-bool board_flash_protect_bootloader(bool protect)
-{
+bool board_flash_protect_bootloader(bool protect) {
   // TODO implement later
-  (void) protect;
+  (void)protect;
   return false;
 }
