@@ -7,30 +7,15 @@ FLASH_BIN_ADDR = $(UF2_$(MCU)_ADDR)
 include ../make.mk
 include port.mk
 
-# Support flash-resident builds with FLASH_BUILD=1
-# Default is RAM build for SDP loading
-# MIMXRT1176 uses its own memory layout file
-MEMORY_LD = $(PORT_DIR)/linker/boot.ld
-
-ifeq ($(FLASH_BUILD),1)
-LD_FILES ?= \
-  $(PORT_DIR)/linker/$(MCU)_flash.ld \
-  $(MEMORY_LD) \
-  $(PORT_DIR)/linker/common.ld
-else
 LD_FILES ?= \
   $(PORT_DIR)/linker/$(MCU)_ram.ld \
-  $(MEMORY_LD) \
+  $(PORT_DIR)/linker/boot.ld \
   $(PORT_DIR)/linker/common.ld
-endif
 
 SRC_C += \
 	$(PORT_DIR)/boards.c \
 	$(PORT_DIR)/board_flash.c \
 	$(PORT_DIR)/romapi_flash.c \
-
-# include
-# INC +=
 
 # iMXRT self-update file is in the same BUILD folder
 SELF_UF2 = $(BUILD)/update-$(OUTNAME).uf2
@@ -77,11 +62,7 @@ UF2_ADDR = $(UF2_$(MCU)_ADDR)
 DBL_TAP_REG_ADDR = 0x400D410C
 
 # extract _fcfb_origin from linker file
-ifeq ($(FLASH_BUILD),1)
- FCFB_ORIGIN := $(shell sed -n 's/_fcfb_origin.*\(0x.*\);/\1/p' $(TOP)/$(PORT_DIR)/linker/$(MCU)_flash.ld)
-else
-  FCFB_ORIGIN := $(shell sed -n 's/_fcfb_origin.*\(0x.*\);/\1/p' $(TOP)/$(PORT_DIR)/linker/$(MCU)_ram.ld)
-endif
+FCFB_ORIGIN := $(shell sed -n 's/_fcfb_origin.*\(0x.*\);/\1/p' $(TOP)/$(PORT_DIR)/linker/$(MCU)_ram.ld)
 IVT_ORIGIN := $(shell printf "0x%X\n" $$(( ($(FCFB_ORIGIN) & ~0xFFF) + 0x1000 )))
 $(info FCFB_ORIGIN=$(FCFB_ORIGIN) IVT_ORIGIN=$(IVT_ORIGIN))
 
@@ -93,49 +74,17 @@ $(BUILD)/$(OUTNAME).hex: $(BUILD)/$(OUTNAME).elf
 SDPHOST = sdphost
 BLHOST = blhost
 
-# NXP flashloader for RT1170 two-stage flashing (set via environment or command line)
-# Obtain from MCUXpresso SDK flashloader example or NXP Secure Provisioning Tool
-FLASHLOADER ?= ivt_flashloader.bin
-
-# Flashloader USB PID (after load-image, flashloader enumerates with this PID)
-FLASHLOADER_PID = 0x0073
-
-# RT1170/RT1176 uses blhost (MCU bootloader protocol) instead of sdphost (SDP protocol)
-# Flash builds require two-stage flashloader; RAM builds can use direct load-image
+# RT117x uses blhost (MCU bootloader protocol)
 ifeq ($(MCU),MIMXRT1176)
-ifeq ($(FLASH_BUILD),1)
-# Two-stage flash process: load NXP flashloader, then use it to program TinyUF2
-flash-sdp: $(BUILD)/$(OUTNAME).bin
-	@echo "RT1176 Flash Build: Two-stage flashing via NXP flashloader"
-	@echo "Ensure board is in SDP mode"
-	@if [ ! -f "$(FLASHLOADER)" ]; then \
-		echo "ERROR: Flashloader not found: $(FLASHLOADER)"; \
-		echo "Set FLASHLOADER=/path/to/ivt_flashloader.bin or place in current directory"; \
-		echo "Obtain from MCUXpresso SDK flashloader example or NXP Secure Provisioning Tool"; \
-		exit 1; \
-	fi
-	@echo "Step 1: Loading NXP flashloader..."
-	$(BLHOST) -u 0x1fc9,$(SDP_PID) load-image $(FLASHLOADER)
-	@echo "Waiting for flashloader to enumerate (5 seconds)..."
-	@sleep 5
-	@echo "Step 2: Configuring QSPI flash..."
-	$(BLHOST) -u 0x15a2,$(FLASHLOADER_PID) fill-memory 0x00002000 4 0xCF900001
-	$(BLHOST) -u 0x15a2,$(FLASHLOADER_PID) configure-memory 9 0x00002000
-	$(BLHOST) -u 0x15a2,$(FLASHLOADER_PID) fill-memory 0x00002000 4 0xC0000007
-	$(BLHOST) -u 0x15a2,$(FLASHLOADER_PID) configure-memory 9 0x00002000
-	@echo "Step 3: Erasing flash region..."
-	$(BLHOST) -u 0x15a2,$(FLASHLOADER_PID) flash-erase-region $(UF2_ADDR) 0x10000 9
-	@echo "Step 4: Writing TinyUF2 to flash..."
-	$(BLHOST) -u 0x15a2,$(FLASHLOADER_PID) write-memory $(UF2_ADDR) $<
-	@echo "Done! Set boot switches to flash mode and reset board."
-else
-# RAM build: direct load-image (TinyUF2 runs from RAM and self-programs to flash)
-flash-sdp: $(BUILD)/$(OUTNAME).bin
+$(BUILD)/$(OUTNAME)_ivt0.bin: $(BUILD)/$(OUTNAME).bin
+	$(PYTHON3) tools/make_ivt0_image.py $< $@
+
+flash-sdp: $(BUILD)/$(OUTNAME)_ivt0.bin
 	@if [ -z "$(BLHOST)" ]; then echo SDPHOST is not found for this machine; exit 1; fi
-	$(PYTHON3) tools/make_ivt0_image.py $< $(BUILD)/$(OUTNAME)_ivt0.bin
-	$(BLHOST) -u 0x1fc9,$(SDP_PID) load-image $(BUILD)/$(OUTNAME)_ivt0.bin
-endif
+	$(BLHOST) -u 0x1fc9,$(SDP_PID) load-image $<
+
 else
+# RT10xx use sdphost (Serial Download Protocol)
 flash-sdp: $(BUILD)/$(OUTNAME).bin
 	@if [ -z "$(SDPHOST)" ]; then echo SDPHOST is not found for this machine; exit 1; fi
 	$(SDPHOST) -u 0x1fc9,$(SDP_PID) write-file $(FCFB_ORIGIN) $<

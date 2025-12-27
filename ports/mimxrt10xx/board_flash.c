@@ -77,7 +77,7 @@ static void write_tinyuf2_to_flash(void) {
   TUF2_LOG1("Writing TinyUF2 image to flash.\r\n");
 
 #ifdef USE_BLHOST
-  // BLHOST load-image with ivt at address 0, no FCFB in RAM, manual write it using copies
+  // blhost load-image with ivt at address 0, no FCFB in RAM, manual write it using copies
   // Write FCFB
   board_flash_write(FLASH_FCFB_ADDR, &qspiflash_config_copy, sizeof(flexspi_nor_config_t));
 
@@ -90,7 +90,7 @@ static void write_tinyuf2_to_flash(void) {
   const uint8_t *image_data = (const uint8_t *)((uint32_t)_interrupts_origin);
   uint32_t       flash_addr = FLASH_IVT_ADDR + ((uint32_t)_ivt_length);
 #else
-  // SDPHost write from fcfb to end of bootloader
+  // sdphost write from fcfb to end of bootloader
   const uint8_t *image_data = (const uint8_t *)&qspiflash_config;
   uint32_t       flash_addr = FLASH_FCFB_ADDR;
 #endif
@@ -105,14 +105,6 @@ static void write_tinyuf2_to_flash(void) {
   TUF2_LOG1("TinyUF2 copied to flash.\r\n");
 }
 
-// Check if we're executing from flash (XIP mode)
-// If PC is in the FlexSPI address range, skip FlexSPI re-initialization
-static inline bool is_running_from_flash(void) {
-  extern char __isr_vector[];
-  uint32_t vec_addr = (uint32_t)__isr_vector;
-  return (vec_addr >= FLEXSPI_FLASH_BASE) && (vec_addr < (FLEXSPI_FLASH_BASE + 0x10000000));
-}
-
 void board_flash_init(void)
 {
 #if defined(MIMXRT1176_cm7_SERIES)
@@ -123,27 +115,21 @@ void board_flash_init(void)
   flash_cfg = qspiflash_config;
 #endif
 
-  // Skip FlexSPI initialization if already running from flash (XIP mode)
-  // Re-initializing FlexSPI while executing from it would crash the system
-  if (!is_running_from_flash()) {
-    ROM_FLEXSPI_NorFlash_Init(FLEXSPI_INSTANCE, &flash_cfg);
-  }
+  ROM_FLEXSPI_NorFlash_Init(FLEXSPI_INSTANCE, &flash_cfg);
 
   // TinyUF2 will copy its image to flash if one of conditions meets:
   // - Boot Mode is '01' i.e Serial Download Mode (BootRom)
-  // - Flash FCFB is invalid (erased)
+  // - Flash FCFB is invalid (blank)
   //
   // NOTE: Self-flash is only performed when running from RAM (loaded via SDP).
   // When running from flash (XIP mode), we skip self-flash since TinyUF2 is
   // already in flash and re-flashing while executing from flash would crash.
-  if (!is_running_from_flash()) {
-    uint32_t const boot_mode = (SRC->SBMR2 & SRC_SBMR2_BMOD_MASK) >> SRC_SBMR2_BMOD_SHIFT;
-    const bool     fcfb_valid = (*(uint32_t *)FLASH_FCFB_ADDR == FLEXSPI_CFG_BLK_TAG);
+  const uint32_t boot_mode  = (SRC->SBMR2 & SRC_SBMR2_BMOD_MASK) >> SRC_SBMR2_BMOD_SHIFT;
+  const bool     fcfb_valid = (*(uint32_t *)FLASH_FCFB_ADDR == FLEXSPI_CFG_BLK_TAG);
 
-    TUF2_LOG1("Boot Mode = %lu, fcfb_valid = %u\r\n", boot_mode, fcfb_valid);
-    if (boot_mode == 1 || !fcfb_valid) {
-      write_tinyuf2_to_flash();
-    }
+  TUF2_LOG1("Boot Mode = %lu, fcfb_valid = %u\r\n", boot_mode, fcfb_valid);
+  if (boot_mode == 1 || !fcfb_valid) {
+    write_tinyuf2_to_flash();
   }
 }
 
@@ -238,10 +224,8 @@ void board_flash_erase_app(void)
   ROM_FLEXSPI_NorFlash_EraseAll(FLEXSPI_INSTANCE, &flash_cfg);
 
   // Re-write bootloader to flash after chip erase (only when running from RAM)
-  if (!is_running_from_flash()) {
-    TUF2_LOG1("Erase app firmware: ");
-    write_tinyuf2_to_flash();
-  }
+  TUF2_LOG1("Erase app firmware: ");
+  write_tinyuf2_to_flash();
 }
 
 bool board_flash_protect_bootloader(bool protect)
