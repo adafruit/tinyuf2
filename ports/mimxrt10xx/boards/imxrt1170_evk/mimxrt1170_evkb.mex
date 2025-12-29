@@ -223,14 +223,10 @@
                </dependencies>
                <clock_sources/>
                <clock_outputs>
-                  <clock_output id="ACMP_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="ADC1_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="ADC2_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="ARM_PLL_CLK.outFreq" value="996 MHz" locked="false" accuracy=""/>
-                  <clock_output id="ASRC_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="AXI_CLK_ROOT.outFreq" value="332/43 MHz" locked="false" accuracy=""/>
-                  <clock_output id="BUS_CLK_ROOT.outFreq" value="160/43 MHz" locked="false" accuracy=""/>
-                  <clock_output id="BUS_LPSR_CLK_ROOT.outFreq" value="160/43 MHz" locked="false" accuracy=""/>
+                  <clock_output id="AXI_CLK_ROOT.outFreq" value="996 MHz" locked="false" accuracy=""/>
+                  <clock_output id="BUS_CLK_ROOT.outFreq" value="240 MHz" locked="false" accuracy=""/>
+                  <clock_output id="BUS_LPSR_CLK_ROOT.outFreq" value="160 MHz" locked="false" accuracy=""/>
                   <clock_output id="CAN1_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="CAN2_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="CAN3_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
@@ -242,9 +238,7 @@
                   <clock_output id="CSI2_UI_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="CSI_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="CSSYS_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="CSTRACE_CLK_ROOT.outFreq" value="176/43 MHz" locked="false" accuracy=""/>
-                  <clock_output id="ELCDIF_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="EMV1_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
+                  <clock_output id="CSTRACE_CLK_ROOT.outFreq" value="132 MHz" locked="false" accuracy=""/>
                   <clock_output id="EMV2_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="ENET1_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="ENET2_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
@@ -258,7 +252,7 @@
                   <clock_output id="FLEXIO2_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="FLEXSPI1_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="FLEXSPI2_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="GC355_CLK_ROOT.outFreq" value="984.000025/129 MHz" locked="false" accuracy=""/>
+                  <clock_output id="GC355_CLK_ROOT.outFreq" value="492.0000125 MHz" locked="false" accuracy=""/>
                   <clock_output id="GPT1_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="GPT1_ipg_clk_highfreq.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="GPT2_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
@@ -296,9 +290,9 @@
                   <clock_output id="LPUART7_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="LPUART8_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="LPUART9_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="M4_CLK_ROOT.outFreq" value="1440/473 MHz" locked="false" accuracy=""/>
+                  <clock_output id="M4_CLK_ROOT.outFreq" value="4320/11 MHz" locked="false" accuracy=""/>
                   <clock_output id="M4_SYSTICK_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="M7_CLK_ROOT.outFreq" value="332/43 MHz" locked="false" accuracy=""/>
+                  <clock_output id="M7_CLK_ROOT.outFreq" value="996 MHz" locked="false" accuracy=""/>
                   <clock_output id="M7_SYSTICK_CLK_ROOT.outFreq" value="100 kHz" locked="false" accuracy=""/>
                   <clock_output id="MIC_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="MIPI_DSI_TX_CLK_ESC_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
@@ -324,7 +318,7 @@
                   <clock_output id="SAI3_MCLK3.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="SAI4_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="SAI4_MCLK1.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="SEMC_CLK_ROOT.outFreq" value="198/43 MHz" locked="false" accuracy=""/>
+                  <clock_output id="SEMC_CLK_ROOT.outFreq" value="198 MHz" locked="false" accuracy=""/>
                   <clock_output id="SPDIF_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="SYS_PLL2_CLK.outFreq" value="528 MHz" locked="false" accuracy=""/>
                   <clock_output id="SYS_PLL2_PFD0_CLK.outFreq" value="352 MHz" locked="false" accuracy=""/>
@@ -342,6 +336,7 @@
                </clock_outputs>
                <clock_settings>
                   <setting id="CoreBusClockRootsInitializationConfig" value="selectedCore" locked="false"/>
+                  <setting id="SOCDomainVoltage" value="OD" locked="false"/>
                   <setting id="SemcConfigurationPatchConfig" value="disabled" locked="false"/>
                   <setting id="ANADIG_OSC_OSC_24M_CTRL_LP_EN_CFG" value="Low" locked="false"/>
                   <setting id="ANADIG_OSC_OSC_24M_CTRL_OSC_EN_CFG" value="Enabled" locked="false"/>
@@ -354,7 +349,8 @@
                   <setting id="ANADIG_PLL.SYS_PLL2.div" value="22" locked="false"/>
                   <setting id="ANADIG_PLL.SYS_PLL2.num" value="0" locked="false"/>
                   <setting id="ANADIG_PLL.SYS_PLL2_SS_DIV.scale" value="268435455" locked="false"/>
-                  <setting id="ANADIG_PLL.SYS_PLL3_PFD3_DIV.scale" value="22" locked="false"/>
+                  <setting id="ANADIG_PLL.SYS_PLL3_PFD3_DIV.scale" value="22" locked="true"/>
+                  <setting id="ANADIG_PLL.SYS_PLL3_PFD3_MUL.scale" value="18" locked="true"/>
                   <setting id="ANADIG_PLL_ARM_PLL_CTRL_POWERUP_CFG" value="Enabled" locked="false"/>
                   <setting id="ANADIG_PLL_PLL_AUDIO_CTRL_GATE_CFG" value="Disabled" locked="false"/>
                   <setting id="ANADIG_PLL_PLL_VIDEO_CTRL0_POWERUP_CFG" value="Enabled" locked="false"/>
@@ -363,25 +359,29 @@
                   <setting id="ANADIG_PLL_SYS_PLL2_CTRL_POWERUP_CFG" value="Enabled" locked="false"/>
                   <setting id="ANADIG_PLL_SYS_PLL3_CTRL_POWERUP_CFG" value="Enabled" locked="false"/>
                   <setting id="ANADIG_PLL_SYS_PLL3_CTRL_SYS_PLL3_DIV2_CFG" value="Enabled" locked="false"/>
-                  <setting id="CCM.CLOCK_ROOT0.DIV.scale" value="129" locked="false"/>
                   <setting id="CCM.CLOCK_ROOT0.MUX.sel" value="ANADIG_PLL.ARM_PLL_CLK" locked="false"/>
-                  <setting id="CCM.CLOCK_ROOT1.DIV.scale" value="129" locked="false"/>
                   <setting id="CCM.CLOCK_ROOT1.MUX.sel" value="ANADIG_PLL.SYS_PLL3_PFD3_CLK" locked="false"/>
-                  <setting id="CCM.CLOCK_ROOT2.DIV.scale" value="129" locked="false"/>
+                  <setting id="CCM.CLOCK_ROOT2.DIV.scale" value="2" locked="false"/>
                   <setting id="CCM.CLOCK_ROOT2.MUX.sel" value="ANADIG_PLL.SYS_PLL3_CLK" locked="false"/>
                   <setting id="CCM.CLOCK_ROOT25.DIV.scale" value="22" locked="false"/>
                   <setting id="CCM.CLOCK_ROOT25.MUX.sel" value="ANADIG_PLL.SYS_PLL2_CLK" locked="false"/>
                   <setting id="CCM.CLOCK_ROOT26.DIV.scale" value="22" locked="false"/>
                   <setting id="CCM.CLOCK_ROOT26.MUX.sel" value="ANADIG_PLL.SYS_PLL2_CLK" locked="false"/>
-                  <setting id="CCM.CLOCK_ROOT3.DIV.scale" value="129" locked="false"/>
+                  <setting id="CCM.CLOCK_ROOT3.DIV.scale" value="3" locked="false"/>
                   <setting id="CCM.CLOCK_ROOT3.MUX.sel" value="ANADIG_PLL.SYS_PLL3_CLK" locked="false"/>
-                  <setting id="CCM.CLOCK_ROOT4.DIV.scale" value="129" locked="false"/>
+                  <setting id="CCM.CLOCK_ROOT4.DIV.scale" value="3" locked="false"/>
                   <setting id="CCM.CLOCK_ROOT4.MUX.sel" value="ANADIG_PLL.SYS_PLL2_PFD1_CLK" locked="false"/>
-                  <setting id="CCM.CLOCK_ROOT6.DIV.scale" value="129" locked="false"/>
+                  <setting id="CCM.CLOCK_ROOT6.DIV.scale" value="4" locked="false"/>
                   <setting id="CCM.CLOCK_ROOT6.MUX.sel" value="ANADIG_PLL.SYS_PLL2_CLK" locked="false"/>
-                  <setting id="CCM.CLOCK_ROOT68.DIV.scale" value="129" locked="false"/>
+                  <setting id="CCM.CLOCK_ROOT68.DIV.scale" value="2" locked="false"/>
                   <setting id="CCM.CLOCK_ROOT68.MUX.sel" value="ANADIG_PLL.PLL_VIDEO_CLK" locked="false"/>
                   <setting id="CCM.CLOCK_ROOT8.DIV.scale" value="240" locked="false"/>
+                  <setting id="CLK_ROOT10_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT11_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT49_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT60_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT69_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT9_INIT_Config" value="disabled" locked="false"/>
                </clock_settings>
                <called_from_default_init>true</called_from_default_init>
             </clock_configuration>

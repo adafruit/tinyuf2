@@ -41,6 +41,28 @@ void BOARD_InitBootClocks(void)
     BOARD_BootClockRUN();
 }
 
+#if defined(XIP_BOOT_HEADER_ENABLE) && (XIP_BOOT_HEADER_ENABLE == 1)
+  #if defined(XIP_BOOT_HEADER_DCD_ENABLE) && (XIP_BOOT_HEADER_DCD_ENABLE == 1)
+/* This function should not run from SDRAM since it will change SEMC configuration. */
+AT_QUICKACCESS_SECTION_CODE(void UpdateSemcClock(void));
+void UpdateSemcClock(void) {
+  /* Enable self-refresh mode and update semc clock root to 200MHz. */
+  SEMC->IPCMD = 0xA55A000D;
+  while ((SEMC->INTR & 0x3) == 0)
+    ;
+  SEMC->INTR = 0x3;
+  SEMC->DCCR = 0x0B;
+  /*
+   * Currently we are using SEMC parameter which fit both 166MHz and 200MHz, only
+   * need to change the SEMC clock root here. If customer is using their own DCD and
+   * want to switch from 166MHz to 200MHz, extra SEMC configuration might need to be
+   * adjusted here to fine tune the SDRAM performance
+   */
+  CCM->CLOCK_ROOT[kCLOCK_Root_Semc].CONTROL = 0x602;
+}
+  #endif
+#endif
+
 /*******************************************************************************
  ********************** Configuration BOARD_BootClockRUN ***********************
  ******************************************************************************/
@@ -54,9 +76,9 @@ outputs:
 - {id: ADC2_CLK_ROOT.outFreq, value: 24 MHz}
 - {id: ARM_PLL_CLK.outFreq, value: 996 MHz}
 - {id: ASRC_CLK_ROOT.outFreq, value: 24 MHz}
-- {id: AXI_CLK_ROOT.outFreq, value: 332/43 MHz}
-- {id: BUS_CLK_ROOT.outFreq, value: 160/43 MHz}
-- {id: BUS_LPSR_CLK_ROOT.outFreq, value: 160/43 MHz}
+- {id: AXI_CLK_ROOT.outFreq, value: 996 MHz}
+- {id: BUS_CLK_ROOT.outFreq, value: 240 MHz}
+- {id: BUS_LPSR_CLK_ROOT.outFreq, value: 160 MHz}
 - {id: CAN1_CLK_ROOT.outFreq, value: 24 MHz}
 - {id: CAN2_CLK_ROOT.outFreq, value: 24 MHz}
 - {id: CAN3_CLK_ROOT.outFreq, value: 24 MHz}
@@ -68,7 +90,7 @@ outputs:
 - {id: CSI2_UI_CLK_ROOT.outFreq, value: 24 MHz}
 - {id: CSI_CLK_ROOT.outFreq, value: 24 MHz}
 - {id: CSSYS_CLK_ROOT.outFreq, value: 24 MHz}
-- {id: CSTRACE_CLK_ROOT.outFreq, value: 176/43 MHz}
+- {id: CSTRACE_CLK_ROOT.outFreq, value: 132 MHz}
 - {id: ELCDIF_CLK_ROOT.outFreq, value: 24 MHz}
 - {id: EMV1_CLK_ROOT.outFreq, value: 24 MHz}
 - {id: EMV2_CLK_ROOT.outFreq, value: 24 MHz}
@@ -84,7 +106,7 @@ outputs:
 - {id: FLEXIO2_CLK_ROOT.outFreq, value: 24 MHz}
 - {id: FLEXSPI1_CLK_ROOT.outFreq, value: 24 MHz}
 - {id: FLEXSPI2_CLK_ROOT.outFreq, value: 24 MHz}
-- {id: GC355_CLK_ROOT.outFreq, value: 984.000025/129 MHz}
+- {id: GC355_CLK_ROOT.outFreq, value: 492.0000125 MHz}
 - {id: GPT1_CLK_ROOT.outFreq, value: 24 MHz}
 - {id: GPT1_ipg_clk_highfreq.outFreq, value: 24 MHz}
 - {id: GPT2_CLK_ROOT.outFreq, value: 24 MHz}
@@ -122,9 +144,9 @@ outputs:
 - {id: LPUART7_CLK_ROOT.outFreq, value: 24 MHz}
 - {id: LPUART8_CLK_ROOT.outFreq, value: 24 MHz}
 - {id: LPUART9_CLK_ROOT.outFreq, value: 24 MHz}
-- {id: M4_CLK_ROOT.outFreq, value: 1440/473 MHz}
+- {id: M4_CLK_ROOT.outFreq, value: 4320/11 MHz}
 - {id: M4_SYSTICK_CLK_ROOT.outFreq, value: 24 MHz}
-- {id: M7_CLK_ROOT.outFreq, value: 332/43 MHz}
+- {id: M7_CLK_ROOT.outFreq, value: 996 MHz}
 - {id: M7_SYSTICK_CLK_ROOT.outFreq, value: 100 kHz}
 - {id: MIC_CLK_ROOT.outFreq, value: 24 MHz}
 - {id: MIPI_DSI_TX_CLK_ESC_ROOT.outFreq, value: 24 MHz}
@@ -150,7 +172,7 @@ outputs:
 - {id: SAI3_MCLK3.outFreq, value: 24 MHz}
 - {id: SAI4_CLK_ROOT.outFreq, value: 24 MHz}
 - {id: SAI4_MCLK1.outFreq, value: 24 MHz}
-- {id: SEMC_CLK_ROOT.outFreq, value: 198/43 MHz}
+- {id: SEMC_CLK_ROOT.outFreq, value: 198 MHz}
 - {id: SPDIF_CLK_ROOT.outFreq, value: 24 MHz}
 - {id: SYS_PLL2_CLK.outFreq, value: 528 MHz}
 - {id: SYS_PLL2_PFD0_CLK.outFreq, value: 352 MHz}
@@ -167,7 +189,7 @@ outputs:
 - {id: USDHC2_CLK_ROOT.outFreq, value: 24 MHz}
 settings:
 - {id: CoreBusClockRootsInitializationConfig, value: selectedCore}
-- {id: SemcConfigurationPatchConfig, value: disabled}
+- {id: SOCDomainVoltage, value: OD}
 - {id: ANADIG_OSC_OSC_24M_CTRL_LP_EN_CFG, value: Low}
 - {id: ANADIG_OSC_OSC_24M_CTRL_OSC_EN_CFG, value: Enabled}
 - {id: ANADIG_PLL.PLL_AUDIO_BYPASS.sel, value: ANADIG_OSC.OSC_24M}
@@ -179,7 +201,8 @@ settings:
 - {id: ANADIG_PLL.SYS_PLL2.div, value: '22'}
 - {id: ANADIG_PLL.SYS_PLL2.num, value: '0'}
 - {id: ANADIG_PLL.SYS_PLL2_SS_DIV.scale, value: '268435455'}
-- {id: ANADIG_PLL.SYS_PLL3_PFD3_DIV.scale, value: '22'}
+- {id: ANADIG_PLL.SYS_PLL3_PFD3_DIV.scale, value: '22', locked: true}
+- {id: ANADIG_PLL.SYS_PLL3_PFD3_MUL.scale, value: '18', locked: true}
 - {id: ANADIG_PLL_ARM_PLL_CTRL_POWERUP_CFG, value: Enabled}
 - {id: ANADIG_PLL_PLL_AUDIO_CTRL_GATE_CFG, value: Disabled}
 - {id: ANADIG_PLL_PLL_VIDEO_CTRL0_POWERUP_CFG, value: Enabled}
@@ -188,23 +211,21 @@ settings:
 - {id: ANADIG_PLL_SYS_PLL2_CTRL_POWERUP_CFG, value: Enabled}
 - {id: ANADIG_PLL_SYS_PLL3_CTRL_POWERUP_CFG, value: Enabled}
 - {id: ANADIG_PLL_SYS_PLL3_CTRL_SYS_PLL3_DIV2_CFG, value: Enabled}
-- {id: CCM.CLOCK_ROOT0.DIV.scale, value: '129'}
 - {id: CCM.CLOCK_ROOT0.MUX.sel, value: ANADIG_PLL.ARM_PLL_CLK}
-- {id: CCM.CLOCK_ROOT1.DIV.scale, value: '129'}
 - {id: CCM.CLOCK_ROOT1.MUX.sel, value: ANADIG_PLL.SYS_PLL3_PFD3_CLK}
-- {id: CCM.CLOCK_ROOT2.DIV.scale, value: '129'}
+- {id: CCM.CLOCK_ROOT2.DIV.scale, value: '2'}
 - {id: CCM.CLOCK_ROOT2.MUX.sel, value: ANADIG_PLL.SYS_PLL3_CLK}
 - {id: CCM.CLOCK_ROOT25.DIV.scale, value: '22'}
 - {id: CCM.CLOCK_ROOT25.MUX.sel, value: ANADIG_PLL.SYS_PLL2_CLK}
 - {id: CCM.CLOCK_ROOT26.DIV.scale, value: '22'}
 - {id: CCM.CLOCK_ROOT26.MUX.sel, value: ANADIG_PLL.SYS_PLL2_CLK}
-- {id: CCM.CLOCK_ROOT3.DIV.scale, value: '129'}
+- {id: CCM.CLOCK_ROOT3.DIV.scale, value: '3'}
 - {id: CCM.CLOCK_ROOT3.MUX.sel, value: ANADIG_PLL.SYS_PLL3_CLK}
-- {id: CCM.CLOCK_ROOT4.DIV.scale, value: '129'}
+- {id: CCM.CLOCK_ROOT4.DIV.scale, value: '3'}
 - {id: CCM.CLOCK_ROOT4.MUX.sel, value: ANADIG_PLL.SYS_PLL2_PFD1_CLK}
-- {id: CCM.CLOCK_ROOT6.DIV.scale, value: '129'}
+- {id: CCM.CLOCK_ROOT6.DIV.scale, value: '4'}
 - {id: CCM.CLOCK_ROOT6.MUX.sel, value: ANADIG_PLL.SYS_PLL2_CLK}
-- {id: CCM.CLOCK_ROOT68.DIV.scale, value: '129'}
+- {id: CCM.CLOCK_ROOT68.DIV.scale, value: '2'}
 - {id: CCM.CLOCK_ROOT68.MUX.sel, value: ANADIG_PLL.PLL_VIDEO_CLK}
 - {id: CCM.CLOCK_ROOT8.DIV.scale, value: '240'}
  * BE CAREFUL MODIFYING THIS COMMENT - IT IS YAML SETTINGS FOR TOOLS **********/
@@ -212,22 +233,20 @@ settings:
 /*******************************************************************************
  * Variables for BOARD_BootClockRUN configuration
  ******************************************************************************/
-
 #define SKIP_POWER_ADJUSTMENT
 #define SKIP_DCDC_ADJUSTMENT 1
-#define SKIP_DCDC_CONFIGURATION 1
 #define SKIP_FBB_ENABLE 1
 #define SKIP_LDO_ADJUSTMENT 1
-#define FLEXSPI_IN_USE
+#define SKIP_DCDC_CONFIGURATION 1
 
 #ifndef SKIP_POWER_ADJUSTMENT
 #if __CORTEX_M == 7
-#define BYPASS_LDO_LPSR 1
-#define SKIP_LDO_ADJUSTMENT 1
-#elif __CORTEX_M == 4
-#define SKIP_DCDC_ADJUSTMENT 1
-#define SKIP_FBB_ENABLE 1
-#endif
+    #define BYPASS_LDO_LPSR     1
+    #define SKIP_LDO_ADJUSTMENT 1
+  #elif __CORTEX_M == 4
+    #define SKIP_DCDC_ADJUSTMENT 1
+    #define SKIP_FBB_ENABLE      1
+  #endif
 #endif
 
 const clock_arm_pll_config_t armPllConfig_BOARD_BootClockRUN = {
@@ -267,11 +286,9 @@ void BOARD_BootClockRUN(void)
     if((OCOTP->FUSEN[16].FUSE == 0x57AC5969U) && ((OCOTP->FUSEN[17].FUSE & 0xFFU) == 0x0BU))
     {
         DCDC_SetVDD1P0BuckModeTargetVoltage(DCDC, kDCDC_1P0BuckTarget1P15V);
-    }
-    else
-    {
-        /* Set 1.125V for production samples to align with data sheet requirement */
-        DCDC_SetVDD1P0BuckModeTargetVoltage(DCDC, kDCDC_1P0BuckTarget1P125V);
+    } else {
+      /* Set 1.125V for production samples to align with data sheet requirement */
+      DCDC_SetVDD1P0BuckModeTargetVoltage(DCDC, kDCDC_1P0BuckTarget1P125V);
     }
 #endif /* SKIP_DCDC_ADJUSTMENT */
 #endif /* SKIP_DCDC_CONFIGURATION */
@@ -318,7 +335,7 @@ void BOARD_BootClockRUN(void)
     ANADIG_OSC->OSC_16M_CTRL |= ANADIG_OSC_OSC_16M_CTRL_EN_IRC4M16M_MASK;
 
     /* Init OSC RC 400M */
-    //CLOCK_OSC_EnableOscRc400M();
+    CLOCK_OSC_EnableOscRc400M();
 
     /* Init OSC RC 48M */
     CLOCK_OSC_EnableOsc48M(true);
@@ -330,9 +347,7 @@ void BOARD_BootClockRUN(void)
                                 ANADIG_OSC_OSC_24M_CTRL_OSC_24M_GATE(0);
     /* Wait for 24M OSC to be stable. */
     while (ANADIG_OSC_OSC_24M_CTRL_OSC_24M_STABLE_MASK !=
-            (ANADIG_OSC->OSC_24M_CTRL & ANADIG_OSC_OSC_24M_CTRL_OSC_24M_STABLE_MASK))
-    {
-    }
+           (ANADIG_OSC->OSC_24M_CTRL & ANADIG_OSC_OSC_24M_CTRL_OSC_24M_STABLE_MASK)) {}
 
     /* Switch core M7 clock root to OscRC48MDiv2 first */
 #if __CORTEX_M == 7
@@ -362,6 +377,10 @@ void BOARD_BootClockRUN(void)
     CLOCK_SetRootClock(kCLOCK_Root_Bus_Lpsr, &rootCfg);
 #endif
 
+    /*
+     * if DCD is used, please make sure the clock source of SEMC is not changed in the following PLL/PFD configuration
+     * code.
+     */
     /* Init Arm Pll. */
     CLOCK_InitArmPll(&armPllConfig_BOARD_BootClockRUN);
 
@@ -414,32 +433,38 @@ void BOARD_BootClockRUN(void)
     /* Configure M7 using ARM_PLL_CLK */
 #if __CORTEX_M == 7
     rootCfg.mux = kCLOCK_M7_ClockRoot_MuxArmPllOut;
-    rootCfg.div = 129;
+    rootCfg.div = 1;
     CLOCK_SetRootClock(kCLOCK_Root_M7, &rootCfg);
 #endif
 
     /* Configure M4 using SYS_PLL3_PFD3_CLK */
 #if __CORTEX_M == 4
     rootCfg.mux = kCLOCK_M4_ClockRoot_MuxSysPll3Pfd3;
-    rootCfg.div = 129;
+    rootCfg.div = 1;
     CLOCK_SetRootClock(kCLOCK_Root_M4, &rootCfg);
 #endif
 
     /* Configure BUS using SYS_PLL3_CLK */
     rootCfg.mux = kCLOCK_BUS_ClockRoot_MuxSysPll3Out;
-    rootCfg.div = 129;
+    rootCfg.div = 2;
     CLOCK_SetRootClock(kCLOCK_Root_Bus, &rootCfg);
 
     /* Configure BUS_LPSR using SYS_PLL3_CLK */
     rootCfg.mux = kCLOCK_BUS_LPSR_ClockRoot_MuxSysPll3Out;
-    rootCfg.div = 129;
+    rootCfg.div = 3;
     CLOCK_SetRootClock(kCLOCK_Root_Bus_Lpsr, &rootCfg);
 
     /* Configure SEMC using SYS_PLL2_PFD1_CLK */
 #ifndef SKIP_SEMC_INIT
     rootCfg.mux = kCLOCK_SEMC_ClockRoot_MuxSysPll2Pfd1;
-    rootCfg.div = 129;
+    rootCfg.div = 3;
     CLOCK_SetRootClock(kCLOCK_Root_Semc, &rootCfg);
+#endif
+
+#if defined(XIP_BOOT_HEADER_ENABLE) && (XIP_BOOT_HEADER_ENABLE == 1)
+  #if defined(XIP_BOOT_HEADER_DCD_ENABLE) && (XIP_BOOT_HEADER_DCD_ENABLE == 1)
+    UpdateSemcClock();
+  #endif
 #endif
 
     /* Configure CSSYS using OSC_RC_48M_DIV2 */
@@ -449,7 +474,7 @@ void BOARD_BootClockRUN(void)
 
     /* Configure CSTRACE using SYS_PLL2_CLK */
     rootCfg.mux = kCLOCK_CSTRACE_ClockRoot_MuxSysPll2Out;
-    rootCfg.div = 129;
+    rootCfg.div = 4;
     CLOCK_SetRootClock(kCLOCK_Root_Cstrace, &rootCfg);
 
     /* Configure M4_SYSTICK using OSC_RC_48M_DIV2 */
@@ -765,7 +790,7 @@ void BOARD_BootClockRUN(void)
 
     /* Configure GC355 using PLL_VIDEO_CLK */
     rootCfg.mux = kCLOCK_GC355_ClockRoot_MuxVideoPllOut;
-    rootCfg.div = 129;
+    rootCfg.div = 2;
     CLOCK_SetRootClock(kCLOCK_Root_Gc355, &rootCfg);
 
     /* Configure LCDIF using OSC_RC_48M_DIV2 */
