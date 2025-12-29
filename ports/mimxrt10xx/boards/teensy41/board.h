@@ -34,33 +34,18 @@
 //--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
-
-#define LED_PINMUX            IOMUXC_GPIO_B0_03_GPIO2_IO03
-#define LED_PORT              GPIO2
-#define LED_PIN               3
+#define LED_PORT     BOARD_INITPINS_USER_LED_PERIPHERAL
+#define LED_PIN      BOARD_INITPINS_USER_LED_CHANNEL
 #define LED_STATE_ON          0
 
 //--------------------------------------------------------------------+
 // Neopixel
 //--------------------------------------------------------------------+
-
-// Number of neopixels
-#define NEOPIXEL_NUMBER       0
-
-//--------------------------------------------------------------------+
-// Button
-//--------------------------------------------------------------------+
-
-// Teensy 4.1 pin 23.
-#define BUTTON_PINMUX         IOMUXC_GPIO_AD_B1_09_GPIO1_IO25
-#define BUTTON_PORT           GPIO1
-#define BUTTON_PIN            25
-#define BUTTON_STATE_ACTIVE   0
+#define NEOPIXEL_NUMBER 0 // Number of neopixels
 
 //--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
-
 #define USB_VID           0x239A
 #define USB_PID           0x00AD
 #define USB_MANUFACTURER  "PJRC"
@@ -74,9 +59,6 @@
 //--------------------------------------------------------------------+
 // UART
 //--------------------------------------------------------------------+
-
 #define UART_DEV              LPUART1
-#define UART_RX_PINMUX        IOMUXC_GPIO_AD_B0_13_LPUART1_RX
-#define UART_TX_PINMUX        IOMUXC_GPIO_AD_B0_12_LPUART1_TX
 
 #endif /* BOARD_H_ */
