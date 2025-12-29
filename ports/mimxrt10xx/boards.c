@@ -60,14 +60,6 @@ void board_init(void) {
   // Prevent clearing of SNVS General Purpose Register
   SNVS->LPCR |= SNVS_LPCR_GPR_Z_DIS_MASK;
 
-#if NEOPIXEL_NUMBER
-  IOMUXC_SetPinMux(NEOPIXEL_PINMUX, 0);
-  IOMUXC_SetPinConfig(NEOPIXEL_PINMUX, 0x10B0U);
-
-  gpio_pin_config_t neopixel_config = {kGPIO_DigitalOutput, 0, kGPIO_NoIntmode};
-  GPIO_PinInit(NEOPIXEL_PORT, NEOPIXEL_PIN, &neopixel_config);
-#endif
-
 #if TUF2_LOG
   board_uart_init(BOARD_UART_BAUDRATE);
 #endif

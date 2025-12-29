@@ -75,15 +75,14 @@ CFLAGS += \
   -DUF2_VERSION_BASE='"$(GIT_VERSION)"'\
   -DUF2_VERSION='"$(GIT_VERSION) - $(GIT_SUBMODULE_VERSIONS)"'\
 
-# Bootloader src, board folder and TinyUSB stack
+# Bootloader src and TinyUSB stack
 SRC_C += \
   src/ghostfat.c \
   src/images.c \
   src/main.c \
   src/msc.c \
   src/screen.c \
-  src/usb_descriptors.c \
-  $(subst $(TOP)/,,$(wildcard $(TOP)/$(BOARD_DIR)/*.c))
+  src/usb_descriptors.c
 
 endif # BUILD_APPLICATION
 

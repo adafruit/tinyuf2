@@ -26,6 +26,9 @@ CFLAGS += -Wno-error=unused-parameter
 
 # Port source
 SRC_C += \
+	$(BOARD_DIR)/flash_config.c \
+	$(BOARD_DIR)/board/clock_config.c \
+	$(BOARD_DIR)/board/pin_mux.c \
 	$(MCU_DIR)/drivers/fsl_clock.c \
 	$(SDK_DIR)/drivers/cache/armv7-m7/fsl_cache.c \
 	$(SDK_DIR)/drivers/common/fsl_common.c \
@@ -34,8 +37,7 @@ SRC_C += \
 	$(SDK_DIR)/drivers/lpuart/fsl_lpuart.c \
 	$(SDK_DIR)/drivers/ocotp/fsl_ocotp.c \
 	$(SDK_DIR)/drivers/pwm/fsl_pwm.c \
-	$(SDK_DIR)/drivers/xbara/fsl_xbara.c \
-	$(BOARD_DIR)/clock_config.c
+	$(SDK_DIR)/drivers/xbara/fsl_xbara.c
 
 ifeq ($(MCU),MIMXRT1176)
 	SRC_C += $(MCU_DIR)/system_$(MCU)_cm7.c
@@ -60,7 +62,6 @@ endif
 ifndef BUILD_NO_TINYUSB
 SRC_C += lib/tinyusb/src/portable/chipidea/ci_hs/dcd_ci_hs.c
 endif
-
 
 # Port include
 INC += \

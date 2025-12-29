@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding= "UTF-8" ?>
-<configuration name="MIMXRT1060-EVK" xsi:schemaLocation="http://mcuxpresso.nxp.com/XSD/mex_configuration_19 http://mcuxpresso.nxp.com/XSD/mex_configuration_19.xsd" uuid="2174caba-38fe-48d5-8f89-42a23354d23b" version="19" xmlns="http://mcuxpresso.nxp.com/XSD/mex_configuration_19" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<configuration name="IMXRT1050-EVKB" xsi:schemaLocation="http://mcuxpresso.nxp.com/XSD/mex_configuration_19 http://mcuxpresso.nxp.com/XSD/mex_configuration_19.xsd" uuid="789fd1d3-821c-40a6-b04d-44ccc5a5d158" version="19" xmlns="http://mcuxpresso.nxp.com/XSD/mex_configuration_19" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
    <common>
-      <processor>MIMXRT1062xxxxA</processor>
-      <package>MIMXRT1062DVL6A</package>
-      <board>MIMXRT1060-EVK</board>
-      <board_revision>A2</board_revision>
+      <processor>MIMXRT1052xxxxB</processor>
+      <package>MIMXRT1052DVL6B</package>
+      <board>IMXRT1050-EVKB</board>
+      <board_revision>A</board_revision>
       <mcu_data>ksdk2_0</mcu_data>
       <cores selected="core0">
          <core name="Cortex-M7F" id="core0" description="M7 core"/>
@@ -27,8 +27,8 @@
          <pins_profile>
             <processor_version>25.09.10</processor_version>
             <pin_labels>
-               <pin_label pin_num="E7" pin_signal="GPIO_B0_01" label="LCDIF_ENABLE" identifier="USER_BUTTON"/>
-               <pin_label pin_num="D8" pin_signal="GPIO_B0_03" label="LCDIF_VSYNC" identifier="USER_LED"/>
+               <pin_label pin_num="F14" pin_signal="GPIO_AD_B0_09" label="JTAG_TDI/J21[5]/ENET_RST/J22[5]" identifier="USER_LED"/>
+               <pin_label pin_num="L6" pin_signal="WAKEUP" label="SD_PWREN" identifier="USER_BUTTON"/>
             </pin_labels>
             <power_domains/>
          </pins_profile>
@@ -41,7 +41,7 @@
                   <enableClock>true</enableClock>
                </options>
                <dependencies>
-                  <dependency resourceType="Peripheral" resourceId="GPIO2" description="Peripheral GPIO2 signals are routed in the Pins Tool, but the peripheral is not initialized in the Peripherals Tool." problem_level="1" source="Pins:BOARD_InitPins">
+                  <dependency resourceType="Peripheral" resourceId="GPIO5" description="Peripheral GPIO5 signals are routed in the Pins Tool, but the peripheral is not initialized in the Peripherals Tool." problem_level="1" source="Pins:BOARD_InitPins">
                      <feature name="initialized" evaluation="equal">
                         <data>true</data>
                      </feature>
@@ -63,16 +63,16 @@
                   </dependency>
                </dependencies>
                <pins>
-                  <pin peripheral="GPIO2" signal="gpio_io, 03" pin_num="D8" pin_signal="GPIO_B0_03">
+                  <pin peripheral="GPIO1" signal="gpio_io, 09" pin_num="F14" pin_signal="GPIO_AD_B0_09">
                      <pin_features>
                         <pin_feature name="direction" value="OUTPUT"/>
+                        <pin_feature name="pull_keeper_select" value="Keeper"/>
                      </pin_features>
                   </pin>
-                  <pin peripheral="GPIO2" signal="gpio_io, 01" pin_num="E7" pin_signal="GPIO_B0_01">
+                  <pin peripheral="GPIO5" signal="gpio_io, 00" pin_num="L6" pin_signal="WAKEUP">
                      <pin_features>
                         <pin_feature name="direction" value="INPUT"/>
                         <pin_feature name="pull_up_down_config" value="Pull_Up_100K_Ohm"/>
-                        <pin_feature name="pull_keeper_select" value="Pull"/>
                      </pin_features>
                   </pin>
                </pins>
@@ -130,7 +130,7 @@
                   </pin>
                </pins>
             </function>
-            <function name="BOARD_InitQSPIPins">
+            <function name="BOARD_InitHyperFlashPins">
                <description>Configures pin routing and optionally pin electrical features.</description>
                <options>
                   <callFromInitBoot>false</callFromInitBoot>
@@ -138,29 +138,34 @@
                   <enableClock>true</enableClock>
                </options>
                <dependencies>
-                  <dependency resourceType="Peripheral" resourceId="FLEXSPI" description="Peripheral FLEXSPI signals are routed in the Pins Tool, but the peripheral is not initialized in the Peripherals Tool." problem_level="1" source="Pins:BOARD_InitQSPIPins">
+                  <dependency resourceType="Peripheral" resourceId="FLEXSPI" description="Peripheral FLEXSPI signals are routed in the Pins Tool, but the peripheral is not initialized in the Peripherals Tool." problem_level="1" source="Pins:BOARD_InitHyperFlashPins">
                      <feature name="initialized" evaluation="equal">
                         <data>true</data>
                      </feature>
                   </dependency>
-                  <dependency resourceType="SWComponent" resourceId="platform.drivers.common" description="Pins initialization requires the COMMON Driver in the project." problem_level="2" source="Pins:BOARD_InitQSPIPins">
+                  <dependency resourceType="SWComponent" resourceId="platform.drivers.common" description="Pins initialization requires the COMMON Driver in the project." problem_level="2" source="Pins:BOARD_InitHyperFlashPins">
                      <feature name="enabled" evaluation="equal" configuration="core0">
                         <data>true</data>
                      </feature>
                   </dependency>
-                  <dependency resourceType="SWComponent" resourceId="platform.drivers.iomuxc" description="Pins initialization requires the IOMUXC Driver in the project." problem_level="2" source="Pins:BOARD_InitQSPIPins">
+                  <dependency resourceType="SWComponent" resourceId="platform.drivers.iomuxc" description="Pins initialization requires the IOMUXC Driver in the project." problem_level="2" source="Pins:BOARD_InitHyperFlashPins">
                      <feature name="enabled" evaluation="equal" configuration="core0">
                         <data>true</data>
                      </feature>
                   </dependency>
                </dependencies>
                <pins>
+                  <pin peripheral="FLEXSPI" signal="FLEXSPI_A_SCLK" pin_num="L4" pin_signal="GPIO_SD_B1_07"/>
+                  <pin peripheral="FLEXSPI" signal="FLEXSPI_A_DATA2" pin_num="P4" pin_signal="GPIO_SD_B1_10"/>
                   <pin peripheral="FLEXSPI" signal="FLEXSPI_A_DATA0" pin_num="P3" pin_signal="GPIO_SD_B1_08"/>
                   <pin peripheral="FLEXSPI" signal="FLEXSPI_A_DATA1" pin_num="N4" pin_signal="GPIO_SD_B1_09"/>
-                  <pin peripheral="FLEXSPI" signal="FLEXSPI_A_DATA2" pin_num="P4" pin_signal="GPIO_SD_B1_10"/>
-                  <pin peripheral="FLEXSPI" signal="FLEXSPI_A_DATA3" pin_num="P5" pin_signal="GPIO_SD_B1_11"/>
-                  <pin peripheral="FLEXSPI" signal="FLEXSPI_A_SCLK" pin_num="L4" pin_signal="GPIO_SD_B1_07"/>
+                  <pin peripheral="FLEXSPI" signal="FLEXSPI_B_DATA3" pin_num="L5" pin_signal="GPIO_SD_B1_00"/>
+                  <pin peripheral="FLEXSPI" signal="FLEXSPI_B_DATA2" pin_num="M5" pin_signal="GPIO_SD_B1_01"/>
+                  <pin peripheral="FLEXSPI" signal="FLEXSPI_B_DATA1" pin_num="M3" pin_signal="GPIO_SD_B1_02"/>
+                  <pin peripheral="FLEXSPI" signal="FLEXSPI_B_DATA0" pin_num="M4" pin_signal="GPIO_SD_B1_03"/>
+                  <pin peripheral="FLEXSPI" signal="FLEXSPI_B_SCLK" pin_num="P2" pin_signal="GPIO_SD_B1_04"/>
                   <pin peripheral="FLEXSPI" signal="FLEXSPI_A_SS0_B" pin_num="L3" pin_signal="GPIO_SD_B1_06"/>
+                  <pin peripheral="FLEXSPI" signal="FLEXSPI_A_DATA3" pin_num="P5" pin_signal="GPIO_SD_B1_11"/>
                   <pin peripheral="FLEXSPI" signal="FLEXSPI_A_DQS" pin_num="N3" pin_signal="GPIO_SD_B1_05"/>
                </pins>
             </function>
@@ -240,13 +245,11 @@
                   <clock_output id="CLK_1M.outFreq" value="1 MHz" locked="false" accuracy=""/>
                   <clock_output id="CLK_24M.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="CSI_CLK_ROOT.outFreq" value="12 MHz" locked="false" accuracy=""/>
-                  <clock_output id="ENET2_125M_CLK.outFreq" value="1.2 MHz" locked="false" accuracy=""/>
                   <clock_output id="ENET_125M_CLK.outFreq" value="2.4 MHz" locked="false" accuracy=""/>
                   <clock_output id="ENET_25M_REF_CLK.outFreq" value="1.2 MHz" locked="false" accuracy=""/>
                   <clock_output id="FLEXIO1_CLK_ROOT.outFreq" value="30 MHz" locked="false" accuracy=""/>
                   <clock_output id="FLEXIO2_CLK_ROOT.outFreq" value="30 MHz" locked="false" accuracy=""/>
-                  <clock_output id="FLEXSPI2_CLK_ROOT.outFreq" value="1440/11 MHz" locked="false" accuracy=""/>
-                  <clock_output id="FLEXSPI_CLK_ROOT.outFreq" value="1440/11 MHz" locked="false" accuracy=""/>
+                  <clock_output id="FLEXSPI_CLK_ROOT.outFreq" value="160 MHz" locked="false" accuracy=""/>
                   <clock_output id="GPT1_ipg_clk_highfreq.outFreq" value="75 MHz" locked="false" accuracy=""/>
                   <clock_output id="GPT2_ipg_clk_highfreq.outFreq" value="75 MHz" locked="false" accuracy=""/>
                   <clock_output id="IPG_CLK_ROOT.outFreq" value="150 MHz" locked="false" accuracy=""/>
@@ -279,17 +282,12 @@
                <clock_settings>
                   <setting id="CCM.AHB_PODF.scale" value="1" locked="true"/>
                   <setting id="CCM.ARM_PODF.scale" value="2" locked="true"/>
-                  <setting id="CCM.FLEXSPI2_PODF.scale" value="2" locked="true"/>
-                  <setting id="CCM.FLEXSPI2_SEL.sel" value="CCM_ANALOG.PLL3_PFD0_CLK" locked="false"/>
-                  <setting id="CCM.FLEXSPI_PODF.scale" value="2" locked="true"/>
-                  <setting id="CCM.FLEXSPI_SEL.sel" value="CCM_ANALOG.PLL3_PFD0_CLK" locked="false"/>
-                  <setting id="CCM.LCDIF_PODF.scale" value="4" locked="true"/>
-                  <setting id="CCM.LCDIF_PRED.scale" value="2" locked="true"/>
+                  <setting id="CCM.FLEXSPI_PODF.scale" value="3" locked="true"/>
+                  <setting id="CCM.FLEXSPI_SEL.sel" value="CCM.PLL3_SW_CLK_SEL" locked="false"/>
                   <setting id="CCM.LPSPI_PODF.scale" value="5" locked="true"/>
                   <setting id="CCM.PERCLK_PODF.scale" value="2" locked="true"/>
                   <setting id="CCM.SEMC_PODF.scale" value="8" locked="false"/>
                   <setting id="CCM.TRACE_CLK_SEL.sel" value="CCM_ANALOG.PLL2_MAIN_CLK" locked="false"/>
-                  <setting id="CCM.TRACE_PODF.scale" value="4" locked="true"/>
                   <setting id="CCM_ANALOG.PLL1_BYPASS.sel" value="CCM_ANALOG.PLL1" locked="false"/>
                   <setting id="CCM_ANALOG.PLL1_PREDIV.scale" value="1" locked="true"/>
                   <setting id="CCM_ANALOG.PLL1_VDIV.scale" value="50" locked="true"/>
@@ -310,12 +308,12 @@
                   <setting id="CCM_ANALOG.PLL4.denom" value="50" locked="false"/>
                   <setting id="CCM_ANALOG.PLL4.div" value="47" locked="false"/>
                   <setting id="CCM_ANALOG.PLL5.denom" value="1" locked="false"/>
-                  <setting id="CCM_ANALOG.PLL5.div" value="31" locked="true"/>
+                  <setting id="CCM_ANALOG.PLL5.div" value="40" locked="false"/>
                   <setting id="CCM_ANALOG.PLL5.num" value="0" locked="false"/>
                   <setting id="CCM_ANALOG.PLL5_BYPASS.sel" value="CCM_ANALOG.PLL5_POST_DIV" locked="false"/>
-                  <setting id="CCM_ANALOG.PLL5_POST_DIV.scale" value="2" locked="true"/>
+                  <setting id="CCM_ANALOG.PLL5_POST_DIV.scale" value="2" locked="false"/>
                   <setting id="CCM_ANALOG.PLL7_BYPASS.sel" value="CCM_ANALOG.PLL7" locked="false"/>
-                  <setting id="CCM_ANALOG.VIDEO_DIV.scale" value="4" locked="true"/>
+                  <setting id="CCM_ANALOG.VIDEO_DIV.scale" value="4" locked="false"/>
                   <setting id="CCM_ANALOG_PLL_ENET_POWERDOWN_CFG" value="Yes" locked="false"/>
                   <setting id="CCM_ANALOG_PLL_USB1_EN_USB_CLKS_CFG" value="Enabled" locked="false"/>
                   <setting id="CCM_ANALOG_PLL_USB1_EN_USB_CLKS_OUT_CFG" value="Enabled" locked="false"/>
@@ -342,12 +340,12 @@
             <processor_version>13.0.2</processor_version>
          </peripherals_profile>
          <functional_groups>
-            <functional_group name="BOARD_InitPeripherals" uuid="96c1cec6-3bd3-47a2-8301-f38e4b0dd25f" called_from_default_init="true" id_prefix="" core="core0">
+            <functional_group name="BOARD_InitPeripherals" uuid="a7525270-2da6-4556-8d91-4ab9d0edc0e2" called_from_default_init="true" id_prefix="" core="core0">
                <description></description>
                <options/>
                <dependencies/>
                <instances>
-                  <instance name="CAN" uuid="eb0900eb-d552-4097-9dcf-a07e592a887f" type="flexcan" type_id="flexcan_ba45456ec815807245205237e2bf425b" mode="interrupts" peripheral="CAN2" enabled="false" comment="" custom_name_enabled="true" editing_lock="false">
+                  <instance name="CAN" uuid="cb1fcaec-81fe-4d3e-a079-a7d2819d6075" type="flexcan" type_id="flexcan_10d80efac19b25dcd240244aae88dca0" mode="interrupts" peripheral="CAN2" enabled="false" comment="" custom_name_enabled="true" editing_lock="false">
                      <config_set name="interruptsCfg">
                         <setting name="messageBufferIrqs" value="0"/>
                         <setting name="messageBufferIrqs2" value="0"/>
@@ -367,9 +365,11 @@
                         <struct name="can_config">
                            <setting name="clockSource" value="kFLEXCAN_ClkSrcOsc"/>
                            <setting name="clockSourceFreq" value="ClocksTool_DefaultInit"/>
+                           <setting name="wakeupSrc" value="kFLEXCAN_WakeupSrcUnfiltered"/>
                            <setting name="baudRate" value="1000000"/>
                            <setting name="maxMbNum" value="16"/>
                            <setting name="enableLoopBack" value="false"/>
+                           <setting name="enableTimerSync" value="true"/>
                            <setting name="enableSelfWakeup" value="false"/>
                            <setting name="enableIndividMask" value="false"/>
                            <struct name="timingConfig">
@@ -409,7 +409,7 @@
                         </array>
                      </config_set>
                   </instance>
-                  <instance name="CSI" uuid="f67d9a64-c26d-4421-9805-a062b24146f2" type="csi" type_id="csi_3739ec1355c7b915be929f3b7e35095b" mode="interrupt" peripheral="CSI" enabled="false" comment="" custom_name_enabled="true" editing_lock="false">
+                  <instance name="CSI" uuid="da865a46-3511-4001-8bb0-5249c52b0e4d" type="csi" type_id="csi_b2cf1faba8074e676ac4be93ec552c5a" mode="interrupt" peripheral="CSI" enabled="false" comment="" custom_name_enabled="true" editing_lock="false">
                      <config_set name="fsl_csi" quick_selection="QuickSelection1">
                         <struct name="clockConfig">
                            <setting name="clockSource" value="BusInterfaceClock"/>
@@ -448,7 +448,7 @@
                         </struct>
                      </config_set>
                   </instance>
-                  <instance name="CSI_LPI2C" uuid="f2c6cd0a-751c-4424-9248-a4d98da47de7" type="lpi2c" type_id="lpi2c_db68d4f4f06a22e25ab51fe9bd6db4d2" mode="master" peripheral="LPI2C1" enabled="false" comment="" custom_name_enabled="true" editing_lock="false">
+                  <instance name="CSI_LPI2C" uuid="47051ef3-2c25-4648-8f79-4ae87cd12674" type="lpi2c" type_id="lpi2c_db68d4f4f06a22e25ab51fe9bd6db4d2" mode="master" peripheral="LPI2C1" enabled="false" comment="" custom_name_enabled="true" editing_lock="false">
                      <config_set name="main" quick_selection="qs_interrupt">
                         <setting name="clockSource" value="Lpi2cClock"/>
                         <setting name="clockSourceFreq" value="ClocksTool_DefaultInit"/>
@@ -502,7 +502,7 @@
                         </struct>
                      </config_set>
                   </instance>
-                  <instance name="DEBUG_UART" uuid="01f250e2-83d7-4b7b-a98d-772d1c3bdb42" type="lpuart" type_id="lpuart_bf01db7d964092f3cf860852cba17f7e" mode="polling" peripheral="LPUART1" enabled="false" comment="" custom_name_enabled="true" editing_lock="false">
+                  <instance name="DEBUG_UART" uuid="64741c26-6183-46d0-8bfe-02a92aa90e05" type="lpuart" type_id="lpuart_bf01db7d964092f3cf860852cba17f7e" mode="polling" peripheral="LPUART1" enabled="false" comment="" custom_name_enabled="true" editing_lock="false">
                      <config_set name="lpuartConfig_t">
                         <struct name="lpuartConfig">
                            <setting name="clockSource" value="LpuartClock"/>
@@ -529,7 +529,7 @@
                         </struct>
                      </config_set>
                   </instance>
-                  <instance name="LCD" uuid="90a0c31d-6042-4687-af0f-0892536bc1ba" type="elcdif" type_id="elcdif_1c39bcb43ed1a24bc8980672c7378576" mode="rgbMode" peripheral="LCDIF" enabled="false" comment="" custom_name_enabled="true" editing_lock="false">
+                  <instance name="LCD" uuid="8bf370a5-e797-45e8-b8c4-629c84c62843" type="elcdif" type_id="elcdif_1c39bcb43ed1a24bc8980672c7378576" mode="rgbMode" peripheral="LCDIF" enabled="false" comment="" custom_name_enabled="true" editing_lock="false">
                      <config_set name="fsl_elcdif">
                         <struct name="config">
                            <setting name="panelWidthInt" value="480"/>
@@ -539,7 +539,7 @@
                            <setting name="hbp" value="8"/>
                            <setting name="vsw" value="10"/>
                            <setting name="vfp" value="4"/>
-                           <setting name="vbp" value="3"/>
+                           <setting name="vbp" value="2"/>
                            <setting name="frameRate" value="60 Hz"/>
                            <setting name="clockSource" value="LcdIfClock"/>
                            <setting name="clockSourceFreq" value="ClocksTool_DefaultInit"/>
@@ -571,7 +571,7 @@
                         </struct>
                      </config_set>
                   </instance>
-                  <instance name="NVIC" uuid="b31fa225-2a52-486b-9c5c-33a184a2c716" type="nvic" type_id="nvic_57b5eef3774cc60acaede6f5b8bddc67" mode="general" peripheral="NVIC" enabled="true" comment="" custom_name_enabled="false" editing_lock="false">
+                  <instance name="NVIC" uuid="687e3f12-1330-4ff9-8138-6aaf372d3e22" type="nvic" type_id="nvic_57b5eef3774cc60acaede6f5b8bddc67" mode="general" peripheral="NVIC" enabled="true" comment="" custom_name_enabled="false" editing_lock="false">
                      <config_set name="nvic">
                         <array name="interrupt_table"/>
                         <array name="interrupts"/>
@@ -581,28 +581,28 @@
             </functional_group>
          </functional_groups>
          <components>
-            <component name="system" uuid="aa3cc953-557b-4557-b7fe-6fedc31acf98" type_id="system">
+            <component name="system" uuid="17c5d0d5-726a-40f6-a434-b121e9798a55" type_id="system">
                <config_set_global name="global_system_definitions">
                   <setting name="user_definitions" value=""/>
                   <setting name="user_includes" value=""/>
                </config_set_global>
             </component>
-            <component name="msg" uuid="8b3f852e-ee1e-45e9-abff-0ff722f1d65d" type_id="msg">
+            <component name="msg" uuid="4a40b9b1-b64b-41b7-8ba7-728cda5039cd" type_id="msg">
                <config_set_global name="global_messages"/>
             </component>
-            <component name="gpio_adapter_common" uuid="539d282e-5136-4289-9058-9a46b221ca45" type_id="gpio_adapter_common_57579b9ac814fe26bf95df0a384c36b6">
+            <component name="gpio_adapter_common" uuid="c8d21d99-3f5e-47f2-aba7-0588ad4c2132" type_id="gpio_adapter_common_57579b9ac814fe26bf95df0a384c36b6">
                <config_set_global name="global_gpio_adapter_common" quick_selection="default"/>
             </component>
-            <component name="generic_uart" uuid="6e4c02c4-0524-4905-91b5-01d2e2502186" type_id="generic_uart_8cae00565451cf2346eb1b8c624e73a6">
+            <component name="generic_uart" uuid="dfa0bda9-5863-49b3-9482-3ee85a2b93f0" type_id="generic_uart_8cae00565451cf2346eb1b8c624e73a6">
                <config_set_global name="global_uart"/>
             </component>
-            <component name="generic_can" uuid="c6d8fd36-2bbd-44c6-a160-54e7e12d0807" type_id="generic_can_1bfdd78b1af214566c1f23cf6a582d80">
+            <component name="generic_can" uuid="3358d4d0-14d8-4ca7-9c13-378a0dc7f9a2" type_id="generic_can_1bfdd78b1af214566c1f23cf6a582d80">
                <config_set_global name="global_can"/>
             </component>
-            <component name="uart_cmsis_common" uuid="7d3626d3-4536-4838-a35d-3b8cf5a2bd71" type_id="uart_cmsis_common_9cb8e302497aa696fdbb5a4fd622c2a8">
+            <component name="uart_cmsis_common" uuid="65c68c04-c4f4-4fbc-8c15-452d53d79fe6" type_id="uart_cmsis_common_9cb8e302497aa696fdbb5a4fd622c2a8">
                <config_set_global name="global_USART_CMSIS_common" quick_selection="default"/>
             </component>
-            <component name="generic_enet" uuid="738ea8df-6176-4e52-b4c7-b88aa9c17d13" type_id="generic_enet_74db5c914f0ddbe47d86af40cb77a619">
+            <component name="generic_enet" uuid="99f59d06-c3df-407a-856a-22072ef95a98" type_id="generic_enet_74db5c914f0ddbe47d86af40cb77a619">
                <config_set_global name="global_enet"/>
             </component>
          </components>
@@ -613,5 +613,8 @@
             <processor_version>0.0.0</processor_version>
          </tee_profile>
       </tee>
+      <common name="common" version="1.0" enabled="true" update_project_code="true">
+         <core name="core0" role="primary" project_name="Project"/>
+      </common>
    </tools>
 </configuration>
