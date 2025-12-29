@@ -34,23 +34,18 @@
 //--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
-
-#define LED_PINMUX            IOMUXC_GPIO_AD_B0_09_GPIO1_IO09
-#define LED_PORT              GPIO1
-#define LED_PIN               9
+#define LED_PORT              BOARD_INITPINS_USER_LED_PERIPHERAL
+#define LED_PIN               BOARD_INITPINS_USER_LED_CHANNEL
 #define LED_STATE_ON          0
 
 //--------------------------------------------------------------------+
 // Neopixel
 //--------------------------------------------------------------------+
-
-// Number of neopixels
-#define NEOPIXEL_NUMBER       0
+#define NEOPIXEL_NUMBER       0 // Number of neopixels
 
 //--------------------------------------------------------------------+
 // Button
 //--------------------------------------------------------------------+
-
 // SW8 button
 #define BUTTON_PINMUX         IOMUXC_SNVS_WAKEUP_GPIO5_IO00
 #define BUTTON_PORT           GPIO5
@@ -60,7 +55,6 @@
 //--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
-
 #define USB_VID           0x239A
 #define USB_PID           0x0083
 #define USB_MANUFACTURER  "NXP"
@@ -74,9 +68,6 @@
 //--------------------------------------------------------------------+
 // UART
 //--------------------------------------------------------------------+
-
 #define UART_DEV              LPUART1
-#define UART_RX_PINMUX        IOMUXC_GPIO_AD_B0_13_LPUART1_RX
-#define UART_TX_PINMUX        IOMUXC_GPIO_AD_B0_12_LPUART1_TX
 
 #endif /* BOARD_H_ */
