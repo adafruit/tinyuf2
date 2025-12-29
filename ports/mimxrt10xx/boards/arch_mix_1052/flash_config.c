@@ -9,37 +9,10 @@
 #include "fsl_flexspi_nor_boot.h"
 #include "boards.h"
 
-
-__attribute__((section(".boot_hdr.ivt")))
-/*************************************
- *  IVT Data
- *************************************/
-const ivt image_vector_table = {
-  IVT_HEADER,                         /* IVT Header */
-  IMAGE_ENTRY_ADDRESS,                /* Image Entry Function */
-  IVT_RSVD,                           /* Reserved = 0 */
-  (uint32_t)DCD_ADDRESS,              /* Address where DCD information is stored */
-  (uint32_t)BOOT_DATA_ADDRESS,        /* Address where BOOT Data Structure is stored */
-  (uint32_t)&image_vector_table,      /* Pointer to IVT Self (absolute address) */
-  (uint32_t)CSF_ADDRESS,              /* Address where CSF file is stored */
-  IVT_RSVD                            /* Reserved = 0 */
-};
-
-__attribute__((section(".boot_hdr.boot_data")))
-/*************************************
- *  Boot Data
- *************************************/
-const BOOT_DATA_T g_boot_data = {
-  BOARD_BOOT_START,           /* boot start location */
-  BOARD_BOOT_LENGTH,
-  PLUGIN_FLAG,                /* Plugin flag */
-  0xFFFFFFFF                  /* empty - extra data word */
-};
-
 // Config for IS25WP064A with QSPI after changing resistors to send signal to
 // QSPI instead of hyper flash!
 __attribute__((section(".boot_hdr.conf")))
-const flexspi_nor_config_t qspiflash_config = {
+const flexspi_nor_config_t flash_nor_config = {
     .pageSize           = 256u,
     .sectorSize         = 4u * 1024u,
     .ipcmdSerialClkFreq = kFlexSpiSerialClk_30MHz,

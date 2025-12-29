@@ -10,6 +10,9 @@ endfunction()
 
 function(family_configure_app TARGET)
   family_configure_common(${TARGET})
+  target_compile_definitions(${TARGET} PUBLIC
+    BUILD_APPLICATION=1
+  )
   target_link_options(${TARGET} PUBLIC
     "LINKER:--script=${CMAKE_CURRENT_FUNCTION_LIST_DIR}/linker/${MCU_VARIANT}_ram.ld"
     "LINKER:--script=${CMAKE_CURRENT_FUNCTION_LIST_DIR}/linker/app.ld"

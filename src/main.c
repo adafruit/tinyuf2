@@ -35,21 +35,21 @@
 //--------------------------------------------------------------------+
 // MACRO CONSTANT TYPEDEF PROTOTYPES
 //--------------------------------------------------------------------+
-//#define USE_DFU_BUTTON    1
+// #define USE_DFU_BUTTON    1
 
 #ifndef NEOPIXEL_INVERT_RG
-uint8_t RGB_USB_UNMOUNTED[] = { 0xff, 0x00, 0x00 }; // Red
-uint8_t RGB_USB_MOUNTED[]   = { 0x00, 0xff, 0x00 }; // Green
-uint8_t RGB_WRITING[]       = { 0xcc, 0x66, 0x00 };
-uint8_t RGB_DOUBLE_TAP[]    = { 0x80, 0x00, 0xff }; // Purple
+uint8_t RGB_USB_UNMOUNTED[] = {0xff, 0x00, 0x00}; // Red
+uint8_t RGB_USB_MOUNTED[]   = {0x00, 0xff, 0x00}; // Green
+uint8_t RGB_WRITING[]       = {0xcc, 0x66, 0x00};
+uint8_t RGB_DOUBLE_TAP[]    = {0x80, 0x00, 0xff}; // Purple
 #else
-uint8_t RGB_USB_UNMOUNTED[] = { 0x00, 0xff, 0x00 }; // Red
-uint8_t RGB_USB_MOUNTED[]   = { 0xff, 0x00, 0x00 }; // Green
-uint8_t RGB_WRITING[]       = { 0x66, 0xcc, 0x00 };
-uint8_t RGB_DOUBLE_TAP[]    = { 0x00, 0x80, 0xff }; // Purple
+uint8_t RGB_USB_UNMOUNTED[] = {0x00, 0xff, 0x00}; // Red
+uint8_t RGB_USB_MOUNTED[]   = {0xff, 0x00, 0x00}; // Green
+uint8_t RGB_WRITING[]       = {0x66, 0xcc, 0x00};
+uint8_t RGB_DOUBLE_TAP[]    = {0x00, 0x80, 0xff}; // Purple
 #endif
-uint8_t RGB_UNKNOWN[]       = { 0x00, 0x00, 0x88 }; // for debug
-uint8_t RGB_OFF[]           = { 0x00, 0x00, 0x00 };
+uint8_t RGB_UNKNOWN[] = {0x00, 0x00, 0x88};       // for debug
+uint8_t RGB_OFF[]     = {0x00, 0x00, 0x00};
 
 static volatile uint32_t _timer_count = 0;
 
@@ -60,7 +60,9 @@ static bool check_dfu_mode(void);
 
 int main(void) {
   board_init();
-  if (board_init2) board_init2();
+  if (board_init2) {
+    board_init2();
+  }
   TUF2_LOG1("TinyUF2\r\n");
 
 #if TINYUF2_PROTECT_BOOTLOADER
@@ -70,8 +72,12 @@ int main(void) {
   // if not DFU mode, jump to App
   if (!check_dfu_mode()) {
     TUF2_LOG1("Jump to application\r\n");
-    if (board_teardown) board_teardown();
-    if (board_teardown2) board_teardown2();
+    if (board_teardown) {
+      board_teardown();
+    }
+    if (board_teardown2) {
+      board_teardown2();
+    }
     board_app_jump();
     TUF2_LOG1("Failed to jump\r\n");
     while (1) {}
@@ -92,7 +98,7 @@ int main(void) {
 #endif
 
 #if CFG_TUSB_OS == OPT_OS_NONE || CFG_TUSB_OS == OPT_OS_PICO
-  while(1) {
+  while (1) {
     tud_task();
   }
 #endif
@@ -111,9 +117,9 @@ static bool check_dfu_mode(void) {
   }
 
 #if TINYUF2_DBL_TAP_DFU
-   TUF2_LOG1_HEX(TINYUF2_DBL_TAP_REG);
+  TUF2_LOG1_HEX(TINYUF2_DBL_TAP_REG);
 
-  switch(TINYUF2_DBL_TAP_REG) {
+  switch (TINYUF2_DBL_TAP_REG) {
     case DBL_TAP_MAGIC_QUICK_BOOT:
       // Boot to app quickly
       TUF2_LOG1("Quick boot to App\r\n");
@@ -152,7 +158,7 @@ static bool check_dfu_mode(void) {
   board_rgb_write(RGB_DOUBLE_TAP);
 
   // delay a fraction of second if Reset pin is tap during this delay --> we will enter dfu
-  while(_timer_count < TINYUF2_DBL_TAP_DELAY) {}
+  while (_timer_count < TINYUF2_DBL_TAP_DELAY) {}
   board_timer_stop();
 
   // Turn off indicator
@@ -184,7 +190,7 @@ void tud_umount_cb(void) {
 //--------------------------------------------------------------------+
 
 static uint32_t indicator_state = STATE_BOOTLOADER_STARTED;
-static uint8_t indicator_rgb[3];
+static uint8_t  indicator_rgb[3];
 
 void indicator_set(uint32_t state) {
   indicator_state = state;
@@ -224,7 +230,9 @@ void board_timer_handler(void) {
     case STATE_USB_PLUGGED: {
       // Fading with LED TODO option to skip for unsupported MCUs
       uint8_t duty = _timer_count & 0xff;
-      if (_timer_count & 0x100) duty = 255 - duty;
+      if (_timer_count & 0x100) {
+        duty = 255 - duty;
+      }
       board_led_write(duty);
 
       // Skip RGB fading since it is too similar to CircuitPython
@@ -257,19 +265,25 @@ void board_timer_handler(void) {
 
 // Enable only with LOG is enabled (Note: ESP32-S2 has built-in support already)
 #if (CFG_TUSB_DEBUG || TUF2_LOG) && (CFG_TUSB_MCU != OPT_MCU_ESP32S2 && CFG_TUSB_MCU != OPT_MCU_RP2040)
-#if defined(LOGGER_RTT)
-#include "SEGGER_RTT.h"
-#endif
+  #if defined(LOGGER_RTT)
+    #include "SEGGER_RTT.h"
+  #endif
 
-TU_ATTR_USED int _write (int fhdl, const void *buf, size_t count) {
-  (void) fhdl;
+TU_ATTR_USED int _write(int fhdl, const void *buf, size_t count) {
+  (void)fhdl;
 
-#if defined(LOGGER_RTT)
-  SEGGER_RTT_Write(0, (char*) buf, (int) count);
+  #if defined(LOGGER_RTT)
+  SEGGER_RTT_Write(0, (char *)buf, (int)count);
   return count;
-#else
+  #elif defined(LOGGER_SWO)
+  const uint8_t *data = (const uint8_t *)buf;
+  for (size_t i = 0; i < count; i++) {
+    ITM_SendChar(data[i]);
+  }
+  return (int)count;
+  #else
   return board_uart_write(buf, count);
-#endif
+  #endif
 }
 
 #endif

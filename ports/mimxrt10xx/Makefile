@@ -23,19 +23,26 @@ SELF_UF2 = $(BUILD)/update-$(OUTNAME).uf2
 include ../rules.mk
 
 #---------------------------------------------------------
-# Load to SRAM using sdphost
-# Note: you may need to give the sdphost binary executable permission first.
+# Load to SRAM using sdphost/blhost
+# sdphost/blhost loads the image into the RAM locations specified in the .ld files.
 #
-# SDP loads the image into the RAM locations specified in the .ld files.
+# sdphost (rt10xx)
 #  - "SDP Write Address" must equal _fcfb_origin
 #  - "SDP Jump Address" must equal _ivt_origin
 #
-# TinyUF2 will copy itself to the correct location in flash.
-# "UF2 Write Address" shows where the image will reside in flash if you
-# want to use a tool like pyocd to write the binary into flash through SWD
-# Note: The .elf file cannot be written directly to flash since the target
-# is RAM and the addresses need to be translated.
+# blhost (rt117x)
+#  - "Load Address" must equal _fcfb_origin
+#
+# TinyUF2 will copy itself to the correct location in flash. "FLASH_FCFB_ADDR" shows where the image will reside in
+# flash if you want to use a tool like pyocd to write the binary into flash through SWD
+# Note: The .elf file cannot be written directly to flash since the target is RAM and the addresses need to be
+# translated.
 #---------------------------------------------------------
+
+# SDPHOST/BLHOST are variables if you need to change the path
+SDPHOST ?= sdphost
+BLHOST ?= blhost
+
 SDP_MIMXRT1011_PID = 0x0145
 SDP_MIMXRT1015_PID = 0x0130
 SDP_MIMXRT1021_PID = 0x0130
@@ -46,33 +53,19 @@ SDP_MIMXRT1062_PID = 0x0135
 SDP_MIMXRT1064_PID = 0x0135
 SDP_MIMXRT1176_PID = 0x013d
 
-UF2_MIMXRT1011_ADDR= 0x60000400
-UF2_MIMXRT1015_ADDR= 0x60000000
-UF2_MIMXRT1021_ADDR= 0x60000000
-UF2_MIMXRT1024_ADDR= 0x60000000
-UF2_MIMXRT1042_ADDR= 0x60000000
-UF2_MIMXRT1052_ADDR= 0x60000000
-UF2_MIMXRT1062_ADDR= 0x60000000
-UF2_MIMXRT1064_ADDR= 0x70000000
-UF2_MIMXRT1176_ADDR= 0x30000400
-
 SDP_PID = $(SDP_$(MCU)_PID)
-UF2_ADDR = $(UF2_$(MCU)_ADDR)
 
-DBL_TAP_REG_ADDR = 0x400D410C
-
-# extract _fcfb_origin from linker file
+# extract _fcfb_origin and _flash_base from linker file
 FCFB_ORIGIN := $(shell sed -n 's/_fcfb_origin.*\(0x.*\);/\1/p' $(TOP)/$(PORT_DIR)/linker/$(MCU)_ram.ld)
 IVT_ORIGIN := $(shell printf "0x%X\n" $$(( ($(FCFB_ORIGIN) & ~0xFFF) + 0x1000 )))
-$(info FCFB_ORIGIN=$(FCFB_ORIGIN) IVT_ORIGIN=$(IVT_ORIGIN))
+FLASH_BASE := $(shell sed -n 's/_flash_base.*\(0x.*\);/\1/p' $(TOP)/$(PORT_DIR)/linker/$(MCU)_ram.ld)
+FLASH_FCFB_ADDR := $(shell printf "0x%X\n" $$(( $(FLASH_BASE) + ($(FCFB_ORIGIN) & 0xFFF) )))
+$(info FCFB_ORIGIN=$(FCFB_ORIGIN) IVT_ORIGIN=$(IVT_ORIGIN) FLASH_FCFB_ADDR=$(FLASH_FCFB_ADDR))
 
-$(BUILD)/$(OUTNAME).hex: $(BUILD)/$(OUTNAME).elf
+$(BUILD)/$(OUTNAME).hex: $(BUILD)/$(OUTNAME).bin
 	@echo CREATE $@
-	@$(OBJCOPY) -O ihex --change-addresses $$(( $(UF2_ADDR)-$(FCFB_ORIGIN) ))  $^ $@
+	@$(OBJCOPY) -Ibinary -Oihex --change-addresses ${FLASH_FCFB_ADDR} $^ $@
 
-# SDPHOST/BLHOST are variables if you need to change the path
-SDPHOST = sdphost
-BLHOST = blhost
 
 # RT117x uses blhost (MCU bootloader protocol)
 ifeq ($(MCU),MIMXRT1176)
@@ -100,7 +93,7 @@ self-update: $(SELF_UF2)
 # self-update uf2 file
 $(SELF_UF2): $(BUILD)/$(OUTNAME).bin
 	@echo CREATE $@
-	$(UF2CONV_PY) -f $(UF2_FAMILY_ID) -b $(UF2_ADDR) -c -o $@ $<
+	$(UF2CONV_PY) -f $(UF2_FAMILY_ID) -b ${FLASH_FCFB_ADDR} -c -o $@ $<
 
 # flash by copying uf2
 flash-uf2: $(SELF_UF2)

@@ -25,8 +25,12 @@ family_configure_tinyuf2(tinyuf2 OPT_MCU_MIMXRT1XXX)
 family_flash_sdp(tinyuf2)
 family_flash_jlink(tinyuf2 hex)
 
+# erase first 64KB to ensure clean state for UF2 update
+math(EXPR ERASE_END_ADDR "( ${FLASH_BASE} + 0x10000 )" OUTPUT_FORMAT HEXADECIMAL)
+family_jlink_erase_external(tinyuf2 ${FLASH_BASE} ${ERASE_END_ADDR})
+
 # imxrt run entirely on SRAM and can update its self using uf2
-family_gen_uf2_from_bin(tinyuf2 ${UF2_FAMILY_ID} ${UF2_ADDR})
+family_gen_uf2_from_bin(tinyuf2 ${UF2_FAMILY_ID} ${FLASH_FCFB_ADDR})
 family_flash_uf2(tinyuf2 ${UF2_FAMILY_ID})
 
 # copy to ARTIFACT_PATH

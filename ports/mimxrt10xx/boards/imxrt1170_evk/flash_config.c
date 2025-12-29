@@ -8,34 +8,8 @@
 #include "flexspi_nor_flash.h"
 #include "fsl_flexspi_nor_boot.h"
 #include "boards.h"
-
-
-/*************************************
- *  IVT Data
- *************************************/
-__attribute__((section(".boot_hdr.ivt"))) const ivt image_vector_table = {
-  IVT_HEADER,                    /* IVT Header */
-  IMAGE_ENTRY_ADDRESS,           /* Image Entry Function */
-  IVT_RSVD,                      /* Reserved = 0 */
-  (uint32_t)DCD_ADDRESS,         /* Address where DCD information is stored */
-  (uint32_t)BOOT_DATA_ADDRESS,   /* Address where BOOT Data Structure is stored */
-  (uint32_t)&image_vector_table, /* Pointer to IVT Self (absolute address) */
-  (uint32_t)CSF_ADDRESS,         /* Address where CSF file is stored */
-  IVT_RSVD                       /* Reserved = 0 */
-};
-
-/*************************************
- *  Boot Data
- *************************************/
-__attribute__((section(".boot_hdr.boot_data"))) const BOOT_DATA_T g_boot_data = {
-  BOARD_BOOT_START,  //  Dest memory that BootROM will copy to
-  BOARD_BOOT_LENGTH, /* bootloader length */
-  PLUGIN_FLAG,       /* Plugin flag */
-  0xFFFFFFFF         /* empty - extra data word */
-};
-
 // Config for IS25WP128 (16MB QSPI NOR Flash) on MIMXRT1170-EVK
-#define QSPI_FLASH_CONFIG_INIT                                                  \
+#define FLASH_NOR_CONFIG_INIT                                                   \
   {                                                                           \
     .pageSize           = 256u,                                               \
     .sectorSize         = 4u * 1024u,                                         \
@@ -176,16 +150,8 @@ __attribute__((section(".boot_hdr.boot_data"))) const BOOT_DATA_T g_boot_data = 
     },                                                                        \
   }
 
+__attribute__((section(".boot_hdr.conf"))) const flexspi_nor_config_t flash_nor_config = FLASH_NOR_CONFIG_INIT;
 
-__attribute__((section(".boot_hdr.conf"))) const flexspi_nor_config_t qspiflash_config = QSPI_FLASH_CONFIG_INIT;
-
-
-// For SDP image-load, to create ivt at zero address we cooks boot data and left-out fcfb section. We need a copy to
+// For blhost image-load, to create ivt at zero address we cooks boot data and left-out fcfb section. We need a copy to
 // write to flash.
-const BOOT_DATA_T g_boot_data_copy = {
-  BOARD_BOOT_START,  /* boot start location */
-  BOARD_BOOT_LENGTH, /* bootloader length */
-  PLUGIN_FLAG,       /* Plugin flag */
-  0xFFFFFFFF         /* empty - extra data word */
-};
-const flexspi_nor_config_t qspiflash_config_copy = QSPI_FLASH_CONFIG_INIT;
+const flexspi_nor_config_t flash_nor_config_copy = FLASH_NOR_CONFIG_INIT;

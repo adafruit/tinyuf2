@@ -1,6 +1,4 @@
-# TinyUF2 - MAX32690 Port
-
-This folder contains the port of TinyUF2 for Analog Devices' MAX32xxx/MAX78000 MCUs.
+# TinyUF2 for Analog Maxim
 
 ## Navigation
 
@@ -22,12 +20,14 @@ This folder contains the port of TinyUF2 for Analog Devices' MAX32xxx/MAX78000 M
   - [Re-Entering Bootloader Mode](#re-entering-bootloader-mode)
 - [Port Directory Structure](#port-directory-structure)
 
+## Supported Boards
+
+See the board list for this family in [supported_boards.md](../../supported_boards.md#maxim).
 
 ## Requirements
 
 This guide focuses on building TinyUF2 for Analog Devices' MAX32 parts.
 It is written with Windows users in mind using the **MSDK**, but TinyUF2 is fully portable and can be built with a standard toolchain on Linux and macOS.
-
 
 ### Requirements for Linux/macOS (Generic)
 
@@ -48,7 +48,6 @@ or
 ```bash
 python tools/get_deps.py --board apard32690
 ```
-
 
 #### macOS Dependency Install
 ```bash

@@ -35,31 +35,20 @@
 
 #include "fsl_device_registers.h"
 #include "board.h"
+#include "fsl_flexspi_nor_boot.h"
 
-// symbols defined by linker
+ // symbols defined by linker
  extern uint32_t _fcfb_origin[];
  extern uint32_t _fcfb_length[];
  extern uint32_t _ivt_origin[];
  extern uint32_t _ivt_length[];
  extern uint32_t _interrupts_origin[];
  extern uint32_t _interrupts_length[];
-
  extern uint32_t _board_boot_length[];
 
-// The FCFB has different offsets, but the IVT is consistent within the family
-#define BOARD_BOOT_START        (((uint32_t) _ivt_origin) - 0x1000)
-
-// The ROM bootloader loader needs instructed to
-// copy the text section, IVT structure and interrupt table.
-#define BOARD_BOOT_LENGTH       ((uint32_t) &_board_boot_length)
-
-// Flash Start Address of Application, typically 0x6000C000
+// Flash Start Address of Application
 #ifndef BOARD_FLASH_APP_START
-#ifdef FlexSPI1_AMBA_BASE
-#define BOARD_FLASH_APP_START   (FlexSPI1_AMBA_BASE + 0xC000)
-#else
-#define BOARD_FLASH_APP_START   (FlexSPI_AMBA_BASE + 0xC000)
-#endif
+#define BOARD_FLASH_APP_START (FLASH_BASE + 0xC000)
 #endif
 
 // Double Reset tap to enter DFU

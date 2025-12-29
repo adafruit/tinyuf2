@@ -17,3 +17,7 @@ From bin
 uf2conv.py -c -b 0x08010000 -f STM32L4 firmware.bin
 uf2conv.py -c -b 0x08010000 -f 0x00ff6919 firmware.bin
 ```
+
+## Supported Boards
+
+See the board list for this family in [supported_boards.md](../../supported_boards.md#stm32l4).

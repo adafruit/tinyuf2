@@ -37,6 +37,19 @@ if (NOT DEFINED CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
   set(CMAKE_BUILD_TYPE MinSizeRel CACHE STRING "Build type" FORCE)
 endif ()
 
+
+if (NOT DEFINED JLINKEXE)
+  if (CMAKE_HOST_WIN32)
+    set(JLINKEXE JLink.exe)
+  else ()
+    set(JLINKEXE JLinkExe)
+  endif ()
+endif ()
+
+if (NOT DEFINED JLINK_IF)
+  set(JLINK_IF swd)
+endif ()
+
 #-------------------------------------------------------------
 # FAMILY and BOARD
 #-------------------------------------------------------------
@@ -150,7 +163,7 @@ function(family_configure_common TARGET)
     target_compile_definitions(${TARGET} PUBLIC LOGGER_${LOGGER})
 
     # Add segger rtt to example
-    if(LOGGER STREQUAL "RTT" OR LOGGER STREQUAL "rtt")
+    if (LOGGER STREQUAL "RTT")
       target_sources(${TARGET} PUBLIC ${TOP}/lib/SEGGER_RTT/RTT/SEGGER_RTT.c)
       target_include_directories(${TARGET}  PUBLIC ${TOP}/lib/SEGGER_RTT/RTT)
 #      target_compile_definitions(${TARGET}  PUBLIC SEGGER_RTT_MODE_DEFAULT=SEGGER_RTT_MODE_BLOCK_IF_FIFO_FULL)
@@ -231,18 +244,6 @@ endfunction()
 
 # Add flash jlink target, optional parameter is the extension of the binary file
 function(family_flash_jlink TARGET)
-  if (NOT DEFINED JLINKEXE)
-    if(CMAKE_HOST_WIN32)
-      set(JLINKEXE JLink.exe)
-    else()
-      set(JLINKEXE JLinkExe)
-    endif()
-  endif ()
-
-  if (NOT DEFINED JLINK_IF)
-    set(JLINK_IF swd)
-  endif ()
-
   if (NOT DEFINED JLINK_OPTION)
     set(JLINK_OPTION "")
   endif ()
@@ -279,6 +280,23 @@ exit
   add_custom_target(${TARGET}-erase-jlink
     COMMAND ${JLINKEXE} -device ${JLINK_DEVICE} -if ${JLINK_IF} -JTAGConf -1,-1 -speed auto -CommandFile ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}-erase.jlink
     )
+endfunction()
+
+function(family_jlink_erase_external TARGET START_ADDR END_ADDR)
+  file(GENERATE
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}-erase64k.jlink
+    CONTENT "halt
+exec EnableEraseAllFlashBanks
+r
+erase ${START_ADDR} ${END_ADDR}
+r
+exit
+"
+  )
+
+  add_custom_target(${TARGET}-erase-external-jlink
+    COMMAND ${JLINKEXE} -device ${JLINK_DEVICE} -if ${JLINK_IF} -JTAGConf -1,-1 -speed auto -CommandFile ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}-erase64k.jlink
+  )
 endfunction()
 
 
