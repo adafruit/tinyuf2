@@ -34,10 +34,8 @@
 //--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
-
-#define LED_PINMUX          IOMUXC_GPIO_03_GPIOMUX_IO03
-#define LED_PORT            GPIO1
-#define LED_PIN             3
+#define LED_PORT            BOARD_INITPINS_USER_LED_PERIPHERAL
+#define LED_PIN             BOARD_INITPINS_USER_LED_CHANNEL
 #define LED_STATE_ON        1
 
 #define LED_PWM_PINMUX      IOMUXC_GPIO_03_FLEXPWM1_PWM1_B
@@ -52,13 +50,12 @@
 // Number of neopixels
 #define NEOPIXEL_NUMBER     1
 #define NEOPIXEL_PINMUX     IOMUXC_GPIO_00_GPIOMUX_IO00
-#define NEOPIXEL_PORT       GPIO1
-#define NEOPIXEL_PIN        0
+#define NEOPIXEL_PORT       BOARD_INITPINS_NEOPIXEL_PORT
+#define NEOPIXEL_PIN        BOARD_INITPINS_NEOPIXEL_PIN
 
 //--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
-
 #define USB_VID              0x239A
 #define USB_PID              0x00E1
 #define USB_MANUFACTURER     "Adafruit"
