@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding= "UTF-8" ?>
-<configuration name="MIMXRT1010-EVK" xsi:schemaLocation="http://mcuxpresso.nxp.com/XSD/mex_configuration_13 http://mcuxpresso.nxp.com/XSD/mex_configuration_13.xsd" uuid="f341eb24-9521-4127-8932-81692aeb76df" version="13" xmlns="http://mcuxpresso.nxp.com/XSD/mex_configuration_13" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<configuration name="MIMXRT1010-EVK" xsi:schemaLocation="http://mcuxpresso.nxp.com/XSD/mex_configuration_19 http://mcuxpresso.nxp.com/XSD/mex_configuration_19.xsd" uuid="f341eb24-9521-4127-8932-81692aeb76df" version="19" xmlns="http://mcuxpresso.nxp.com/XSD/mex_configuration_19" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
    <common>
       <processor>MIMXRT1011xxxxx</processor>
       <package>MIMXRT1011DAE5A</package>
@@ -13,19 +13,23 @@
    </common>
    <preferences>
       <validate_boot_init_only>true</validate_boot_init_only>
-      <generate_extended_information>false</generate_extended_information>
       <generate_code_modified_registers_only>false</generate_code_modified_registers_only>
       <update_include_paths>true</update_include_paths>
+      <enable_parallel_routing>true</enable_parallel_routing>
       <generate_registers_defines>false</generate_registers_defines>
    </preferences>
    <tools>
-      <pins name="Pins" version="13.1" enabled="true" update_project_code="true">
+      <pins name="Pins" version="17.0" enabled="true" update_project_code="true">
          <generated_project_files>
             <file path="board/pin_mux.c" update_enabled="true"/>
             <file path="board/pin_mux.h" update_enabled="true"/>
          </generated_project_files>
          <pins_profile>
-            <processor_version>13.0.2</processor_version>
+            <processor_version>25.09.10</processor_version>
+            <pin_labels>
+               <pin_label pin_num="10" pin_signal="GPIO_03" label="SAI1_RXD0/U10[16]" identifier="USER_LED"/>
+               <pin_label pin_num="13" pin_signal="GPIO_00" label="AUD_INT/U10[15]" identifier="NEOPIXEL"/>
+            </pin_labels>
             <external_user_signals>
                <properties/>
             </external_user_signals>
@@ -42,17 +46,17 @@
                   <enableClock>true</enableClock>
                </options>
                <dependencies>
-                  <dependency resourceType="Peripheral" resourceId="LPSPI1" description="Peripheral LPSPI1 is not initialized" problem_level="1" source="Pins:BOARD_InitPins">
+                  <dependency resourceType="Peripheral" resourceId="LPSPI1" description="Peripheral LPSPI1 signals are routed in the Pins Tool, but the peripheral is not initialized in the Peripherals Tool." problem_level="1" source="Pins:BOARD_InitPins">
                      <feature name="initialized" evaluation="equal">
                         <data>true</data>
                      </feature>
                   </dependency>
-                  <dependency resourceType="Peripheral" resourceId="ARM" description="Peripheral ARM is not initialized" problem_level="1" source="Pins:BOARD_InitPins">
+                  <dependency resourceType="Peripheral" resourceId="ARM" description="Peripheral ARM signals are routed in the Pins Tool, but the peripheral is not initialized in the Peripherals Tool." problem_level="1" source="Pins:BOARD_InitPins">
                      <feature name="initialized" evaluation="equal">
                         <data>true</data>
                      </feature>
                   </dependency>
-                  <dependency resourceType="Peripheral" resourceId="LPI2C1" description="Peripheral LPI2C1 is not initialized" problem_level="1" source="Pins:BOARD_InitPins">
+                  <dependency resourceType="Peripheral" resourceId="LPI2C1" description="Peripheral LPI2C1 signals are routed in the Pins Tool, but the peripheral is not initialized in the Peripherals Tool." problem_level="1" source="Pins:BOARD_InitPins">
                      <feature name="initialized" evaluation="equal">
                         <data>true</data>
                      </feature>
@@ -67,6 +71,11 @@
                         <data>true</data>
                      </feature>
                   </dependency>
+                  <dependency resourceType="SWComponent" resourceId="platform.drivers.igpio" description="Pins initialization requires the IGPIO Driver in the project." problem_level="2" source="Pins:BOARD_InitPins">
+                     <feature name="enabled" evaluation="equal" configuration="core0">
+                        <data>true</data>
+                     </feature>
+                  </dependency>
                </dependencies>
                <pins>
                   <pin peripheral="LPSPI1" signal="SDI" pin_num="57" pin_signal="GPIO_AD_03"/>
@@ -77,19 +86,29 @@
                   <pin peripheral="ARM" signal="TRACE, 2" pin_num="80" pin_signal="GPIO_12"/>
                   <pin peripheral="ARM" signal="TRACE, 3" pin_num="1" pin_signal="GPIO_11"/>
                   <pin peripheral="ARM" signal="arm_trace_clk" pin_num="58" pin_signal="GPIO_AD_02"/>
-                  <pin peripheral="GPIO2" signal="gpio_io, 05" pin_num="70" pin_signal="GPIO_SD_05"/>
                   <pin peripheral="LPI2C1" signal="SCL" pin_num="11" pin_signal="GPIO_02"/>
+                  <pin peripheral="GPIO1" signal="gpiomux_io, 03" pin_num="10" pin_signal="GPIO_03">
+                     <pin_features>
+                        <pin_feature name="direction" value="OUTPUT"/>
+                     </pin_features>
+                  </pin>
+                  <pin peripheral="GPIO1" signal="gpiomux_io, 00" pin_num="13" pin_signal="GPIO_00">
+                     <pin_features>
+                        <pin_feature name="direction" value="OUTPUT"/>
+                        <pin_feature name="slew_rate" value="Fast"/>
+                     </pin_features>
+                  </pin>
                </pins>
             </function>
             <function name="BOARD_InitDEBUG_UARTPins">
                <description>Configures pin routing and optionally pin electrical features.</description>
                <options>
-                  <callFromInitBoot>true</callFromInitBoot>
+                  <callFromInitBoot>false</callFromInitBoot>
                   <coreID>core0</coreID>
                   <enableClock>true</enableClock>
                </options>
                <dependencies>
-                  <dependency resourceType="Peripheral" resourceId="LPUART1" description="Peripheral LPUART1 is not initialized" problem_level="1" source="Pins:BOARD_InitDEBUG_UARTPins">
+                  <dependency resourceType="Peripheral" resourceId="LPUART1" description="Peripheral LPUART1 signals are routed in the Pins Tool, but the peripheral is not initialized in the Peripherals Tool." problem_level="1" source="Pins:BOARD_InitDEBUG_UARTPins">
                      <feature name="initialized" evaluation="equal">
                         <data>true</data>
                      </feature>
@@ -118,7 +137,7 @@
                   <enableClock>true</enableClock>
                </options>
                <dependencies>
-                  <dependency resourceType="Peripheral" resourceId="FLEXSPI" description="Peripheral FLEXSPI is not initialized" problem_level="1" source="Pins:BOARD_InitQSPIPins">
+                  <dependency resourceType="Peripheral" resourceId="FLEXSPI" description="Peripheral FLEXSPI signals are routed in the Pins Tool, but the peripheral is not initialized in the Peripherals Tool." problem_level="1" source="Pins:BOARD_InitQSPIPins">
                      <feature name="initialized" evaluation="equal">
                         <data>true</data>
                      </feature>
@@ -192,7 +211,7 @@
                   <enableClock>true</enableClock>
                </options>
                <dependencies>
-                  <dependency resourceType="Peripheral" resourceId="GPIO2" description="Peripheral GPIO2 is not initialized" problem_level="1" source="Pins:BOARD_InitBUTTONPins">
+                  <dependency resourceType="Peripheral" resourceId="GPIO2" description="Peripheral GPIO2 signals are routed in the Pins Tool, but the peripheral is not initialized in the Peripherals Tool." problem_level="1" source="Pins:BOARD_InitBUTTONPins">
                      <feature name="initialized" evaluation="equal">
                         <data>true</data>
                      </feature>
@@ -238,7 +257,7 @@
                   <enableClock>true</enableClock>
                </options>
                <dependencies>
-                  <dependency resourceType="Peripheral" resourceId="LPI2C1" description="Peripheral LPI2C1 is not initialized" problem_level="1" source="Pins:BOARD_InitCOMBO_SENSORPins">
+                  <dependency resourceType="Peripheral" resourceId="LPI2C1" description="Peripheral LPI2C1 signals are routed in the Pins Tool, but the peripheral is not initialized in the Peripherals Tool." problem_level="1" source="Pins:BOARD_InitCOMBO_SENSORPins">
                      <feature name="initialized" evaluation="equal">
                         <data>true</data>
                      </feature>
@@ -283,13 +302,13 @@
             </function>
          </functions_list>
       </pins>
-      <clocks name="Clocks" version="11.0" enabled="true" update_project_code="true">
+      <clocks name="Clocks" version="18.0" enabled="true" update_project_code="true">
          <generated_project_files>
             <file path="board/clock_config.c" update_enabled="true"/>
             <file path="board/clock_config.h" update_enabled="true"/>
          </generated_project_files>
          <clocks_profile>
-            <processor_version>13.0.2</processor_version>
+            <processor_version>25.09.10</processor_version>
          </clocks_profile>
          <clock_configurations>
             <clock_configuration name="BOARD_BootClockRUN" id_prefix="" prefix_user_defined="false">
@@ -425,45 +444,52 @@
          </dcdx_profile>
          <dcdx_configurations/>
       </dcdx>
-      <periphs name="Peripherals" version="12.0" enabled="true" update_project_code="true">
+      <periphs name="Peripherals" version="15.0" enabled="false" update_project_code="true">
          <dependencies>
-            <dependency resourceType="SWComponent" resourceId="platform.drivers.lpuart" description="LPUART Driver not found in the toolchain/IDE project. Project will not compile!" problem_level="2" source="Peripherals">
+            <dependency resourceType="SWComponent" resourceId="platform.drivers.lpuart" description="LPUART Driver is not found in the toolchain/IDE project. The project will not compile!" problem_level="2" source="Peripherals">
                <feature name="enabled" evaluation="equal">
                   <data type="Boolean">true</data>
                </feature>
             </dependency>
-            <dependency resourceType="SWComponent" resourceId="platform.drivers.lpuart" description="Unsupported version of the LPUART Driver in the toolchain/IDE project. Required: ${required_value}, actual: ${actual_value}. Project might not compile correctly." problem_level="1" source="Peripherals">
-               <feature name="version" evaluation="equivalent">
-                  <data type="Version">2.5.1</data>
+            <dependency resourceType="SWComponent" resourceId="platform.drivers.lpuart" description="An unsupported version of the LPUART Driver in the toolchain/IDE project. Required: ${required_value}, actual: ${actual_value}. The project might not compile correctly." problem_level="1" source="Peripherals">
+               <feature name="version" evaluation="compatible">
+                  <data type="Version" maxValue="2.5.2">2.5.0</data>
                </feature>
             </dependency>
-            <dependency resourceType="SWComponent" resourceId="platform.drivers.igpio" description="igpio not found in the toolchain/IDE project. Project will not compile!" problem_level="2" source="Peripherals">
+            <dependency resourceType="SWComponent" resourceId="platform.drivers.igpio" description="igpio is not found in the toolchain/IDE project. The project will not compile!" problem_level="2" source="Peripherals">
                <feature name="enabled" evaluation="equal">
                   <data type="Boolean">true</data>
                </feature>
             </dependency>
-            <dependency resourceType="SWComponent" resourceId="platform.drivers.igpio" description="Unsupported version of the igpio in the toolchain/IDE project. Required: ${required_value}, actual: ${actual_value}. Project might not compile correctly." problem_level="1" source="Peripherals">
+            <dependency resourceType="SWComponent" resourceId="platform.drivers.igpio" description="An unsupported version of the igpio in the toolchain/IDE project. Required: ${required_value}, actual: ${actual_value}. The project might not compile correctly." problem_level="1" source="Peripherals">
                <feature name="version" evaluation="equivalent">
                   <data type="Version">2.0.1</data>
                </feature>
             </dependency>
-            <dependency resourceType="SWComponent" resourceId="platform.drivers.lpspi" description="LPSPI Driver not found in the toolchain/IDE project. Project will not compile!" problem_level="2" source="Peripherals">
+            <dependency resourceType="SWComponent" resourceId="platform.drivers.lpspi" description="LPSPI Driver is not found in the toolchain/IDE project. The project will not compile!" problem_level="2" source="Peripherals">
                <feature name="enabled" evaluation="equal">
                   <data type="Boolean">true</data>
                </feature>
             </dependency>
-            <dependency resourceType="SWComponent" resourceId="platform.drivers.lpspi" description="Unsupported version of the LPSPI Driver in the toolchain/IDE project. Required: ${required_value}, actual: ${actual_value}. Project might not compile correctly." problem_level="1" source="Peripherals">
+            <dependency resourceType="SWComponent" resourceId="platform.drivers.lpspi" description="An unsupported version of the LPSPI Driver in the toolchain/IDE project. Required: ${required_value}, actual: ${actual_value}. The project might not compile correctly." problem_level="1" source="Peripherals">
                <feature name="version" evaluation="greaterOrEqual">
-                  <data type="Version">2.0.3</data>
+                  <data type="Version" maxValue="2.5.9">2.0.3</data>
+               </feature>
+            </dependency>
+            <dependency resourceType="Tool" resourceId="Pins" description="The Pins tool is required by the Peripherals tool, but it is disabled." problem_level="2" source="Peripherals">
+               <feature name="enabled" evaluation="equal">
+                  <data>true</data>
+               </feature>
+            </dependency>
+            <dependency resourceType="Tool" resourceId="Clocks" description="The Clocks tool is required by the Peripherals tool, but it is disabled." problem_level="2" source="Peripherals">
+               <feature name="enabled" evaluation="equal">
+                  <data>true</data>
                </feature>
             </dependency>
          </dependencies>
-         <generated_project_files>
-            <file path="board/peripherals.c" update_enabled="true"/>
-            <file path="board/peripherals.h" update_enabled="true"/>
-         </generated_project_files>
+         <generated_project_files/>
          <peripherals_profile>
-            <processor_version>13.0.2</processor_version>
+            <processor_version>25.09.10</processor_version>
          </peripherals_profile>
          <functional_groups>
             <functional_group name="BOARD_InitPeripherals" uuid="5e519eed-bd94-4950-84de-0f29de85bcea" called_from_default_init="true" id_prefix="" core="core0">
@@ -507,7 +533,7 @@
                   </dependency>
                </dependencies>
                <instances>
-                  <instance name="COMBO_SENSOR" uuid="2342e373-ea2e-4bed-8aa4-bd33509155f6" type="lpi2c" type_id="lpi2c_6b71962515c3208facfccd030afebc98" mode="master" peripheral="LPI2C1" enabled="false" comment="" custom_name_enabled="true" editing_lock="false">
+                  <instance name="COMBO_SENSOR" uuid="2342e373-ea2e-4bed-8aa4-bd33509155f6" type="lpi2c" type_id="lpi2c_2.2.0" mode="master" peripheral="LPI2C1" enabled="false" comment="" custom_name_enabled="true" editing_lock="false">
                      <config_set name="main" quick_selection="qs_interrupt">
                         <setting name="clockSource" value="Lpi2cClock"/>
                         <setting name="clockSourceFreq" value="BOARD_BootClockRUN"/>
@@ -555,7 +581,7 @@
                         </struct>
                      </config_set>
                   </instance>
-                  <instance name="DEBUG_UART" uuid="0d9274fe-8f49-48a8-8e6a-8c3ac009384d" type="lpuart" type_id="lpuart_bf01db7d964092f3cf860852cba17f7e" mode="polling" peripheral="LPUART1" enabled="true" comment="" custom_name_enabled="true" editing_lock="false">
+                  <instance name="DEBUG_UART" uuid="0d9274fe-8f49-48a8-8e6a-8c3ac009384d" type="lpuart" type_id="lpuart_2.5.1" mode="polling" peripheral="LPUART1" enabled="true" comment="" custom_name_enabled="true" editing_lock="false">
                      <config_set name="lpuartConfig_t" quick_selection="QuickSelection1">
                         <struct name="lpuartConfig">
                            <setting name="clockSource" value="LpuartClock"/>
@@ -582,7 +608,7 @@
                         </struct>
                      </config_set>
                   </instance>
-                  <instance name="USER_BUTTON" uuid="6c9e57cc-d98c-4f6d-bf94-3920a8fd474e" type="igpio" type_id="igpio_b1c1fa279aa7069dca167502b8589cb7" mode="GPIO" peripheral="GPIO2" enabled="true" comment="" custom_name_enabled="true" editing_lock="false">
+                  <instance name="USER_BUTTON" uuid="6c9e57cc-d98c-4f6d-bf94-3920a8fd474e" type="igpio" type_id="igpio_2.0.1" mode="GPIO" peripheral="GPIO2" enabled="true" comment="" custom_name_enabled="true" editing_lock="false">
                      <config_set name="fsl_gpio">
                         <setting name="enable_irq_comb_0_15" value="false"/>
                         <struct name="gpio_interrupt_comb_0_15">
@@ -594,7 +620,7 @@
                         </struct>
                      </config_set>
                   </instance>
-                  <instance name="USER_LED" uuid="0f7a142d-ad6c-4e47-a2a3-015e90afa37b" type="igpio" type_id="igpio_b1c1fa279aa7069dca167502b8589cb7" mode="GPIO" peripheral="GPIO1" enabled="true" comment="" custom_name_enabled="true" editing_lock="false">
+                  <instance name="USER_LED" uuid="0f7a142d-ad6c-4e47-a2a3-015e90afa37b" type="igpio" type_id="igpio_2.0.1" mode="GPIO" peripheral="GPIO1" enabled="true" comment="" custom_name_enabled="true" editing_lock="false">
                      <config_set name="fsl_gpio">
                         <setting name="enable_irq_comb_0_15" value="false"/>
                         <struct name="gpio_interrupt_comb_0_15">
@@ -614,13 +640,13 @@
                         </struct>
                      </config_set>
                   </instance>
-                  <instance name="NVIC" uuid="1f9167f9-b5d4-4014-bb88-164f5cb5df38" type="nvic" type_id="nvic_57b5eef3774cc60acaede6f5b8bddc67" mode="general" peripheral="NVIC" enabled="true" comment="" custom_name_enabled="false" editing_lock="false">
+                  <instance name="NVIC" uuid="1f9167f9-b5d4-4014-bb88-164f5cb5df38" type="nvic" type_id="nvic" mode="general" peripheral="NVIC" enabled="true" comment="" custom_name_enabled="false" editing_lock="false">
                      <config_set name="nvic">
                         <array name="interrupt_table"/>
                         <array name="interrupts"/>
                      </config_set>
                   </instance>
-                  <instance name="LPSPI1" uuid="de6f91ec-e184-4998-995c-9c22586a5529" type="lpspi" type_id="lpspi_6e21a1e0a09f0a012d683c4f91752db8" mode="polling" peripheral="LPSPI1" enabled="true" comment="" custom_name_enabled="false" editing_lock="false">
+                  <instance name="LPSPI1" uuid="de6f91ec-e184-4998-995c-9c22586a5529" type="lpspi" type_id="lpspi_2.0.3" mode="polling" peripheral="LPSPI1" enabled="true" comment="" custom_name_enabled="false" editing_lock="false">
                      <config_set name="main">
                         <setting name="mode" value="kLPSPI_Master"/>
                         <setting name="clockSource" value="LpspiClock"/>
@@ -638,6 +664,7 @@
                            <setting name="pcsActiveHighOrLow" value="kLPSPI_PcsActiveLow"/>
                            <setting name="pinCfg" value="kLPSPI_SdiInSdoOut"/>
                            <setting name="dataOutConfig" value="kLpspiDataOutRetained"/>
+                           <setting name="enableInputDelay" value="false"/>
                         </struct>
                         <setting name="set_FifoWaterMarks" value="false"/>
                         <struct name="fifoWaterMarks">
@@ -660,6 +687,7 @@
                <config_set_global name="global_system_definitions">
                   <setting name="user_definitions" value=""/>
                   <setting name="user_includes" value=""/>
+                  <setting name="global_init" value=""/>
                </config_set_global>
             </component>
             <component name="msg" uuid="3e46e698-099c-4180-92f5-2af1abbb93a5" type_id="msg">
