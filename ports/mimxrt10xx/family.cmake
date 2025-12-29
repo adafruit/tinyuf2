@@ -73,6 +73,9 @@ function(family_add_board_target BOARD_TARGET)
     ${SDK_DIR}/drivers/ocotp/fsl_ocotp.c
     ${SDK_DIR}/drivers/pwm/fsl_pwm.c
     ${SDK_DIR}/drivers/xbara/fsl_xbara.c
+    ${CMAKE_CURRENT_LIST_DIR}/boards/${BOARD}/flash_config.c
+    ${CMAKE_CURRENT_LIST_DIR}/boards/${BOARD}/board/clock_config.c
+    ${CMAKE_CURRENT_LIST_DIR}/boards/${BOARD}/board/pin_mux.c
     )
 
   # ROM API is present on most parts except RT1011.

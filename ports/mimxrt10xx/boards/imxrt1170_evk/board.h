@@ -22,7 +22,6 @@
  * THE SOFTWARE.
  */
 
-
 #ifndef BOARD_H_
 #define BOARD_H_
 
@@ -32,33 +31,18 @@
 //--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
-
-#define LED_PINMUX            IOMUXC_GPIO_AD_04_GPIO9_IO03
-#define LED_PORT              GPIO9
-#define LED_PIN               3
+#define LED_PORT     BOARD_INITPINS_USER_LED_PERIPHERAL
+#define LED_PIN      BOARD_INITPINS_USER_LED_CHANNEL
 #define LED_STATE_ON          1
 
 //--------------------------------------------------------------------+
 // Neopixel
 //--------------------------------------------------------------------+
-
-// Number of neopixels
 #define NEOPIXEL_NUMBER       0
-
-//--------------------------------------------------------------------+
-// Button
-//--------------------------------------------------------------------+
-
-// SW7 button on WAKEUP pin
-#define BUTTON_PINMUX         IOMUXC_WAKEUP_DIG_GPIO13_IO00
-#define BUTTON_PORT           GPIO13
-#define BUTTON_PIN            0
-#define BUTTON_STATE_ACTIVE   0
 
 //--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
-
 #define USB_VID           0x239A
 #define USB_PID           0x0099
 #define USB_MANUFACTURER  "NXP"
@@ -72,7 +56,6 @@
 //--------------------------------------------------------------------+
 // USB PHY
 //--------------------------------------------------------------------+
-
 #define BOARD_USB_PHY_D_CAL     (0x07U)
 #define BOARD_USB_PHY_TXCAL45DP (0x06U)
 #define BOARD_USB_PHY_TXCAL45DM (0x06U)
@@ -80,9 +63,6 @@
 //--------------------------------------------------------------------+
 // UART
 //--------------------------------------------------------------------+
-
 #define UART_DEV              LPUART1
-#define UART_RX_PINMUX        IOMUXC_GPIO_AD_25_LPUART1_RXD
-#define UART_TX_PINMUX        IOMUXC_GPIO_AD_24_LPUART1_TXD
 
 #endif /* BOARD_H_ */

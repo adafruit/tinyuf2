@@ -79,7 +79,7 @@
             <function name="BOARD_InitDEBUG_UARTPins">
                <description>Configures pin routing and optionally pin electrical features.</description>
                <options>
-                  <callFromInitBoot>true</callFromInitBoot>
+                  <callFromInitBoot>false</callFromInitBoot>
                   <coreID>cm7</coreID>
                   <enableClock>true</enableClock>
                </options>
@@ -117,11 +117,8 @@
             </function>
          </functions_list>
       </pins>
-      <clocks name="Clocks" version="18.0" enabled="true" update_project_code="true">
-         <generated_project_files>
-            <file path="board/clock_config.c" update_enabled="true"/>
-            <file path="board/clock_config.h" update_enabled="true"/>
-         </generated_project_files>
+      <clocks name="Clocks" version="18.0" enabled="false" update_project_code="true">
+         <generated_project_files/>
          <clocks_profile>
             <processor_version>25.09.10</processor_version>
          </clocks_profile>
@@ -227,32 +224,15 @@
                   <clock_output id="AXI_CLK_ROOT.outFreq" value="996 MHz" locked="false" accuracy=""/>
                   <clock_output id="BUS_CLK_ROOT.outFreq" value="240 MHz" locked="false" accuracy=""/>
                   <clock_output id="BUS_LPSR_CLK_ROOT.outFreq" value="160 MHz" locked="false" accuracy=""/>
-                  <clock_output id="CAN1_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="CAN2_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="CAN3_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="CCM_CLKO1_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="CCM_CLKO2_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="CLK_1M.outFreq" value="1 MHz" locked="false" accuracy=""/>
-                  <clock_output id="CSI2_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="CSI2_ESC_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="CSI2_UI_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="CSI_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="CSSYS_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="CSTRACE_CLK_ROOT.outFreq" value="132 MHz" locked="false" accuracy=""/>
-                  <clock_output id="EMV2_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="ENET1_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="ENET2_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="ENET_1G_TX_CLK.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="ENET_25M_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="ENET_QOS_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="ENET_TIMER1_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="ENET_TIMER2_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="ENET_TIMER3_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="FLEXIO1_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="FLEXIO2_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="FLEXSPI1_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="FLEXSPI2_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="GC355_CLK_ROOT.outFreq" value="492.0000125 MHz" locked="false" accuracy=""/>
                   <clock_output id="GPT1_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="GPT1_ipg_clk_highfreq.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="GPT2_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
@@ -265,61 +245,18 @@
                   <clock_output id="GPT5_ipg_clk_highfreq.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="GPT6_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="GPT6_ipg_clk_highfreq.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="LCDIFV2_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="LPI2C1_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="LPI2C2_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="LPI2C3_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="LPI2C4_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="LPI2C5_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="LPI2C6_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="LPSPI1_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="LPSPI2_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="LPSPI3_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="LPSPI4_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="LPSPI5_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="LPSPI6_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="LPUART10_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="LPUART11_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="LPUART12_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="LPUART1_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="LPUART2_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="LPUART3_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="LPUART4_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="LPUART5_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="LPUART6_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="LPUART7_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="LPUART8_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="LPUART9_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="M4_CLK_ROOT.outFreq" value="4320/11 MHz" locked="false" accuracy=""/>
                   <clock_output id="M4_SYSTICK_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="M7_CLK_ROOT.outFreq" value="996 MHz" locked="false" accuracy=""/>
                   <clock_output id="M7_SYSTICK_CLK_ROOT.outFreq" value="100 kHz" locked="false" accuracy=""/>
-                  <clock_output id="MIC_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="MIPI_DSI_TX_CLK_ESC_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="MIPI_ESC_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="MIPI_REF_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="MQS_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="MQS_MCLK.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="OSC_24M.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="OSC_32K.outFreq" value="32.768 kHz" locked="false" accuracy=""/>
                   <clock_output id="OSC_RC_16M.outFreq" value="16 MHz" locked="false" accuracy=""/>
                   <clock_output id="OSC_RC_400M.outFreq" value="400 MHz" locked="false" accuracy=""/>
                   <clock_output id="OSC_RC_48M.outFreq" value="48 MHz" locked="false" accuracy=""/>
                   <clock_output id="OSC_RC_48M_DIV2.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="PLL_VIDEO_CLK.outFreq" value="984.000025 MHz" locked="false" accuracy=""/>
-                  <clock_output id="SAI1_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="SAI1_MCLK1.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="SAI1_MCLK3.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="SAI2_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="SAI2_MCLK1.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="SAI2_MCLK3.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="SAI3_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="SAI3_MCLK1.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="SAI3_MCLK3.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="SAI4_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="SAI4_MCLK1.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="SEMC_CLK_ROOT.outFreq" value="198 MHz" locked="false" accuracy=""/>
-                  <clock_output id="SPDIF_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                   <clock_output id="SYS_PLL2_CLK.outFreq" value="528 MHz" locked="false" accuracy=""/>
                   <clock_output id="SYS_PLL2_PFD0_CLK.outFreq" value="352 MHz" locked="false" accuracy=""/>
                   <clock_output id="SYS_PLL2_PFD1_CLK.outFreq" value="594 MHz" locked="false" accuracy=""/>
@@ -331,8 +268,6 @@
                   <clock_output id="SYS_PLL3_PFD1_CLK.outFreq" value="8640/17 MHz" locked="false" accuracy=""/>
                   <clock_output id="SYS_PLL3_PFD2_CLK.outFreq" value="270 MHz" locked="false" accuracy=""/>
                   <clock_output id="SYS_PLL3_PFD3_CLK.outFreq" value="4320/11 MHz" locked="false" accuracy=""/>
-                  <clock_output id="USDHC1_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
-                  <clock_output id="USDHC2_CLK_ROOT.outFreq" value="24 MHz" locked="false" accuracy=""/>
                </clock_outputs>
                <clock_settings>
                   <setting id="CoreBusClockRootsInitializationConfig" value="selectedCore" locked="false"/>
@@ -354,6 +289,7 @@
                   <setting id="ANADIG_PLL_ARM_PLL_CTRL_POWERUP_CFG" value="Enabled" locked="false"/>
                   <setting id="ANADIG_PLL_PLL_AUDIO_CTRL_GATE_CFG" value="Disabled" locked="false"/>
                   <setting id="ANADIG_PLL_PLL_VIDEO_CTRL0_POWERUP_CFG" value="Enabled" locked="false"/>
+                  <setting id="ANADIG_PLL_PLL_VIDEO_CTRL_GATE_CFG" value="Disabled" locked="false"/>
                   <setting id="ANADIG_PLL_SYS_PLL1_CTRL0_POWERUP_CFG" value="Disabled" locked="false"/>
                   <setting id="ANADIG_PLL_SYS_PLL1_CTRL_GATE_CFG" value="Disabled" locked="false"/>
                   <setting id="ANADIG_PLL_SYS_PLL2_CTRL_POWERUP_CFG" value="Enabled" locked="false"/>
@@ -378,9 +314,59 @@
                   <setting id="CCM.CLOCK_ROOT8.DIV.scale" value="240" locked="false"/>
                   <setting id="CLK_ROOT10_INIT_Config" value="disabled" locked="false"/>
                   <setting id="CLK_ROOT11_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT22_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT23_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT24_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT25_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT26_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT27_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT28_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT29_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT30_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT31_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT32_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT33_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT35_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT36_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT37_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT38_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT39_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT40_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT41_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT42_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT43_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT44_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT45_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT46_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT47_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT48_INIT_Config" value="disabled" locked="false"/>
                   <setting id="CLK_ROOT49_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT50_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT51_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT52_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT53_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT54_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT55_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT56_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT57_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT58_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT59_INIT_Config" value="disabled" locked="false"/>
                   <setting id="CLK_ROOT60_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT61_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT62_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT63_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT64_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT65_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT66_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT67_INIT_Config" value="disabled" locked="false"/>
                   <setting id="CLK_ROOT69_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT70_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT71_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT72_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT73_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT74_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT75_INIT_Config" value="disabled" locked="false"/>
+                  <setting id="CLK_ROOT76_INIT_Config" value="disabled" locked="false"/>
                   <setting id="CLK_ROOT9_INIT_Config" value="disabled" locked="false"/>
                </clock_settings>
                <called_from_default_init>true</called_from_default_init>

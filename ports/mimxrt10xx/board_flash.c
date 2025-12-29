@@ -24,7 +24,6 @@
 
 #include "board_api.h"
 #include "romapi_flash.h"
-#include "fsl_flexspi_nor_boot.h"
 
 // FLEXSPI_INSTANCE is based on FLASH_BASE defined in fsl_flexspi_nor_boot.h
 #if defined(MIMXRT1064_SERIES) || defined(MIMXRT1176_cm7_SERIES)
@@ -40,6 +39,13 @@
 //--------------------------------------------------------------------+
 // IVT and BOOT Data
 //--------------------------------------------------------------------+
+// The FCFB has different offsets, but the IVT is consistent within the family
+#define BOARD_BOOT_START (((uint32_t)_ivt_origin) - 0x1000)
+
+// The ROM bootloader loader needs instructed to
+// copy the text section, IVT structure and interrupt table.
+#define BOARD_BOOT_LENGTH ((uint32_t)&_board_boot_length)
+
 __attribute__((section(".boot_hdr.ivt"))) const ivt image_vector_table = {
   IVT_HEADER,                    /* IVT Header */
   IMAGE_ENTRY_ADDRESS,           /* Image Entry Function */
@@ -56,6 +62,8 @@ __attribute__((section(".boot_hdr.boot_data"))) const BOOT_DATA_T g_boot_data = 
   BOARD_BOOT_LENGTH, PLUGIN_FLAG, /* Plugin flag */
   0xFFFFFFFF                      /* empty - extra data word */
 };
+
+const uint8_t dcd_data[] = {0x00};
 
 #if defined(MIMXRT1176_cm7_SERIES)
   #define USE_BLHOST
@@ -78,7 +86,6 @@ extern const flexspi_nor_config_t flash_nor_config_copy;
 // Flash Configuration Structure
 extern const flexspi_nor_config_t flash_nor_config;
 static flexspi_nor_config_t       flash_cfg; // local copy since ROM API may modify it
-
 
 #define FLASH_CACHE_SIZE         4096
 #define SECTOR_SIZE              (4 * 1024)
