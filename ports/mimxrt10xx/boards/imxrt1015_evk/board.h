@@ -34,51 +34,18 @@
 //--------------------------------------------------------------------+
 // LED
 //--------------------------------------------------------------------+
-
-// GPIO_SD_B1_00
-#define LED_PINMUX            IOMUXC_GPIO_SD_B1_00_GPIO3_IO20
-#define LED_PORT              GPIO3
-#define LED_PIN               20
+#define LED_PORT     BOARD_INITPINS_USER_LED_PERIPHERAL
+#define LED_PIN      BOARD_INITPINS_USER_LED_CHANNEL
 #define LED_STATE_ON          0
-
-#if 0
-// PWM Test on Arduino header D8
-#define LED_PWM_PINMUX        IOMUXC_GPIO_SD_02_FLEXPWM1_PWM0_A
-#define LED_PWM_BASE          PWM1
-#define LED_PWM_MODULE        kPWM_Module_0
-#define LED_PWM_CHANNEL       kPWM_PwmA
-#endif
 
 //--------------------------------------------------------------------+
 // Neopixel
 //--------------------------------------------------------------------+
-
-// Number of neopixels
-#if 1
-#define NEOPIXEL_NUMBER       0
-
-#else
-// Neopixel Test on Arduino header A0
-#define NEOPIXEL_NUMBER       1
-#define NEOPIXEL_PINMUX       IOMUXC_GPIO_AD_07_GPIOMUX_IO21
-#define NEOPIXEL_PORT         GPIO1
-#define NEOPIXEL_PIN          21
-#endif
-
-//--------------------------------------------------------------------+
-// Button
-//--------------------------------------------------------------------+
-
-// SW8 button
-#define BUTTON_PINMUX         IOMUXC_GPIO_EMC_09_GPIO2_IO09
-#define BUTTON_PORT           GPIO2
-#define BUTTON_PIN            9
-#define BUTTON_STATE_ACTIVE   0
+#define NEOPIXEL_NUMBER 0 // Number of neopixels
 
 //--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
-
 #define USB_VID           0x239A
 #define USB_PID           0x0137
 #define USB_MANUFACTURER  "NXP"
@@ -92,9 +59,6 @@
 //--------------------------------------------------------------------+
 // UART
 //--------------------------------------------------------------------+
-
 #define UART_DEV              LPUART1
-#define UART_RX_PINMUX        IOMUXC_GPIO_AD_B0_07_LPUART1_RX
-#define UART_TX_PINMUX        IOMUXC_GPIO_AD_B0_06_LPUART1_TX
 
 #endif /* BOARD_H_ */
