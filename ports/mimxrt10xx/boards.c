@@ -226,6 +226,19 @@ void board_app_jump(void) {
 
   // TODO protect bootloader region
 
+  // Clean and disable caches before jumping to app
+  // This is needed when running at full speed (996MHz) - without it
+  // stale cache data can cause a crash on startup
+#if defined(__DCACHE_PRESENT) && __DCACHE_PRESENT
+  SCB_CleanDCache();
+  SCB_DisableDCache();
+#endif
+#if defined(__ICACHE_PRESENT) && __ICACHE_PRESENT
+  SCB_DisableICache();
+#endif
+  __DSB();
+  __ISB();
+
   /* switch exception handlers to the application */
   SCB->VTOR = (uint32_t)BOARD_FLASH_APP_START;
 
