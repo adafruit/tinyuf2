@@ -71,6 +71,7 @@
 | m5stack_atoms3_lite | M5Stack AtomS3 Lite | 0x303A:0x8160 | https://shop.m5stack.com/products/atoms3-lite-esp32s3-dev-kit |
 | m5stack_atoms3u | M5Stack AtomS3U | 0x303A:0x8188 | https://docs.m5stack.com/en/core/AtomS3U |
 | m5stack_cores3 | M5Stack CoreS3 | 0x303A:0x811B | https://shop.m5stack.com/products/m5stack-cores3-esp32s3-lotdevelopment-kit |
+| m5stack_dial | M5Stack Dial | 0x303A:0x811A | https://docs.m5stack.com/en/core/M5Dial |
 | m5stack_stamps3 | M5Stack Stamp S3 | 0x303A:0x811A | https://docs.m5stack.com/en/core/StampS3 |
 | magiclick_s3_n4r2 | MakerM0 MagiClick S3 | 0x303A:0x81AC | https://github.com/MakerM0/MagiClick-esp32s3 |
 | maker_badge | Czech maker Maker badge | 0x239A:0x2030 | https://github.com/dronecz/maker_badge |
