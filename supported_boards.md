@@ -47,6 +47,7 @@
 | espressif_saola_1_wrover | Espressif Saola 1R WROVER | 0x239A:0x00A5 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-saola-1-v1.2.html |
 | firebeetle2_esp32s3 | DFRobot FireBeetle 2 ESP32-S3 | 0x3343:0x83CF | https://www.dfrobot.com/product-2676.html |
 | generic_esp32s3_super_mini | GENERIC ESP32-S3-Super-Mini | 0x303A:0x8248 | https://www.nologo.tech/product/esp32/esp32s3supermini/esp32S3SuperMini.html |
+| generic_esp32s3_super_mini_padel_on | PADEL ON ESP32-S3 Supermini | 0x303A:0x82D0 | https://padel-on.app |
 | gravitech_cucumberRIS_v1.1 | Gravitech CucumberRIS v1.1 | 0x303A:0x800E | https://www.gravitech.us/curisdebowis.html |
 | heltec_vision_master_t190 | Heltec Vision Master T190 | 0x303A:0x1001 | https://heltec.org/project/vision-master-t190 |
 | heltec_wireless_tracker | Heltec Wireless Tracker | 0x303A:0x81A1 | https://heltec.org/project/wireless-tracker |
@@ -81,6 +82,7 @@
 | muselab_nanoesp32-s2_wrover | Muse Lab nanoESP32-S2 WROVER | 0x303A:0x80B3 | https://github.com/wuxx/nanoESP32-S2 |
 | olimex_esp32s2_devkit_lipo_vB1 | Olimex ESP32S2 DevKit Lipo | 0x15BA:0x28DC | https://www.olimex.com/Products/IoT/ESP32-S2/ESP32-S2-DevKit-Lipo/open-source-hardware |
 | seeed_xiao_esp32s3 | Seeed Studio XIAO ESP32-S3 | 0x2886:0x8056 | https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html |
+| seeed_xiao_esp32s3_padel_on | PADEL ON XIAO ESP32-S3 | 0x303A:0x82D1 | https://padel-on.app |
 | sensebox_eye_esp32s3 | senseBox eye ESP32S3 | 0x303A:0x82D3 | https://sensebox.de |
 | sensebox_mcu_esp32s2 | senseBox MCU-S2 ESP32S2 | 0x303A:0x81BA | https://sensebox.de |
 | smartbeedesigns_bee_motion_s3 | Smart Bee Designs Bee Motion S3 | 0x303A:0x8115 | N/A |
