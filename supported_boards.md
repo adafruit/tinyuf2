@@ -82,7 +82,7 @@
 | muselab_nanoesp32-s2_wrover | Muse Lab nanoESP32-S2 WROVER | 0x303A:0x80B3 | https://github.com/wuxx/nanoESP32-S2 |
 | olimex_esp32s2_devkit_lipo_vB1 | Olimex ESP32S2 DevKit Lipo | 0x15BA:0x28DC | https://www.olimex.com/Products/IoT/ESP32-S2/ESP32-S2-DevKit-Lipo/open-source-hardware |
 | seeed_xiao_esp32s3 | Seeed Studio XIAO ESP32-S3 | 0x2886:0x8056 | https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html |
-| sensebox_eye_esp32s3 | senseBox eye ESP32S3 | 0x303A:0x82D3 | https://sensebox.de |
+| sensebox_mcu_eye | senseBox MCU Eye ESP32S3 | 0x303A:0x82D3 | https://sensebox.de |
 | sensebox_mcu_esp32s2 | senseBox MCU-S2 ESP32S2 | 0x303A:0x81BA | https://sensebox.de |
 | smartbeedesigns_bee_motion_s3 | Smart Bee Designs Bee Motion S3 | 0x303A:0x8115 | N/A |
 | smartbeedesigns_bee_s3 | Smart Bee Designs Bee S3 | 0x303A:0x8112 | N/A |

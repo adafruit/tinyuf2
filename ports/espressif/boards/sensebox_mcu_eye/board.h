@@ -22,8 +22,8 @@
  * THE SOFTWARE.
  */
 
-#ifndef SENSEBOX_EYE_ESP32S3_H_
-#define SENSEBOX_EYE_ESP32S3_H_
+#ifndef SENSEBOX_MCU_EYE_ESP32S3_H_
+#define SENSEBOX_MCU_EYE_ESP32S3_H_
 
 //--------------------------------------------------------------------+
 // Button
@@ -56,10 +56,10 @@
 #define USB_VID                  0x303A
 #define USB_PID                  0x82D3
 #define USB_MANUFACTURER         "senseBox"
-#define USB_PRODUCT              "eye ESP32S3"
+#define USB_PRODUCT              "MCU Eye ESP32S3"
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID             "ESP32S3-senseBox-eye"
+#define UF2_BOARD_ID             "ESP32S3-senseBox-MCU-Eye"
 #define UF2_VOLUME_LABEL         "senseBox"
 #define UF2_INDEX_URL            "https://sensebox.de"
 
