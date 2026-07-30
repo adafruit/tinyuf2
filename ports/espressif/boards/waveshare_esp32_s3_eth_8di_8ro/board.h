@@ -22,8 +22,8 @@
  * THE SOFTWARE.
  */
 
-#ifndef WAVESHARE_ESP32_S3_ETH_8DI_8RO_C_H_
-#define WAVESHARE_ESP32_S3_ETH_8DI_8RO_C_H_
+#ifndef WAVESHARE_ESP32_S3_ETH_8DI_8RO_H_
+#define WAVESHARE_ESP32_S3_ETH_8DI_8RO_H_
 
 //--------------------------------------------------------------------+
 // Button
@@ -59,13 +59,13 @@
 //--------------------------------------------------------------------+
 
 #define USB_VID                  0x303a
-#define USB_PID                  0x839f
+#define USB_PID                  0x83A3
 #define USB_MANUFACTURER         "Waveshare Electronics"
-#define USB_PRODUCT              "ESP32-S3-ETH-8DI-8RO-C"
+#define USB_PRODUCT              "ESP32-S3-ETH-8DI-8RO"
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID             "ESP32-S3-ETH-8DI-8RO-C"
-#define UF2_VOLUME_LABEL         "WS8DI8ROBOT"
-#define UF2_INDEX_URL            "https://www.waveshare.com/esp32-s3-eth-8di-8ro-c.htm"
+#define UF2_BOARD_ID             "ESP32-S3-ETH-8DI-8RO"
+#define UF2_VOLUME_LABEL         "WSRELAYBOOT"
+#define UF2_INDEX_URL            "https://www.waveshare.com/esp32-s3-eth-8di-8ro.htm"
 
 #endif
