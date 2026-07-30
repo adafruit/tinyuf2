@@ -64,7 +64,7 @@
 #define USB_PRODUCT              "ESP32-S3-ETH-8DI-8RO"
 
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID             "ESP32-S3-ETH-8DI-8RO"
+#define UF2_BOARD_ID             "ESP32S3-ETH8DI8RO-v1.0"
 #define UF2_VOLUME_LABEL         "WSRELAYBOOT"
 #define UF2_INDEX_URL            "https://www.waveshare.com/esp32-s3-eth-8di-8ro.htm"
 
