@@ -32,7 +32,7 @@
 // Enter UF2 mode if GPIO is pressed while 2nd stage bootloader indicator
 // is on e.g RGB = Purple. If it is GPIO0, user should not hold this while
 // reset since that will instead run the 1st stage ROM bootloader
-#define PIN_BUTTON_UF2        0
+#define PIN_BUTTON_UF2 0
 
 // GPIO that implement 1-bit memory with RC components which hold the
 // pin value long enough for double reset detection.
@@ -43,29 +43,29 @@
 //--------------------------------------------------------------------+
 
 // GPIO connected to Neopixel data
-#define NEOPIXEL_PIN          38
+#define NEOPIXEL_PIN 38
 
 // Brightness percentage from 1 to 255
-#define NEOPIXEL_BRIGHTNESS   0x10
+#define NEOPIXEL_BRIGHTNESS 0x10
 
 // Number of neopixels
-#define NEOPIXEL_NUMBER       1
+#define NEOPIXEL_NUMBER 1
 
 // Invert Neopixel red and green
-#define NEOPIXEL_INVERT_RG    1
+#define NEOPIXEL_INVERT_RG 1
 
 //--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
 
-#define USB_VID                  0x303a
-#define USB_PID                  0x83A3
-#define USB_MANUFACTURER         "Waveshare Electronics"
-#define USB_PRODUCT              "ESP32-S3-ETH-8DI-8RO"
+#define USB_VID          0x303a
+#define USB_PID          0x83A3
+#define USB_MANUFACTURER "Waveshare Electronics"
+#define USB_PRODUCT      "ESP32-S3-ETH-8DI-8RO"
 
-#define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID             "ESP32S3-ETH8DI8RO-v1.0"
-#define UF2_VOLUME_LABEL         "WSRELAYBOOT"
-#define UF2_INDEX_URL            "https://www.waveshare.com/esp32-s3-eth-8di-8ro.htm"
+#define UF2_PRODUCT_NAME USB_MANUFACTURER " " USB_PRODUCT
+#define UF2_BOARD_ID     "ESP32S3-ETH8DI8RO-v1.0"
+#define UF2_VOLUME_LABEL "WSRELAYBOOT"
+#define UF2_INDEX_URL    "https://www.waveshare.com/esp32-s3-eth-8di-8ro.htm"
 
 #endif
