@@ -39,7 +39,11 @@
   #define UF2_DETECTION_DELAY_MS     500
 #endif
 
+#ifndef NEOPIXEL_INVERT_RG
 uint8_t const RGB_DOUBLE_TAP[] = { 0x80, 0x00, 0xff }; // Purple
+#else
+uint8_t const RGB_DOUBLE_TAP[] = { 0x00, 0x80, 0xff }; // Purple
+#endif
 uint8_t const RGB_OFF[]        = { 0x00, 0x00, 0x00 };
 
 //--------------------------------------------------------------------+
