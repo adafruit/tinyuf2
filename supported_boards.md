@@ -36,6 +36,7 @@
 | deneyap_mini_v2 | T3 Foundation Deneyap Mini v2 | 0x303A:0x8146 | https://magaza.deneyapkart.org/tr/product/detail/deneyap-mini-v2-type-c |
 | department_of_alchemy_minimain_esp32s2 | Department of Alchemy MiniMain ESP32-S2 | 0x303A:0x8101 | https://github.com/DepartmentOfAlchemy/minimain-esp32-s2 |
 | es3ink | Czech maker ES3ink | 0x239A:0x2031 | https://github.com/dronecz/es3ink |
+| espressif_esp32s31_func_coreboard | Espressif ESP32-S31 Function CoreBoard 1 | 0x239A:0x00A5 | https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32s31/esp32-s31-function-coreboard-1/user_guide.html |
 | espressif_esp32s2_devkitc_1 | Espressif ESP32S2 DevKitC 1 | 0x303A:0x7008 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-s2-devkitc-1.html |
 | espressif_esp32s3_box | Espressif ESP32S3 Box 2.5 | 0x303A:0x7004 | https://github.com/espressif/esp-box |
 | espressif_esp32s3_devkitc_1 | Espressif ESP32S3 DevKitC 1 | 0x239A:0x00A5 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/hw-reference/esp32s3/user-guide-devkitc-1.html |

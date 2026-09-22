@@ -43,7 +43,7 @@
 
 #include "board_api.h"
 
-#if CONFIG_IDF_TARGET_ESP32P4
+#if CONFIG_IDF_TARGET_ESP32P4 || CONFIG_IDF_TARGET_ESP32S31
 #include "soc/lp_system_reg.h"
 #include "esp_rom_sys.h"
 #endif
@@ -461,7 +461,7 @@ static void IRAM_ATTR usb_persist_shutdown_handler(void) {
   }
 #endif
 
-#if CONFIG_IDF_TARGET_ESP32P4
+#if CONFIG_IDF_TARGET_ESP32P4 || CONFIG_IDF_TARGET_ESP32S31
   REG_SET_BIT(LP_SYSTEM_REG_SYS_CTRL_REG, LP_SYSTEM_REG_FORCE_DOWNLOAD_BOOT);
 #else
   REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);

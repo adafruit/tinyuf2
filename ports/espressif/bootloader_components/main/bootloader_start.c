@@ -285,7 +285,7 @@ struct _reent *__getreent(void)
 static inline uint32_t ns2cycle(uint32_t ns) {
   uint32_t tick_per_us;
 
-#if CONFIG_IDF_TARGET_ESP32S3
+#if CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32S31
   tick_per_us = ets_get_cpu_frequency();
 #else // ESP32S2
   extern uint32_t g_ticks_per_us_pro;

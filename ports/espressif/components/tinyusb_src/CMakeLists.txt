@@ -11,6 +11,8 @@ elseif(target STREQUAL "esp32p4")
   set(tusb_mcu "OPT_MCU_ESP32P4")
 elseif(target STREQUAL "esp32s2")
   set(tusb_mcu "OPT_MCU_ESP32S2")
+elseif(target STREQUAL "esp32s31")
+  set(tusb_mcu "OPT_MCU_ESP32S31")
 else()
   # CONFIG_TINYUSB dependency has been guaranteed by Kconfig logic,
   # So it's not possible that cmake goes here
