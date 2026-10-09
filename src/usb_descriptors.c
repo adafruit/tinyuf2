@@ -118,16 +118,65 @@ uint8_t const* tud_descriptor_device_cb(void) {
   #endif
 #endif
 
-uint8_t TINYUF2_CONST desc_configuration[] = {
+uint8_t TINYUF2_CONST desc_fs_configuration[] = {
     // Config number, interface count, string index, total length, attribute, power in mA
     TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
 #if CFG_TUD_CDC
     // Interface number, string index, EP notification address and size, EP data address (out, in) and size.
-    TUD_CDC_DESCRIPTOR(ITF_NUM_CDC, STRID_CDC, EPNUM_CDC_NOTIF, 8, EPNUM_CDC_OUT, EPNUM_CDC_IN, TUD_OPT_HIGH_SPEED ? 512 : 64),
+    TUD_CDC_DESCRIPTOR(ITF_NUM_CDC, STRID_CDC, EPNUM_CDC_NOTIF, 8, EPNUM_CDC_OUT, EPNUM_CDC_IN, 64),
 #endif
     // Interface number, string index, EP Out & EP In address, EP size
-    TUD_MSC_DESCRIPTOR(ITF_NUM_MSC, STRID_MSC, EPNUM_MSC_OUT, EPNUM_MSC_IN, TUD_OPT_HIGH_SPEED ? 512 : 64),
+    TUD_MSC_DESCRIPTOR(ITF_NUM_MSC, STRID_MSC, EPNUM_MSC_OUT, EPNUM_MSC_IN, 64),
 };
+
+#if TUD_OPT_HIGH_SPEED
+uint8_t TINYUF2_CONST desc_hs_configuration[] = {
+    // Config number, interface count, string index, total length, attribute, power in mA
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
+#if CFG_TUD_CDC
+    // Interface number, string index, EP notification address and size, EP data address (out, in) and size.
+    TUD_CDC_DESCRIPTOR(ITF_NUM_CDC, STRID_CDC, EPNUM_CDC_NOTIF, 8, EPNUM_CDC_OUT, EPNUM_CDC_IN, 512),
+#endif
+    // Interface number, string index, EP Out & EP In address, EP size
+    TUD_MSC_DESCRIPTOR(ITF_NUM_MSC, STRID_MSC, EPNUM_MSC_OUT, EPNUM_MSC_IN, 512),
+};
+
+// High-speed capable devices also describe their operation at the other speed.
+static uint8_t desc_other_speed_configuration[sizeof(desc_fs_configuration)];
+
+tusb_desc_device_qualifier_t TINYUF2_CONST desc_device_qualifier = {
+    .bLength            = sizeof(tusb_desc_device_qualifier_t),
+    .bDescriptorType    = TUSB_DESC_DEVICE_QUALIFIER,
+    .bcdUSB             = 0x0200,
+#if CFG_TUD_CDC
+    .bDeviceClass       = TUSB_CLASS_MISC,
+    .bDeviceSubClass    = MISC_SUBCLASS_COMMON,
+    .bDeviceProtocol    = MISC_PROTOCOL_IAD,
+#else
+    .bDeviceClass       = 0x00,
+    .bDeviceSubClass    = 0x00,
+    .bDeviceProtocol    = 0x00,
+#endif
+    .bMaxPacketSize0    = CFG_TUD_ENDPOINT0_SIZE,
+    .bNumConfigurations = 0x01,
+    .bReserved          = 0x00
+};
+
+uint8_t const* tud_descriptor_device_qualifier_cb(void) {
+  return (uint8_t const*) &desc_device_qualifier;
+}
+
+uint8_t const* tud_descriptor_other_speed_configuration_cb(uint8_t index) {
+  (void) index; // for multiple configurations
+
+  memcpy(desc_other_speed_configuration,
+         (tud_speed_get() == TUSB_SPEED_HIGH) ? desc_fs_configuration : desc_hs_configuration,
+         sizeof(desc_other_speed_configuration));
+  desc_other_speed_configuration[1] = TUSB_DESC_OTHER_SPEED_CONFIG;
+
+  return desc_other_speed_configuration;
+}
+#endif
 
 
 // Invoked when received GET CONFIGURATION DESCRIPTOR
@@ -136,8 +185,12 @@ uint8_t TINYUF2_CONST desc_configuration[] = {
 uint8_t const* tud_descriptor_configuration_cb(uint8_t index) {
   (void) index; // for multiple configurations
 
-  // TODO when device is highspeed, host is fullspeed.
-  return desc_configuration;
+#if TUD_OPT_HIGH_SPEED
+  // The host may negotiate full speed even when the device supports high speed.
+  return (tud_speed_get() == TUSB_SPEED_HIGH) ? desc_hs_configuration : desc_fs_configuration;
+#else
+  return desc_fs_configuration;
+#endif
 }
 
 //--------------------------------------------------------------------+

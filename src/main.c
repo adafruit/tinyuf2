@@ -53,6 +53,12 @@ uint8_t RGB_OFF[]     = {0x00, 0x00, 0x00};
 
 static volatile uint32_t _timer_count = 0;
 
+#if defined(MIMXRT1011_SERIES)
+// SDP may overwrite this initializer in the SRAM image before jumping to it.
+volatile uint32_t tester_erase_request = 0x13579BDF;
+extern uint8_t __DATA_ROM[], __DATA_RAM[];
+#endif
+
 //--------------------------------------------------------------------+
 //
 //--------------------------------------------------------------------+
@@ -63,6 +69,15 @@ int main(void) {
   if (board_init2) {
     board_init2();
   }
+#if defined(MIMXRT1011_SERIES)
+  if (tester_erase_request == DBL_TAP_MAGIC_ERASE_APP) {
+    // Clear both copies so installing this image cannot repeat the erase.
+    uintptr_t const request_offset = (uintptr_t) &tester_erase_request - (uintptr_t) __DATA_RAM;
+    *((volatile uint32_t*) ((uintptr_t) __DATA_ROM + request_offset)) = 0;
+    tester_erase_request = 0;
+    TINYUF2_DBL_TAP_REG = DBL_TAP_MAGIC_ERASE_APP;
+  }
+#endif
   TUF2_LOG1("TinyUF2\r\n");
 
 #if TINYUF2_PROTECT_BOOTLOADER
@@ -106,6 +121,18 @@ int main(void) {
 
 // return true if start DFU mode, else App mode
 static bool check_dfu_mode(void) {
+#if TINYUF2_DBL_TAP_DFU
+  // Consume an explicit erase request even when the application is invalid.
+  if (TINYUF2_DBL_TAP_REG == DBL_TAP_MAGIC_ERASE_APP) {
+    TUF2_LOG1("Erase app\r\n");
+    TINYUF2_DBL_TAP_REG = 0;
+    indicator_set(STATE_WRITING_STARTED);
+    board_flash_erase_app();
+    indicator_set(STATE_WRITING_FINISHED);
+    return true;
+  }
+#endif
+
   // Check if app is valid
   if (!board_app_valid()) {
     TUF2_LOG1("App invalid\r\n");
@@ -130,14 +157,6 @@ static bool check_dfu_mode(void) {
       // Double tap occurred
       TUF2_LOG1("Double Tap Reset\r\n");
       TINYUF2_DBL_TAP_REG = 0;
-      return true;
-
-    case DBL_TAP_MAGIC_ERASE_APP:
-      TUF2_LOG1("Erase app\r\n");
-      TINYUF2_DBL_TAP_REG = 0;
-      indicator_set(STATE_WRITING_STARTED);
-      board_flash_erase_app();
-      indicator_set(STATE_WRITING_FINISHED);
       return true;
 
     default:

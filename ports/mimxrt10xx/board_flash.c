@@ -240,13 +240,65 @@ bool board_flash_write(uint32_t addr, const void *src, uint32_t len) {
 void board_flash_erase_app(void) {
   TUF2_LOG1("Erase whole chip\r\n");
 
+  // Erase requests are handled before board_flash_init(). Initialize the ROM
+  // configuration here as well, without writing the image before the erase.
+#ifdef USE_BLHOST
+  ROM_API_Init();
+  flash_cfg = flash_nor_config_copy;
+#else
+  flash_cfg = flash_nor_config;
+#endif
+
   // Perform chip erase first
-  ROM_FLEXSPI_NorFlash_Init(FLEXSPI_INSTANCE, &flash_cfg);
-  ROM_FLEXSPI_NorFlash_EraseAll(FLEXSPI_INSTANCE, &flash_cfg);
+  status_t status = ROM_FLEXSPI_NorFlash_Init(FLEXSPI_INSTANCE, &flash_cfg);
+  if (status != kStatus_Success) {
+    TUF2_LOG1("Flash init failed: status = %ld!\r\n", status);
+    while (1) {}
+  }
+
+  status = ROM_FLEXSPI_NorFlash_EraseAll(FLEXSPI_INSTANCE, &flash_cfg);
+  if (status != kStatus_Success) {
+    TUF2_LOG1("Chip erase failed: status = %ld!\r\n", status);
+    while (1) {}
+  }
+
+  // Read every flash word after discarding cached contents.
+  SCB_InvalidateDCache_by_Addr((uint32_t*) FLASH_BASE, BOARD_FLASH_SIZE);
+  volatile uint32_t const* flash = (volatile uint32_t const*) FLASH_BASE;
+  for (uint32_t i = 0; i < BOARD_FLASH_SIZE / sizeof(uint32_t); ++i) {
+    if (flash[i] != 0xffffffff) {
+      TUF2_LOG1("Chip erase verification failed at 0x%08lX!\r\n", FLASH_BASE + i * sizeof(uint32_t));
+      while (1) {}
+    }
+  }
+  _flash_page_addr = FLASH_CACHE_INVALID_ADDR;
+  TUF2_LOG1("Whole-chip erase verified.\r\n");
 
   // Re-write bootloader to flash after chip erase (only when running from RAM)
   TUF2_LOG1("Erase app firmware: ");
   write_tinyuf2_to_flash();
+
+  SCB_InvalidateDCache_by_Addr((uint32_t*) FLASH_BASE, BOARD_BOOT_LENGTH);
+#ifdef USE_BLHOST
+  // RT1176 constructs its flash headers separately from the loaded image.
+  if (memcmp((void const*) FLASH_FCFB_ADDR, &flash_nor_config_copy, sizeof(flexspi_nor_config_t)) != 0 ||
+      memcmp((void const*) FLASH_IVT_ADDR, &image_vector_table, sizeof(ivt)) != 0 ||
+      memcmp((void const*) (FLASH_IVT_ADDR + sizeof(ivt)), &g_boot_data_copy, sizeof(BOOT_DATA_T)) != 0) {
+    TUF2_LOG1("TinyUF2 header verification failed!\r\n");
+    while (1) {}
+  }
+  uint32_t const image_address = FLASH_IVT_ADDR + (uint32_t) _ivt_length;
+  void const* image_data = _interrupts_origin;
+#else
+  uint32_t const image_address = FLASH_FCFB_ADDR;
+  void const* image_data = &flash_nor_config;
+#endif
+  uint32_t const image_length = FLASH_BASE + BOARD_BOOT_LENGTH - image_address;
+  if (memcmp((void const*) image_address, image_data, image_length) != 0) {
+    TUF2_LOG1("TinyUF2 installation verification failed!\r\n");
+    while (1) {}
+  }
+  TUF2_LOG1("TinyUF2 installation verified.\r\n");
 }
 
 bool board_flash_protect_bootloader(bool protect) {
