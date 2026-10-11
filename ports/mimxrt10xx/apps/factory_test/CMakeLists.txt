@@ -12,6 +12,8 @@ include(${CMAKE_CURRENT_LIST_DIR}/../../app.cmake)
 add_executable(factory_test
   arduino.c
   main.c
+  wifi_scan.c
+  ${TOP}/lib/mcu/nxp/mcux-sdk/drivers/common/fsl_common_arm.c
   usb_descriptors.c
   ${CMAKE_CURRENT_LIST_DIR}/../../boards.c
   ${TOP}/lib/tinyusb/src/portable/chipidea/ci_hs/dcd_ci_hs.c

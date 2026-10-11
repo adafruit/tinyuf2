@@ -407,7 +407,7 @@ int board_uart_read(uint8_t *buf, int len) {
       break;
     }
 
-    for (int i = 0; i < rx_count; i++) {
+    for (int i = 0; i < rx_count && count < len; i++) {
       buf[count] = LPUART_ReadByte(UART_DEV);
       count++;
     }
