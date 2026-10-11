@@ -4,6 +4,7 @@
 #include "freertos/task.h"
 
 #include "driver/i2c.h"
+#include "driver/gpio.h"
 #include "esp_log.h"
 
 #include "ssd1306.h"

@@ -33,6 +33,19 @@
 
 #include "soc/usb_periph.h"
 #include "esp_private/periph_ctrl.h"
+#include "esp_idf_version.h"
+
+#if ESP_IDF_VERSION_MAJOR >= 6
+// IDF v6 removed PERIPH_USB_MODULE, USB-OTG clock and reset are controlled via usb_wrap_ll
+#include "hal/usb_wrap_ll.h"
+#define usb_otg_periph_reset()    PERIPH_RCC_ATOMIC() { usb_wrap_ll_reset_register(); }
+#define usb_otg_periph_enable()   PERIPH_RCC_ATOMIC() { usb_wrap_ll_enable_bus_clock(true); }
+#define usb_otg_periph_disable()  PERIPH_RCC_ATOMIC() { usb_wrap_ll_enable_bus_clock(false); }
+#else
+#define usb_otg_periph_reset()    periph_module_reset(PERIPH_USB_MODULE)
+#define usb_otg_periph_enable()   periph_module_enable(PERIPH_USB_MODULE)
+#define usb_otg_periph_disable()  periph_module_disable(PERIPH_USB_MODULE)
+#endif
 
 #include "esp_partition.h"
 #include "esp_ota_ops.h"
@@ -367,8 +380,8 @@ static void hw_cdc_reset_handler(void *arg) {
 
 static void usb_switch_to_cdc_jtag(void) {
   // Disable USB-OTG
-  periph_module_reset(PERIPH_USB_MODULE);
-  periph_module_disable(PERIPH_USB_MODULE);
+  usb_otg_periph_reset();
+  usb_otg_periph_disable();
 
   // Switch to hardware CDC+JTAG
   CLEAR_PERI_REG_MASK(RTC_CNTL_USB_CONF_REG,
@@ -428,8 +441,8 @@ static void usb_switch_to_cdc_jtag(void) {
 static void IRAM_ATTR usb_persist_shutdown_handler(void) {
   // USB CDC Download: RESTART_BOOTLOADER
 #if CONFIG_IDF_TARGET_ESP32S2
-  periph_module_reset(PERIPH_USB_MODULE);
-  periph_module_enable(PERIPH_USB_MODULE);
+  usb_otg_periph_reset();
+  usb_otg_periph_enable();
 #endif
 
   REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);

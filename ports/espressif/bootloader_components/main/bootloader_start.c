@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <stdbool.h>
+#include "sdkconfig.h"
+#include "esp_idf_version.h"
 #include "esp_log.h"
 #include "esp_rom_sys.h"
 #include "bootloader_init.h"
@@ -21,7 +23,6 @@
 #include "board.h"
 
 #ifdef TCA9554_ADDR
-  #include "hal/i2c_types.h"
   // Using GPIO expander requires long reset delay (somehow)
   #define NEOPIXEL_RESET_DELAY      ns2cycle(1000*1000)
 #endif
@@ -270,11 +271,13 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
     return boot_index;
 }
 
+#if ESP_IDF_VERSION_MAJOR < 6 || CONFIG_LIBC_NEWLIB
 // Return global reent struct if any newlib functions are linked to bootloader
 struct _reent *__getreent(void)
 {
     return _GLOBAL_REENT;
 }
+#endif
 
 //--------------------------------------------------------------------+
 // Board LED Indicator

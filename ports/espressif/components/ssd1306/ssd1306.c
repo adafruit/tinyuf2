@@ -87,7 +87,7 @@ void ssd1306_display_image(SSD1306_t * dev, int page, int seg, uint8_t * images,
 	memcpy(&dev->_page[page]._segs[seg], images, width);
 }
 
-void ssd1306_display_text(SSD1306_t * dev, int page, char * text, int text_len, bool invert)
+void ssd1306_display_text(SSD1306_t * dev, int page, const char * text, int text_len, bool invert)
 {
 	if (page >= dev->_pages) return;
 	int _text_len = text_len;
@@ -113,7 +113,7 @@ void ssd1306_display_text(SSD1306_t * dev, int page, char * text, int text_len, 
 
 // by Coert Vonk
 void
-ssd1306_display_text_x3(SSD1306_t * dev, int page, char * text, int text_len, bool invert)
+ssd1306_display_text_x3(SSD1306_t * dev, int page, const char * text, int text_len, bool invert)
 {
 	if (page >= dev->_pages) return;
 	int _text_len = text_len;

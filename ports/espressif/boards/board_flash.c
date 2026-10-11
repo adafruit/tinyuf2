@@ -28,7 +28,6 @@
 #include "esp_partition.h"
 #include "esp_ota_ops.h"
 
-#include "spi_flash_chip_driver.h"
 #include "board_api.h"
 
 #define FLASH_CACHE_SIZE          (64*1024)
