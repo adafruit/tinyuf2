@@ -20,8 +20,21 @@ static volatile bool spi_done;
 static volatile status_t spi_status;
 static uint8_t names[MAX_SSIDS][MAX_SSID_LENGTH];
 static uint8_t lengths[MAX_SSIDS];
+static uint8_t boot_log[1024];
+static unsigned boot_log_length;
+static bool capture_boot;
+static unsigned select_diagnostics;
+static bool selected_snapshot;
+static uint32_t cs_high_pad;
+static uint32_t cs_low_pad;
+static uint32_t cs_ready_pad;
+extern int board_uart_read(uint8_t *buf, int len);
 
 static bool within_budget(void) {
+  if (capture_boot && boot_log_length < sizeof(boot_log)) {
+    boot_log_length += board_uart_read(boot_log + boot_log_length,
+                                      sizeof(boot_log) - boot_log_length);
+  }
   demo_service();
   if (millis() - scan_start >= SCAN_BUDGET_MS) {
     timed_out = true;
@@ -41,6 +54,15 @@ static bool pause_ms(uint32_t ms) {
 
 static void deselect(void) {
   GPIO_PinWrite(GPIO1, ESP_CS_PIN, 1);
+  if (selected_snapshot) {
+    selected_snapshot = false;
+    printf("WiFi select %u PSR: high=%08lX low=%08lX ready=%08lX MISO=%lu\n",
+           ++select_diagnostics, (unsigned long)cs_high_pad,
+           (unsigned long)cs_low_pad, (unsigned long)cs_ready_pad,
+           (unsigned long)((cs_ready_pad >> 17) & 1U));
+    fflush(stdout);
+    demo_service();
+  }
 }
 
 static bool spi_error(const char *stage, unsigned value) {
@@ -57,12 +79,23 @@ static bool select_esp(void) {
       return spi_error("BUSY stayed high before CS", 1);
     }
   }
+  if (select_diagnostics < 2) {
+    cs_high_pad = GPIO1->PSR;
+  }
   GPIO_PinWrite(GPIO1, ESP_CS_PIN, 0);
+  if (select_diagnostics < 2) {
+    cs_low_pad = GPIO1->PSR;
+    selected_snapshot = true;
+    cs_ready_pad = cs_low_pad;
+  }
   uint32_t start = millis();
   while (!GPIO_PinRead(GPIO1, ESP_BUSY_PIN)) {
     if (!within_budget() || millis() - start >= 1000) {
       return spi_error("BUSY stayed low after CS", 0);
     }
+  }
+  if (selected_snapshot) {
+    cs_ready_pad = GPIO1->PSR;
   }
   if (!within_budget()) {
     return spi_error("deadline after CS", 0);
@@ -80,15 +113,14 @@ static void spi_complete(LPSPI_Type *base, lpspi_master_handle_t *handle,
 }
 
 // Hardware mode-0 sampling avoids the ESP32 DMA MISO hold-time limitation.
-static uint8_t exchange(uint8_t value) {
+static bool transfer_bytes(uint8_t *data, size_t length, uint8_t *reply) {
   if (timed_out || ((service_bytes++ & 15U) == 0 && !within_budget())) {
-    return 0xff;
+    return false;
   }
-  uint8_t reply = 0xff;
   lpspi_transfer_t transfer = {
-      .txData = &value,
-      .rxData = &reply,
-      .dataSize = 1,
+      .txData = data,
+      .rxData = reply,
+      .dataSize = length,
       .configFlags = kLPSPI_MasterPcsContinuous,
   };
   spi_done = false;
@@ -97,16 +129,21 @@ static uint8_t exchange(uint8_t value) {
     while (!spi_done) {
       if (!within_budget()) {
         LPSPI_MasterTransferAbort(LPSPI1, &spi_handle);
-        spi_error("LPSPI deadline", 0);
-        return 0xff;
+        return spi_error("LPSPI deadline", 0);
       }
     }
     status = spi_status;
   }
   if (status != kStatus_Success) {
     timed_out = true;
-    spi_error("LPSPI transfer", status);
+    return spi_error("LPSPI transfer", status);
   }
+  return true;
+}
+
+static uint8_t exchange(uint8_t value) {
+  uint8_t reply = 0xff;
+  transfer_bytes(&value, 1, &reply);
   return reply;
 }
 
@@ -114,12 +151,10 @@ static bool send_command(uint8_t command) {
   if (!select_esp()) {
     return false;
   }
-  exchange(0xe0);
-  exchange(command);
-  exchange(0);
-  exchange(0xee);
+  uint8_t packet[] = {0xe0, command, 0, 0xee};
+  bool sent = transfer_bytes(packet, sizeof(packet), NULL);
   deselect();
-  return within_budget();
+  return sent && within_budget();
 }
 
 static bool read_response(uint8_t command, uint8_t *count) {
@@ -192,6 +227,37 @@ static void print_escaped(const uint8_t *data, unsigned length) {
   demo_service();
 }
 
+static void print_uart_log(const char *label) {
+  printf("ESP32 %s UART: %u bytes\n", label, boot_log_length);
+  for (unsigned offset = 0; offset < boot_log_length; offset += MAX_SSID_LENGTH) {
+    unsigned length = boot_log_length - offset;
+    if (length > MAX_SSID_LENGTH) {
+      length = MAX_SSID_LENGTH;
+    }
+    print_escaped(boot_log + offset, length);
+  }
+}
+
+static void enable_esp_debug(void) {
+  board_uart_read(boot_log, sizeof(boot_log));
+  boot_log_length = 0;
+  capture_boot = true;
+  if (select_esp()) {
+    uint8_t packet[] = {0xe0, 0x1a, 1, 1, 1, 0xee, 0xff, 0xff};
+    bool sent = transfer_bytes(packet, sizeof(packet), NULL);
+    deselect();
+    uint8_t count;
+    if (sent) {
+      // Even an unreadable MISO acknowledgement may leave UART debug enabled.
+      read_response(0x1a, &count);
+    }
+  }
+  deselect();
+  pause_ms(50);
+  capture_boot = false;
+  print_uart_log("debug command");
+}
+
 static bool has_name(unsigned index) {
   for (unsigned i = 0; i < lengths[index]; i++) {
     uint8_t byte = names[index][i];
@@ -208,12 +274,12 @@ static bool init_esp(void) {
   gpio_pin_config_t input = {kGPIO_DigitalInput, 0, kGPIO_NoIntmode};
   GPIO_PinInit(GPIO1, ESP_CS_PIN, &output_high);
   IOMUXC_SetPinConfig(IOMUXC_GPIO_AD_14_GPIOMUX_IO28, 0x00B0U);
-  IOMUXC_SetPinMux(IOMUXC_GPIO_AD_14_GPIOMUX_IO28, 0);
+  IOMUXC_SetPinMux(IOMUXC_GPIO_AD_14_GPIOMUX_IO28, 1);
   GPIO_PinInit(GPIO1, ESP_BUSY_PIN, &input);
   IOMUXC_SetPinConfig(IOMUXC_GPIO_AD_11_GPIOMUX_IO25, 0x00B0U);
   IOMUXC_SetPinMux(IOMUXC_GPIO_AD_11_GPIOMUX_IO25, 0);
   // Use the same LPSPI1 routing and pad settings as the Metro microSD test.
-  IOMUXC_SetPinMux(IOMUXC_GPIO_AD_03_LPSPI1_SDI, 0);
+  IOMUXC_SetPinMux(IOMUXC_GPIO_AD_03_LPSPI1_SDI, 1);
   IOMUXC_SetPinMux(IOMUXC_GPIO_AD_04_LPSPI1_SDO, 0);
   IOMUXC_SetPinMux(IOMUXC_GPIO_AD_06_LPSPI1_SCK, 0);
   IOMUXC_SetPinConfig(IOMUXC_GPIO_AD_03_LPSPI1_SDI, 0x10A0U);
@@ -247,6 +313,11 @@ static bool init_esp(void) {
   printf("WiFi SPI: after LPSPI handle\n");
   fflush(stdout);
   delay(100);
+  // GPIO loopback checks temporarily own these pins; restore UART for boot only.
+  board_uart_init(115200);
+  board_uart_read(boot_log, sizeof(boot_log));
+  boot_log_length = 0;
+  capture_boot = true;
   GPIO_PinInit(ESP32_GPIO0_PORT, ESP32_GPIO0_PIN, &output_high);
   IOMUXC_SetPinConfig(ESP32_GPIO0_PINMUX, 0x00B0U);
   IOMUXC_SetPinMux(ESP32_GPIO0_PINMUX, 0);
@@ -256,7 +327,21 @@ static bool init_esp(void) {
   bool ready = pause_ms(10);
   GPIO_PinWrite(ESP32_RESET_PORT, ESP32_RESET_PIN, 1);
   ready = ready && pause_ms(750);
+  capture_boot = false;
   GPIO_PinInit(ESP32_GPIO0_PORT, ESP32_GPIO0_PIN, &input);
+  print_uart_log("boot");
+  printf("WiFi GPIO: PSR=%08lX GDIR=%08lX GPR26=%08lX\n",
+         (unsigned long)GPIO1->PSR, (unsigned long)GPIO1->GDIR,
+         (unsigned long)IOMUXC_GPR->GPR26);
+  printf("WiFi LPSPI: CFGR1=%08lX TCR=%08lX CCR=%08lX\n",
+         (unsigned long)LPSPI1->CFGR1, (unsigned long)LPSPI1->TCR,
+         (unsigned long)LPSPI1->CCR);
+  printf("WiFi SPI daisy: SDI=%lu SDO=%lu SCK=%lu\n",
+         (unsigned long)*(volatile uint32_t *)0x401F81D8U,
+         (unsigned long)*(volatile uint32_t *)0x401F81DCU,
+         (unsigned long)*(volatile uint32_t *)0x401F81D4U);
+  fflush(stdout);
+  delay(100);
   return ready;
 }
 
@@ -264,8 +349,22 @@ int wifi_scan(void) {
   scan_start = millis();
   timed_out = false;
   service_bytes = 0;
+  select_diagnostics = 0;
+  selected_snapshot = false;
   uint8_t count;
-  if (!init_esp() || !command_response(0x37, &count) || !lengths[0]) {
+  if (!init_esp()) {
+    printf("WiFi FAILED: initialization or timeout\n");
+    goto fail;
+  }
+  enable_esp_debug();
+  boot_log_length = 0;
+  capture_boot = true;
+  bool firmware_ok = command_response(0x37, &count);
+  deselect();
+  pause_ms(50);
+  capture_boot = false;
+  print_uart_log("firmware command");
+  if (!firmware_ok || !lengths[0]) {
     printf("WiFi FAILED: firmware response or timeout\n");
     goto fail;
   }
