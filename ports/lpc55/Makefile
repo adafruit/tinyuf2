@@ -18,9 +18,10 @@ include ../rules.mk
 #-------------- Self-update  --------------
 SELF_DIR = apps/self_update
 
-$(SELF_DIR)/bootloader_bin.c:	$(BUILD)/$(OUTNAME).bin
+$(SELF_BUILD)/bootloader_bin.c:	$(BUILD)/$(OUTNAME).bin
+	@$(MKDIR) -p $(@D)
 	$(PYTHON3) $(TOP)/lib/uf2/utils/uf2conv.py --carray $^ -o $@
 
-self-update: $(SELF_DIR)/bootloader_bin.c
+self-update: $(SELF_BUILD)/bootloader_bin.c
 	make -C $(SELF_DIR) BOARD=$(BOARD) self-update
 	@rm $^

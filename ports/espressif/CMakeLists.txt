@@ -10,13 +10,16 @@ set(SDKCONFIG_DEFAULTS ${CMAKE_CURRENT_LIST_DIR}/sdkconfig.defaults ${CMAKE_CURR
 set(SDKCONFIG ${CMAKE_BINARY_DIR}/sdkconfig)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+idf_build_set_property(DEPENDENCIES_LOCK ${CMAKE_BINARY_DIR}/dependencies.lock) # keep the source tree clean
 idf_build_set_property(EXTRA_CMAKE_ARGS -DBOARD=${BOARD}) # Pass BOARD to bootloader
 
 execute_process(COMMAND git describe --dirty --always --tags
+                WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
                 OUTPUT_VARIABLE GIT_VERSION)
 string(STRIP ${GIT_VERSION} GIT_VERSION)
 
 execute_process(COMMAND bash "-c" "git submodule status ${TOP}/lib/tinyusb | cut -d\" \" -f3,4 | paste -s -d\" \" -"
+                WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
                 OUTPUT_VARIABLE GIT_SUBMODULE_VERSIONS)
 
 string(REPLACE ../ "" GIT_SUBMODULE_VERSIONS ${GIT_SUBMODULE_VERSIONS})
@@ -83,7 +86,7 @@ add_custom_target(combined-flash
 
 # Post build: generate bootloader_bin.c for update-tinyuf2 and combined.bin
 add_custom_command(TARGET app POST_BUILD
-  COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} --carray -o ${CMAKE_CURRENT_LIST_DIR}/apps/update_tinyuf2/main/bootloader_bin.c ${CMAKE_BINARY_DIR}/tinyuf2.bin
+  COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} --carray -o ${CMAKE_BINARY_DIR}/apps/update_tinyuf2/bootloader_bin.c ${CMAKE_BINARY_DIR}/tinyuf2.bin
   )
 
 externalproject_add(update-tinyuf2
@@ -91,10 +94,10 @@ externalproject_add(update-tinyuf2
   BINARY_DIR ${CMAKE_BINARY_DIR}/apps/update_tinyuf2
   # Modifying the list separator for the arguments, as such, we won't need to manually
   # replace the new separator by the default ';' in the subproject
-  CMAKE_ARGS -DBOARD=${BOARD}
+  CMAKE_ARGS -DBOARD=${BOARD} -DARTIFACT_PATH=${ARTIFACT_PATH}
   INSTALL_COMMAND ""
   BUILD_ALWAYS 1
-  DEPENDS tinyuf2.elf
+  DEPENDS app # app post-build generates bootloader_bin.c
   )
 
 externalproject_add(blinky
@@ -102,7 +105,7 @@ externalproject_add(blinky
   BINARY_DIR ${CMAKE_BINARY_DIR}/apps/blinky
   # Modifying the list separator for the arguments, as such, we won't need to manually
   # replace the new separator by the default ';' in the subproject
-  CMAKE_ARGS -DBOARD=${BOARD}
+  CMAKE_ARGS -DBOARD=${BOARD} -DARTIFACT_PATH=${ARTIFACT_PATH}
   INSTALL_COMMAND ""
   BUILD_ALWAYS 1
   )
