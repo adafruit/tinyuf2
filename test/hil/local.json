@@ -1,0 +1,24 @@
+{
+  "host": "htpc",
+  "lock": {"helper": "/home/hathach/code/tinyusb/test/hil/helper/hil_lock.py"},
+  "boards": [
+    {
+      "name": "lpcxpresso55s69",
+      "uid": "E059C3E208F9B955B3BA4C5CC7F3D13D",
+      "flasher": {"name": "jlink", "uid": "000727648789", "args": "-device LPC55S69_M33_0"},
+      "tinyuf2": {
+        "port": "lpc55",
+        "jlink": {"if": "SWD", "speed": "4000"},
+        "layout": {"install": ["0x0", "0x10000"], "app": ["0x10000", "0x98000"], "pageSize": 512},
+        "restore": {
+          "bin": "/home/hathach/.cache/tinyuf2-hil/release-0.35.0/x/tinyuf2-lpcxpresso55s69.bin",
+          "sha256": "48e770fd846d6334151d38265c0617febbf6df758f93b5342bf09601b4619ca3",
+          "version": "0.35.0 - tinyusb (2a364ca27)",
+          "layout": {"install": ["0x0", "0x10000"], "appStart": "0x10000"}
+        },
+        "recovery": "restore --recover-holder under hil-operator's forced-lock scope; if the probe cannot connect, ISP0 (PIO0_5) low at reset by a human"
+      },
+      "comment": "probe: LPC-Link2 J-Link OB on P6; tinyuf2 enumerates on USB0 FS (P10), tinyusb examples on USB1 HS (P9). uid is the tinyusb roster value until commissioning confirms it; reentry is set at commissioning (SKILL.md)."
+    }
+  ]
+}

@@ -9,6 +9,7 @@ on:
       - '.github/workflows/**'
       - '.pre-commit-config.yaml'
       - 'tools/get_deps.py'
+      - 'test/hil/**'
   pull_request:
     branches: [ master ]
     paths:
@@ -17,6 +18,7 @@ on:
       - '.github/workflows/**'
       - '.pre-commit-config.yaml'
       - 'tools/get_deps.py'
+      - 'test/hil/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
