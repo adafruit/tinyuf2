@@ -228,16 +228,16 @@ static bool init_esp(void) {
   spi_config.direction = kLPSPI_MsbFirst;
   printf("WiFi SPI: before LPSPI init\n");
   fflush(stdout);
-  demo_service();
+  delay(100);
   LPSPI_MasterInit(LPSPI1, &spi_config,
                    CLOCK_GetClockRootFreq(kCLOCK_LpspiClkRoot));
   printf("WiFi SPI: after LPSPI init\n");
   fflush(stdout);
-  demo_service();
+  delay(100);
   LPSPI_MasterTransferCreateHandle(LPSPI1, &spi_handle, spi_complete, NULL);
   printf("WiFi SPI: after LPSPI handle\n");
   fflush(stdout);
-  demo_service();
+  delay(100);
   GPIO_PinInit(ESP32_GPIO0_PORT, ESP32_GPIO0_PIN, &output_high);
   IOMUXC_SetPinConfig(ESP32_GPIO0_PINMUX, 0x00B0U);
   IOMUXC_SetPinMux(ESP32_GPIO0_PINMUX, 0);

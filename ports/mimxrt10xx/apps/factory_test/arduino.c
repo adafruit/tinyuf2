@@ -181,8 +181,16 @@ int analogRead(uint32_t pinnum)
   };
   ADC_SetChannelConfig(pindeets->adc, ADC_CHANNEL_GROUP, &config);
 
+  uint32_t started = millis();
   while (0U == ADC_GetChannelStatusFlags(pindeets->adc, ADC_CHANNEL_GROUP))
   {
+    if (millis() - started >= 100) {
+      Serial_printf("ADC conversion timeout on pin %lu\r\n", (unsigned long)pinnum);
+      return -1;
+    }
+    fflush(stdout);
+    tud_task();
+    tud_cdc_write_flush();
   }
 
   // value is 12-bit resolution

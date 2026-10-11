@@ -152,8 +152,11 @@ void loop(void) {
   }
   GPIO_PinWrite(ESP32_RESET_PORT, ESP32_RESET_PIN, 1);
   pinMode(13, OUTPUT);
+  Serial_printf("Diagnostic: GPIO outputs released\r\n");
+  delay(100);
   if (gpio_passed) {
     Serial_printf("WiFi scan required for factory pass...\r\n");
+    delay(100);
     int networks = wifi_scan();
     if (networks > 0) {
       Serial_printf("WIFI SCAN OK\r\n");
@@ -199,7 +202,12 @@ static bool test_board(void) {
     return false;
   }
   // Accept the fixture's 9V or 12V DC supply, with measurement tolerance.
-  float dc_input_volts = (float)analogRead(AD0) * 11.0f * 3.3f / 4095.0f;
+  Serial_printf("Diagnostic: before A0 conversion\r\n");
+  delay(100);
+  int dc_raw = analogRead(AD0);
+  Serial_printf("Diagnostic: after A0 conversion = %d\r\n", dc_raw);
+  delay(100);
+  float dc_input_volts = (float)dc_raw * 11.0f * 3.3f / 4095.0f;
   Serial_printf("DC input = %d mV\n\r", (int)(dc_input_volts * 1000.0f));
   if (dc_input_volts < DC_INPUT_MIN_VOLTS || dc_input_volts > DC_INPUT_MAX_VOLTS) {
     Serial_printf("DC input power supply reading wrong?");
