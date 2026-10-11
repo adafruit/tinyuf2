@@ -42,21 +42,31 @@ static void deselect(void) {
   GPIO_PinWrite(GPIO1, ESP_CS_PIN, 1);
 }
 
+static bool spi_error(const char *stage, unsigned value) {
+  deselect();
+  printf("WiFi SPI detail: %s (%02X)\n", stage, value);
+  fflush(stdout);
+  demo_service();
+  return false;
+}
+
 static bool select_esp(void) {
   while (GPIO_PinRead(GPIO1, ESP_BUSY_PIN)) {
     if (!within_budget()) {
-      return false;
+      return spi_error("BUSY stayed high before CS", 1);
     }
   }
   GPIO_PinWrite(GPIO1, ESP_CS_PIN, 0);
   uint32_t start = millis();
   while (!GPIO_PinRead(GPIO1, ESP_BUSY_PIN)) {
     if (!within_budget() || millis() - start >= 1000) {
-      deselect();
-      return false;
+      return spi_error("BUSY stayed low after CS", 0);
     }
   }
-  return within_budget();
+  if (!within_budget()) {
+    return spi_error("deadline after CS", 0);
+  }
+  return true;
 }
 
 // Mode 0, MSB first. Delay each half cycle; actual clock is below 500 kHz.
@@ -94,8 +104,9 @@ static bool read_response(uint8_t command, uint8_t *count) {
     return false;
   }
   bool started = false;
+  uint8_t byte = 0xff;
   for (unsigned attempt = 0; attempt < 10; attempt++) {
-    uint8_t byte = exchange(0xff);
+    byte = exchange(0xff);
     if (byte == 0xe0) {
       started = true;
       break;
@@ -104,28 +115,32 @@ static bool read_response(uint8_t command, uint8_t *count) {
       break;
     }
   }
-  if (!started || exchange(0xff) != (command | 0x80)) {
-    deselect();
-    return false;
+  if (!started) {
+    return spi_error("response start byte", byte);
+  }
+  byte = exchange(0xff);
+  if (byte != (command | 0x80)) {
+    return spi_error("reply command", byte);
   }
   *count = exchange(0xff);
   if (*count > MAX_SSIDS || (command != 0x27 && *count != 1)) {
-    deselect();
-    return false;
+    return spi_error("parameter count", *count);
   }
   for (unsigned i = 0; i < *count; i++) {
     lengths[i] = exchange(0xff);
     if (lengths[i] > MAX_SSID_LENGTH) {
-      deselect();
-      return false;
+      return spi_error("parameter length", lengths[i]);
     }
     for (unsigned j = 0; j < lengths[i]; j++) {
       names[i][j] = exchange(0xff);
     }
   }
-  bool valid = exchange(0xff) == 0xee && !timed_out;
+  byte = exchange(0xff);
+  if (byte != 0xee) {
+    return spi_error("response end byte", byte);
+  }
   deselect();
-  return valid && within_budget();
+  return within_budget();
 }
 
 static bool command_response(uint8_t command, uint8_t *count) {
