@@ -50,6 +50,7 @@ static const float DC_INPUT_MAX_VOLTS = 13.0f;
 bool testpins(uint8_t a, uint8_t b, uint8_t *allpins, uint8_t num_allpins);
 void test_print_adc(void);
 static bool test_board(void);
+static const uint32_t WIFI_IDLE_SCAN_INTERVAL_MS = 120000;
 static uint32_t next_scan = 5000;
 static bool serial_connected = false;
 
@@ -107,7 +108,7 @@ void loop(void) {
   if (connected && !serial_connected) {
     Serial_printf("\r\nHello from your Metro M7 AirLift!\r\n");
     Serial_printf("Watch the red LED blink and the NeoPixel swirl.\r\n");
-    Serial_printf("Nearby Wi-Fi networks are listed every 30 seconds.\r\n");
+    Serial_printf("Nearby Wi-Fi networks are listed every 2 minutes.\r\n");
     next_scan = millis() + 5000;
   }
   serial_connected = connected;
@@ -126,8 +127,8 @@ void loop(void) {
     if ((int32_t)(millis() - next_scan) >= 0) {
       Serial_printf("\r\nScanning nearby Wi-Fi networks...\r\n");
       int networks = wifi_scan();
-      if (networks == 0) Serial_printf("No named networks found. Trying again in 30 seconds.\r\n");
-      next_scan = millis() + 30000;
+      if (networks == 0) Serial_printf("No named networks found. Trying again in 2 minutes.\r\n");
+      next_scan = millis() + WIFI_IDLE_SCAN_INTERVAL_MS;
     }
     return;
   }
@@ -161,7 +162,7 @@ void loop(void) {
       Serial_printf("WiFi FAILED: no valid SSIDs detected.\r\n");
     }
   }
-  next_scan = millis() + 30000;
+  next_scan = millis() + WIFI_IDLE_SCAN_INTERVAL_MS;
 }
 
 static bool test_board(void) {
