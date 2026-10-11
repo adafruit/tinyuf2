@@ -2,7 +2,7 @@
 
 ## Working Rules
 
-- Worktrees — `git submodule update --init lib/tinyusb lib/uf2`, then symlink the `deps_all` paths from `tools/get_deps.py` (`lib/mcu/...`, `lib/sct_neopixel`) to the primary checkout when it holds the pinned revisions. Never run `get_deps.py` through a symlink: it `git reset --hard`s each dependency in place.
+- Worktrees — `git submodule update --init lib/tinyusb lib/uf2`, then symlink the `deps_all` paths from `tools/get_deps.py` (`lib/mcu/...`, `lib/sct_neopixel`) to the primary checkout when it holds the pinned revisions. Never run `get_deps.py` through a symlink: it `git reset --hard`s each dependency in place. Where the primary's copy has local changes, use a detached `git worktree` of that dependency at its pin instead.
 - Code references — ports and boards: `ports/<port>/` (`boards/<board>/`, `board_flash.c`, `boards.c`), `supported_boards.md`; bootloader: `src/` (`main.c`, `ghostfat.c`, `msc.c`, `board_api.h`, the contract every port implements); apps: `apps/`, `ports/<port>/apps/`; build: `ports/make.mk`, `ports/rules.mk`, `ports/family_support.cmake`, `.github/workflows/build.yml` (which backend builds each port); deps: `tools/get_deps.py`.
 
 ## Code Rules
@@ -21,7 +21,7 @@
 ## Build and Validate
 
 - Build contract: `.claude/skills/build/SKILL.md`. It resolves a change to boards and builds each the way CI does, outside the source tree.
-- No HIL contract yet: hardware validation of a change is reported pending, never inferred from a build.
+- HIL contract: `.claude/skills/hil/SKILL.md`. Hardware validation comes from its report, never from a build; what no roster board on the host covers is reported pending.
 - ESP-IDF: the build contract uses CI's docker image; for interactive work, `. "$IDF_PATH/export.sh"` and `idf.py -C ports/espressif -DBOARD=<board> flash monitor`.
 - Before submitting, and again after a rebase: `pre-commit run --all-files`.
 - For code changes: `python3 .claude/skills/build/scripts/check_build.py --base master --worktree`.
@@ -30,6 +30,6 @@
 
 - Before opening or updating a PR, follow Build and Validate.
 - After opening a PR, ask the human to authorize one headless `chief` invocation to drive reviews and CI to green under agentrc chief's Authorization exception. Name the PR URL, head repository and branch, and actions: push commits to that branch, post replies to the PR's review feedback, and resolve review threads through `pr-babysit` with `autoPush: true`. On an affirmative answer, launch it in the PR worktree through agentrc's `headless-chief` skill (`chief_run.py`), never a bare `claude -p`, and relay its exit as that skill directs. The task names the PR, head repository and branch, expected HEAD and scope, and includes the question and answer verbatim; a relaunch for the same PR may carry that exchange copied verbatim from the earlier launch task. Leave the checkout to chief until it exits. TinyUF2 `pr-babysit` args:
-  `{"pr": <num>, "reviewers": ["copilot", "code-scanning"], "protected": "^lib/(tinyusb|uf2)$"}`
-  (until CodeRabbit or Greptile is installed on the repository, only Copilot and code scanning review it, both harvested without gating; `protected` keeps the submodule pins out of automated fixes).
+  `{"pr": <num>, "reviewers": ["copilot", "code-scanning"], "protected": "^(lib/(tinyusb|uf2)|test/hil/[^/]+\\.json)$"}`
+  (until CodeRabbit or Greptile is installed on the repository, only Copilot and code scanning review it, both harvested without gating; `protected` keeps the submodule pins and the HIL rosters out of automated fixes).
 - The follow-up label is `followup`.
