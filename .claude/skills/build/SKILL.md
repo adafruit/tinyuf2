@@ -12,16 +12,16 @@ B=.claude/skills/build/scripts/check_build.py
 python3 $B --scope <changed paths or dirs>     # boards a change affects
 python3 $B --base master                        # same, from the branch diff
 python3 $B --base master --worktree             # same, plus uncommitted and untracked changes
-python3 $B --select-only (--scope ... | --base REF [--worktree] | --diff-file FILE)   # the selection alone
+python3 $B --select-only (--scope ... | --base REF [--worktree] | --diff-file FILE) [--hil-config ROSTER]   # the selection alone
 python3 $B --board feather_stm32f405_express [--board ...]
 python3 $B --board lpcxpresso55s69 -D LOG=2     # a define, passed to the board's backend
 python3 $B ... --shared                         # keep cmake-build/cmake-build-<board>, the dir a flash or HIL run uses
 python3 $B ... --idf local                      # exported ESP-IDF instead of CI's docker image
 ```
 
-The last stdout line is JSON. An agent acts on `pass`; `firstError`, and `error` on exit 2, naming the cause or the remedy; `boards[]` (`status` `ok`, `failed` or `error`, `log`, `artifacts`, `notImplemented`); `built`, the artifacts of `--shared` roots, the only ones kept after a pass; `nothingToBuild` and `uncovered`, each path with its reason; and `idf.matchesCi`. `paths` gives every changed path's `rule` and `reason`, the answer to why a path selected what it did. Exit 0 pass, 1 a build, self-test or test failed, 2 usage, resolution or a missing prerequisite, 3 an uncovered path; 2 outranks 1, and 1 outranks 3. `-v` streams the build to stderr; each build's log is `<buildDir>/check_build.log`.
+The last stdout line is JSON. An agent acts on `pass`; `firstError`, and `error` on exit 2, naming the cause or the remedy; `boards[]` (`status` `ok`, `failed` or `error`, `log`, `artifacts`, `notImplemented`); `built`, the artifacts of `--shared` roots, the only ones kept after a pass, with each one's hash in `boards[].sha256`; `nothingToBuild` and `uncovered`, each path with its reason; and `idf.matchesCi`. `input` and `defines` record what a build used (HEAD, `dirty`, submodule and `get_deps` dependency commits, `dirtyInputs` for any of those with local changes): the HIL contract binds firmware to this record. `paths` gives every changed path's `rule` and `reason`, the answer to why a path selected what it did. Exit 0 pass, 1 a build, self-test or test failed, 2 usage, resolution or a missing prerequisite, 3 an uncovered path; 2 outranks 1, and 1 outranks 3. `-v` streams the build to stderr; each build's log is `<buildDir>/check_build.log`.
 
-`--select-only` prints the selection (`build.{ports,builds,ghostfat,tests,paths}`) and stops before any toolchain check: what any agent or CI step reads for "what does this change affect".
+`--select-only` prints the selection (`build.{ports,builds,ghostfat,tests,paths}`) and stops before any toolchain check: what any agent or CI step reads for "what does this change affect". With `--hil-config <the host's roster>` it adds `hil.{boards,full,uncovered}`: the roster boards the change puts under the HIL battery, and each selected port with no roster board on this host.
 
 ## Reporting
 
