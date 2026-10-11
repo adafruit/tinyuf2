@@ -4,12 +4,10 @@
 // Pin assignments follow CircuitPython's metro_m7_1011 board definition.
 #include "arduino.h"
 #include "wifi_scan.h"
+#include "fsl_lpspi.h"
 
 #define ESP_CS_PIN 28
 #define ESP_BUSY_PIN 25
-#define SPI_MISO_PIN 17
-#define SPI_MOSI_PIN 18
-#define SPI_SCK_PIN 20
 #define SCAN_BUDGET_MS 20000U
 #define MAX_SSIDS 64
 #define MAX_SSID_LENGTH 32
@@ -17,6 +15,9 @@
 static uint32_t scan_start;
 static bool timed_out;
 static unsigned service_bytes;
+static lpspi_master_handle_t spi_handle;
+static volatile bool spi_done;
+static volatile status_t spi_status;
 static uint8_t names[MAX_SSIDS][MAX_SSID_LENGTH];
 static uint8_t lengths[MAX_SSIDS];
 
@@ -69,20 +70,42 @@ static bool select_esp(void) {
   return true;
 }
 
-// Mode 0, MSB first. Delay each half cycle; actual clock is below 500 kHz.
+static void spi_complete(LPSPI_Type *base, lpspi_master_handle_t *handle,
+                         status_t status, void *user_data) {
+  (void)base;
+  (void)handle;
+  (void)user_data;
+  spi_status = status;
+  spi_done = true;
+}
+
+// Hardware mode-0 sampling avoids the ESP32 DMA MISO hold-time limitation.
 static uint8_t exchange(uint8_t value) {
-  if ((service_bytes++ & 15U) == 0 && !within_budget()) {
+  if (timed_out || ((service_bytes++ & 15U) == 0 && !within_budget())) {
     return 0xff;
   }
-  uint8_t reply = 0;
-  for (unsigned bit = 0; bit < 8; bit++) {
-    GPIO_PinWrite(GPIO1, SPI_MOSI_PIN, (value & 0x80) != 0);
-    value <<= 1;
-    SDK_DelayAtLeastUs(1, SystemCoreClock);
-    GPIO_PinWrite(GPIO1, SPI_SCK_PIN, 1);
-    SDK_DelayAtLeastUs(1, SystemCoreClock);
-    reply = (uint8_t)((reply << 1) | GPIO_PinRead(GPIO1, SPI_MISO_PIN));
-    GPIO_PinWrite(GPIO1, SPI_SCK_PIN, 0);
+  uint8_t reply = 0xff;
+  lpspi_transfer_t transfer = {
+      .txData = &value,
+      .rxData = &reply,
+      .dataSize = 1,
+      .configFlags = kLPSPI_MasterPcsContinuous,
+  };
+  spi_done = false;
+  status_t status = LPSPI_MasterTransferNonBlocking(LPSPI1, &spi_handle, &transfer);
+  if (status == kStatus_Success) {
+    while (!spi_done) {
+      if (!within_budget()) {
+        LPSPI_MasterTransferAbort(LPSPI1, &spi_handle);
+        spi_error("LPSPI deadline", 0);
+        return 0xff;
+      }
+    }
+    status = spi_status;
+  }
+  if (status != kStatus_Success) {
+    timed_out = true;
+    spi_error("LPSPI transfer", status);
   }
   return reply;
 }
@@ -189,15 +212,32 @@ static bool init_esp(void) {
   GPIO_PinInit(GPIO1, ESP_BUSY_PIN, &input);
   IOMUXC_SetPinConfig(IOMUXC_GPIO_AD_11_GPIOMUX_IO25, 0x00B0U);
   IOMUXC_SetPinMux(IOMUXC_GPIO_AD_11_GPIOMUX_IO25, 0);
-  GPIO_PinInit(GPIO1, SPI_MISO_PIN, &input);
-  IOMUXC_SetPinConfig(IOMUXC_GPIO_AD_03_GPIOMUX_IO17, 0x00B0U);
-  IOMUXC_SetPinMux(IOMUXC_GPIO_AD_03_GPIOMUX_IO17, 0);
-  GPIO_PinInit(GPIO1, SPI_MOSI_PIN, &output_low);
-  IOMUXC_SetPinConfig(IOMUXC_GPIO_AD_04_GPIOMUX_IO18, 0x00B0U);
-  IOMUXC_SetPinMux(IOMUXC_GPIO_AD_04_GPIOMUX_IO18, 0);
-  GPIO_PinInit(GPIO1, SPI_SCK_PIN, &output_low);
-  IOMUXC_SetPinConfig(IOMUXC_GPIO_AD_06_GPIOMUX_IO20, 0x00B0U);
-  IOMUXC_SetPinMux(IOMUXC_GPIO_AD_06_GPIOMUX_IO20, 0);
+  // Use the same LPSPI1 routing and pad settings as the Metro microSD test.
+  IOMUXC_SetPinMux(IOMUXC_GPIO_AD_03_LPSPI1_SDI, 0);
+  IOMUXC_SetPinMux(IOMUXC_GPIO_AD_04_LPSPI1_SDO, 0);
+  IOMUXC_SetPinMux(IOMUXC_GPIO_AD_06_LPSPI1_SCK, 0);
+  IOMUXC_SetPinConfig(IOMUXC_GPIO_AD_03_LPSPI1_SDI, 0x10A0U);
+  IOMUXC_SetPinConfig(IOMUXC_GPIO_AD_04_LPSPI1_SDO, 0x10A0U);
+  IOMUXC_SetPinConfig(IOMUXC_GPIO_AD_06_LPSPI1_SCK, 0x10A0U);
+  lpspi_master_config_t spi_config;
+  LPSPI_MasterGetDefaultConfig(&spi_config);
+  spi_config.baudRate = 1000000;
+  spi_config.bitsPerFrame = 8;
+  spi_config.cpol = kLPSPI_ClockPolarityActiveHigh;
+  spi_config.cpha = kLPSPI_ClockPhaseFirstEdge;
+  spi_config.direction = kLPSPI_MsbFirst;
+  printf("WiFi SPI: before LPSPI init\n");
+  fflush(stdout);
+  demo_service();
+  LPSPI_MasterInit(LPSPI1, &spi_config,
+                   CLOCK_GetClockRootFreq(kCLOCK_LpspiClkRoot));
+  printf("WiFi SPI: after LPSPI init\n");
+  fflush(stdout);
+  demo_service();
+  LPSPI_MasterTransferCreateHandle(LPSPI1, &spi_handle, spi_complete, NULL);
+  printf("WiFi SPI: after LPSPI handle\n");
+  fflush(stdout);
+  demo_service();
   GPIO_PinInit(ESP32_GPIO0_PORT, ESP32_GPIO0_PIN, &output_high);
   IOMUXC_SetPinConfig(ESP32_GPIO0_PINMUX, 0x00B0U);
   IOMUXC_SetPinMux(ESP32_GPIO0_PINMUX, 0);
