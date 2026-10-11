@@ -11,15 +11,15 @@ description: The TinyUF2 HIL contract. Use when a change needs hardware evidence
 
 Run `hostname` first.
 - `htpc`: the roster is `test/hil/local.json`, whose `host` names it; `run` refuses on any other host.
-- Any other host has no TinyUF2 rig yet; ci.lan is a follow-up. An agent that cannot ask (`hil-operator`) returns one row per requested board with `ran: false, pass: false` and `detail` naming the host.
+- Any other host has no TinyUF2 rig yet; ci.lan is a follow-up. An agent that cannot ask (`hil-operator`) returns an operator-authored row per requested board (Reporting) with `detail` naming the host.
 
-A roster entry keeps tinyusb's shape (`name`, `uid`, `flasher {name, uid, args}`), so agentrc's `rtt.py`, `pc_sample.py` and `probe_state.py` resolve the probe with `--hil-config test/hil/local.json --board <name>`. The `tinyuf2` block holds what only TinyUF2 needs:
+A roster entry keeps tinyusb's shape (`name`, `uid`, `flasher {name, uid, args}`), so agentrc's `rtt.py`, `pc_sample.py` and `probe_state.py` resolve the probe with `--hil-config test/hil/local.json --board <name>`. Those scripts do not read the `tinyuf2` block: pass its J-Link settings yourself, `--interface swd --speed 4000` for `{"if": "SWD", "speed": "4000"}`. The `tinyuf2` block holds what only TinyUF2 needs:
 - the J-Link interface and speed;
 - the install and app ranges, cross-checked against the board's source before any hardware access;
 - the pinned restoration image;
 - the re-entry path and the recovery note.
 
-The battery runs a board only after commissioning sets `reentry` and confirms `uid`; `install` and `restore` work without `reentry`, for commissioning.
+The battery runs a board only after commissioning sets `reentry` and confirms `uid`; `install` and `restore` work without `reentry`, for commissioning. Only commissioned roster boards can be offered for a run. Adding a board is commissioning, the lead's (below), never a review-time or dispatch-time action: the runner refuses a build record from a dirty tree, an uncommitted roster entry included.
 
 ## Locks
 
@@ -40,7 +40,7 @@ Locks are tinyusb's: one kernel flock per board in `/tmp/tinyusb-hil-locks/`, ta
 
   Manual exits: 0 the operation succeeded (for `restore`, the board is restored and in DFU with the pinned version); 1 it failed and the board's state is unknown; 2 refused before any hardware access; 4 a child survived SIGKILL, so keep the hold until it is gone.
 
-  On a refused hold, report the holder from `<lock.helper> status`; never kill it. A `hil_test.py` holder whose record has `role: cleanup-holder` never frees on its own: report it as a blocker that needs the recovery dispatch (Exit 4), without waiting. Any other `hil_test.py` holder is a battery run; wait for it within the lock-wait budget.
+  On a refused hold, report the holder from `python3 <lock.helper> status` (no board argument; it prints every holder); never kill it. A `hil_test.py` holder whose record has `role: cleanup-holder` never frees on its own: report it as a blocker that needs the recovery dispatch (Exit 4), without waiting. Any other `hil_test.py` holder is a battery run; wait for it within the lock-wait budget.
 - **Restoration firmware** for a hw-validator or hw-debugger dispatch is the roster's `tinyuf2.restore` (`bin`, `sha256`, `version`). `restore --under-hold` programs and verifies it, and its `restored.evidence` (DFU with that version on the board's serial) is the run-state observation that Cleanup records.
 - **Lock-wait budget:** htpc has no CI runner, so it is the dev-bench row of chief's budget, 2 min, unless the dispatch names another.
 
@@ -84,15 +84,36 @@ The last stdout line is JSON, also written to its `reportPath`; read that path, 
 | 2 | refused before any hardware access (usage, roster, source, build record, lock helper, lock dir) |
 | 4 | cleanup failed; the board is held when `restored.heldAfter` (not under `HIL_NO_BOARD_LOCK`). From `install` or `restore`: a child survived; keep your hold until it is gone |
 
-A delegated run (`hil-operator`) returns `{pass, results, caveat, wedged}`:
+A delegated run (`hil-operator`) returns `{pass, results, caveat, wedged}` and, beside them, `reportPaths`:
 - `pass`, `results` and `caveat` are copied verbatim from the JSON;
-- `wedged` lists the boards the operator saw stop responding.
+- `wedged` lists the boards the operator saw stop responding;
+- `reportPaths` maps each board to its JSON's `reportPath`, which a recovery dispatch needs.
+- With several boards, the operator runs one battery per board, one after another: `results` holds every board's row, `pass` is true only when every run's is, and `caveat` joins the runs' non-empty caveats.
+- On another host, where nothing was launched, the operator writes `pass: false`, `caveat: ""` and one row per requested board, exactly `{board, ran: false, pass: false, locked: false, detail}`, with `detail` naming the host.
+- A launched run that ended without printing its JSON (killed, crashed) may have programmed the board and left it unrestored. The operator writes `pass: false`, `caveat: "run ended without a report; board state unknown"` and the same row shape with `ran: null`, and `detail` naming the exit status, the output tail and `python3 <lock.helper> status` at that moment.
+- The operator runs the battery once and returns. It never waits on a lock and never retries: a `locked` row comes back as is, and the caller rules below are the caller's (chief's).
+- A recovery dispatch names the board, the holder pid and the failed run's `reportPath`. It runs `restore --recover-holder` in the foreground and returns `{pass, results, caveat: "", wedged, exit, error, survivors}`: that JSON's `results`, `error` (`null` when absent) and `survivors` (`[]` when absent), and the exit status. Any exit but 0 is a blocker for the caller. A probe that cannot connect is `needs-user` (ISP0 below).
+
+### Review mapping
+
+A review (`pr-review`) maps each board's row:
+- `pass`: `ran`, `pass` and `restored.pass` all true;
+- `fail`: `ran` and not `pass`, with a step whose `pass` is false, and that step's `detail`;
+- `not-run`: `ran` false (`locked`, a refusal or another host), with its `detail`;
+- a blocker, never a `fail` row: exit 4, `ran: null` (no report), and an abort, which is `ran` and not `pass` with no failing step (an interruption or an unexpected error, named in the board's `detail`).
+
+`testedHead` is the build record's `input.head`. `regression` is `unknown` unless the battery also ran on the merge base.
 
 ### Caller rules
 - **Retry.** A failed test may be retried once, and only when no board is `locked`, `wedged` or `heldAfter`, `caveat` is empty, and every board was restored.
   - Keep both reports. A fail-then-pass is a pass with `flaky: true`, quoting both.
-  - An abort, a cleanup failure, `heldAfter` or `wedged` is never retried; it is a blocker until diagnosed.
-- **Locked.** `locked` is an admission refusal, not a test failure. Admit again after the holder releases, within the lock-wait budget. Otherwise report the board not covered, naming the holder.
+  - An abort (a failed run with no failing step), a cleanup failure, `heldAfter`, `wedged` or a missing report is never retried; it is a blocker until diagnosed.
+  - A board whose run ended without a report gets a manual `restore --under-hold` before its next run, and only once no such process is left on the host. Killing the runner frees its lock but not its children, which `restore` cannot see, and nothing ties a surviving child to the run that died, so the check is host-wide: any other battery, holder or J-Link session also keeps the blocker. Run this as a command of its own, since a shell line carrying the plain name would match itself; none is left when it prints nothing:
+
+    `pgrep -ax JLinkExe; pgrep -ax mcopy; pgrep -af '[h]il_test\.py'`
+
+    The last one also covers the runner's `fat-read` subcommand. While a process is left, or this cannot be established, the blocker stays.
+- **Locked.** `locked` is an admission refusal, not a test failure. The caller admits again after the holder releases, within the lock-wait budget; the operator does not wait. Otherwise report the board not covered, naming the holder.
 - **Exit 4.**
   - The board stays held by a detached holder forked from the run: reason `hil_test.py`, `role: cleanup-holder`, with its pid in `restored.holder`. It ignores SIGTERM and SIGINT, so a timeout kill cannot free the board; only recovery releases it.
   - If no holder could be forked, `restored.holder.inProcess` is set and the runner itself is the holder: it prints the report, closes its stdio and does not exit until recovered, so no completion notice arrives. When a run's notice is overdue, read the task's output: a final JSON line with `restored.holder.inProcess` true is this case. Do not wait for its exit.
@@ -108,7 +129,7 @@ A delegated run (`hil-operator`) returns `{pass, results, caveat, wedged}`:
 
 ## Selection
 
-`python3 .claude/skills/build/scripts/check_build.py --select-only (--diff-file <file> | --base <ref> [--worktree]) --hil-config test/hil/local.json` adds `hil.{boards, full, uncovered}`. Run the battery when `full` is set or `boards` is non-empty. `uncovered` names what no roster board on this host can run; report it, never treat it as covered. The runner and roster (`.claude/skills/hil/scripts/`, `test/hil/*.json`) select every roster board; a wording change to this page selects none.
+`python3 .claude/skills/build/scripts/check_build.py --select-only (--diff-file <file> | --base <ref> [--worktree]) --hil-config test/hil/local.json` adds `hil.{boards, full, uncovered}`. Run the battery when `full` is set or `boards` is non-empty. An empty diff file selects nothing; a caller without the changed-file list passes `--base`. A fresh worktree, a review worktree included, needs CLAUDE.md's worktree setup (submodules and dependency links) before `check_build.py` can build in it. `uncovered` names what no roster board on this host can run; report it, never treat it as covered. The runner and roster (`.claude/skills/hil/scripts/`, `test/hil/*.json`) select every roster board; a wording change to this page selects none.
 
 ## Commissioning a board
 
@@ -145,3 +166,4 @@ Commissioning is the lead's, done interactively under a manual hold, not an agen
 - Not covered: self-update, an interrupted update, malformed UF2 input, the physical double tap, and boards other than lpcxpresso55s69.
 - Every probe and USB path is unverified until commissioning has run on the board.
 - If no cleanup holder can be forked (exit 4 with `restored.holder.inProcess`), the runner never exits until recovered.
+- No reproducer for an instrumented build: the battery refuses a dirty build, and `install` only programs. A claim that needs one waits for the `commission` subcommand's steps, or is reported pending.
