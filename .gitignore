@@ -8,4 +8,6 @@ _bin/
 *.cmake~
 sdkconfig~
 *.yml~
-ports/espressif/apps/self_update/main/bootloader_bin.c
+cmake-build/
+lib/mcu/
+lib/sct_neopixel

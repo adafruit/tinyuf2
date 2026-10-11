@@ -70,7 +70,7 @@ get-deps:
 	$(PYTHON3) $(TOP)/tools/get_deps.py --board $(BOARD)
 
 #-------------- Artifacts --------------
-SELF_UF2 ?= apps/self_update/$(BUILD)/update-$(OUTNAME).uf2
+SELF_UF2 ?= $(SELF_BUILD)/update-$(OUTNAME).uf2
 
 $(BIN):
 	@$(MKDIR) -p $@

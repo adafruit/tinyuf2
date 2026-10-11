@@ -76,7 +76,9 @@ endif ()
 set(FAMILY_PATH ${TOP}/ports/${FAMILY} CACHE INTERNAL "FAMILY_PATH")
 set(BOARD_PATH ${TOP}/ports/${FAMILY}/boards/${BOARD} CACHE INTERNAL "BOARD_PATH")
 
-set(ARTIFACT_PATH ${FAMILY_PATH}/_bin/${BOARD})
+if (NOT DEFINED ARTIFACT_PATH)
+  set(ARTIFACT_PATH ${FAMILY_PATH}/_bin/${BOARD})
+endif ()
 execute_process(COMMAND mkdir -p ${ARTIFACT_PATH})
 execute_process(COMMAND mkdir -p ${ARTIFACT_PATH}/apps)
 
@@ -207,7 +209,7 @@ function(family_configure_tinyuf2 TARGET OPT_MCU)
   family_add_tinyusb(${TARGET} ${OPT_MCU})
 
   # Add uf2 version
-  execute_process(COMMAND ${GIT_EXECUTABLE} describe --dirty --always --tags OUTPUT_VARIABLE GIT_VERSION)
+  execute_process(COMMAND ${GIT_EXECUTABLE} describe --dirty --always --tags WORKING_DIRECTORY ${TOP} OUTPUT_VARIABLE GIT_VERSION)
   string(STRIP ${GIT_VERSION} GIT_VERSION)
   cmake_print_variables(GIT_VERSION)
   target_compile_definitions(${TARGET} PUBLIC
