@@ -9,7 +9,20 @@ _interrupts_origin = _flash_base + 0xC000;
 PROVIDE(_interrupts_length = 0x0400);
 
 _text_origin = _interrupts_origin + _interrupts_length;
-PROVIDE(_text_length = 64K);
+/* The application runs from flash; override the bootloader RAM text limit. */
+_text_length = 64K;
+
+/* Applications do not carry the ROM boot headers used by TinyUF2. */
+SECTIONS
+{
+  /DISCARD/ :
+  {
+    *(.boot_hdr.conf)
+    *(.boot_hdr.ivt)
+    *(.boot_hdr.boot_data)
+    *(.boot_hdr.dcd_data)
+  }
+}
 
 /* Specify the memory areas */
 MEMORY

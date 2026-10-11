@@ -61,6 +61,11 @@ static uint8_t all_pins[] = {
 };
 
 static bool test = false;
+static bool run_sd_test = true;
+static const uint8_t TEST_GPIO_POWER = 0xAE;
+static const uint8_t TEST_GPIO_POWER_SD = 0xAF;
+static const float DC_INPUT_MIN_VOLTS = 8.0f;
+static const float DC_INPUT_MAX_VOLTS = 13.0f;
 
 bool testpins(uint8_t a, uint8_t b, uint8_t *allpins, uint8_t num_allpins);
 void test_print_adc(void);
@@ -85,6 +90,8 @@ int main(void) {
 
   while (1) {
     loop();
+    // Failure messages may have no newline; drain libc before the USB FIFO.
+    fflush(stdout);
     tud_task();
     tud_cdc_write_flush();
 
@@ -98,7 +105,8 @@ void loop(void) {
     uint32_t count;
 
     count = tud_cdc_read(serial_buf, sizeof(serial_buf));
-    if (count && serial_buf[0] == 0xAF) {
+    if (count && (serial_buf[0] == TEST_GPIO_POWER || serial_buf[0] == TEST_GPIO_POWER_SD)) {
+      run_sd_test = serial_buf[0] == TEST_GPIO_POWER_SD;
       test = true;
     }
   }
@@ -117,6 +125,7 @@ void loop(void) {
     return;
   }
 
+  test = false; // Run one pass per start command, including failed passes.
   delay(100);
   Serial_printf("\n\r\n\rHello Metro M7 iMX RT1011 Test! %lu\n\r", millis());
 
@@ -149,15 +158,19 @@ void loop(void) {
     Serial_printf("5V power supply reading wrong?");
     return;
   }
-  // Test 5V
-  int nine_mV = (float)analogRead(AD0) * 11.0 * 3.3 * 1000 / 4095.0;
-  Serial_printf("9V out = %d\n\r", (int)nine_mV);
-  if (abs(nine_mV - 9000) > 1000) {
-    Serial_printf("9V power supply reading wrong?");
+  // Accept the fixture's 9V or 12V DC supply, with measurement tolerance.
+  float dc_input_volts = (float)analogRead(AD0) * 11.0f * 3.3f / 4095.0f;
+  Serial_printf("DC input = %d mV\n\r", (int)(dc_input_volts * 1000.0f));
+  if (dc_input_volts < DC_INPUT_MIN_VOLTS || dc_input_volts > DC_INPUT_MAX_VOLTS) {
+    Serial_printf("DC input power supply reading wrong?");
     return;
   }
 
-  if (! test_sd() ) return;
+  if (run_sd_test) {
+    if (!test_sd()) return;
+  } else {
+    Serial_printf("SD test skipped\r\n");
+  }
 
 
   Serial_printf("*** TEST OK! ***\n\r");
@@ -285,6 +298,8 @@ void test_print_adc(void) {
 //--------------------------------------------------------------------+
 #define LPSPI1_CLOCK_FREQ 105600000UL
 #define LPSPI_MAX_FREQ 25000000UL
+static const uint32_t SD_INIT_TIMEOUT_MS = 10000;
+static uint32_t sd_init_started;
 
 lpspi_master_config_t spi_config = {
     .baudRate = 400000UL,
@@ -309,18 +324,15 @@ void sdhost_init(void){
 
 /*!< SPI de-initialization */
 void sdhost_deinit(void){
-
+  digitalWrite(SD_CS, HIGH);
 }
 
-static bool force_cs = false;
 /*!< SPI CS active polarity */
 void sdhost_csActivePolarity(sdspi_cs_active_polarity_t polarity){
   if (polarity == kSDSPI_CsActivePolarityHigh) {
     digitalWrite(SD_CS, HIGH);
-    force_cs = true;
   }else {
     digitalWrite(SD_CS, LOW);
-    force_cs = false;
   }
 }
 
@@ -336,6 +348,8 @@ status_t sdhost_setFrequency(uint32_t frequency){
   spi_config.betweenTransferDelayInNanoSec = ns_delay;
 
   LPSPI_MasterInit(LPSPI1, &spi_config, LPSPI1_CLOCK_FREQ);
+  // SD requires MOSI high while clocking initialization and response bytes.
+  LPSPI_SetDummyData(LPSPI1, 0xFF);
 
   return kStatus_Success;
 }
@@ -351,17 +365,13 @@ status_t sdhost_exchange(uint8_t *out, uint8_t *in, uint32_t size) {
 
   status_t status;
 
-  if (!force_cs) {
-    digitalWrite(SD_CS, LOW);
-  }
-
+  // Keep CS asserted between the command and its separate response transfers.
   do {
+    tud_task();
+    tud_cdc_write_flush();
+    if (millis() - sd_init_started >= SD_INIT_TIMEOUT_MS) return kStatus_Timeout;
     status = LPSPI_MasterTransferBlocking(LPSPI1, &xfer);
   } while ( status == kStatus_LPSPI_Busy );
-
-  if (!force_cs) {
-    digitalWrite(SD_CS, HIGH);
-  }
 
   if ( status != kStatus_Success ) {
     printf("SPI Xfer: %ld\r\n", status);
@@ -383,6 +393,25 @@ sdspi_host_t sdhost = {
 sdspi_card_t sdcard = {
     .host = &sdhost,
 };
+
+// Temporary diagnostic: print only the first three CMD0 and CMD8 replies.
+static uint8_t sd_command_trace_count[2];
+
+void sdspi_trace_command(uint8_t command, status_t status,
+                         const uint8_t *response, uint8_t response_length) {
+  uint8_t trace_index = command == 0 ? 0 : 1;
+  uint8_t count = sd_command_trace_count[trace_index];
+  if (count >= 3) return;
+  sd_command_trace_count[trace_index]++;
+  printf("SD CMD%u attempt %u: status %ld R1=%02X", command, count + 1,
+         (long)status, response[0]);
+  if (response_length == 5) {
+    printf(" R7=%02X %02X %02X %02X", response[1], response[2], response[3], response[4]);
+  }
+  printf("\r\n");
+  fflush(stdout);
+  delay(1);
+}
 
 bool test_sd(void) {
   // init SD CS & Detect
@@ -407,16 +436,25 @@ bool test_sd(void) {
   }
 
   printf("SD card is detected\r\n");
+  fflush(stdout);
+  delay(10);
+  memset(sd_command_trace_count, 0, sizeof(sd_command_trace_count));
+  sdcard.host = &sdhost; // SDSPI_Deinit clears the card, including this pointer.
+  sd_init_started = millis();
   int status = SDSPI_Init(&sdcard);
 
+  if (millis() - sd_init_started >= SD_INIT_TIMEOUT_MS) {
+    printf("SD initialization timeout after 10000 ms\r\n");
+  }
   printf("SDSPI_Init: %d\r\n", status);
   if (status == kStatus_Success) {
     uint32_t card_size_mb = sdcard.blockCount / 2 / 1024;
     printf("Card size: %lu MB\r\n", card_size_mb);
   }
   tud_cdc_write_flush();
+  SDSPI_Deinit(&sdcard); // Release CS after either success or initialization failure.
 
-  return true;
+  return status == kStatus_Success;
 }
 
 //--------------------------------------------------------------------+
