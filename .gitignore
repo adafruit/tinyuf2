@@ -11,3 +11,5 @@ sdkconfig~
 cmake-build/
 lib/mcu/
 lib/sct_neopixel
+__pycache__/
+*.pyc
