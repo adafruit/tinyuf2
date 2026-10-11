@@ -229,8 +229,17 @@ static bool init_esp(void) {
   printf("WiFi SPI: before LPSPI init\n");
   fflush(stdout);
   delay(100);
-  LPSPI_MasterInit(LPSPI1, &spi_config,
-                   CLOCK_GetClockRootFreq(kCLOCK_LpspiClkRoot));
+  // BOARD_BootClockRUN selects the 528 MHz system PLL divided by five.
+  // Keep this source frequency consistent with the validated microSD test.
+  const uint32_t lpspi_source_clock_hz = 105600000UL;
+  printf("WiFi clocks: SYS=%08lX NUM=%08lX DENOM=%08lX CBCMR=%08lX\n",
+         (unsigned long)CCM_ANALOG->PLL_SYS,
+         (unsigned long)CCM_ANALOG->PLL_SYS_NUM,
+         (unsigned long)CCM_ANALOG->PLL_SYS_DENOM,
+         (unsigned long)CCM->CBCMR);
+  fflush(stdout);
+  delay(100);
+  LPSPI_MasterInit(LPSPI1, &spi_config, lpspi_source_clock_hz);
   printf("WiFi SPI: after LPSPI init\n");
   fflush(stdout);
   delay(100);
