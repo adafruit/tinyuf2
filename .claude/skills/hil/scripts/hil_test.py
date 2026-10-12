@@ -459,11 +459,10 @@ class Probe:
         f.write(f'# JLinkExe died (exit {code}) at the probe connect, before the target; retrying once\n')
       time.sleep(JLINK_RETRY_DELAY)
       code, out = spawn(cmd, self.log, PROBE_TIMEOUT)
-    if code < 0:   # a crash fails even a reset session: its commands may not have run
-      raise StepFail(f'JLinkExe failed (exit {code})', {'tail': out.strip().splitlines()[-5:]})
     judged = re.sub(BENIGN[self.b['device']], '', out) if self.b['device'] in BENIGN else out
-    if judge and (code or re.search(r'Verify failed|Could not|Cannot connect|ERROR|ResetTarget failed|Failed to halt|'
-                                    r'CPU is not halted', judged)):
+    # a crash fails even a reset session (judge=False): its commands may not have run
+    if code < 0 or judge and (code or re.search(r'Verify failed|Could not|Cannot connect|ERROR|ResetTarget failed|'
+                                                r'Failed to halt|CPU is not halted', judged)):
       raise StepFail(f'JLinkExe failed (exit {code})', {'tail': out.strip().splitlines()[-5:]})
     return out
 
@@ -840,14 +839,16 @@ def verify_record(record_path, board, facts):
     if bad:
       raise Refused(f'build inputs are not clean: {bad} (commit, or rebuild from a clean checkout)')
   root = cb.ROOT / row['buildDir']
-  files = {}
-  for kind in ('hex', 'bin'):
-    rel = f'_bin/tinyuf2-{board["src"]}.{kind}'
-    p = root / rel
-    if row.get('sha256', {}).get(rel) != sha256(p):
+  files, digests = {}, {}
+  for p in cb.expected_artifacts(board['port'], board['src'], 'make', root):
+    kind = p.suffix[1:]
+    if kind not in ('hex', 'bin'):
+      continue
+    digests[kind] = sha256(p)
+    if row.get('sha256', {}).get(str(p.relative_to(root))) != digests[kind]:
       raise Refused(f'{p}: hash differs from the build record')
     files[kind] = p
-  return files, {'path': str(files['bin']), 'sha256': sha256(files['bin']), 'buildRecord': str(record_path),
+  return files, {'path': str(files['bin']), 'sha256': digests['bin'], 'buildRecord': str(record_path),
                  'defines': rec.get('defines', []), 'version': embedded_version(files['bin'])}
 
 

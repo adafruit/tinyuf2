@@ -369,7 +369,7 @@ def identity(ports=()):
   """What a result was built from: HEAD, whether the tree differs from it, the submodule commits, the
   commits of the get_deps dependencies `ports` use, and which of those inputs cannot be trusted:
   local changes, not a checkout of its own, or a dependency off its get_deps pin."""
-  subs, missing = {}, []
+  subs = {}
   for line in git('submodule', 'status').splitlines():
     sha, path = line[1:].split()[:2]
     subs[path] = sha
@@ -378,10 +378,16 @@ def identity(ports=()):
   missing = [p for p in [*subs, *used] if not own_checkout(p)]
   deps = {dep: git_in(dep, 'rev-parse', 'HEAD').strip() for dep in used if dep not in missing}
   pins = deps_pins()
-  return {'head': git('rev-parse', 'HEAD').strip(), 'dirty': bool(git('status', '--porcelain').strip()),
-          'submodules': subs, 'deps': deps,
-          'dirtyInputs': dirty_inputs([p for p in [*subs, *deps] if p not in missing]),
-          'missingInputs': missing, 'depsOffPin': [d for d, sha in deps.items() if sha != pins[d]]}
+  info = {'head': git('rev-parse', 'HEAD').strip(), 'dirty': bool(git('status', '--porcelain').strip()),
+          'submodules': subs, 'deps': deps, 'missingInputs': missing,
+          'depsOffPin': [d for d, sha in deps.items() if sha != pins[d]]}
+  info['dirtyInputs'] = dirty_inputs(own_inputs(info))
+  return info
+
+
+def own_inputs(info):
+  """The submodules and dependencies `identity` could check, i.e. those that are checkouts of their own."""
+  return [p for p in [*info['submodules'], *info['deps']] if p not in info['missingInputs']]
 
 
 def select(paths):
@@ -752,7 +758,7 @@ def main(argv=None):
     records = [build_board(b, backend, args, idf) for (b, backend) in sel['boards']]
     for r in records:
       r['selectedBy'] = sel['boards'][(r['board'], r['backend'])]
-    after = dirty_inputs([p for p in [*info['submodules'], *info['deps']] if p not in info['missingInputs']])
+    after = dirty_inputs(own_inputs(info))
     info['inputsDirtiedByBuild'] = sorted(set(after) - set(info['dirtyInputs']))
     ghostfat = run_ghostfat(args.verbose) if sel['ghostfat'] else []
     tests = run_tests() if sel['tests'] else None
