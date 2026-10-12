@@ -767,6 +767,9 @@ class Fat:
     self.root = (self.res + self.nfat * self.spf) * self.bps
     self.data = self.root + self.roots * 32
     self.fat16 = bs[54:62].startswith(b'FAT16')
+    # read once: each read opens the device, and its last close drops the page cache, so a chain walked
+    # entry by entry costs a USB read per cluster (bench: the nonce block 4 MiB into CURRENT.UF2 took >20s)
+    self.fat = self.read(self.res * self.bps, self.spf * self.bps)
 
   def read(self, off, n):
     fd = os.open(self.dev, os.O_RDONLY)
@@ -790,10 +793,9 @@ class Fat:
     return out
 
   def next_cluster(self, c):
-    off = self.res * self.bps
     if self.fat16:
-      return struct.unpack('<H', self.read(off + 2 * c, 2))[0]
-    v = struct.unpack('<H', self.read(off + c * 3 // 2, 2))[0]
+      return struct.unpack_from('<H', self.fat, 2 * c)[0]
+    v = struct.unpack_from('<H', self.fat, c * 3 // 2)[0]
     return v >> 4 if c & 1 else v & 0xFFF
 
   def file(self, name, length=None, offset=0):

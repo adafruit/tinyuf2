@@ -1095,7 +1095,11 @@ class Fat(Tmp):
 
   def test_an_offset_skips_whole_clusters_unread(self):
     fat = ht.Fat(self.vol(fat_image()))
-    self.assertEqual(fat.file('CURRENT.UF2', 100, 512)[0], b'b' * 100)
+    reads = []
+    real = fat.read
+    with mock.patch.object(fat, 'read', lambda off, n: reads.append(off) or real(off, n)):
+      self.assertEqual(fat.file('CURRENT.UF2', 100, 512)[0], b'b' * 100)
+    self.assertEqual(reads, [fat.root, fat.data + 1024])   # the directory and the one cluster; the FAT was read once
     for off in (100, 1536):
       with self.subTest(off), self.assertRaisesRegex(ValueError, 'not a cluster boundary'):
         fat.file('CURRENT.UF2', 100, off)
