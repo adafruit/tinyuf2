@@ -316,28 +316,37 @@ int wifi_scan(void) {
       goto fail;
     }
     int valid = 0;
+    bool details_available = true;
     for (unsigned i = 0; i < count; i++) {
       if (has_name(i)) {
         // Detail responses reuse slot zero; save this SSID before querying.
         uint8_t name[MAX_SSID_LENGTH];
         uint8_t name_length = lengths[i];
         memcpy(name, names[i], name_length);
-        if (!network_detail(0x32, i, sizeof(int32_t))) {
-          printf("WiFi FAILED: RSSI response or timeout\n\r");
-          goto fail;
+        // Named SSIDs already prove the scan. Optional details must not turn
+        // a slow serial consumer into a radio failure. Stop detail requests
+        // after the first error, keeping the original SPI/scan deadline.
+        bool rssi_ok = details_available && network_detail(0x32, i, sizeof(int32_t));
+        int32_t rssi = 0;
+        if (rssi_ok) {
+          // NINA and this M7 both encode int32_t as little-endian.
+          memcpy(&rssi, names[0], sizeof(rssi));
         }
-        // NINA and this M7 both encode int32_t as little-endian.
-        int32_t rssi;
-        memcpy(&rssi, names[0], sizeof(rssi));
-        if (!network_detail(0x33, i, 1)) {
-          printf("WiFi FAILED: encryption response or timeout\n\r");
-          goto fail;
-        }
+        bool encryption_ok = rssi_ok && network_detail(0x33, i, 1);
         uint8_t encryption = names[0][0];
+        details_available = encryption_ok;
         printf("SSID: ");
         print_escaped(name, name_length);
-        printf(" | %ld dBm | %s (%u)\n\r", (long)rssi,
-               encryption_name(encryption), encryption);
+        if (rssi_ok) {
+          printf(" | %ld dBm", (long)rssi);
+        } else {
+          printf(" | RSSI unavailable");
+        }
+        if (encryption_ok) {
+          printf(" | %s (%u)\n\r", encryption_name(encryption), encryption);
+        } else {
+          printf(" | encryption unavailable\n\r");
+        }
         fflush(stdout);
         demo_service();
         valid++;

@@ -193,7 +193,12 @@ static bool test_board(void) {
 
   // test_print_adc();
   // Test 5V
-  int five_mV = (float)analogRead(AD1) * 2.0 * 3.3 * 1000 / 4095.0;
+  int five_raw = analogRead(AD1);
+  if (five_raw < 0) {
+    Serial_printf("5V ADC failed\n\r");
+    return false;
+  }
+  int five_mV = (float)five_raw * 2.0 * 3.3 * 1000 / 4095.0;
   Serial_printf("5V out = %d\n\r", (int)five_mV);
   if (abs(five_mV - 5000) > 500) {
     Serial_printf("5V power supply reading wrong?");
@@ -201,6 +206,10 @@ static bool test_board(void) {
   }
   // Accept the fixture's 9V or 12V DC supply, with measurement tolerance.
   int dc_raw = analogRead(AD0);
+  if (dc_raw < 0) {
+    Serial_printf("DC input ADC failed\n\r");
+    return false;
+  }
   float dc_input_volts = (float)dc_raw * 11.0f * 3.3f / 4095.0f;
   Serial_printf("DC input = %d mV\n\r", (int)(dc_input_volts * 1000.0f));
   if (dc_input_volts < DC_INPUT_MIN_VOLTS || dc_input_volts > DC_INPUT_MAX_VOLTS) {
