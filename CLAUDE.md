@@ -30,6 +30,6 @@
 
 - Before opening or updating a PR, follow Build and Validate.
 - After opening a PR, ask the human to authorize one headless `chief` invocation to drive reviews and CI to green under agentrc chief's Authorization exception. Name the PR URL, head repository and branch, and actions: push commits to that branch, post replies to the PR's review feedback, and resolve review threads through `pr-babysit` with `autoPush: true`. On an affirmative answer, launch it in the PR worktree through agentrc's `headless-chief` skill (`chief_run.py`), never a bare `claude -p`, and relay its exit as that skill directs. The task names the PR, head repository and branch, expected HEAD and scope, and includes the question and answer verbatim; a relaunch for the same PR may carry that exchange copied verbatim from the earlier launch task. Leave the checkout to chief until it exits. TinyUF2 `pr-babysit` args:
-  `{"pr": <num>, "reviewers": ["copilot", "code-scanning"], "protected": "^(lib/(tinyusb|uf2)|test/hil/[^/]+\\.json)$"}`
-  (until CodeRabbit or Greptile is installed on the repository, only Copilot and code scanning review it, both harvested without gating; `protected` keeps the submodule pins and the HIL rosters out of automated fixes).
+  `{"pr": <num>, "protected": "^(lib/(tinyusb|uf2)|test/hil/[^/]+\\.json)$"}`; reviewers are agentrc's default.
+  (`protected` keeps the submodule pins and the HIL rosters out of automated fixes).
 - The follow-up label is `followup`.
