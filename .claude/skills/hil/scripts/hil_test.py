@@ -45,10 +45,11 @@ SCB_VTOR, SCB_AIRCR, SCB_CPUID, DHCSR = 0xE000ED08, 0xE000ED0C, 0xE000ED00, 0xE0
 AIRCR_SYSRESETREQ = 0x05FA0004
 UF2_MAGIC = (0x0A324655, 0x9E5D5157, 0x0AB16F30)
 UF2_FLAG_FAMILY = 0x2000
-PROBE_TIMEOUT, USB_TIMEOUT, QUIET_TIME, KILL_WAIT, VERSION_TIMEOUT, UDEV_TIMEOUT = 120, 20, 3, 5, 20, 5
+PROBE_TIMEOUT, USB_TIMEOUT, QUIET_TIME, KILL_WAIT, UDEV_TIMEOUT = 120, 20, 3, 5, 5
+JLINK_RETRY_DELAY = 2
 UDEV_RULES = ('/etc/udev/rules.d', '/run/udev/rules.d')
 # J-Link notes that are not failures, per device, each with the line that shows the operation completed
-# (bench, V9.78: every MIMXRT1062 reset with an invalid app vector, then the reset halts as usual)
+# (bench: every MIMXRT1062 reset with an invalid app vector, then the reset halts as usual)
 BENIGN = {'MIMXRT1062xxx6A': r'(?m)^Could not find valid reset vector\.\nTarget halted on flash header read\.$'}
 
 
@@ -108,15 +109,13 @@ def load_board(config, name):
   jl = t.get('jlink') or {}
   if not (isinstance(jl.get('if'), str) and isinstance(jl.get('speed'), str)):
     raise Refused(f'{name}: tinyuf2.jlink needs explicit "if" and "speed"')
-  if not re.fullmatch(r'V\d+\.\d+[a-z]?', str(jl.get('version'))):
-    raise Refused(f'{name}: tinyuf2.jlink.version must be the commissioned J-Link version, e.g. "V9.78"')
   src = t.get('board', name)
   if not (isinstance(src, str) and re.fullmatch(r'[\w.-]+', src)):
     raise Refused(f'{name}: tinyuf2.board must be the TinyUF2 board name')
   lay, rest = t.get('layout') or {}, t.get('restore') or {}
   board = {
     'name': name, 'src': src, 'host': host, 'uid': b['uid'], 'probe': fl['uid'], 'device': m.group(1),
-    'if': jl['if'], 'speed': jl['speed'], 'jlinkVersion': jl['version'], 'port': t.get('port'), 'helper': helper,
+    'if': jl['if'], 'speed': jl['speed'], 'port': t.get('port'), 'helper': helper,
     'install': rng(lay.get('install'), 'layout.install'), 'app': rng(lay.get('app'), 'layout.app'),
     'page': lay.get('pageSize'), 'reentry': t.get('reentry'),
     'restore': {'bin': rest.get('bin'), 'sha256': rest.get('sha256'), 'version': rest.get('version'),
@@ -431,18 +430,37 @@ def still_alive(survivors):
 
 # ------------------------------------------------------------------ probe
 
+def died_at_probe_connect(code, out, probe):
+  """libjlinkarm's crash at the probe connect (SKILL.md, Limits): SIGSEGV or SIGABRT with this probe's
+  serial as the last J-Link line, before any target connect, so the session changed nothing and may run again.
+  Any other death leaves the target's state unknown."""
+  lines = [x.strip() for x in out.splitlines() if x.strip() and not re.match(r'(double free|free\(\)|malloc|corrupted )', x)]
+  last = re.fullmatch(r'S/N: (\d+)', lines[-1]) if lines else None
+  return code in (-signal.SIGSEGV, -signal.SIGABRT) and bool(last) and int(last.group(1)) == int(probe) and \
+    'Connecting to target' not in out
+
+
 class Probe:
   def __init__(self, board, workdir, log):
     self.b, self.dir, self.log = board, workdir, log
+    self.retried = []
 
   def run(self, commands, judge=True):
     """One JLinkExe session. judge=False is for a command that resets the target, which may drop the
     connection mid-transaction: its exit is recorded, and the caller's observation is the evidence."""
     script = self.dir / f'jlink-{time.monotonic_ns()}.jlink'
     script.write_text('\n'.join(list(commands) + ['exit']) + '\n')
-    code, out = spawn(['JLinkExe', '-USB', self.b['probe'], '-device', self.b['device'], '-if', self.b['if'],
-                       '-speed', self.b['speed'], '-autoconnect', '1', '-NoGui', '1', '-ExitOnError', '1',
-                       '-CommandFile', script], self.log, PROBE_TIMEOUT)
+    cmd = ['JLinkExe', '-USB', self.b['probe'], '-device', self.b['device'], '-if', self.b['if'], '-speed',
+           self.b['speed'], '-autoconnect', '1', '-NoGui', '1', '-ExitOnError', '1', '-CommandFile', script]
+    code, out = spawn(cmd, self.log, PROBE_TIMEOUT)
+    if died_at_probe_connect(code, out, self.b['probe']):
+      self.retried.append({'exit': code, 'script': script.name})
+      with open(self.log, 'a') as f:
+        f.write(f'# JLinkExe died (exit {code}) at the probe connect, before the target; retrying once\n')
+      time.sleep(JLINK_RETRY_DELAY)
+      code, out = spawn(cmd, self.log, PROBE_TIMEOUT)
+    if code < 0:   # a crash fails even a reset session: its commands may not have run
+      raise StepFail(f'JLinkExe failed (exit {code})', {'tail': out.strip().splitlines()[-5:]})
     judged = re.sub(BENIGN[self.b['device']], '', out) if self.b['device'] in BENIGN else out
     if judge and (code or re.search(r'Verify failed|Could not|Cannot connect|ERROR|ResetTarget failed|Failed to halt|'
                                     r'CPU is not halted', judged)):
@@ -1094,21 +1112,9 @@ def on_signal(signum, _):
   raise Interrupted(f'interrupted by {signal.Signals(signum).name}')
 
 
-def check_jlink_version(board, workdir):
-  """The J-Link software must be the version this board was commissioned with: the loader's flash
-  footprint was qualified for that version only. A session with only `exit` never connects."""
+def check_jlink():
   if shutil.which('JLinkExe') is None:
     raise Refused('JLinkExe must be on PATH')
-  script = workdir / 'version.jlink'
-  script.write_text('exit\n')
-  try:
-    _, out = spawn(['JLinkExe', '-NoGui', '1', '-CommandFile', script], workdir / 'hil.log', VERSION_TIMEOUT)
-  except StepFail as e:
-    raise Refused(f'JLinkExe gave no version: {e}')
-  m = re.search(r'SEGGER J-Link Commander (V\d+\.\d+[a-z]?)', out)
-  if not m or m.group(1) != board['jlinkVersion']:
-    raise Refused(f'JLinkExe is {m.group(1) if m else "of unknown version"}, but {board["name"]} was commissioned '
-                  f'with {board["jlinkVersion"]}: put that version first on PATH, or recommission the board')
 
 
 def reentry_decision(row):
@@ -1151,7 +1157,7 @@ def run_board(args, board, facts, helper, workdir):
   exclusion_configured(facts, board['uid'])
   if shutil.which('mcopy') is None:
     raise Refused('mcopy must be on PATH')
-  check_jlink_version(board, workdir)
+  check_jlink()
   bypass = os.environ.get('HIL_NO_BOARD_LOCK') == '1'
   # blocked from here until the process exits or becomes the holder (keep_held): a signal acts only
   # inside the battery, and the report and any hold are settled first
@@ -1174,7 +1180,7 @@ def run_board(args, board, facts, helper, workdir):
   except BaseException as e:   # anything after admission still restores below
     row['detail'] = f'{bat.at}: {e}' if isinstance(e, StepFail) else f'{bat.at}: {type(e).__name__}: {e}'
     code = 1
-  row['steps'] = bat.steps
+  row['steps'], row['jlinkRetried'] = bat.steps, bat.probe.retried   # the restore's retries land here too
   code = clean_up(row, code, bat, fh, board, facts, helper, workdir)
   if row.get('commissioning'):
     row['reentryDecision'] = reentry_decision(row)
@@ -1265,7 +1271,7 @@ def main(argv=None):
         raise Refused(f'{args.firmware} does not match --sha256')
       check_bootloader_bin(args.firmware, board['install'], board['app'], board, facts, args.firmware)
       exclusion_configured(facts, board['uid'])
-      check_jlink_version(board, run_dir)
+      check_jlink()
       try:
         Battery(board, facts, run_dir).program(args.firmware, board['install'][0], facts['appStart'])
       finally:
@@ -1275,7 +1281,7 @@ def main(argv=None):
     else:
       check_restore(board, facts)
       exclusion_configured(facts, board['uid'])
-      check_jlink_version(board, run_dir)
+      check_jlink()
       rec = None
       if args.recover_holder is not None:
         if not args.report:

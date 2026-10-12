@@ -9,7 +9,7 @@
       "tinyuf2": {
         "port": "mimxrt10xx",
         "board": "imxrt1060_evk",
-        "jlink": {"if": "SWD", "speed": "4000", "version": "V9.78"},
+        "jlink": {"if": "SWD", "speed": "4000"},
         "reentry": "retained-register",
         "layout": {"install": ["0x60000000", "0x6000C000"], "app": ["0x6000C000", "0x60800000"], "pageSize": 512},
         "restore": {

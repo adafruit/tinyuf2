@@ -15,7 +15,7 @@ Run `hostname` first.
 
 A roster entry keeps tinyusb's shape (`name`, `uid`, `flasher {name, uid, args}`), so agentrc's `rtt.py`, `pc_sample.py` and `probe_state.py` resolve the probe with `--hil-config test/hil/local.json --board <name>`. Those scripts do not read the `tinyuf2` block: pass its J-Link settings yourself, `--interface swd --speed 4000` for `{"if": "SWD", "speed": "4000"}`. The `tinyuf2` block holds what only TinyUF2 needs:
 - the source board (`board`) when it differs from the roster name, as `imxrt1060_evk` does for `mimxrt1060_evk`;
-- the J-Link interface and speed, and the J-Link software `version` the board was commissioned with;
+- the J-Link interface and speed;
 - the install and app ranges, cross-checked against the board's source before any hardware access;
 - the pinned restoration image;
 - the re-entry path and the recovery note.
@@ -56,7 +56,6 @@ python3 .claude/skills/hil/scripts/hil_test.py run -b <board> --build-record cma
 `<board>` is the roster name and `<src>` its source board (`tinyuf2.board`, else the roster name).
 
 - **Admission.** Before taking the lock the run checks the host, the automount exclusion rule, and every span it could write, the candidate's and the restoration image's (BIN, zero page, ceiling, board id, version, pinned hash), so a run never discovers an unusable recovery image after touching the board.
-- **J-Link version.** `run`, `install` and `restore` refuse (exit 2) unless the first `JLinkExe` on PATH is the roster's `tinyuf2.jlink.version`: the loader's footprint (Limits) was measured with that version only. Put it first on PATH (on htpc, `/opt/SEGGER/JLink_V978` for V9.78), or recommission the board with the new one. Recovery is gated the same way (Exit 4).
 - **Build record.** It is this contract's build receipt: build it on the clean, pinned HEAD and pass it with `--build-record`. It must come from the make backend (the only one supported yet). The run refuses a build record that is not clean, does not match the checkout now (HEAD, submodules, `get_deps` dependencies at their pins), or whose artifacts changed since. Commit first. A debug build goes through `install`, not the battery.
 - **Background.** Run it in the background; one board takes about 2 minutes. Use one board per run.
 - **Selection.** There are no examples or test names to select: a run is the whole battery on one board, and the board is the only selection.
@@ -78,7 +77,7 @@ A board's evidence is scoped as the report says. "app-ran" is execution after th
 
 The last stdout line is JSON, also written to its `reportPath`; read that path, never an older report. Its fields:
 - `pass`, `caveat`;
-- per board: `ran`, `pass`, `locked`, `lockBypassed`, `firmware` (path, sha256, version, build record), `steps[]` (`step`, `pass`, `evidence`, `detail`), `restored` (`pass`, `state`, `heldAfter`, `holder`, `survivors`), and `detail`;
+- per board: `ran`, `pass`, `locked`, `lockBypassed`, `firmware` (path, sha256, version, build record), `steps[]` (`step`, `pass`, `evidence`, `detail`), `restored` (`pass`, `state`, `heldAfter`, `holder`, `survivors`), `jlinkRetried` (J-Link sessions run again after a crash before the target connect; Limits), and `detail`;
 - `error` on a refusal or an operation failure.
 
 | Exit | Meaning |
@@ -129,7 +128,6 @@ A review (`pr-review`) maps each board's row, except a commissioning run's (`com
     `python3 .claude/skills/hil/scripts/hil_test.py restore -b <board> --recover-holder <pid> --report <reportPath> test/hil/local.json`
 
     The command proves that pid holds the board as the failed run's cleanup holder and that none of the run's survivors and no J-Link process on the probe is alive, restores and verifies while the lock stays held, and only then releases the holder.
-  - Recovery passes the J-Link version gate too. If the J-Link software changed since commissioning, recover with the commissioned version first on PATH, then recommission with the new one. If the commissioned version is gone, the board stays held: that is the lead's blocker.
   - If the probe cannot connect, the roster's `recovery` names the human's path (serial download mode on mimxrt1060_evk); that recovery is the human's.
 
 ## Selection
@@ -154,7 +152,6 @@ Commissioning is the lead's, never `hil-operator`'s or a review's. It runs under
   ```
 
   Then `sudo udevadm control --reload`.
-- **J-Link version:** set `tinyuf2.jlink.version` to the `JLinkExe` version first on PATH; every step below, `restore` included, refuses another.
 - **Recovery:** `restore --under-hold` the pinned image and observe DFU with its version.
 - **USB serial:** confirm the enumerated serial equals `uid` (sysfs or `lsusb -v`), and record the USB port paths. If it differs, the restore cannot have observed DFU: fix `uid` and the rule together, reload, and restore again. The restore's reset re-enumerates the board and udev applies the reloaded rules, so no replug should be needed (by mechanism, not yet observed on a uid fix).
 - **Exclusion proof:** delete the temporary rule, reload, and `restore` once more: it passes only when `udevadm info` on the enumerated block device shows `UDISKS_IGNORE=1` (`check_exclusive`). A host rule that ignores a whole VID, such as tinyusb's `88-tinyusb.rules` for 239a, sets the same property, so the proof cannot tell it from the serial rule; the runner still requires the serial line.
@@ -176,13 +173,14 @@ Commissioning is the lead's, never `hil-operator`'s or a review's. It runs under
 
 - Covered: mimxrt1060_evk on htpc. Not covered: lpcxpresso55s69 (its 0A silicon hangs TinyUF2 on a UF2 copy, #500), ESP32 boards (#502), self-update, an interrupted update, malformed UF2 input and the physical double tap.
 - Every probe and USB path is unverified until commissioning has run on the board, and commissioning is manual.
-- J-Link's QSPI loader on mimxrt1060_evk is undocumented: SEGGER UM08001 has nothing on it. Measured with V9.78 at single sentinel points, with the 0.35.0 release BIN (30304 B) only:
+- J-Link's QSPI loader on mimxrt1060_evk is undocumented: SEGGER UM08001 has nothing on it. Measured at single sentinel points, with the 0.35.0 release BIN (30304 B) only:
   - a BIN `loadbin` at 0x60000000 erased every point measured past the BIN in its block (0x60007800, 0x6000A000, the zero page at 0x6000C000, 0x6000C200), and J-Link reports 65536 bytes per operation, so [BIN end, 0x60010000) is treated as lost;
   - a sentinel at 0x60010000, in the next block, survived a BIN `loadbin`;
   - a zero-page `loadbin`, after a bootloader written in an earlier session, kept the whole bootloader (`verifybin`) and a sentinel at 0x6000A000.
   - That a candidate BIN of another length behaves the same is an inference, not a measurement.
   - That `loadbin` erases only the 64 KiB blocks its range touches, and never the chip, is an unverified premise these points support.
   Under that premise, losses stay inside [0x60000000, 0x60010000), in regions the battery rewrites or never reads, while the install span and the zero page lie in that block.
+- `JLinkExe` intermittently crashes in `libjlinkarm` at the probe connect on htpc; the cause is unknown. On 2026-10-12 it crashed in 2 of the runner's 94 sessions and once in a hand session, against 30 clean back-to-back connects. Two of the crashes are SIGSEGV at the same offset in the kernel log; the other is a glibc "double free" abort. Both runner crashes came in a session started right after the target's UF2 drive appeared or vanished; a race in the DLL's USB scan is a hypothesis. A session that died this way (SIGSEGV or SIGABRT, the probe's `S/N:` its last J-Link line, no target connect) runs once more after 2 s, since it never reached the target (`jlinkRetried`). A second crash fails the run, and so does a session that hangs after a crash, as one restore did for 120 s.
 - A device hung mid-write makes the host controller retry its enumeration, which stalled a J-Link connect on the same hub for ~80 s (lpcxpresso55s69); that the hub is the cause is a hypothesis.
 - If no cleanup holder can be forked (exit 4 with `restored.holder.inProcess`), the runner never exits until recovered.
 - No reproducer for an instrumented build: the battery refuses a dirty build, and `install` only programs. A claim that needs one is reported pending.

@@ -75,7 +75,7 @@ time.sleep(60)
 
 
 def roster(tmp, host='testhost', **over):
-  t = {'port': 'lpc55', 'jlink': {'if': 'SWD', 'speed': '4000', 'version': 'V9.78'},
+  t = {'port': 'lpc55', 'jlink': {'if': 'SWD', 'speed': '4000'},
        'layout': {'install': ['0x0', '0x10000'], 'app': ['0x10000', '0x98000'], 'pageSize': 512},
        'reentry': 'retained-register',
        'restore': {'bin': str(tmp / 'restore.bin'), 'sha256': 'x', 'version': '0.35.0',
@@ -109,8 +109,7 @@ class Roster(Tmp):
                                          'pageSize': 512}}},
       'unknown device': {'flasher': {'name': 'jlink', 'uid': '1', 'args': '-device NRF52840_XXAA'}},
       'no host': {'host': None},
-      'no speed': {'tinyuf2': {'jlink': {'if': 'SWD', 'version': 'V9.78'}}},
-      'no J-Link version': {'tinyuf2': {'jlink': {'if': 'SWD', 'speed': '4000'}}},
+      'no speed': {'tinyuf2': {'jlink': {'if': 'SWD'}}},
       'below the floor': {'flasher': {'name': 'jlink', 'uid': '1', 'args': '-device MIMXRT1062xxx6A'}},
       'bad source board': {'tinyuf2': {'board': '../x'}},
       'bad range': {'tinyuf2': {'layout': {'install': ['0x10000', '0x0'], 'app': ['0x10000', '0x98000'],
@@ -634,7 +633,7 @@ class RunBoard(Tmp):
     for p in (mock.patch.object(ht, 'verify_record', lambda *a: ({'hex': 'x.hex', 'bin': 'x.bin'}, {'version': 'v'})),
               mock.patch.object(ht, 'parse_hex', lambda p: {0: 1}),
               mock.patch.object(ht, 'hex_matches_bin', lambda d, b, base: True),
-              mock.patch.object(ht, 'check_jlink_version', lambda *a: None),
+              mock.patch.object(ht, 'check_jlink', lambda: None),
               mock.patch.object(ht, 'check_bootloader_bin', lambda *a: None),
               mock.patch.object(ht, 'check_restore', lambda *a: None),
               mock.patch.object(ht, 'exclusion_configured', lambda *a: None),
@@ -1004,6 +1003,30 @@ class BatteryRun(Tmp):
            self.assertRaisesRegex(ht.StepFail, 'JLinkExe failed'):
         probe.run(['r', 'g'])
 
+  def test_only_the_probe_connect_crash_is_retried_once_and_any_crash_fails(self):
+    probe = ht.Probe({'probe': '000726129165', 'device': 'd', 'if': 'SWD', 'speed': '4000'}, self.tmp, self.tmp / 'hil.log')
+    banner = 'Connecting to J-Link ...O.K.\nFirmware: J-Link LPCXpresso V2\nS/N: 726129165\n'
+    segv, abort = (-11, banner), (-6, banner + 'double free or corruption (top)\n')
+    ok = (0, 'J-Link>exit\n')
+    cases = (([segv, ok], True, 1), ([abort, ok], True, 1),
+             ([segv, segv], False, 1),                                              # retried once only
+             ([(-9, ''), ok], False, 0),                                            # no transcript: state unknown
+             ([(-11, banner + 'VTref=3.300V\n'), ok], False, 0),                    # past the probe connect
+             ([(-11, banner.replace('726129165', '1')), ok], False, 0),             # another probe's serial
+             ([(-11, banner + 'Connecting to target via SWD\n'), ok], False, 0))
+    for outcomes, passes, retries in cases:
+      for judge in (True, False):
+        calls = iter(outcomes)
+        probe.retried.clear()
+        with self.subTest(outcomes=outcomes, judge=judge), mock.patch.object(ht, 'JLINK_RETRY_DELAY', 0), \
+             mock.patch.object(ht, 'spawn', lambda *a, **k: next(calls)):
+          if passes:
+            probe.run(['h'], judge=judge)
+          else:
+            with self.assertRaisesRegex(ht.StepFail, r'exit -\d+'):
+              probe.run(['h'], judge=judge)
+          self.assertEqual(len(probe.retried), retries)
+
   def test_a_failed_reset_fails_the_session(self):
     out = 'J-Link>r\nResetTarget failed (-1).\nFailed to halt CPU.\nJ-Link>g\n\n****** Error: CPU is not halted\n'
     probe = ht.Probe({'probe': '1', 'device': 'd', 'if': 'SWD', 'speed': '4000'}, self.tmp, None)
@@ -1060,22 +1083,6 @@ class Decision(unittest.TestCase):
     self.assertIsNone(ht.reentry_decision(dict(self.row(), **{'pass': False})))   # aborted after every step passed
 
 
-class JLinkVersion(Tmp):
-  def test_only_the_commissioned_version_is_admitted_and_nothing_connects(self):
-    calls = []
-    board = ht.load_board(roster(self.tmp), BOARD)
-    for banner, ok in (('SEGGER J-Link Commander V9.78 (Compiled Sep 16 2026)', True),
-                       ('SEGGER J-Link Commander V9.80a (Compiled Oct 1 2026)', False), ('', False)):
-      with self.subTest(banner), mock.patch.object(ht.shutil, 'which', lambda t: '/usr/bin/' + t), \
-           mock.patch.object(ht, 'spawn', lambda cmd, *a, **k: calls.append(cmd) or (0, banner)):
-        if ok:
-          ht.check_jlink_version(board, self.tmp)
-        else:
-          self.assertRaises(ht.Refused, ht.check_jlink_version, board, self.tmp)
-    self.assertTrue(all('-USB' not in c and '-device' not in c for c in calls))
-    self.assertEqual((self.tmp / 'version.jlink').read_text(), 'exit\n')
-
-
 class Main(Tmp):
   def test_manual_install_needs_no_reentry_and_programs_the_bin_with_a_zero_page(self):
     cfg = roster(self.tmp, tinyuf2={'reentry': None})
@@ -1085,13 +1092,13 @@ class Main(Tmp):
     with contextlib.redirect_stdout(out), mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp), \
          mock.patch.object(ht, 'load_helper', lambda p: None), mock.patch.object(ht, 'manual_holder', lambda *a: None), \
          mock.patch.object(ht, 'exclusion_configured', lambda *a: None), \
-         mock.patch.object(ht, 'check_jlink_version', lambda *a: None), \
+         mock.patch.object(ht, 'check_jlink', lambda: None), \
          mock.patch.object(ht.Battery, 'program', lambda bat, b, base, a: programmed.append((b, base, a))):
       code = ht.main(['install', '-b', BOARD, '--firmware', str(fw), '--sha256', ht.sha256(fw),
                       '--under-hold', 'debug 7', str(cfg)])
     self.assertEqual((code, programmed), (0, [(str(fw), 0, 0x10000)]))
 
-  def test_a_wrong_jlink_version_programs_nothing_on_any_path(self):
+  def test_no_jlinkexe_programs_nothing_on_any_path(self):
     fw = bootloader_bin(self.tmp / 'fw.bin')
     r = bootloader_bin(self.tmp / 'restore.bin', version=b'0.35.0')
     cfg = roster(self.tmp, tinyuf2={'reentry': None, 'restore': {
@@ -1102,8 +1109,7 @@ class Main(Tmp):
       with self.subTest(argv[0]), contextlib.redirect_stdout(io.StringIO()), \
            mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / argv[0]), mock.patch.object(ht, 'load_helper', lambda p: None), \
            mock.patch.object(ht, 'manual_holder', lambda *a: None), mock.patch.object(ht, 'exclusion_configured', lambda *a: None), \
-           mock.patch.object(ht.shutil, 'which', lambda t: '/usr/bin/' + t), \
-           mock.patch.object(ht, 'spawn', lambda cmd, *a, **k: (0, 'SEGGER J-Link Commander V9.80 (x)')), \
+           mock.patch.object(ht.shutil, 'which', lambda t: None if t == 'JLinkExe' else '/usr/bin/' + t), \
            mock.patch.object(ht.Probe, 'run', lambda *a, **k: probed.append(a)):
         self.assertEqual(ht.main(argv + [str(cfg)]), 2)
     self.assertEqual(probed, [])
