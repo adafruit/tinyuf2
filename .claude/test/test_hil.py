@@ -468,6 +468,8 @@ class Fat(Tmp):
 class Locks(Tmp):
   def setUp(self):
     super().setUp()
+    mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())   # hand_off blocks SIGUSR1 in this process
+    self.addCleanup(signal.pthread_sigmask, signal.SIG_SETMASK, mask)
     real = os.environ.get('TINYUSB_HIL_LOCK')
     lockdir = self.tmp / 'locks'
     lockdir.mkdir()

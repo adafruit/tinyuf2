@@ -762,20 +762,18 @@ HELD_IN_PROCESS = []
 
 
 def keep_held(fh):
-  """Hold until recovery's SIGUSR1. SIGTERM and SIGINT are ignored: an operator's timeout kill must
-  not free a board that was never restored."""
-  def release(*_):
-    fh.truncate(0)
-    os._exit(0)
+  """Hold until recovery's SIGUSR1, taken by sigwait with SIGUSR1 blocked since hand_off: a handler and
+  pause() lose a signal that lands between the interpreter's check and the syscall. SIGTERM and SIGINT
+  are ignored: an operator's timeout kill must not free a board that was never restored."""
   for sig in (signal.SIGTERM, signal.SIGINT):
     signal.signal(sig, signal.SIG_IGN)
-  signal.signal(signal.SIGUSR1, release)
-  signal.pthread_sigmask(signal.SIG_SETMASK, set())
+  signal.pthread_sigmask(signal.SIG_SETMASK, {signal.SIGUSR1})
   for std in (0, 1, 2):   # closed, not reopened on /dev/null: holding must not need a free descriptor
     with contextlib.suppress(OSError):
       os.close(std)
-  while True:
-    signal.pause()
+  signal.sigwait({signal.SIGUSR1})
+  fh.truncate(0)
+  os._exit(0)
 
 
 def hand_off(fh, board, detail, survivors=()):
@@ -784,6 +782,7 @@ def hand_off(fh, board, detail, survivors=()):
   wait ends with this process. When no holder starts, this process keeps the lock itself and main()
   stays alive holding it after reporting."""
   survivors = list(survivors)
+  signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGUSR1})   # pending, not lost, until keep_held waits
   try:
     r, w = os.pipe()
     pid = os.fork()
