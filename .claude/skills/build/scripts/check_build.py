@@ -415,18 +415,12 @@ def hil_selection(sel, config):
   any other change every roster board of the ports it selects, a core or HIL-control change the whole
   roster; what no roster board on this host can run is uncovered, whatever else was selected."""
   try:
-    # a roster entry is named as tinyusb names the board (the shared lock); tinyuf2.board names its source
-    names = {b['name']: (b.get('tinyuf2') or {}).get('board', b['name'])
-             for b in json.loads((ROOT / config).read_text())['boards']}
+    roster = sorted({b['name'] for b in json.loads((ROOT / config).read_text())['boards']})   # TinyUF2 names
   except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
     raise Fail(f'cannot read boards from {config}: {e}')
-  roster = list(names)
-  by_src = {}
-  for name, src in names.items():
-    by_src.setdefault(src, []).append(name)
   by_port = {}
-  for name, src in names.items():
-    by_port.setdefault(port_of(src), []).append(name)
+  for name in roster:
+    by_port.setdefault(port_of(name), []).append(name)
   def kind(parts):   # the HIL builds with cmake whatever CI uses: its build files decide, not CI's
     if parts[0] == 'ports' and (len(parts) == 2 or parts[1] in BACKENDS):
       return build_file_kind(parts[-1])
@@ -446,7 +440,8 @@ def hil_selection(sel, config):
       uncovered[r['path']] = f'the HIL builds with cmake, which never reads {r["path"]}'
     # the battery builds no port app, and a core file reaches every roster board above
     elif k == 'cmake' and len(parts) >= 3 and r['effect'] != 'core' and parts[2] != 'apps':
-      own = by_src.get(parts[3], []) if parts[2] == 'boards' and len(parts) >= 5 else by_port.get(parts[1], [])
+      board_file = parts[2] == 'boards' and len(parts) >= 5
+      own = ([parts[3]] if parts[3] in roster else []) if board_file else by_port.get(parts[1], [])
       if own:
         boards.update(own)
       else:
@@ -455,8 +450,8 @@ def hil_selection(sel, config):
       uncovered[r['path']] = r['reason']
     elif r['rule'] == 'board':
       (b, _), = r['boards']
-      if b in by_src:
-        boards.update(by_src[b])
+      if b in roster:
+        boards.add(b)
       else:
         uncovered[b] = f'{r["path"]}: {b} is not in {config}'
     else:

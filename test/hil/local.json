@@ -3,12 +3,11 @@
   "lock": {"helper": "/home/hathach/code/tinyusb/test/hil/helper/hil_lock.py"},
   "boards": [
     {
-      "name": "mimxrt1060_evk",
+      "name": "imxrt1060_evk",
       "uid": "4629F865D2291713E000005002004200",
       "flasher": {"name": "jlink", "uid": "000726129165", "args": "-device MIMXRT1062xxx6A"},
       "tinyuf2": {
-        "port": "mimxrt10xx",
-        "board": "imxrt1060_evk",
+        "lock": "mimxrt1060_evk",
         "jlink": {"if": "SWD", "speed": "4000"},
         "reentry": "retained-register",
         "layout": {"install": ["0x60000000", "0x6000C000"], "app": ["0x6000C000", "0x60800000"], "pageSize": 512},

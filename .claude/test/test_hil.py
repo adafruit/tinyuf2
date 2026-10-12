@@ -24,7 +24,7 @@ spec = importlib.util.spec_from_file_location('hil_test', SCRIPT)
 ht = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ht)
 BOARD = 'lpcxpresso55s69'
-RT = {'port': 'mimxrt10xx', 'name': 'mimxrt1060_evk', 'src': 'imxrt1060_evk'}
+RT = {'port': 'mimxrt10xx', 'name': 'imxrt1060_evk', 'lock': 'mimxrt1060_evk'}
 
 # the API hil_test.py uses from tinyusb's test/hil/helper/hil_lock.py, with the same flock and record
 # semantics; set TINYUSB_HIL_LOCK to the real helper to run the lock tests against it instead
@@ -75,7 +75,7 @@ time.sleep(60)
 
 
 def roster(tmp, host='testhost', **over):
-  t = {'port': 'lpc55', 'jlink': {'if': 'SWD', 'speed': '4000'},
+  t = {'jlink': {'if': 'SWD', 'speed': '4000'},
        'layout': {'install': ['0x0', '0x10000'], 'app': ['0x10000', '0x98000'], 'pageSize': 512},
        'reentry': 'retained-register',
        'restore': {'bin': str(tmp / 'restore.bin'), 'sha256': 'x', 'version': '0.35.0',
@@ -125,13 +125,14 @@ class Roster(Tmp):
       'no host': {'host': None},
       'no speed': {'tinyuf2': {'jlink': {'if': 'SWD'}}},
       'below the floor': {'flasher': {'name': 'jlink', 'uid': '1', 'args': '-device MIMXRT1062xxx6A'}},
-      'bad source board': {'tinyuf2': {'board': '../x'}},
+      'bad lock name': {'tinyuf2': {'lock': '../x'}},
+      'not a TinyUF2 board': {'name': 'no_such_board'},
       'bad range': {'tinyuf2': {'layout': {'install': ['0x10000', '0x0'], 'app': ['0x10000', '0x98000'],
                                            'pageSize': 512}}},
     }
     for what, over in cases.items():
       with self.subTest(what), self.assertRaises(ht.Refused):
-        ht.load_board(roster(self.tmp, **over), BOARD)
+        ht.load_board(roster(self.tmp, **over), over.get('name', BOARD))
 
   def test_helper_path_is_required_and_absolute(self):
     cfg = roster(self.tmp)
@@ -141,14 +142,15 @@ class Roster(Tmp):
     with self.assertRaises(ht.Refused):
       ht.load_board(cfg, BOARD)
 
-  def test_the_source_board_defaults_to_the_lock_name_and_can_differ(self):
-    self.assertEqual(ht.load_board(roster(self.tmp), BOARD)['src'], BOARD)
-    b = ht.load_board(roster(self.tmp, tinyuf2={'board': 'other'}), BOARD)
-    self.assertEqual((b['name'], b['src']), (BOARD, 'other'))
+  def test_the_lock_defaults_to_the_board_name_and_the_port_comes_from_it(self):
+    b = ht.load_board(roster(self.tmp), BOARD)
+    self.assertEqual((b['lock'], b['port']), (BOARD, 'lpc55'))
+    b = ht.load_board(roster(self.tmp, tinyuf2={'lock': 'other'}), BOARD)
+    self.assertEqual((b['name'], b['lock']), (BOARD, 'other'))
 
   def test_the_committed_roster_is_well_formed_and_commissioned(self):
-    b = ht.load_board(ROOT / 'test' / 'hil' / 'local.json', 'mimxrt1060_evk')
-    self.assertEqual((b['host'], b['src'], b['reentry']), ('htpc', 'imxrt1060_evk', 'retained-register'))
+    b = ht.load_board(ROOT / 'test' / 'hil' / 'local.json', 'imxrt1060_evk')
+    self.assertEqual((b['host'], b['lock'], b['reentry']), ('htpc', 'mimxrt1060_evk', 'retained-register'))
     ht.check_layout(b, ht.source_facts(b))
 
 
@@ -209,19 +211,19 @@ class Admission(Tmp):
 
 
 def rt_roster(tmp):
-  return roster(tmp, name='mimxrt1060_evk', flasher={'name': 'jlink', 'uid': '2', 'args': '-device MIMXRT1062xxx6A'},
-                tinyuf2={'port': 'mimxrt10xx', 'board': 'imxrt1060_evk', 'layout': {
+  return roster(tmp, name='imxrt1060_evk', flasher={'name': 'jlink', 'uid': '2', 'args': '-device MIMXRT1062xxx6A'},
+                tinyuf2={'lock': 'mimxrt1060_evk', 'layout': {
                   'install': ['0x60000000', '0x6000C000'], 'app': ['0x6000C000', '0x60800000'], 'pageSize': 512},
                   'restore': {'bin': str(tmp / 'restore.bin'), 'sha256': 'x', 'version': '0.35.0',
                               'layout': {'install': ['0x60000000', '0x6000C000'], 'appStart': '0x6000C000'}}})
 
 
 class Rt1060(Tmp):
-  """The RT1060 entry: lock name mimxrt1060_evk (tinyusb's), source imxrt1060_evk, flash from 0x60000000."""
+  """The RT1060 entry: board imxrt1060_evk, lock mimxrt1060_evk (tinyusb's name), flash from 0x60000000."""
 
   def setUp(self):
     super().setUp()
-    self.board = ht.load_board(rt_roster(self.tmp), 'mimxrt1060_evk')
+    self.board = ht.load_board(rt_roster(self.tmp), 'imxrt1060_evk')
     self.facts = ht.source_facts(self.board)
 
   def test_the_layout_agrees_with_the_source_and_spans_check_against_the_flash_base(self):
@@ -262,7 +264,7 @@ class Rt1060(Tmp):
 class SourceFacts(unittest.TestCase):
   def test_a_port_without_a_cmake_build_has_no_facts(self):
     with self.assertRaisesRegex(ht.Refused, 'ports/lpc55 has no cmake build'):
-      ht.source_facts({'port': 'lpc55', 'name': BOARD, 'src': BOARD})
+      ht.source_facts({'port': 'lpc55', 'name': BOARD})
 
   def test_rt1060_facts_come_from_the_source(self):
     f = ht.source_facts(RT)
@@ -818,6 +820,13 @@ class RunBoard(Tmp):
     self.addCleanup(held.close)
     row, code, restored = self.run_board(lambda *a: self.fail('ran'))
     self.assertEqual((code, row['locked'], row['ran'], restored), (1, True, False, []))
+
+  def test_the_board_is_locked_and_reported_under_its_lock_name(self):
+    self.board = ht.load_board(roster(self.tmp, tinyuf2={'lock': 'tinyusb_name'}), BOARD)
+    held = self.helper.acquire_board_lock('tinyusb_name', reason='someone')
+    self.addCleanup(held.close)
+    row, code, _ = self.run_board(lambda *a: self.fail('ran'))
+    self.assertEqual((code, row['board'], row['lock'], row['locked']), (1, BOARD, 'tinyusb_name', True))
 
   def test_an_unusable_lock_dir_is_refused_not_run_unlocked(self):
     with mock.patch.object(self.helper, 'acquire_board_lock', lambda b: None), \

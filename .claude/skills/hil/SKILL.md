@@ -13,8 +13,8 @@ Run `hostname` first.
 - `htpc`: the roster is `test/hil/local.json`, whose `host` names it; `run` refuses on any other host.
 - Any other host has no TinyUF2 rig yet; ci.lan is a follow-up. An agent that cannot ask (`hil-operator`) returns an operator-authored row per requested board (Reporting) with `detail` naming the host.
 
-A roster entry keeps tinyusb's shape (`name`, `uid`, `flasher {name, uid, args}`), so agentrc's `rtt.py`, `pc_sample.py` and `probe_state.py` resolve the probe with `--hil-config test/hil/local.json --board <name>`. Those scripts do not read the `tinyuf2` block: pass its J-Link settings yourself, `--interface swd --speed 4000` for `{"if": "SWD", "speed": "4000"}`. The `tinyuf2` block holds what only TinyUF2 needs:
-- the source board (`board`) when it differs from the roster name, as `imxrt1060_evk` does for `mimxrt1060_evk`;
+A roster entry is named by its TinyUF2 board (`ports/<port>/boards/<name>`, which also gives the port) and keeps tinyusb's shape (`name`, `uid`, `flasher {name, uid, args}`), so agentrc's `rtt.py`, `pc_sample.py` and `probe_state.py` resolve the probe with `--hil-config test/hil/local.json --board <name>`. Those scripts do not read the `tinyuf2` block: pass its J-Link settings yourself, `--interface swd --speed 4000` for `{"if": "SWD", "speed": "4000"}`. The `tinyuf2` block holds what only TinyUF2 needs:
+- the board lock name (`lock`) when tinyusb names the board differently, as `mimxrt1060_evk` for `imxrt1060_evk`; both runners take that one lock, and `<lock.helper> status`, holder records and the report rows' `lock` show it. It defaults to the board name;
 - the J-Link interface and speed;
 - the install and app ranges, cross-checked against the board's source before any hardware access;
 - the pinned restoration image;
@@ -24,11 +24,11 @@ The battery runs a board only after commissioning sets `reentry` and confirms `u
 
 ## Locks
 
-Locks are tinyusb's: one kernel flock per board in `/tmp/tinyusb-hil-locks/`, taken through the helper the roster's `lock.helper` names. A board name is the same lock in both projects, so TinyUF2 and tinyusb runs exclude each other.
+Locks are tinyusb's: one kernel flock per board in `/tmp/tinyusb-hil-locks/`, taken through the helper the roster's `lock.helper` names. A board's lock is `<lock>`: its roster `tinyuf2.lock`, else the board name. It is tinyusb's name for the board, so TinyUF2 and tinyusb runs exclude each other; the helper's `hold` and `release` take it and `status` (no board argument) shows it, while `hil_test.py -b` and the probe scripts take the board name.
 - **The battery locks itself,** as `hil_test.py`, which tinyusb's `release` refuses to kill. Never pre-hold a board you are about to run the battery on.
 - **The lock fails closed.** An unusable lock dir refuses the run (exit 2); it never runs unlocked. `HIL_NO_BOARD_LOCK=1` bypasses the lock only when the task scope names forcing that board. The report then says `lockBypassed: true`.
 - **Manual sessions** (hw-debugger, hw-validator):
-  1. Take your own hold: `python3 <lock.helper> hold <board> --reason "<unique session reason>"`.
+  1. Take your own hold: `python3 <lock.helper> hold <lock> --reason "<unique session reason>"`.
   2. Program a bootloader BIN, and restore the pinned one:
 
      ```bash
@@ -36,8 +36,8 @@ Locks are tinyusb's: one kernel flock per board in `/tmp/tinyusb-hil-locks/`, ta
      python3 .claude/skills/hil/scripts/hil_test.py restore -b <board> --under-hold "<reason>" test/hil/local.json
      ```
 
-     `install` writes the BIN at the board's flash base and a zero page at the app start, reads both back, and refuses a BIN that is outside the install range or lacks this board's `UF2_BOARD_ID`. Both need the automount exclusion rule (Commissioning). Both refuse unless the hold is provably yours: the record's reason, a live pid, a FLOCK on the lock file in that pid's own fds, and a failing probe of the flock.
-  3. Release with `python3 <lock.helper> release <board>`, only after a `restore` that exited 0 with no `survivors`. Otherwise the board is not restored: keep the hold and report it as a blocker.
+     `install` writes one image from the board's flash base (the BIN, 0xFF up to the app start, then a zero page), reads it back, and refuses a BIN that is outside the install range or lacks this board's `UF2_BOARD_ID`. Both need the automount exclusion rule (Commissioning). Both refuse unless the hold is provably yours: the record's reason, a live pid, a FLOCK on the lock file in that pid's own fds, and a failing probe of the flock.
+  3. Release with `python3 <lock.helper> release <lock>`, only after a `restore` that exited 0 with no `survivors`. Otherwise the board is not restored: keep the hold and report it as a blocker.
 
   Manual exits: 0 the operation succeeded (for `restore`, the board is restored and in DFU with the pinned version); 1 it failed and the board's state is unknown; 2 refused before any hardware access; 4 a child survived SIGKILL, so keep the hold until it is gone.
 
@@ -49,11 +49,11 @@ Locks are tinyusb's: one kernel flock per board in `/tmp/tinyusb-hil-locks/`, ta
 
 ```bash
 mkdir -p cmake-build/hil
-python3 .claude/skills/build/scripts/check_build.py --board <src> --backend cmake --shared > cmake-build/hil/<src>.build.json
-python3 .claude/skills/hil/scripts/hil_test.py run -b <board> --build-record cmake-build/hil/<src>.build.json test/hil/local.json
+python3 .claude/skills/build/scripts/check_build.py --board <board> --backend cmake --shared > cmake-build/hil/<board>.build.json
+python3 .claude/skills/hil/scripts/hil_test.py run -b <board> --build-record cmake-build/hil/<board>.build.json test/hil/local.json
 ```
 
-`<board>` is the roster name and `<src>` its source board (`tinyuf2.board`, else the roster name).
+`<board>` is the roster name, the TinyUF2 board name.
 
 - **Admission.** Before taking the lock the run checks the host, the automount exclusion rule, and every span it could write, the candidate's and the restoration image's (BIN, zero page, ceiling, board id, version, pinned hash), so a run never discovers an unusable recovery image after touching the board.
 - **Build record.** It is this contract's build receipt: build it on the clean, pinned HEAD and pass it with `--build-record`. It must be a cmake build (`--backend cmake`), whatever backend CI builds the port with; board facts are read from the port's CMake files too. The run refuses a build record that is not clean, does not match the checkout now (HEAD, submodules, `get_deps` dependencies at their pins), or whose artifacts changed since. Commit first. A debug build goes through `install`, not the battery.
@@ -128,7 +128,7 @@ A review (`pr-review`) maps each board's row, except a commissioning run's (`com
     `python3 .claude/skills/hil/scripts/hil_test.py restore -b <board> --recover-holder <pid> --report <reportPath> test/hil/local.json`
 
     The command proves that pid holds the board as the failed run's cleanup holder and that none of the run's survivors and no J-Link process on the probe is alive, restores and verifies while the lock stays held, and only then releases the holder.
-  - If the probe cannot connect, the roster's `recovery` names the human's path (serial download mode on mimxrt1060_evk); that recovery is the human's.
+  - If the probe cannot connect, the roster's `recovery` names the human's path (serial download mode on imxrt1060_evk); that recovery is the human's.
 
 ## Selection
 
@@ -137,7 +137,7 @@ A review (`pr-review`) maps each board's row, except a commissioning run's (`com
 ## Commissioning a board
 
 Commissioning is the lead's, never `hil-operator`'s or a review's. It runs under a manual hold, except for the re-entry run, which locks itself. Record each result in the board's commissioning note (agentrc `target-debug` project notes) and in the roster. In this order:
-- **Cabling:** cable the USB port TinyUF2 enumerates on (`BOARD_TUD_RHPORT`). It can differ from the one tinyusb examples use: P10, not P9, on lpcxpresso55s69; USB OTG1 on mimxrt1060_evk. A DFU device "not seen" with no new device in `dmesg` is a cabling problem first. Keep the probe on a hub apart from the target's (Limits).
+- **Cabling:** cable the USB port TinyUF2 enumerates on (`BOARD_TUD_RHPORT`). It can differ from the one tinyusb examples use: P10, not P9, on lpcxpresso55s69; USB OTG1 on imxrt1060_evk. A DFU device "not seen" with no new device in `dmesg` is a cabling problem first. Keep the probe on a hub apart from the target's (Limits).
 - **Silicon revision,** before any other result: read it from the chip marking or registers, and check that revision's errata through read-doc. RT1060's DIGPROG does not tell A from B, so the marking decides.
 - **Automount exclusion:** `/etc/udev/rules.d/99-tinyuf2-hil.rules`, one line per board, with the VID and PID from the board's source, in exactly this form (the runner accepts only this form, with exact `==` matches):
 
@@ -158,12 +158,12 @@ Commissioning is the lead's, never `hil-operator`'s or a review's. It runs under
 - **Loader footprint:** for each `loadbin` shape the runner issues, place sentinels just past the written range and elsewhere in its erase block. Confirm them from a fresh session before the operation under test, and again from another fresh session after it: a verify in the session that wrote them cannot show what a later operation destroys. Make the written data differ from what is on the flash, since a `loadbin` whose data already matches is skipped ("Contents already match") and erases nothing. Record the result in Limits.
 - **Fixture prerequisites,** before anything executes the battery's fixture:
   - the app start meets VTOR's alignment for the fixture's vector table (`fixture()`);
-  - its stack top, the `m_data` origin the runner reads (`ram_origin`) + 0x1000, is in RAM enabled when the bootloader hands off: the ROM default per read-doc, which TinyUF2 does not reconfigure (DTCM on mimxrt1060_evk);
-  - under a hold, a word just below that stack top takes a written value and reads it back, and then its saved value (0x20000FFC on mimxrt1060_evk).
+  - its stack top, the `m_data` origin the runner reads (`ram_origin`) + 0x1000, is in RAM enabled when the bootloader hands off: the ROM default per read-doc, which TinyUF2 does not reconfigure (DTCM on imxrt1060_evk);
+  - under a hold, a word just below that stack top takes a written value and reads it back, and then its saved value (0x20000FFC on imxrt1060_evk).
 - **Re-entry:** commit the roster entry without `reentry`, build the record, and run the battery in commissioning mode:
 
   ```bash
-  python3 .claude/skills/hil/scripts/hil_test.py run -b <board> --build-record cmake-build/hil/<src>.build.json --try-reentry retained-register test/hil/local.json
+  python3 .claude/skills/hil/scripts/hil_test.py run -b <board> --build-record cmake-build/hil/<board>.build.json --try-reentry retained-register test/hil/local.json
   ```
 
   `--try-reentry` is the lead's only, and is refused once `reentry` is set. The row's `reentryDecision` names the method when the run passed or failed only at `reenter`'s `CURRENT.UF2` readback, every observation of the tried method is true (`controlBootedApp`, `dfuCameUp` and `magicConsumed` for `retained-register`), and the board was restored and not held. Set `reentry` to it and commit. A null decision leaves `reentry` unset: file a `followup` issue with the observations for diagnosis, not as a diagnosed bug. `app-invalidate` is set only after that path is validated on its own. When the drive copy itself fails, a fixture installed by hand with J-Link `loadbin` can isolate re-entry from the copy for diagnosis; it never sets `reentry`.
@@ -171,11 +171,11 @@ Commissioning is the lead's, never `hil-operator`'s or a review's. It runs under
 
 ## Limits
 
-- Covered: mimxrt1060_evk on htpc. Not covered: ports without a cmake build, lpc55 among them (no battery, `install` or `restore` for lpcxpresso55s69; its 0A silicon also hangs TinyUF2 on a UF2 copy, #500), ESP32 boards (#502), self-update, an interrupted update, malformed UF2 input and the physical double tap.
+- Covered: imxrt1060_evk on htpc. Not covered: ports without a cmake build, lpc55 among them (no battery, `install` or `restore` for lpcxpresso55s69; its 0A silicon also hangs TinyUF2 on a UF2 copy, #500), ESP32 boards (#502), self-update, an interrupted update, malformed UF2 input and the physical double tap.
 - Every probe and USB path is unverified until commissioning has run on the board, and commissioning is manual.
 - The HIL's cmake image logs on the board UART: cmake builds leave `TUF2_LOG` at its default 1 (`src/board_api.h`), while make builds, the make ports' CI artifacts and the RT1060 0.35.0 release pass 0. Its blocking writes at start, before the app jump and on DFU entry are timing the make image does not have.
 - Never use a port's CMake flash or erase targets on a rig board: `tinyuf2-erase-external-jlink` erases [FLASH_BASE, FLASH_BASE + 64 KiB), the bootloader and the zero page with it.
-- J-Link's QSPI loader on mimxrt1060_evk is undocumented: SEGGER UM08001 has nothing on it. Measured at single sentinel points, with the 0.35.0 release BIN (30304 B) only:
+- J-Link's QSPI loader on imxrt1060_evk is undocumented: SEGGER UM08001 has nothing on it. Measured at single sentinel points, with the 0.35.0 release BIN (30304 B) only:
   - a BIN `loadbin` at 0x60000000 erased every point measured past the BIN in its block (0x60007800, 0x6000A000, the zero page at 0x6000C000, 0x6000C200), and J-Link reports 65536 bytes per operation, so [BIN end, 0x60010000) is treated as lost;
   - a sentinel at 0x60010000, in the next block, survived a BIN `loadbin`;
   - a zero-page `loadbin`, after a bootloader written in an earlier session, kept the whole bootloader (`verifybin`) and a sentinel at 0x6000A000.

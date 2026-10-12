@@ -109,13 +109,17 @@ def load_board(config, name):
   jl = t.get('jlink') or {}
   if not (isinstance(jl.get('if'), str) and isinstance(jl.get('speed'), str)):
     raise Refused(f'{name}: tinyuf2.jlink needs explicit "if" and "speed"')
-  src = t.get('board', name)
-  if not (isinstance(src, str) and re.fullmatch(r'[\w.-]+', src)):
-    raise Refused(f'{name}: tinyuf2.board must be the TinyUF2 board name')
+  lock = t.get('lock', name)   # tinyusb's name for the board when it differs: both runners take one lock
+  if not (isinstance(lock, str) and re.fullmatch(r'[\w.-]+', lock)):
+    raise Refused(f'{name}: tinyuf2.lock must be the board lock name')
+  try:
+    port = cb.port_of(name)
+  except cb.Fail as e:
+    raise Refused(f'{name}: the roster names a board by its TinyUF2 name: {e}')
   lay, rest = t.get('layout') or {}, t.get('restore') or {}
   board = {
-    'name': name, 'src': src, 'host': host, 'uid': b['uid'], 'probe': fl['uid'], 'device': m.group(1),
-    'if': jl['if'], 'speed': jl['speed'], 'port': t.get('port'), 'helper': helper,
+    'name': name, 'lock': lock, 'host': host, 'uid': b['uid'], 'probe': fl['uid'], 'device': m.group(1),
+    'if': jl['if'], 'speed': jl['speed'], 'port': port, 'helper': helper,
     'install': rng(lay.get('install'), 'layout.install'), 'app': rng(lay.get('app'), 'layout.app'),
     'page': lay.get('pageSize'), 'reentry': t.get('reentry'),
     'restore': {'bin': rest.get('bin'), 'sha256': rest.get('sha256'), 'version': rest.get('version'),
@@ -210,7 +214,7 @@ def port_sources(port, bdir):
 def source_facts(board):
   """What the candidate's source says about this board; the roster layout must agree with it."""
   port = board['port']
-  bdir = f'ports/{port}/boards/{board["src"]}'
+  bdir = f'ports/{port}/boards/{board["name"]}'
   if not (ROOT / bdir).is_dir():
     raise Refused(f'{bdir} does not exist')
   header, ld, flash_base = port_sources(port, bdir)
@@ -826,13 +830,13 @@ def verify_record(record_path, board, facts):
     rec = json.loads(Path(record_path).read_text())
   except (OSError, ValueError) as e:
     raise Refused(f'cannot read build record {record_path}: {e}')
-  rows = [r for r in rec.get('boards', []) if r.get('board') == board['src']]
+  rows = [r for r in rec.get('boards', []) if r.get('board') == board['name']]
   if not rec.get('pass') or len(rows) != 1 or rows[0].get('status') != 'ok' or rows[0].get('removed'):
-    raise Refused(f'{record_path}: not a passing --shared build of {board["src"]}')
+    raise Refused(f'{record_path}: not a passing --shared build of {board["name"]}')
   row, info = rows[0], rec.get('input', {})
   if row.get('backend') != 'cmake':
     raise Refused(f'{record_path}: a {row.get("backend")} build; the HIL takes cmake builds only '
-                  f'(check_build.py --board {board["src"]} --backend cmake --shared)')
+                  f'(check_build.py --board {board["name"]} --backend cmake --shared)')
   now = cb.identity({board['port']})
   for key in ('head', 'submodules', 'deps'):
     if info.get(key) != now[key]:
@@ -844,7 +848,7 @@ def verify_record(record_path, board, facts):
       raise Refused(f'build inputs are not clean: {bad} (commit, or rebuild from a clean checkout)')
   root = cb.ROOT / row['buildDir']
   files, digests = {}, {}
-  for p in cb.expected_artifacts(board['port'], board['src'], 'cmake', root):
+  for p in cb.expected_artifacts(board['port'], board['name'], 'cmake', root):
     kind = p.suffix[1:]
     if kind not in ('hex', 'bin'):
       continue
@@ -1145,8 +1149,8 @@ def reentry_decision(row):
 
 
 def run_board(args, board, facts, helper, workdir):
-  row = {'board': board['name'], 'ran': False, 'pass': False, 'locked': False, 'lockBypassed': False,
-         'steps': [], 'restored': None, 'detail': ''}
+  row = {'board': board['name'], 'lock': board['lock'], 'ran': False, 'pass': False, 'locked': False,
+         'lockBypassed': False, 'steps': [], 'restored': None, 'detail': ''}
   if socket.gethostname() != board['host']:
     raise Refused(f'this roster describes host {board["host"]!r}, not {socket.gethostname()!r}')
   if args.try_reentry:
@@ -1172,7 +1176,7 @@ def run_board(args, board, facts, helper, workdir):
   # inside the battery, and the report and any hold are settled first
   signal.pthread_sigmask(signal.SIG_BLOCK, TERM_SIGNALS)
   try:
-    fh = helper.acquire_board_lock(board['name'])
+    fh = helper.acquire_board_lock(board['lock'])
   except RuntimeError as e:
     row.update(locked=True, detail=str(e))
     return deferred(row), 1
@@ -1220,7 +1224,7 @@ def clean_up(row, code, bat, fh, board, facts, helper, workdir):
                        'survivors': stuck, 'heldAfter': fh is not None}
     row['pass'] = False
     if fh is not None:
-      row['restored']['holder'] = hand_off(fh, board['name'], row['restored']['detail'], stuck)
+      row['restored']['holder'] = hand_off(fh, board['lock'], row['restored']['detail'], stuck)
       fh = None
     return 4
   if fh is not None:
@@ -1275,7 +1279,7 @@ def main(argv=None):
       result['results'].append(row)
       result['pass'] = code == 0 and row['pass']
     elif args.cmd == 'install':
-      manual_holder(helper, board['name'], args.under_hold)
+      manual_holder(helper, board['lock'], args.under_hold)
       if sha256(args.firmware) != args.sha256:
         raise Refused(f'{args.firmware} does not match --sha256')
       check_bootloader_bin(args.firmware, board['install'], board['app'], board, facts, args.firmware)
@@ -1303,7 +1307,7 @@ def main(argv=None):
                 == args.recover_holder and x.get('board') == board['name']]
         if len(held) != 1:
           raise Refused(f'{args.report} names no cleanup holder {args.recover_holder} of {board["name"]}')
-        rec = prove_hold(helper, board['name'], args.recover_holder, reason='hil_test.py', role=HOLDER_ROLE)
+        rec = prove_hold(helper, board['lock'], args.recover_holder, reason='hil_test.py', role=HOLDER_ROLE)
         cmdline = Path(f'/proc/{args.recover_holder}/cmdline').read_bytes()
         if b'hil_test.py' not in cmdline:
           raise Refused(f'pid {args.recover_holder} is not a hil_test.py cleanup holder')
@@ -1311,7 +1315,7 @@ def main(argv=None):
         if alive:
           raise Refused(f'the failed run\'s children {alive} are still alive; recovery may not overlap them')
       else:
-        manual_holder(helper, board['name'], args.under_hold)
+        manual_holder(helper, board['lock'], args.under_hold)
       users = probe_users(board['probe'])
       if users:
         raise Refused(f'probe {board["probe"]} is still in use by pids {users}; recovery may not overlap them')
@@ -1323,7 +1327,7 @@ def main(argv=None):
         raise StepFail('restore left children that survived SIGKILL')
       if args.recover_holder is not None:
         os.kill(args.recover_holder, signal.SIGUSR1)
-        wait_for(lambda: flock_free(helper.lock_path(board['name'])), 10,
+        wait_for(lambda: flock_free(helper.lock_path(board['lock'])), 10,
                  f'cleanup holder {args.recover_holder} releasing {board["name"]}')
         restored['recovered'] = {'holder': args.recover_holder, 'record': rec}
       result['results'].append({'board': board['name'], 'restored': restored})

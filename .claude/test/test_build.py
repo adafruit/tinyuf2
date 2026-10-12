@@ -302,20 +302,16 @@ class HilSelection(unittest.TestCase):
     h = self.hil('ports/stm32f4/boards/stm32f401_blackpill/board.h')
     self.assertEqual((h['boards'], [u['target'] for u in h['uncovered']]), ([], ['stm32f401_blackpill']))
 
-  def test_a_roster_name_maps_to_its_tinyuf2_board(self):
-    # the lock name is tinyusb's; tinyuf2.board names the source, so changes reach the roster entry by name
-    self.roster.write_text(json.dumps({'boards': [{'name': 'mimxrt1060_evk', 'tinyuf2': {'board': 'imxrt1060_evk'}}]}))
-    self.assertEqual(self.hil('ports/mimxrt10xx/boards/imxrt1060_evk/board.h')['boards'], ['mimxrt1060_evk'])
-    self.assertEqual(self.hil('ports/mimxrt10xx/board_flash.c')['boards'], ['mimxrt1060_evk'])
-    h = self.hil('src/main.c')
-    self.assertNotIn('mimxrt10xx', [u['target'] for u in h['uncovered']])
-    self.roster.write_text(json.dumps({'boards': [{'name': n, 'tinyuf2': {'board': 'imxrt1060_evk'}} for n in ('rt-a', 'rt-b')]}))
-    self.assertEqual(self.hil('ports/mimxrt10xx/boards/imxrt1060_evk/board.h')['boards'], ['rt-a', 'rt-b'])
+  def test_a_roster_entry_is_named_by_its_tinyuf2_board(self):
+    self.roster.write_text(json.dumps({'boards': [{'name': 'imxrt1060_evk', 'tinyuf2': {'lock': 'mimxrt1060_evk'}}]}))
+    self.assertEqual(self.hil('ports/mimxrt10xx/boards/imxrt1060_evk/board.h')['boards'], ['imxrt1060_evk'])
+    self.assertEqual(self.hil('ports/mimxrt10xx/board_flash.c')['boards'], ['imxrt1060_evk'])
+    self.assertNotIn('mimxrt10xx', [u['target'] for u in self.hil('src/main.c')['uncovered']])
 
   def test_the_hil_follows_its_cmake_build_not_cis_make(self):
-    self.roster.write_text(json.dumps({'boards': [{'name': 'mimxrt1060_evk', 'tinyuf2': {'board': 'imxrt1060_evk'}}]}))
+    self.roster.write_text(json.dumps({'boards': [{'name': 'imxrt1060_evk'}]}))
     h = self.hil('ports/mimxrt10xx/family.cmake', 'ports/mimxrt10xx/boards/imxrt1060_evk/board.cmake')
-    self.assertEqual((h['boards'], h['uncovered']), (['mimxrt1060_evk'], []))
+    self.assertEqual((h['boards'], h['uncovered']), (['imxrt1060_evk'], []))
     h = self.hil('ports/mimxrt10xx/port.mk', 'ports/mimxrt10xx/boards/imxrt1064_evk/board.cmake')
     self.assertEqual(h['boards'], [])
     self.assertEqual({u['target']: u['reason'] for u in h['uncovered']},
@@ -324,12 +320,12 @@ class HilSelection(unittest.TestCase):
                         f'no {self.config} board builds ports/mimxrt10xx/boards/imxrt1064_evk/board.cmake'})
 
   def test_shared_make_files_and_port_apps_are_outside_the_hil_build(self):
-    self.roster.write_text(json.dumps({'boards': [{'name': 'mimxrt1060_evk', 'tinyuf2': {'board': 'imxrt1060_evk'}}]}))
+    self.roster.write_text(json.dumps({'boards': [{'name': 'imxrt1060_evk'}]}))
     h = self.hil('ports/make.mk', 'ports/mimxrt10xx/apps/factory_test/CMakeLists.txt')
     self.assertEqual((h['full'], h['boards']), (False, []))
     self.assertEqual([u['target'] for u in h['uncovered']],
                      ['ports/make.mk', 'ports/mimxrt10xx/apps/factory_test/CMakeLists.txt'])
-    self.assertEqual(self.hil('ports/family_support.cmake')['boards'], ['mimxrt1060_evk'])
+    self.assertEqual(self.hil('ports/family_support.cmake')['boards'], ['imxrt1060_evk'])
 
   def test_unreadable_roster_fails(self):
     self.roster.write_text('{}')
