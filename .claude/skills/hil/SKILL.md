@@ -170,12 +170,15 @@ Commissioning is the lead's, never `hil-operator`'s or a review's. It runs under
 - Covered: imxrt1060_evk on htpc. Not covered: ports without a cmake build, lpc55 among them (no battery, `install` or `invalidate` for lpcxpresso55s69; its 0A silicon also hangs TinyUF2 on a UF2 copy, #500), ESP32 boards (#502), self-update, an interrupted update, malformed UF2 input and the physical double tap.
 - Every probe and USB path is unverified until commissioning has run on the board, and commissioning is manual.
 - The HIL's cmake image logs on the board UART: cmake builds leave `TUF2_LOG` at its default 1 (`src/board_api.h`), while make builds, the make ports' CI artifacts and the make-built releases pass 0. Its blocking writes at start, before the app jump and on DFU entry are timing the make image does not have.
-- Cleanup leaves the board unbootable, so the next user, tinyusb's HIL included, must flash before it runs anything. The cleanup's zero-page write at the flash floor is a loader shape not yet measured on imxrt1060_evk: what else it erases, the reset notes J-Link prints with no boot image, and an `install` from that state are pending its commissioning (Commissioning, Cleanup).
+- Cleanup leaves the board unbootable, so the next user, tinyusb's HIL included, must flash before it runs anything. Measured on imxrt1060_evk on 2026-10-12:
+  - the board then enumerates as the ROM serial downloader (1fc9:0135), and `install` from that state brings up DFU;
+  - J-Link prints its reset notes (`BENIGN`) with and without a boot image;
+  - with no boot image, a new J-Link session reads the flash wrong until a `loadbin` has run (zeros, and at 0x60010000 the bytes written at 0x60000200), so a plain `verifybin` fails. The cause is unknown. `invalidate` therefore re-verifies with a `loadbin` of the zero page that J-Link must report as "Skipped. Contents already match", then a `verifybin`.
 - Never use a port's CMake flash or erase targets on a rig board: `tinyuf2-erase-external-jlink` erases [FLASH_BASE, FLASH_BASE + 64 KiB), the bootloader and the zero page with it.
-- J-Link's QSPI loader on imxrt1060_evk is undocumented: SEGGER UM08001 has nothing on it. Measured at single sentinel points, with the 0.35.0 release BIN (30304 B) only:
-  - a BIN `loadbin` at 0x60000000 erased every point measured past the BIN in its block (0x60007800, 0x6000A000, the zero page at 0x6000C000, 0x6000C200), and J-Link reports 65536 bytes per operation, so [BIN end, 0x60010000) is treated as lost;
-  - a sentinel at 0x60010000, in the next block, survived a BIN `loadbin`;
-  - a zero-page `loadbin`, after a bootloader written in an earlier session, kept the whole bootloader (`verifybin`) and a sentinel at 0x6000A000.
+- J-Link's QSPI loader on imxrt1060_evk is undocumented: SEGGER UM08001 has nothing on it. Measured at sampled sentinel points only:
+  - the install image (the cmake BIN, 0xFF up to 0x6000C000, then the zero page, ending at 0x6000C200) left 0x6000C200 and 0x6000FF00 reading 0xFF in the same session, before any reset. Earlier, a 0.35.0 release BIN `loadbin` (30304 B) erased every point measured past it in its block (0x60007800, 0x6000A000, 0x6000C000, 0x6000C200). J-Link reports 65536 bytes per operation, so [image end, 0x60010000) is treated as lost;
+  - a sentinel at 0x60010000, in the next block, survived both;
+  - the cleanup's zero-page `loadbin` kept sentinels at 0x60000200, 0x6000A000, 0x6000FF00 and 0x60010000, and 16-byte sentinel `loadbin`s kept their neighbours in the same block, so what makes J-Link erase the rest of a block is not established.
   - That a candidate BIN of another length behaves the same is an inference, not a measurement.
   - That `loadbin` erases only the 64 KiB blocks its range touches, and never the chip, is an unverified premise these points support.
   Under that premise, losses stay inside [0x60000000, 0x60010000), in regions the battery rewrites or never reads, while the install span and the zero page lie in that block.
