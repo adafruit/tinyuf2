@@ -830,7 +830,7 @@ def fat_read(dev, name, length, log, offset=0):
   except (ValueError, IndexError):
     raise StepFail(f'fat-read of {name} gave no result (exit {code})', {'tail': out.strip().splitlines()[-3:]})
   if 'error' in r:
-    raise StepFail(f'{name} on {dev}: {r["error"]}')
+    raise StepFail(f'{name}: {r["reason"]}', {'dev': dev, 'error': r['error']})
   return {'entries': r['entries'], 'data': bytes.fromhex(r['data']), 'size': r['size']}
 
 
@@ -840,7 +840,9 @@ def fat_read_main(args):
     data, size = fat.file(args.file, args.length, args.offset) if args.length else (b'', fat.entries()[args.file][1])
     print(json.dumps({'entries': fat.entries(), 'data': data.hex(), 'size': size}))
   except (OSError, ValueError, KeyError, struct.error) as e:
-    print(json.dumps({'error': f'{type(e).__name__}: {e}'}))
+    # reason: the same failure reads the same in every run; an OSError's text names the device node
+    reason = f'{type(e).__name__}: {e.strerror}' if isinstance(e, OSError) and e.strerror else f'{type(e).__name__}: {e}'
+    print(json.dumps({'error': f'{type(e).__name__}: {e}', 'reason': reason}))
   return 0
 
 
@@ -1175,7 +1177,7 @@ class Battery:
     path = wait_for(lambda: usb_device(f['vid'], f['pid'], self.b['uid']), USB_TIMEOUT,
                     f'{f["vid"]:04x}:{f["pid"]:04x} serial {self.b["uid"]}')
     if self.usb_path and path != self.usb_path:
-      raise StepFail(f'came back on USB port {path}, not {self.usb_path}')
+      raise StepFail('came back on another USB port', {'usb': path, 'expected': self.usb_path})
     self.usb_path = path
     dev = wait_for(lambda: block_device(path), USB_TIMEOUT, f'the block device of USB {path}')
     udev_wait = check_exclusive(dev)
@@ -1418,7 +1420,7 @@ class EspBattery(Battery):
     path = wait_for(self.app, USB_TIMEOUT, f'the app {f["appVid"]:04x}:{f["appPid"]:04x} serial {self.b["uid"]}')
     ev = {'usb': path}
     if path != self.usb_path:
-      raise StepFail(f'the app came up on USB port {path}, not {self.usb_path}', ev)
+      raise StepFail('the app came up on another USB port than DFU', dict(ev, expected=self.usb_path))
     ev['string'] = self.usb_dfu('string')['string']
     if ev['string'] != f'HIL {nonce.hex()}':
       raise StepFail('the app does not report this copy\'s nonce', ev)

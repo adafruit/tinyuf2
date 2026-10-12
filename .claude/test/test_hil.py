@@ -754,6 +754,16 @@ class EspBatteryRun(EspFake):
     self.assertTrue(bat.touched)
     self.assertEqual(self.sessions()[0]['args'][-1], 'hard-reset')   # identity leaves an untouched board running
 
+  def test_an_app_on_another_port_keeps_the_paths_out_of_the_detail(self):
+    bat, rig, files = self.battery()
+    real = rig.usb_device
+    rig.usb_device = lambda vid, pid, serial: real(vid, pid, serial) and ('1-3' if rig.on == 'app' else '1-2')
+    with mock.patch.object(ht, 'usb_device', rig.usb_device), self.assertRaises(ht.StepFail):
+      bat.run(files, 'v1')
+    last = bat.steps[-1]
+    self.assertEqual((last['step'], last['detail']), ('app-ran', 'the app came up on another USB port than DFU'))
+    self.assertEqual((last['evidence']['usb'], last['evidence']['expected']), ('1-3', '1-2'))
+
   def test_a_stale_nonce_fails_app_ran(self):
     bat, rig, files = self.battery()
     rig.stale = ht.nonce_block(bytes(16))
@@ -1132,6 +1142,11 @@ class Fat(Tmp):
     self.assertEqual((r['data'], r['size'], r['entries']['INFO_UF2.TXT']), (b'a' * 512 + b'b' * 88, 1024, [2, 5]))
     with self.assertRaisesRegex(ht.StepFail, 'not on the volume'):
       ht.fat_read(self.vol(fat_image()), 'NOPE.TXT', 10, log)
+    for missing in (self.tmp / 'sdy', self.tmp / 'sdz'):
+      with self.assertRaises(ht.StepFail) as cm:
+        ht.fat_read(str(missing), 'CURRENT.UF2', 10, log)
+      self.assertEqual(str(cm.exception), 'CURRENT.UF2: FileNotFoundError: No such file or directory')   # no node name
+      self.assertIn(str(missing), cm.exception.evidence['error'])
     self.assertEqual(ht.CHILDREN, [])
 
 
