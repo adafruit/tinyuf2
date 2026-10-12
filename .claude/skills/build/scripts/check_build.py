@@ -426,8 +426,9 @@ def path_view(records, effect=None, keys=('path', 'rule', 'effect', 'reason')):
 
 def hil_selection(sel, config):
   """Roster boards the selection puts under the HIL battery. A board's own change reaches that board,
-  any other change every roster board of the ports it selects, a core or HIL-control change the whole
-  roster; what no roster board on this host can run is uncovered, whatever else was selected."""
+  an app change none, any other change every roster board of the ports it selects, a core or HIL-control
+  change the whole roster; what no roster board on this host can run is uncovered, whatever else was
+  selected."""
   try:
     roster = sorted({b['name'] for b in json.loads((ROOT / config).read_text())['boards']})   # TinyUF2 names
   except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
@@ -463,6 +464,8 @@ def hil_selection(sel, config):
         uncovered[r['path']] = f'no {config} board builds {r["path"]}'
     elif r['effect'] == 'gap':   # firmware no build covers is no HIL board's either
       uncovered[r['path']] = r['reason']
+    elif r['rule'] in ('app', 'port-app'):
+      uncovered[r['path']] = f'the battery runs the bootloader and its generated fixture, never {r["path"]}'
     elif r['rule'] == 'board':
       (b, _), = r['boards']
       if b in roster:

@@ -337,6 +337,16 @@ class HilSelection(unittest.TestCase):
                      ['ports/make.mk', 'ports/mimxrt10xx/apps/factory_test/CMakeLists.txt'])
     self.assertEqual(self.hil('ports/family_support.cmake')['boards'], ['imxrt1060_evk'])
 
+  def test_an_app_source_is_uncovered_since_the_battery_runs_no_app(self):
+    self.roster.write_text(json.dumps({'boards': [{'name': 'imxrt1060_evk'}]}))
+    app, shared = 'ports/mimxrt10xx/apps/factory_test/main.c', 'apps/blinky/src/blinky.c'
+    self.assertEqual(sorted(cb.select([app])['boards']), [('metro_m7_1011', 'make')])   # its build is unchanged
+    h = self.hil(app, shared)
+    self.assertEqual((h['full'], h['boards']), (False, []))
+    self.assertEqual([u['target'] for u in h['uncovered']], [shared, app])
+    h = self.hil(app, 'ports/mimxrt10xx/board_flash.c')   # a bootloader change beside it still runs the battery
+    self.assertEqual((h['boards'], [u['target'] for u in h['uncovered']]), (['imxrt1060_evk'], [app]))
+
   def test_unreadable_roster_fails(self):
     self.roster.write_text('{}')
     with self.assertRaises(cb.Fail):
