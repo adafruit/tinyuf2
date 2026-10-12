@@ -386,7 +386,8 @@ class Probe:
     code, out = spawn(['JLinkExe', '-USB', self.b['probe'], '-device', self.b['device'], '-if', self.b['if'],
                        '-speed', self.b['speed'], '-autoconnect', '1', '-NoGui', '1', '-ExitOnError', '1',
                        '-CommandFile', script], self.log, PROBE_TIMEOUT)
-    if judge and (code or re.search(r'Verify failed|Could not|Cannot connect|ERROR', out)):
+    if judge and (code or re.search(r'Verify failed|Could not|Cannot connect|ERROR|ResetTarget failed|Failed to halt|'
+                                    r'CPU is not halted', out)):
       raise StepFail(f'JLinkExe failed (exit {code})', {'tail': out.strip().splitlines()[-5:]})
     return out
 
@@ -397,6 +398,15 @@ class Probe:
     if missing:
       raise StepFail(f'mem32 read gave no value for {missing}')
     return vals
+
+  def write32(self, addr, value):
+    """Halt, write, read back, resume: J-Link reports a write as done even when the bus rejected it
+    (a peripheral with its clock gated), so only the read-back proves it."""
+    out = self.run(['h', f'w4 {addr:08X} {value:08X}', f'mem32 {addr:08X} 1', 'g'])
+    m = re.search(rf'^{addr:08X} = ([0-9A-F]{{8}})', out, re.M)
+    if not m or int(m.group(1), 16) != value:
+      raise StepFail(f'{addr:#010x} reads back {m.group(1) if m else "nothing"}, not {value:#010x}')
+    return hex(value)
 
 
 def after(out, command):
@@ -812,13 +822,13 @@ class Battery:
     v = self.probe.mem32([SCB_CPUID, DHCSR])
     return {'cpuid': f'{v[SCB_CPUID]:#010x}', 'dhcsr': f'{v[DHCSR]:#010x}'}
 
-  def program(self, bin_path, app_start, extra=()):
+  def program(self, bin_path, app_start):
     """A bootloader BIN at 0x0 plus a zero page at app_start, both read back; the zeroed reset vector makes
     the app invalid by construction, so the next boot stays in DFU. No range erase is ever issued.
     Callers have range-checked both spans (check_bootloader_bin)."""
     self.touched = True
     self.probe.run(['h', f'loadbin {bin_path},0x0', f'loadbin {self.zero},{app_start:#x}',
-                    f'verifybin {bin_path},0x0', f'verifybin {self.zero},{app_start:#x}', *extra, 'r', 'g'])
+                    f'verifybin {bin_path},0x0', f'verifybin {self.zero},{app_start:#x}', 'r', 'g'])
 
   def dfu(self, version):
     f = self.f
@@ -909,7 +919,7 @@ class Battery:
 
     def reenter():
       if self.b['reentry'] == 'retained-register':
-        self.probe.run(['h', f'w4 {f["dblTapReg"]:08X} {f["dblTapMagic"]:08X}', 'g'])
+        self.probe.write32(f['dblTapReg'], f['dblTapMagic'])
         # SYSRESETREQ may drop the debug connection mid-write: its exit is not judged, enumeration is
         tail = self.probe.run([f'w4 {SCB_AIRCR:08X} {AIRCR_SYSRESETREQ:08X}'], judge=False)
       else:
@@ -937,15 +947,18 @@ class Battery:
 
 
 def restore(board, facts, workdir, battery=None):
-  """The pinned known-good bootloader and its zero page, read back, the double-tap register cleared, reset,
-  DFU observed with the restoration version. Its layout is the restoration profile's (check_restore at
+  """The pinned known-good bootloader and its zero page, read back, reset, DFU observed with the restoration
+  version, then the double-tap register cleared. Its layout is the restoration profile's (check_restore at
   admission), never the candidate's."""
   r = board['restore']
   if sha256(r['bin']) != r['sha256']:
     raise StepFail(f'restoration image {r["bin"]} changed since admission')
   bat = battery or Battery(board, facts, workdir)
-  bat.program(r['bin'], r['appStart'], [f'w4 {facts["dblTapReg"]:08X} 0'])
+  bat.program(r['bin'], r['appStart'])
   ev = bat.dfu(r['version'])
+  # cleared only now: the register is clocked once the bootloader has run board_init, and in DFU for an
+  # invalid app it is never read (src/main.c), so a magic left by a failed reenter would outlive restore
+  ev['dblTapReg'] = bat.probe.write32(facts['dblTapReg'], 0)
   return {'pass': True, 'state': f'restoration bootloader {r["version"]} in DFU', 'evidence': ev}
 
 

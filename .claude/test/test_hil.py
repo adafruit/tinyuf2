@@ -696,7 +696,7 @@ class FakeRig:
 
   def __init__(self, bat, reentry):
     self.bat, self.reentry, self.scripts, self.present = bat, reentry, [], True
-    self.r0 = 5
+    self.r0, self.mem = 5, {}
 
   def probe(self, commands, judge=True):
     self.scripts.append(list(commands))
@@ -709,10 +709,14 @@ class FakeRig:
                 f'SP(R13)= {fx["sp"]:08X}, MSP= {fx["sp"]:08X}, PSP= 00000000\nIPSR = 000 (NoException)\n')
       elif c.startswith('mem32 '):
         a = int(c.split()[1], 16)
-        v = f['appStart'] if a == ht.SCB_VTOR else 0
+        v = f['appStart'] if a == ht.SCB_VTOR else self.mem.get(a, 0)
         out += f'J-Link>{c}\n{a:08X} = {v:08X} \n'
       elif c.startswith(f'w4 {ht.SCB_AIRCR:08X}') or (c == 'r' and self.reentry == 'app-invalidate'):
         self.present = True
+        self.mem.pop(f['dblTapReg'], None)   # the bootloader consumes the magic
+      elif c.startswith('w4 '):
+        _, a, v = c.split()
+        self.mem[int(a, 16)] = int(v, 16)
     return out
 
   def spawn(self, cmd, log, timeout, cwd=None):
@@ -742,11 +746,12 @@ class BatteryRun(Tmp):
     bat.probe.run = rig.probe
 
     def fat_read(*a):
-      rig.current = bytearray(bat.fix['image'])
-      if reentry == 'app-invalidate':
-        rig.current[:board['page']] = bytes(board['page'])
-      if corrupt:
-        corrupt(rig.current)
+      if a[1] == 'CURRENT.UF2':
+        rig.current = bytearray(bat.fix['image'])
+        if reentry == 'app-invalidate':
+          rig.current[:board['page']] = bytes(board['page'])
+        if corrupt:
+          corrupt(rig.current)
       return rig.fat_read(*a)
     for p in (mock.patch.object(ht, 'usb_device', lambda *a: '1-2' if rig.present else None),
               mock.patch.object(ht, 'block_device', lambda p: '/dev/sdz'),
@@ -784,6 +789,33 @@ class BatteryRun(Tmp):
     bat, _ = self.battery()
     with self.assertRaisesRegex(ht.StepFail, 'INFO_UF2'):
       bat.run({'bin': self.tmp / 'c.bin'}, 'v2')
+
+  def test_a_left_magic_is_cleared_only_after_dfu_and_read_back(self):
+    bat, rig = self.battery()
+    r = bat.b['restore']
+    Path(r['bin']).write_bytes(b'x')
+    r.update(sha256=ht.sha256(r['bin']), version='v1')
+    reg = bat.f['dblTapReg']
+    rig.mem[reg] = bat.f['dblTapMagic']
+    dfu = bat.dfu
+    bat.dfu = lambda v: rig.scripts.append('dfu observed') or dfu(v)
+    ev = ht.restore(bat.b, bat.f, self.tmp, bat)['evidence']
+    self.assertEqual((ev['dblTapReg'], rig.mem[reg]), ('0x0', 0))
+    self.assertNotIn(f'w4 {reg:08X} 00000000', rig.scripts[0])
+    self.assertEqual(rig.scripts[1:], ['dfu observed', ['h', f'w4 {reg:08X} 00000000', f'mem32 {reg:08X} 1', 'g']])
+
+  def test_a_write_the_bus_dropped_fails_its_read_back(self):
+    bat, rig = self.battery()
+    rig.probe = lambda commands, judge=True: f'J-Link>mem32 4002C05C 1\n4002C05C = 00000000 \n'
+    bat.probe.run = rig.probe
+    with self.assertRaisesRegex(ht.StepFail, 'reads back 00000000'):
+      bat.probe.write32(0x4002C05C, 0xF01669EF)
+
+  def test_a_failed_reset_fails_the_session(self):
+    out = 'J-Link>r\nResetTarget failed (-1).\nFailed to halt CPU.\nJ-Link>g\n\n****** Error: CPU is not halted\n'
+    probe = ht.Probe({'probe': '1', 'device': 'd', 'if': 'SWD', 'speed': '4000'}, self.tmp, None)
+    with mock.patch.object(ht, 'spawn', lambda *a, **k: (0, out)), self.assertRaisesRegex(ht.StepFail, 'JLinkExe failed'):
+      probe.run(['r', 'g'])
 
 
 class AppRan(Tmp):
