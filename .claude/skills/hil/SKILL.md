@@ -73,7 +73,7 @@ A board's evidence is scoped as the report says. "app-ran" is execution after th
 
 The last stdout line is JSON, also written to its `reportPath`; read that path, never an older report. Its fields:
 - `pass`, `caveat`;
-- per board: `ran`, `pass`, `locked`, `lockBypassed`, `firmware` (path, sha256, version, build record), `steps[]` (`step`, `pass`, `evidence`, `detail`), `cleanup` (`pass`, `state`, `evidence`, `heldAfter`, `holder`, `survivors`), and `detail`;
+- per board: `ran`, `pass`, `locked`, `lockBypassed`, `firmware` (path, sha256, version, build record), `steps[]` (`step`, `pass`, `evidence`, `detail`), `cleanup` (`pass`, `state`, `evidence`, `heldAfter`, `holder`, `survivors`), `jlinkRetried` (J-Link sessions run again after a crash before the target connect; Limits), and `detail`;
 - `error` on a refusal or an operation failure.
 
 | Exit | Meaning |
@@ -182,6 +182,7 @@ Commissioning is the lead's, never `hil-operator`'s or a review's. It runs under
   - That a candidate BIN of another length behaves the same is an inference, not a measurement.
   - That `loadbin` erases only the 64 KiB blocks its range touches, and never the chip, is an unverified premise these points support.
   Under that premise, losses stay inside [0x60000000, 0x60010000), in regions the battery rewrites or never reads, while the install span and the zero page lie in that block.
+- `JLinkExe` sometimes crashes in `libjlinkarm` at the probe connect on htpc (SIGSEGV; once a glibc double-free abort); the cause is unknown. A session that crashed this way, before the target connect, runs once more after 2 s (`jlinkRetried`); a second crash fails the run. Seen in 2 of 94 runner sessions on 2026-10-12.
 - A device hung mid-write makes the host controller retry its enumeration, which stalled a J-Link connect on the same hub for ~80 s (lpcxpresso55s69); that the hub is the cause is a hypothesis.
 - If no cleanup holder can be forked (exit 4 with `cleanup.holder.inProcess`), the runner never exits until recovered.
 - No reproducer for an instrumented build: the battery refuses a dirty build, and `install` only programs. A claim that needs one is reported pending.

@@ -45,6 +45,7 @@ AIRCR_SYSRESETREQ = 0x05FA0004
 UF2_MAGIC = (0x0A324655, 0x9E5D5157, 0x0AB16F30)
 UF2_FLAG_FAMILY = 0x2000
 PROBE_TIMEOUT, USB_TIMEOUT, QUIET_TIME, KILL_WAIT, UDEV_TIMEOUT = 120, 20, 3, 5, 5
+JLINK_RETRY_DELAY = 2
 JLINK_IF, JLINK_SPEED = 'SWD', '4000'
 ZERO_PAGE = 512   # bytes zeroed at the app start so its reset vector reads 0
 UDEV_RULES = ('/etc/udev/rules.d', '/run/udev/rules.d')
@@ -401,9 +402,20 @@ def still_alive(survivors):
 
 # ------------------------------------------------------------------ probe
 
+def died_at_probe_connect(code, out, probe):
+  """libjlinkarm's crash at the probe connect (SKILL.md, Limits): SIGSEGV or SIGABRT with this probe's
+  serial as the last J-Link line, before any target connect, so the session changed nothing and may run again.
+  Any other death leaves the target's state unknown."""
+  lines = [x.strip() for x in out.splitlines() if x.strip() and not re.match(r'(double free|free\(\)|malloc|corrupted )', x)]
+  last = re.fullmatch(r'S/N: (\d+)', lines[-1]) if lines else None
+  return code in (-signal.SIGSEGV, -signal.SIGABRT) and bool(last) and int(last.group(1)) == int(probe) and \
+    'Connecting to target' not in out
+
+
 class Probe:
   def __init__(self, board, workdir, log):
     self.b, self.dir, self.log = board, workdir, log
+    self.retried = []
 
   def run(self, commands, judge=True):
     """One JLinkExe session. judge=False is for a command that resets the target, which may drop the
@@ -413,6 +425,12 @@ class Probe:
     cmd = ['JLinkExe', '-USB', self.b['probe'], '-device', self.b['device'], '-if', self.b['if'], '-speed',
            self.b['speed'], '-autoconnect', '1', '-NoGui', '1', '-ExitOnError', '1', '-CommandFile', script]
     code, out = spawn(cmd, self.log, PROBE_TIMEOUT)
+    if died_at_probe_connect(code, out, self.b['probe']):
+      self.retried.append({'exit': code, 'script': script.name})
+      with open(self.log, 'a') as f:
+        f.write(f'# JLinkExe died (exit {code}) at the probe connect, before the target; retrying once\n')
+      time.sleep(JLINK_RETRY_DELAY)
+      code, out = spawn(cmd, self.log, PROBE_TIMEOUT)
     judged = re.sub(BENIGN[self.b['device']], '', out) if self.b['device'] in BENIGN else out
     # a crash fails even a reset session (judge=False): its commands may not have run
     if code < 0 or judge and (code or re.search(r'Verify failed|Could not|Cannot connect|ERROR|ResetTarget failed|'
@@ -1123,7 +1141,7 @@ def run_board(args, board, facts, helper, workdir):
   except BaseException as e:   # anything after admission still cleans up below
     row['detail'] = f'{bat.at}: {e}' if isinstance(e, StepFail) else f'{bat.at}: {type(e).__name__}: {e}'
     code = 1
-  row['steps'] = bat.steps
+  row['steps'], row['jlinkRetried'] = bat.steps, bat.probe.retried   # the cleanup's retries land here too
   code = clean_up(row, code, bat, fh, board, facts, helper, workdir)
   if row.get('commissioning'):
     row['reentryDecision'] = reentry_decision(row)
