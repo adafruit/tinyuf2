@@ -347,6 +347,21 @@ def make_uf2(img, base, family, workdir):
 # ------------------------------------------------------------------ processes
 
 CHILDREN = []
+REGISTERING = {'on': False, 'signum': None}
+
+
+@contextlib.contextmanager
+def registering():
+  """Defer an interrupt until the block ends: Popen's child is in CHILDREN before Interrupted can
+  unwind, so cleanup sees it. Deferring, not masking, leaves the child's inherited signal mask as is."""
+  REGISTERING.update(on=True, signum=None)
+  try:
+    yield
+  finally:
+    REGISTERING['on'] = False
+    signum, REGISTERING['signum'] = REGISTERING['signum'], None
+    if signum:
+      raise Interrupted(f'interrupted by {signal.Signals(signum).name}')
 
 
 def spawn(cmd, log, timeout, cwd=None):
@@ -356,9 +371,10 @@ def spawn(cmd, log, timeout, cwd=None):
   with open(log, 'a') as f:
     f.write('$ ' + ' '.join(map(str, cmd)) + '\n')
     f.flush()
-    p = subprocess.Popen([str(c) for c in cmd], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                         errors='replace', start_new_session=True, cwd=cwd)
-    CHILDREN.append(p)
+    with registering():
+      p = subprocess.Popen([str(c) for c in cmd], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                           errors='replace', start_new_session=True, cwd=cwd)
+      CHILDREN.append(p)
     try:
       out, _ = p.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -1098,6 +1114,9 @@ def signals(how):
 def on_signal(signum, _):
   # blocked again before raising: no later signal can break into the unwinding or the cleanup
   signal.pthread_sigmask(signal.SIG_BLOCK, TERM_SIGNALS)
+  if REGISTERING['on']:
+    REGISTERING['signum'] = REGISTERING['signum'] or signum
+    return
   raise Interrupted(f'interrupted by {signal.Signals(signum).name}')
 
 

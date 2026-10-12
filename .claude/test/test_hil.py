@@ -464,6 +464,36 @@ class Fat(Tmp):
     self.assertEqual(ht.CHILDREN, [])
 
 
+class Spawn(Tmp):
+  def setUp(self):
+    super().setUp()
+    handler = signal.signal(signal.SIGTERM, ht.on_signal)
+    mask = signal.pthread_sigmask(signal.SIG_UNBLOCK, ht.TERM_SIGNALS)
+    self.addCleanup(signal.pthread_sigmask, signal.SIG_SETMASK, mask)
+    self.addCleanup(signal.signal, signal.SIGTERM, handler)
+
+  def test_a_signal_right_after_the_child_starts_still_leaves_it_tracked_for_cleanup(self):
+    real, launched = subprocess.Popen, []
+    self.addCleanup(lambda: [(ht.reap(p), p.communicate()) for p in launched])
+
+    def popen_then_signalled(*a, **k):
+      launched.append(real(*a, **k))
+      os.kill(os.getpid(), signal.SIGTERM)
+      return launched[-1]
+    with mock.patch.object(ht.subprocess, 'Popen', popen_then_signalled), \
+         self.assertRaisesRegex(ht.Interrupted, 'SIGTERM'):
+      ht.spawn([sys.executable, '-c', 'import time; time.sleep(30)'], self.tmp / 'log', 5)
+    self.assertEqual(ht.CHILDREN, launched)
+    self.assertEqual(ht.stuck_children(), [])   # reaped by SIGKILL, not left running
+    self.assertIsNotNone(launched[0].poll())
+    self.assertEqual(ht.CHILDREN, [])
+
+  def test_registering_leaves_the_childs_signal_mask_alone(self):
+    code, out = ht.spawn(['grep', 'SigBlk', '/proc/self/status'], self.tmp / 'log', 5)
+    self.assertEqual(code, 0, out)
+    self.assertFalse(int(out.split()[1], 16) & (1 << (signal.SIGTERM - 1)), out)
+
+
 class Locks(Tmp):
   def setUp(self):
     super().setUp()
