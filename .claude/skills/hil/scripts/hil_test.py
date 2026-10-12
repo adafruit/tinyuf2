@@ -29,14 +29,17 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT / '.claude' / 'skills' / 'build' / 'scripts'))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True   # nothing the runner imports may write into a checkout it binds
 import check_build as cb  # noqa: E402
+import hil_esp as esp  # noqa: E402
 
 # [floor, ceiling) the runner ever programs, per J-Link device, independent of roster and source:
 # LPC55S69 PFR starts at 0x9DE00 and a bad CMPA write can lock the part (UM11126 Table 173, Table 1064);
 # 0x9D800-0x9DDFF is reserved and undocumented. MIMXRT1062: FlexSPI XIP at 0x60000000 (IMXRT1060RM
 # Table 3-1) holding the EVK's 8 MiB IS25WP064A (EVK hardware user's guide 2.7).
 FLASH_LIMITS = {'LPC55S69_M33_0': (0, 0x9D800), 'MIMXRT1062xxx6A': (0x60000000, 0x60800000)}
+FLASHER_ARGS = {'jlink': r'-device (\S+)', 'esptool': r'--chip (\w+)'}
 STEPS = ('identity', 'install', 'dfu', 'copy', 'app-ran', 'reenter')
 REENTRY = ('retained-register', 'app-invalidate')
 PROTECTED = {'hil_test.py', 'pool_check'}   # tinyusb hil_lock.PROTECTED_REASONS, checked at load
@@ -85,9 +88,10 @@ def load_board(config, name):
     raise Refused('set TINYUSB_DIR to the absolute path of the tinyusb checkout whose test/hil/helper/hil_lock.py '
                   'owns the board locks')
   fl, t = b.get('flasher') or {}, b.get('tinyuf2') or {}
-  m = re.fullmatch(r'-device (\S+)', fl.get('args') or '')
-  if fl.get('name') != 'jlink' or not isinstance(fl.get('uid'), str) or not m:
-    raise Refused(f'{name}: flasher must be jlink with a string uid and args exactly "-device NAME"')
+  m = re.fullmatch(FLASHER_ARGS.get(fl.get('name'), r'(?!)'), fl.get('args') or '')
+  if not isinstance(fl.get('uid'), str) or not m:
+    raise Refused(f'{name}: flasher must be jlink with args exactly "-device NAME", or esptool with args exactly '
+                  f'"--chip CHIP", with a string uid')
   if not isinstance(b.get('uid'), str) or not b['uid']:
     raise Refused(f'{name}: uid (the bootloader USB serial) is required')
   lock = t.get('lock', name)   # tinyusb's name for the board when it differs: both runners take one lock
@@ -97,9 +101,12 @@ def load_board(config, name):
     port = cb.port_of(name)
   except cb.Fail as e:
     raise Refused(f'{name}: the roster names a board by its TinyUF2 name: {e}')
-  if m.group(1) not in FLASH_LIMITS:
+  if fl['name'] == 'esptool':
+    if m.group(1) not in esp.BOOTLOADER_OFFSET or port != 'espressif':
+      raise Refused(f'{name}: esptool is supported for espressif chips {sorted(esp.BOOTLOADER_OFFSET)} only')
+  elif m.group(1) not in FLASH_LIMITS:
     raise Refused(f'{name}: no programming limits known for J-Link device {m.group(1)}')
-  return {'name': name, 'lock': lock, 'uid': b['uid'], 'probe': fl['uid'], 'device': m.group(1),
+  return {'name': name, 'lock': lock, 'uid': b['uid'], 'flasher': fl['name'], 'probe': fl['uid'], 'device': m.group(1),
           'if': JLINK_IF, 'speed': JLINK_SPEED, 'port': port, 'page': ZERO_PAGE,
           'helper': os.path.join(tinyusb, 'test', 'hil', 'helper', 'hil_lock.py'),
           'reentry': t.get('reentry')}
@@ -179,6 +186,8 @@ def source_facts(board):
   bdir = f'ports/{port}/boards/{board["name"]}'
   if not (ROOT / bdir).is_dir():
     raise Refused(f'{bdir} does not exist')
+  if board.get('flasher') == 'esptool':
+    return esp_source_facts(board, bdir)
   header, ld, flash_base = port_sources(port, bdir)
   if re.search(r'^\s*#\s*define\s+BOARD_FLASH_APP_START\b', (ROOT / f'{bdir}/board.h').read_text(), re.M):
     raise Refused(f'{bdir}/board.h overrides BOARD_FLASH_APP_START; the runner reads the port default only')
@@ -204,6 +213,21 @@ def source_facts(board):
   facts['dblTapMagic'] = 0xf01669ef   # board_api.h DBL_TAP_MAGIC at TINYUF2_DBL_TAP_REG_SIZE 32
   if 'TINYUF2_DBL_TAP_REG_SIZE' in (ROOT / f'ports/{port}/boards.h').read_text():
     raise Refused(f'ports/{port} overrides TINYUF2_DBL_TAP_REG_SIZE: the magic would need its shift')
+  return facts
+
+
+def esp_source_facts(board, bdir):
+  try:
+    facts = esp.facts(ROOT, board)
+  except (esp.Refused, OSError, ValueError) as e:
+    raise Refused(str(e))
+  delay = re.search(r'^\s*#\s*define\s+UF2_DETECTION_DELAY_MS\s+(\d+)', (ROOT / bdir / 'board.h').read_text(), re.M)
+  facts.update(vid=num(define(f'{bdir}/board.h', 'USB_VID'), 'USB_VID'),
+               pid=num(define(f'{bdir}/board.h', 'USB_PID'), 'USB_PID'),
+               boardId=define(f'{bdir}/board.h', 'UF2_BOARD_ID').strip('"'),
+               detectionDelayMs=int(delay.group(1)) if delay else
+               num(define('ports/espressif/bootloader_components/main/bootloader_start.c', 'UF2_DETECTION_DELAY_MS'),
+                   'UF2_DETECTION_DELAY_MS'))
   return facts
 
 
@@ -235,6 +259,13 @@ def register_layout(header, periph, member):
 def apply_layout(board, facts):
   """The install and app spans, from the candidate's source: the bootloader from the flash base up to the app
   start, the app from there to the end of the board's flash, all inside the device's programming limits."""
+  if board.get('flasher') == 'esptool':
+    try:
+      lay = esp.layout(facts, board['device'])
+    except esp.Refused as e:
+      raise Refused(str(e))
+    board.update(regions=lay, app=lay['app'])
+    return
   base, start, end = facts['flashBase'], facts['appStart'], facts['flashBase'] + facts['flashSize']
   floor, ceiling = FLASH_LIMITS[board['device']]
   if not floor <= base < start < end <= ceiling:
@@ -832,9 +863,18 @@ def verify_record(record_path, board, facts):
   if not rec.get('pass') or len(rows) != 1 or rows[0].get('status') != 'ok' or rows[0].get('removed'):
     raise Refused(f'{record_path}: not a passing --shared build of {board["name"]}')
   row, info = rows[0], rec.get('input', {})
-  if row.get('backend') != 'cmake':
-    raise Refused(f'{record_path}: a {row.get("backend")} build; the HIL takes cmake builds only '
-                  f'(check_build.py --board {board["name"]} --backend cmake --shared)')
+  want = 'idf' if board.get('flasher') == 'esptool' else 'cmake'
+  if row.get('backend') != want:
+    raise Refused(f'{record_path}: a {row.get("backend")} build; the HIL takes {want} builds only for this board '
+                  f'(check_build.py --board {board["name"]}{" --backend cmake" if want == "cmake" else ""} --shared)')
+  if want == 'idf':
+    try:
+      image = f'espressif/idf:{cb.ci_idf_version()}'
+    except cb.Fail as e:
+      raise Refused(str(e))
+    idf = rec.get('idf') or {}
+    if idf.get('mode') != 'docker' or idf.get('image') != image:
+      raise Refused(f'{record_path}: an IDF build from {idf.get("mode")} {idf.get("image")}; the HIL takes CI\'s {image} only')
   try:
     now = cb.identity({board['port']})
   except (cb.Fail, OSError) as e:
@@ -848,6 +888,8 @@ def verify_record(record_path, board, facts):
     if bad:
       raise Refused(f'build inputs are not clean: {bad} (commit, or rebuild from a clean checkout)')
   root = cb.ROOT / row['buildDir']
+  if want == 'idf':
+    return esp_record(record_path, rec, row, root, board, facts)
   files, digests = {}, {}
   for p in cb.expected_artifacts(board['port'], board['name'], 'cmake', root):
     kind = p.suffix[1:]
@@ -863,6 +905,23 @@ def verify_record(record_path, board, facts):
     raise Refused(f'{record_path}: the build of {board["name"]} names no {" or ".join(sorted({"hex", "bin"} - files.keys()))}')
   return files, {'path': str(files['bin']), 'sha256': digests['bin'], 'buildRecord': str(record_path),
                  'defines': rec.get('defines', []), 'version': embedded_version(files['bin'])}
+
+
+def esp_record(record_path, rec, row, root, board, facts):
+  """An IDF record's segments, every file it binds hash-checked first."""
+  for rel in esp.RECORD_FILES:
+    digest = sha256(root / rel)
+    if digest is None:
+      raise Refused(f'{root / rel}: missing or unreadable; rebuild with --shared')
+    if row.get('sha256', {}).get(rel) != digest:
+      raise Refused(f'{root / rel}: hash differs from the build record')
+  try:
+    segments = esp.admit(root, board, facts, board['regions'])
+  except (esp.Refused, OSError, ValueError) as e:
+    raise Refused(f'{record_path}: {e}')
+  app = root / '_bin' / 'tinyuf2.bin'
+  return {'segments': segments}, {'path': str(app), 'sha256': sha256(app), 'buildRecord': str(record_path),
+                                  'defines': rec.get('defines', []), 'version': embedded_version(app)}
 
 
 def sha256(p):

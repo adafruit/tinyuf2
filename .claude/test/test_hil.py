@@ -271,6 +271,142 @@ class SourceFacts(unittest.TestCase):
       with self.subTest(expr), self.assertRaises(ht.Refused):
         ht.flash_addr(expr, base, 'x') if 'BASE' in expr or 'OTHER' in expr else ht.product(expr, 'x')
 
+S3 = 'espressif_esp32s3_devkitc_1'
+S3_PARTS = [('nvs', 1, 0x02, 0x9000, 0x5000), ('otadata', 1, 0x00, 0xe000, 0x2000), ('ota_0', 0, 0x10, 0x10000, 0x200000),
+            ('ota_1', 0, 0x11, 0x210000, 0x200000), ('uf2', 0, 0x00, 0x410000, 0x40000), ('ffat', 1, 0x81, 0x450000, 0x3b0000)]
+
+
+def s3_roster(tmp, **over):
+  b = {'name': S3, 'uid': '84F703C084E4', 'flasher': {'name': 'esptool', 'uid': 'cp2102n', 'args': '--chip esp32s3'},
+       'tinyuf2': {'reentry': 'dfu-detach'}}
+  b.update(over)
+  cfg = tmp / 'esp.json'
+  cfg.write_text(json.dumps({'boards': [b]}))
+  return cfg
+
+
+def partition_table(rows):
+  body = b''.join(b'\xaa\x50' + struct.pack('<BBII', t, st, off, size) + label.encode().ljust(16, b'\0') +
+                  struct.pack('<I', 0) for label, t, st, off, size in rows)
+  return body + b'\xeb\xeb' + b'\xff' * 14 + ht.hashlib.md5(body).digest() + b'\xff' * 32
+
+
+def idf_build(root, parts=S3_PARTS, flash_args=None, sdk=None):
+  """A synthetic IDF build of the S3 DevKitC as the port's CMakeLists lays it out, and its record row."""
+  (root / '_bin').mkdir(parents=True)
+  files = {'_bin/bootloader.bin': b'\xe9' + b'\0' * 0x5000,
+           '_bin/tinyuf2.bin': b'\xe9' + b'TinyUF2 Bootloader 1.0\r\nBoard-ID: ESP32S3-DevKitC-v1.0\r\n' + b'\0' * 0x100,
+           '_bin/partition-table.bin': partition_table(parts), '_bin/ota_data_initial.bin': b'\xff' * 0x2000,
+           '_bin/flash_args': flash_args or ('--flash_mode dio --flash_freq 80m --flash_size 8MB\n0x0 bootloader/bootloader.bin\n'
+                                             '0x410000 tinyuf2.bin\n0x8000 partition_table/partition-table.bin\n'
+                                             '0xe000 ota_data_initial.bin\n'),
+           'sdkconfig': sdk or ('CONFIG_IDF_TARGET="esp32s3"\nCONFIG_ESPTOOLPY_FLASHMODE="dio"\nCONFIG_ESPTOOLPY_FLASHFREQ="80m"\n'
+                                'CONFIG_ESPTOOLPY_FLASHSIZE="8MB"\nCONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-8MB.csv"\n'
+                                'CONFIG_PARTITION_TABLE_OFFSET=0x8000\n'),
+           'flasher_args.json': '{}'}
+  for rel, data in files.items():
+    (root / rel).write_bytes(data if isinstance(data, bytes) else data.encode())
+  return {'board': S3, 'status': 'ok', 'backend': 'idf', 'buildDir': str(root),
+          'sha256': {rel: ht.sha256(root / rel) for rel in files}}
+
+
+class Esp(Tmp):
+  """The S3 DevKitC entry: esptool by the CP2102N's serial, facts from the IDF port's own files."""
+
+  def setUp(self):
+    super().setUp()
+    self.board = self.load(s3_roster(self.tmp), S3)
+    self.facts = ht.source_facts(self.board)
+    self.now = {'head': 'h', 'submodules': {}, 'deps': {}, 'dirty': False}
+
+  def record(self, row, idf=None):
+    rec = self.tmp / 'rec.json'
+    rec.write_text(json.dumps({'pass': True, 'input': self.now, 'boards': [row],
+                               'idf': idf or {'mode': 'docker', 'image': 'espressif/idf:v5.3.2'}}))
+    return rec
+
+  def verify(self, rec):
+    with mock.patch.object(ht.cb, 'identity', lambda ports: self.now), \
+         mock.patch.object(ht.cb, 'ci_idf_version', lambda: 'v5.3.2'):
+      return ht.verify_record(rec, self.board, self.facts)
+
+  def test_the_facts_come_from_the_idf_port(self):
+    f = self.facts
+    self.assertEqual((f['flashSize'], f['partitionCsv'], f['partitions']), (0x800000, 'partitions-8MB.csv', S3_PARTS))
+    self.assertEqual((f['vid'], f['pid'], f['boardId'], f['family'], f['detectionDelayMs']),
+                     (0x239a, 0x00a5, 'ESP32S3-DevKitC-v1.0', 0xc47e5767, 500))
+    self.assertEqual((self.board['flasher'], self.board['probe'], self.board['device']), ('esptool', 'cp2102n', 'esp32s3'))
+
+  def test_the_layout_names_what_an_install_writes_and_what_is_preserved(self):
+    lay = self.board['regions']
+    self.assertEqual(lay['install'], {'bootloader': (0, 0x8000), 'partition table': (0x8000, 0x9000),
+                                      'otadata': (0xe000, 0x10000), 'factory': (0x410000, 0x450000)})
+    self.assertEqual(lay['app'], (0x10000, 0x210000))
+    self.assertEqual(lay['preserved'], {'nvs': (0x9000, 0xe000), 'ota_1': (0x210000, 0x410000),
+                                        'ffat': (0x450000, 0x800000)})
+
+  def test_layout_refusals(self):
+    cases = {'overlap': S3_PARTS[:1] + [('otadata', 1, 0x00, 0xd000, 0x2000)] + S3_PARTS[2:],
+             'past the flash': S3_PARTS[:5] + [('ffat', 1, 0x81, 0x450000, 0x400000)],
+             'no factory': S3_PARTS[:4] + S3_PARTS[5:],
+             'over the partition table': [('nvs', 1, 0x02, 0x8800, 0x5000)] + S3_PARTS[1:]}
+    for what, parts in cases.items():
+      with self.subTest(what), self.assertRaises(ht.esp.Refused):
+        ht.esp.layout(dict(self.facts, partitions=parts), 'esp32s3')
+
+  def test_roster_refusals(self):
+    cases = {'not espressif': {'name': 'imxrt1060_evk'},
+             'unknown chip': {'flasher': {'name': 'esptool', 'uid': 'x', 'args': '--chip esp32s2'}},
+             'args': {'flasher': {'name': 'esptool', 'uid': 'x', 'args': '--chip esp32s3 -b 921600'}}}
+    for what, over in cases.items():
+      with self.subTest(what), self.assertRaises(ht.Refused):
+        ht.load_board(s3_roster(self.tmp, **over), over.get('name', S3))
+
+  def test_an_idf_record_gives_the_four_segments_at_their_regions(self):
+    files, fw = self.verify(self.record(idf_build(self.tmp / 'b')))
+    self.assertEqual([(off, p.name) for off, p in files['segments']],
+                     [(0, 'bootloader.bin'), (0x8000, 'partition-table.bin'), (0xe000, 'ota_data_initial.bin'),
+                      (0x410000, 'tinyuf2.bin')])
+    self.assertEqual(fw['version'], '1.0')
+
+  def test_idf_record_refusals(self):
+    fa = ('--flash_mode dio --flash_freq 80m --flash_size 8MB\n0x0 bootloader/bootloader.bin\n0x410000 tinyuf2.bin\n'
+          '0x8000 partition_table/partition-table.bin\n')
+    cases = {
+      'a local IDF': ({}, {'mode': 'local', 'image': 'espressif/idf:v5.3.2'}, 'CI\'s espressif/idf:v5.3.2 only'),
+      'another image': ({}, {'mode': 'docker', 'image': 'espressif/idf:v5.4'}, 'only'),
+      'a cmake build': ({'backend': 'cmake'}, None, 'idf builds only'),
+      'a segment moved': ({'flash_args': fa.replace('0x410000', '0x400000') + '0xe000 ota_data_initial.bin\n'}, None,
+                          'not at the start of its factory region'),
+      'combined.bin flashed': ({'flash_args': fa + '0xe000 ota_data_initial.bin\n0x0 combined.bin\n'}, None, 'two segments'),
+      'another file': ({'flash_args': fa + '0xd000 combined.bin\n'}, None, "'combined.bin' is not one of"),
+      'an escaping path': ({'flash_args': fa.replace('0x0 bootloader/', '0x0 ../../x/') + '0xe000 ota_data_initial.bin\n'},
+                           None, "'../../x/bootloader.bin' is not one of"),
+      'a flat bootloader': ({'flash_args': fa.replace('0x0 bootloader/', '0x0 ') + '0xe000 ota_data_initial.bin\n'},
+                            None, "'bootloader.bin' is not one of"),
+      'a segment missing': ({'flash_args': fa}, None, 'not exactly'),
+      'another flash size': ({'sdk': 'CONFIG_IDF_TARGET="esp32s3"\nCONFIG_ESPTOOLPY_FLASHSIZE="4MB"\n'}, None,
+                             'differs from the candidate source'),
+      'another partition table': ({'parts': S3_PARTS[:5] + [('ffat', 1, 0x81, 0x450000, 0x300000)]}, None,
+                                  'partition-table.bin'),
+    }
+    for i, (what, (over, idf, err)) in enumerate(cases.items()):
+      with self.subTest(what):
+        build = {k: v for k, v in over.items() if k in ('flash_args', 'sdk', 'parts')}
+        if 'parts' in build:
+          build['parts'] = build['parts']
+        row = idf_build(self.tmp / f'b{i}', **build)
+        row.update({k: v for k, v in over.items() if k == 'backend'})
+        with self.assertRaisesRegex(ht.Refused, err):
+          self.verify(self.record(row, idf))
+
+  def test_a_bound_file_that_changed_is_refused(self):
+    row = idf_build(self.tmp / 'b')
+    (self.tmp / 'b' / 'sdkconfig').write_text('changed')
+    with self.assertRaisesRegex(ht.Refused, 'sdkconfig: hash differs'):
+      self.verify(self.record(row))
+
+
 def ihex(records):
   lines = []
   for kind, addr, data in records:

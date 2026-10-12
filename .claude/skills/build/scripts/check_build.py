@@ -569,8 +569,12 @@ def expected_artifacts(port, board, backend, root):
       exp.append(bin_dir / 'apps' / f'{"update-tinyuf2" if app == "self_update" else app}.uf2')
     exp += [bin_dir / a for a in re.findall(r'\$\{ARTIFACT_PATH\}/(apps/[\w.-]+\.uf2)', cml)]
     return exp
-  return [bin_dir / f for f in ('tinyuf2.bin', 'bootloader.bin', 'partition-table.bin', 'combined.bin',
-                                'apps/update-tinyuf2.uf2', 'apps/blinky.uf2')]
+  return [bin_dir / f for f in ('tinyuf2.bin', 'bootloader.bin', 'partition-table.bin', 'ota_data_initial.bin',
+                                'flash_args', 'combined.bin', 'apps/update-tinyuf2.uf2', 'apps/blinky.uf2')]
+
+
+# what an IDF build's flash layout also depends on: the HIL admits its segments only against these
+IDF_CONFIG = ('sdkconfig', 'flasher_args.json')
 
 
 def build_make(port, board, root, defines, log, verbose, rec):
@@ -656,6 +660,8 @@ def build_board(board, backend, args, idf):
     rec.update(status='failed', firstError=first_error(log.read_text(errors='replace')), log=str(log.relative_to(ROOT)))
     return rec
   missing = [p for p in expected_artifacts(port, board, backend, root) if not p.is_file()]
+  if backend == 'idf':
+    missing += [root / c for c in IDF_CONFIG if not (root / c).is_file()]
   missing += [a for a in apps if not list(a.glob('*.elf'))]
   if missing:
     rec.update(status='failed', log=str(log.relative_to(ROOT)), firstError='missing expected artifact(s): ' +
@@ -663,6 +669,8 @@ def build_board(board, backend, args, idf):
     return rec
   rec['artifacts'] = sorted(str(p.relative_to(root)) for p in (root / '_bin').rglob('*') if p.is_file())
   rec['artifacts'] += sorted(str(e.relative_to(root)) for a in apps for e in a.glob('*.elf'))
+  if backend == 'idf':
+    rec['artifacts'] += list(IDF_CONFIG)
   if args.shared:
     rec['sha256'] = {a: hashlib.sha256((root / a).read_bytes()).hexdigest() for a in rec['artifacts']}
   else:

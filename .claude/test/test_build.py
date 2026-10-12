@@ -592,6 +592,28 @@ class BuildBoard(unittest.TestCase):
     self.assertEqual(set(rec['sha256']), set(rec['artifacts']))
     self.assertTrue((root / '_bin' / 'tinyuf2-lpcxpresso55s69.bin').is_file())
 
+  def test_an_idf_build_hashes_its_flash_config_and_needs_it(self):
+    self.args.shared = True
+    root = self.build_dir / 'cmake-build-espressif_esp32s3_devkitc_1'
+    made = [str(p.relative_to(root)) for p in cb.expected_artifacts('espressif', 'x', 'idf', root)] + list(cb.IDF_CONFIG)
+
+    def run(cmd, log, verbose, cwd=cb.ROOT):
+      for rel in made:
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(rel)
+      return 0
+    inspect = mock.Mock(return_value=mock.Mock(returncode=0))
+    with mock.patch.object(cb, 'run', run), mock.patch.object(cb.subprocess, 'run', inspect), \
+         mock.patch.object(cb, 'git', lambda *a: str(self.build_dir)):
+      rec = cb.build_board('espressif_esp32s3_devkitc_1', 'idf', self.args, {'image': 'espressif/idf:v5.3.2'})
+      self.assertEqual(rec['status'], 'ok', rec)
+      self.assertLessEqual({'sdkconfig', 'flasher_args.json', '_bin/flash_args', '_bin/ota_data_initial.bin'},
+                           set(rec['sha256']))
+      made.remove('sdkconfig')
+      rec = cb.build_board('espressif_esp32s3_devkitc_1', 'idf', self.args, {'image': 'espressif/idf:v5.3.2'})
+    self.assertEqual(rec['status'], 'failed')
+    self.assertIn('sdkconfig', rec['firstError'])
+
   def test_cmake_missing_app_image_fails(self):
     def run(cmd, log, verbose, cwd=cb.ROOT):
       log.write_text('ok')
