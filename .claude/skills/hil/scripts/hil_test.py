@@ -180,27 +180,31 @@ def flash_addr(expr, flash_base, what):
   return flash_base + int(m.group(1), 0)
 
 
-def make_var(path, name):
-  m = re.search(rf'^\s*{name}\s*[:?]?=\s*(\S+)', (ROOT / path).read_text(), re.M)
-  if not m:
-    raise Refused(f'{path}: no {name}')
-  return m.group(1)
+def cmake_var(path, name):
+  """The value of the one `set(NAME value)` in a CMake file, ${TOP}/ read as the checkout; nothing else."""
+  hits = re.findall(rf'\bset\s*\(\s*{name}\b([^)]*)\)', (ROOT / path).read_text(), re.I)
+  if len(hits) != 1:
+    raise Refused(f'{path}: expected one set({name} ...), found {len(hits)}')
+  v = hits[0].strip().removeprefix('${TOP}/')
+  if not v or re.search(r'[\s$"]', v):
+    raise Refused(f'{path}: set({name} {hits[0].strip()}) is not one plain value')
+  return v
 
 
 def port_sources(port, bdir):
-  """(CMSIS device header, the SDK's flash linker script, FLASH_BASE or None) of a port the HIL supports."""
-  sdk = make_var(f'ports/{port}/port.mk', 'SDK_DIR')
-  mcu = make_var(f'{bdir}/board.mk', 'MCU')
-  if port == 'lpc55':
-    core = make_var(f'{bdir}/board.mk', 'MCU_CORE').replace('$(MCU)', mcu)
-    return f'{sdk}/devices/{mcu}/{core}.h', f'{sdk}/devices/{mcu}/gcc/{core}_flash.ld', None
-  if port == 'mimxrt10xx':
-    ld = f'ports/{port}/linker/{mcu}_ram.ld'   # where ports/mimxrt10xx/Makefile takes FLASH_BASE from
-    m = re.search(r'^\s*_flash_base\s*=\s*(0x[0-9a-fA-F]+)\s*;', (ROOT / ld).read_text(), re.M)
-    if not m:
-      raise Refused(f'{ld}: no _flash_base')
-    return f'{sdk}/devices/{mcu}/{mcu}.h', f'{sdk}/devices/{mcu}/gcc/{mcu}xxxxx_flexspi_nor.ld', int(m.group(1), 16)
-  raise Refused(f'ports/{port}: the HIL runner has no source facts for this port')
+  """(CMSIS device header, the SDK's flash linker script, FLASH_BASE) of a port the HIL supports, read from
+  the CMake files the HIL's build uses."""
+  if not (ROOT / f'ports/{port}/CMakeLists.txt').is_file():
+    raise Refused(f'ports/{port} has no cmake build, which is what the HIL builds')
+  if port != 'mimxrt10xx':
+    raise Refused(f'ports/{port}: the HIL runner has no source facts for this port')
+  sdk = cmake_var(f'ports/{port}/family.cmake', 'SDK_DIR')
+  mcu = cmake_var(f'{bdir}/board.cmake', 'MCU_VARIANT')
+  ld = f'ports/{port}/linker/{mcu}_ram.ld'   # where family.cmake takes FLASH_BASE from
+  m = re.search(r'^\s*_flash_base\s*=\s*(0x[0-9a-fA-F]+)\s*;', (ROOT / ld).read_text(), re.M)
+  if not m:
+    raise Refused(f'{ld}: no _flash_base')
+  return f'{sdk}/devices/{mcu}/{mcu}.h', f'{sdk}/devices/{mcu}/gcc/{mcu}xxxxx_flexspi_nor.ld', int(m.group(1), 16)
 
 
 def source_facts(board):
@@ -213,14 +217,14 @@ def source_facts(board):
   if re.search(r'^\s*#\s*define\s+BOARD_FLASH_APP_START\b', (ROOT / f'{bdir}/board.h').read_text(), re.M):
     raise Refused(f'{bdir}/board.h overrides BOARD_FLASH_APP_START; the runner reads the port default only')
   facts = {
-    'flashBase': flash_base or 0,
+    'flashBase': flash_base,
     'appStart': flash_addr(define(f'ports/{port}/boards.h', 'BOARD_FLASH_APP_START'), flash_base,
                            'BOARD_FLASH_APP_START'),
     'flashSize': product(define(f'{bdir}/board.h', 'BOARD_FLASH_SIZE'), 'BOARD_FLASH_SIZE'),
     'vid': num(define(f'{bdir}/board.h', 'USB_VID'), 'USB_VID'),
     'pid': num(define(f'{bdir}/board.h', 'USB_PID'), 'USB_PID'),
     'boardId': define(f'{bdir}/board.h', 'UF2_BOARD_ID').strip('"'),
-    'family': int(make_var(f'ports/{port}/port.mk', 'UF2_FAMILY_ID'), 16),
+    'family': int(cmake_var(f'ports/{port}/family.cmake', 'UF2_FAMILY_ID'), 16),
     'vectors': num(define(header, 'NUMBER_OF_INT_VECTORS'), 'NUMBER_OF_INT_VECTORS'),
     'ram': ram_origin(ld),
     'dblTapDelayMs': num(define('src/board_api.h', 'TINYUF2_DBL_TAP_DELAY'), 'TINYUF2_DBL_TAP_DELAY'),
@@ -826,8 +830,9 @@ def verify_record(record_path, board, facts):
   if not rec.get('pass') or len(rows) != 1 or rows[0].get('status') != 'ok' or rows[0].get('removed'):
     raise Refused(f'{record_path}: not a passing --shared build of {board["src"]}')
   row, info = rows[0], rec.get('input', {})
-  if row.get('backend') != 'make':
-    raise Refused(f'{record_path}: {row.get("backend")} artifacts are not supported yet (make only)')
+  if row.get('backend') != 'cmake':
+    raise Refused(f'{record_path}: a {row.get("backend")} build; the HIL takes cmake builds only '
+                  f'(check_build.py --board {board["src"]} --backend cmake --shared)')
   now = cb.identity({board['port']})
   for key in ('head', 'submodules', 'deps'):
     if info.get(key) != now[key]:
@@ -839,7 +844,7 @@ def verify_record(record_path, board, facts):
       raise Refused(f'build inputs are not clean: {bad} (commit, or rebuild from a clean checkout)')
   root = cb.ROOT / row['buildDir']
   files, digests = {}, {}
-  for p in cb.expected_artifacts(board['port'], board['src'], 'make', root):
+  for p in cb.expected_artifacts(board['port'], board['src'], 'cmake', root):
     kind = p.suffix[1:]
     if kind not in ('hex', 'bin'):
       continue

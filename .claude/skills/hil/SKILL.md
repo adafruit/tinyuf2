@@ -49,14 +49,14 @@ Locks are tinyusb's: one kernel flock per board in `/tmp/tinyusb-hil-locks/`, ta
 
 ```bash
 mkdir -p cmake-build/hil
-python3 .claude/skills/build/scripts/check_build.py --board <src> --shared > cmake-build/hil/<src>.build.json
+python3 .claude/skills/build/scripts/check_build.py --board <src> --backend cmake --shared > cmake-build/hil/<src>.build.json
 python3 .claude/skills/hil/scripts/hil_test.py run -b <board> --build-record cmake-build/hil/<src>.build.json test/hil/local.json
 ```
 
 `<board>` is the roster name and `<src>` its source board (`tinyuf2.board`, else the roster name).
 
 - **Admission.** Before taking the lock the run checks the host, the automount exclusion rule, and every span it could write, the candidate's and the restoration image's (BIN, zero page, ceiling, board id, version, pinned hash), so a run never discovers an unusable recovery image after touching the board.
-- **Build record.** It is this contract's build receipt: build it on the clean, pinned HEAD and pass it with `--build-record`. It must come from the make backend (the only one supported yet). The run refuses a build record that is not clean, does not match the checkout now (HEAD, submodules, `get_deps` dependencies at their pins), or whose artifacts changed since. Commit first. A debug build goes through `install`, not the battery.
+- **Build record.** It is this contract's build receipt: build it on the clean, pinned HEAD and pass it with `--build-record`. It must be a cmake build (`--backend cmake`), whatever backend CI builds the port with; board facts are read from the port's CMake files too. The run refuses a build record that is not clean, does not match the checkout now (HEAD, submodules, `get_deps` dependencies at their pins), or whose artifacts changed since. Commit first. A debug build goes through `install`, not the battery.
 - **Background.** Run it in the background; one board takes about 2 minutes. Use one board per run.
 - **Selection.** There are no examples or test names to select: a run is the whole battery on one board, and the board is the only selection.
 
@@ -171,8 +171,10 @@ Commissioning is the lead's, never `hil-operator`'s or a review's. It runs under
 
 ## Limits
 
-- Covered: mimxrt1060_evk on htpc. Not covered: lpcxpresso55s69 (its 0A silicon hangs TinyUF2 on a UF2 copy, #500), ESP32 boards (#502), self-update, an interrupted update, malformed UF2 input and the physical double tap.
+- Covered: mimxrt1060_evk on htpc. Not covered: ports without a cmake build, lpc55 among them (no battery, `install` or `restore` for lpcxpresso55s69; its 0A silicon also hangs TinyUF2 on a UF2 copy, #500), ESP32 boards (#502), self-update, an interrupted update, malformed UF2 input and the physical double tap.
 - Every probe and USB path is unverified until commissioning has run on the board, and commissioning is manual.
+- The HIL's cmake image logs on the board UART: cmake builds leave `TUF2_LOG` at its default 1 (`src/board_api.h`), while make builds, the make ports' CI artifacts and the RT1060 0.35.0 release pass 0. Its blocking writes at start, before the app jump and on DFU entry are timing the make image does not have.
+- Never use a port's CMake flash or erase targets on a rig board: `tinyuf2-erase-external-jlink` erases [FLASH_BASE, FLASH_BASE + 64 KiB), the bootloader and the zero page with it.
 - J-Link's QSPI loader on mimxrt1060_evk is undocumented: SEGGER UM08001 has nothing on it. Measured at single sentinel points, with the 0.35.0 release BIN (30304 B) only:
   - a BIN `loadbin` at 0x60000000 erased every point measured past the BIN in its block (0x60007800, 0x6000A000, the zero page at 0x6000C000, 0x6000C200), and J-Link reports 65536 bytes per operation, so [BIN end, 0x60010000) is treated as lost;
   - a sentinel at 0x60010000, in the next block, survived a BIN `loadbin`;

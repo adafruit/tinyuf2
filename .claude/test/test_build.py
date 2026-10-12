@@ -312,6 +312,25 @@ class HilSelection(unittest.TestCase):
     self.roster.write_text(json.dumps({'boards': [{'name': n, 'tinyuf2': {'board': 'imxrt1060_evk'}} for n in ('rt-a', 'rt-b')]}))
     self.assertEqual(self.hil('ports/mimxrt10xx/boards/imxrt1060_evk/board.h')['boards'], ['rt-a', 'rt-b'])
 
+  def test_the_hil_follows_its_cmake_build_not_cis_make(self):
+    self.roster.write_text(json.dumps({'boards': [{'name': 'mimxrt1060_evk', 'tinyuf2': {'board': 'imxrt1060_evk'}}]}))
+    h = self.hil('ports/mimxrt10xx/family.cmake', 'ports/mimxrt10xx/boards/imxrt1060_evk/board.cmake')
+    self.assertEqual((h['boards'], h['uncovered']), (['mimxrt1060_evk'], []))
+    h = self.hil('ports/mimxrt10xx/port.mk', 'ports/mimxrt10xx/boards/imxrt1064_evk/board.cmake')
+    self.assertEqual(h['boards'], [])
+    self.assertEqual({u['target']: u['reason'] for u in h['uncovered']},
+                     {'ports/mimxrt10xx/port.mk': 'the HIL builds with cmake, which never reads ports/mimxrt10xx/port.mk',
+                      'ports/mimxrt10xx/boards/imxrt1064_evk/board.cmake':
+                        f'no {self.config} board builds ports/mimxrt10xx/boards/imxrt1064_evk/board.cmake'})
+
+  def test_shared_make_files_and_port_apps_are_outside_the_hil_build(self):
+    self.roster.write_text(json.dumps({'boards': [{'name': 'mimxrt1060_evk', 'tinyuf2': {'board': 'imxrt1060_evk'}}]}))
+    h = self.hil('ports/make.mk', 'ports/mimxrt10xx/apps/factory_test/CMakeLists.txt')
+    self.assertEqual((h['full'], h['boards']), (False, []))
+    self.assertEqual([u['target'] for u in h['uncovered']],
+                     ['ports/make.mk', 'ports/mimxrt10xx/apps/factory_test/CMakeLists.txt'])
+    self.assertEqual(self.hil('ports/family_support.cmake')['boards'], ['mimxrt1060_evk'])
+
   def test_unreadable_roster_fails(self):
     self.roster.write_text('{}')
     with self.assertRaises(cb.Fail):
@@ -429,6 +448,32 @@ class Verdict(unittest.TestCase):
       cb.main(['--scope', 'README.md', '--worktree'])
     self.assertEqual(e.exception.code, 2)
     self.assertIn('--worktree needs --base', json.loads(out.getvalue())['error'])
+
+  def test_backend_override_needs_board_and_shared_and_a_cmake_build(self):
+    for argv, error in ((['--board', 'imxrt1060_evk', '--backend', 'cmake'], '--backend needs --board and --shared'),
+                        (['--scope', 'src', '--shared', '--backend', 'cmake'], '--backend needs --board and --shared'),
+                        (['--board', 'lpcxpresso55s69', '--shared', '--backend', 'cmake'], 'ports/lpc55 has no cmake build'),
+                        (['--board', 'espressif_esp32s3_devkitm_1', '--shared', '--backend', 'cmake'],
+                         'ports/espressif has no cmake build')):
+      with self.subTest(argv), contextlib.redirect_stdout(io.StringIO()) as out, \
+           mock.patch.object(cb, 'build_board', side_effect=AssertionError('built')):
+        try:
+          code = cb.main(argv)
+        except SystemExit as e:
+          code = e.code
+      self.assertEqual(code, 2)
+      self.assertIn(error, json.loads(out.getvalue().splitlines()[-1])['error'])
+
+  def test_backend_override_builds_with_cmake(self):
+    seen = []
+    def build_board(board, backend, args, idf):
+      seen.append(backend)
+      return {'board': board, 'port': 'mimxrt10xx', 'backend': backend, 'buildDir': 'cmake-build/x', 'status': 'ok',
+              'firstError': '', 'artifacts': [], 'sha256': {}}
+    with mock.patch.object(cb, 'build_board', build_board), \
+         mock.patch.object(cb, 'identity', lambda ports=(): {'head': 'h', 'dirty': False, 'submodules': {}, 'deps': {}, 'dirtyInputs': [], 'missingInputs': [], 'depsOffPin': []}), contextlib.redirect_stdout(io.StringIO()):
+      self.assertEqual(cb.main(['--board', 'imxrt1060_evk', '--shared', '--backend', 'cmake']), 0)
+    self.assertEqual(seen, ['cmake'])
 
   def test_passing_private_roots_leave_nothing_in_built(self):
     def build_board(board, backend, args, idf):
@@ -623,6 +668,8 @@ class BackendCommands(unittest.TestCase):
     self.assertLessEqual({'_bin/combined.bin', '_bin/apps/update-tinyuf2.uf2'},
                          names('espressif', 'espressif_esp32s3_devkitm_1', 'idf'))
     self.assertNotIn('_bin/apps/update-tinyuf2-swan_r5.uf2', names('stm32l4', 'swan_r5', 'make'))
+    # mimxrt10xx copies its self-update image to ARTIFACT_PATH instead of building apps/self_update
+    self.assertIn('_bin/apps/update-tinyuf2.uf2', names('mimxrt10xx', 'imxrt1060_evk', 'cmake'))
 
 
 class FirstError(unittest.TestCase):

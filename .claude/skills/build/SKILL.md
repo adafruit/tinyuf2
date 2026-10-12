@@ -16,6 +16,7 @@ python3 $B --select-only (--scope ... | --base REF [--worktree] | --diff-file FI
 python3 $B --board feather_stm32f405_express [--board ...]
 python3 $B --board lpcxpresso55s69 -D LOG=2     # a define, passed to the board's backend
 python3 $B ... --shared                         # keep cmake-build/cmake-build-<board>, the dir a flash or HIL run uses
+python3 $B --board imxrt1060_evk --backend cmake --shared   # the HIL's receipt: cmake whatever CI uses
 python3 $B ... --idf local                      # exported ESP-IDF instead of CI's docker image
 ```
 
@@ -37,6 +38,7 @@ An agent that reports `buildOk` and `notes` (agentrc's `code-writer`) maps the J
   - Firmware no CI build compiles is uncovered: `ports/template_port/`, `ports/ch32v20x/` (`--board ch32v203_r0_1v0` builds it on request, with a note), a build file the port's CI backend never reads, a stub app.
   - Docs and agent, editor and repo metadata build nothing.
 - **Builds are CI's.** Each port uses the backend `build.yml` gives it (`BACKENDS` in the script; `test_build.py` fails when the two disagree): make `all self-update`, then `copy-artifact`, then every `ports/<port>/apps/*` but `self_update`; cmake `-G Ninja -DCMAKE_BUILD_TYPE=MinSizeRel`; Espressif `idf.py build`. A board passes only with the artifacts its build must produce (`expected_artifacts()`): the bootloader images and the self-update and app images the port builds. A port without self-update, or a stub app, is listed in `notImplemented`, which is not a failure.
+- **`--backend cmake`** is for the HIL's receipt only, with `--board` and `--shared`: CI still builds each port with its `build.yml` backend, so it is no CI evidence. A port without `CMakeLists.txt`, or Espressif, is refused. `-D` takes the cmake spellings: `LOGGER=RTT`, not `rtt`; `DEBUG` is ignored, the build stays MinSizeRel; `LOG` sets `CFG_TUSB_DEBUG` only, not `TUF2_LOG`; raw flags go through `CFLAGS_CLI`.
 - **ESP-IDF** builds in CI's image, `espressif/idf:<build.yml's toolchain_version>`, through docker by default; a missing image is exit 2 naming the `docker pull`. `--idf local` uses the exported IDF and records its version and `matchesCi`: evidence from a different IDF is supplemental, not acceptance.
 - **ghostfat** builds each `ports/test_ghostfat/boards/*` config natively and runs it against its known-good image in the private dir, one config at a time: `huge` needs about 3 GiB of disk while it runs. A passing config's dir is removed; a failing one keeps its log.
 - **Private dirs for parallel agents.** Each build starts from an empty `cmake-build/cmake-build-agent-<pid>-<board>` (with `-<backend>` when a board builds with another backend than its port's) and is removed when it passes (`removed`; its `artifacts` say what it produced, nothing is left to flash); a failed one is kept for its log. Nothing is written into the source tree: make takes `BUILD_ROOT=<dir>`, cmake and idf `-DARTIFACT_PATH=<dir>/_bin`. `--shared` rebuilds `cmake-build/cmake-build-<board>` from clean and keeps it for flashing; it needs exclusive ownership of that board.

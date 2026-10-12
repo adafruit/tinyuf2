@@ -427,14 +427,30 @@ def hil_selection(sel, config):
   by_port = {}
   for name, src in names.items():
     by_port.setdefault(port_of(src), []).append(name)
+  def kind(parts):   # the HIL builds with cmake whatever CI uses: its build files decide, not CI's
+    if parts[0] == 'ports' and (len(parts) == 2 or parts[1] in BACKENDS):
+      return build_file_kind(parts[-1])
+    return None
+  records = [(r, r['path'].split('/')) for r in sel['records']]
+  full = any(r['effect'] == 'core' and kind(parts) != 'make' for r, parts in records)
   boards, uncovered = set(), {}
-  if sel['full']:
+  if full:
     boards.update(roster)
     for p in sorted(set(BACKENDS) - set(by_port)):
       uncovered[p] = f'core change: no {config} board for {p}'
-  for r in sel['records']:
+  for r, parts in records:
+    k = kind(parts)
     if r['hil']:
       boards.update(roster)
+    elif k == 'make':
+      uncovered[r['path']] = f'the HIL builds with cmake, which never reads {r["path"]}'
+    # the battery builds no port app, and a core file reaches every roster board above
+    elif k == 'cmake' and len(parts) >= 3 and r['effect'] != 'core' and parts[2] != 'apps':
+      own = by_src.get(parts[3], []) if parts[2] == 'boards' and len(parts) >= 5 else by_port.get(parts[1], [])
+      if own:
+        boards.update(own)
+      else:
+        uncovered[r['path']] = f'no {config} board builds {r["path"]}'
     elif r['effect'] == 'gap':   # firmware no build covers is no HIL board's either
       uncovered[r['path']] = r['reason']
     elif r['rule'] == 'board':
@@ -449,7 +465,7 @@ def hil_selection(sel, config):
           boards.update(by_port[p])
         else:
           uncovered[p] = f'{r["path"]}: no {config} board for {p}'
-  return {'config': config, 'full': sel['full'] or any(r['hil'] for r in sel['records']), 'boards': sorted(boards),
+  return {'config': config, 'full': full or any(r['hil'] for r in sel['records']), 'boards': sorted(boards),
           'uncovered': [{'target': t, 'reason': why} for t, why in sorted(uncovered.items())]}
 
 
@@ -538,6 +554,7 @@ def expected_artifacts(port, board, backend, root):
     cml = (ports_dir(port) / 'CMakeLists.txt').read_text()
     for app in re.findall(r'add_subdirectory\(\$\{TOP\}/apps/(\w+)', cml):
       exp.append(bin_dir / 'apps' / f'{"update-tinyuf2" if app == "self_update" else app}.uf2')
+    exp += [bin_dir / a for a in re.findall(r'\$\{ARTIFACT_PATH\}/(apps/[\w.-]+\.uf2)', cml)]
     return exp
   return [bin_dir / f for f in ('tinyuf2.bin', 'bootloader.bin', 'partition-table.bin', 'combined.bin',
                                 'apps/update-tinyuf2.uf2', 'apps/blinky.uf2')]
@@ -714,6 +731,8 @@ def main(argv=None):
   ap.add_argument('-D', '--define', action='append', default=[], metavar='VAR=VAL',
                   help="passed to the board's backend: make VAR=VAL, cmake/idf -DVAR=VAL")
   ap.add_argument('--shared', action='store_true', help='build into cmake-build/cmake-build-<board> and keep it')
+  ap.add_argument('--backend', choices=('cmake',),
+                  help="with --board and --shared: build with cmake whatever CI uses (the HIL's receipt)")
   ap.add_argument('--idf', choices=('docker', 'local'), default='docker',
                   help="ESP-IDF: CI's pinned docker image (default) or the exported local IDF")
   ap.add_argument('-v', '--verbose', action='store_true', help='stream build output to stderr')
@@ -724,6 +743,8 @@ def main(argv=None):
     ap.error('--diff-file is for --select-only')
   if args.hil_config and not args.select_only:
     ap.error('--hil-config is for --select-only')
+  if args.backend and not (args.board and args.shared):
+    ap.error('--backend needs --board and --shared')
   if args.select_only and args.board:
     ap.error('--select-only takes --scope, --base or --diff-file')
 
@@ -733,9 +754,11 @@ def main(argv=None):
       boards = {}
       for b in args.board:
         port = port_of(b)
-        backend = backend_of(port)
+        backend = args.backend or backend_of(port)
         if not backend:
           raise Fail(f'ports/{port}: {UNBUILT[port][1]}')
+        if backend == 'cmake' and (backend_of(port) == 'idf' or not (ports_dir(port) / 'CMakeLists.txt').is_file()):
+          raise Fail(f'ports/{port} has no cmake build')
         boards[(b, backend)] = 'named'
       sel = {'full': False, 'boards': boards, 'ghostfat': False, 'tests': False, 'records': []}
       info = {'mode': 'boards'}

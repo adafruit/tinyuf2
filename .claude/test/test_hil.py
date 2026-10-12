@@ -89,11 +89,25 @@ def roster(tmp, host='testhost', **over):
   return cfg
 
 
+# lpc55 has no cmake build, so the runner reads no facts for it; most tests keep its layout as synthetic facts
+LPC_FACTS = {'flashBase': 0, 'appStart': 0x10000, 'flashSize': 0x98000, 'vid': 0x1fc9, 'pid': 0x0094,
+             'boardId': 'LPC55S69-Xpresso-revA', 'family': 0x2abc77ec, 'vectors': 76, 'ram': 0x20000000,
+             'dblTapDelayMs': 500, 'dblTapReg': 0x4002C05C, 'dblTapMagic': 0xF01669EF}
+real_source_facts = ht.source_facts
+
+
+def source_facts(board):
+  return dict(LPC_FACTS) if board['port'] == 'lpc55' else real_source_facts(board)
+
+
 class Tmp(unittest.TestCase):
   def setUp(self):
     t = tempfile.TemporaryDirectory()
     self.addCleanup(t.cleanup)
     self.tmp = Path(t.name)
+    p = mock.patch.object(ht, 'source_facts', source_facts)
+    p.start()
+    self.addCleanup(p.stop)
 
 
 class Roster(Tmp):
@@ -230,31 +244,43 @@ class Rt1060(Tmp):
     (build / '_bin').mkdir(parents=True)
     rows = {}
     for kind in ('hex', 'bin'):
-      f = build / '_bin' / f'tinyuf2-imxrt1060_evk.{kind}'
+      f = build / '_bin' / f'tinyuf2.{kind}'
       f.write_bytes(b'TinyUF2 Bootloader 1.0\r\n')
       rows[f'_bin/{f.name}'] = ht.sha256(f)
     now = {'head': 'h', 'submodules': {}, 'deps': {}, 'dirty': False}
     rec = self.tmp / 'rec.json'
-    rec.write_text(json.dumps({'pass': True, 'input': now, 'boards': [
-      {'board': 'imxrt1060_evk', 'status': 'ok', 'backend': 'make', 'buildDir': str(build), 'sha256': rows}]}))
-    with mock.patch.object(ht.cb, 'identity', lambda ports: now), mock.patch.object(ht.cb, 'ROOT', Path('/')):
+    row = {'board': 'imxrt1060_evk', 'status': 'ok', 'backend': 'cmake', 'buildDir': str(build), 'sha256': rows}
+    rec.write_text(json.dumps({'pass': True, 'input': now, 'boards': [row]}))
+    with mock.patch.object(ht.cb, 'identity', lambda ports: now):   # an absolute buildDir ignores cb.ROOT
       files, fw = ht.verify_record(rec, self.board, self.facts)
-    self.assertEqual((files['bin'].name, fw['version']), ('tinyuf2-imxrt1060_evk.bin', '1.0'))
+      self.assertEqual((files['bin'].name, fw['version']), ('tinyuf2.bin', '1.0'))
+      rec.write_text(json.dumps({'pass': True, 'input': now, 'boards': [dict(row, backend='make')]}))
+      with self.assertRaisesRegex(ht.Refused, 'cmake builds only .*--backend cmake --shared'):
+        ht.verify_record(rec, self.board, self.facts)
 
 
 class SourceFacts(unittest.TestCase):
-  def test_lpc55_facts_come_from_the_source(self):
-    f = ht.source_facts({'port': 'lpc55', 'name': BOARD, 'src': BOARD})
-    self.assertEqual((f['flashBase'], f['appStart'], f['flashSize'], f['vid'], f['pid'], f['family']),
-                     (0, 0x10000, 0x98000, 0x1fc9, 0x0094, 0x2abc77ec))
-    self.assertEqual(f['dblTapReg'], 0x4002C05C)   # RTC (non-secure) GPREG[7]
-    self.assertEqual(f['vectors'], 76)
+  def test_a_port_without_a_cmake_build_has_no_facts(self):
+    with self.assertRaisesRegex(ht.Refused, 'ports/lpc55 has no cmake build'):
+      ht.source_facts({'port': 'lpc55', 'name': BOARD, 'src': BOARD})
 
   def test_rt1060_facts_come_from_the_source(self):
     f = ht.source_facts(RT)
     self.assertEqual((f['flashBase'], f['appStart'], f['flashSize'], f['vid'], f['pid'], f['boardId']),
                      (0x60000000, 0x6000C000, 0x800000, 0x239a, 0x0083, 'MIMXRT1060-EVK-revA'))
     self.assertEqual((f['dblTapReg'], f['ram'], f['vectors']), (0x400D410C, 0x20000000, 174))   # SNVS LPGPR[3]
+    self.assertEqual(f['family'], 0x4fb2d5bd)
+
+  def test_a_cmake_value_is_one_plain_set(self):
+    t = tempfile.TemporaryDirectory()
+    self.addCleanup(t.cleanup)
+    (Path(t.name) / 'x.cmake').write_text('set(SDK_DIR ${TOP}/lib/sdk)\nset(ID 0x1)\nset(ID 0x2)\nset(V ${OTHER}/x)\n'
+                                          'set(Q "a")\nset(F 0x1)\nSET (F 0x2)\nset(E)\n')
+    with mock.patch.object(ht, 'ROOT', Path(t.name)):
+      self.assertEqual(ht.cmake_var('x.cmake', 'SDK_DIR'), 'lib/sdk')
+      for name in ('ID', 'V', 'Q', 'F', 'E', 'NONE'):
+        with self.subTest(name), self.assertRaises(ht.Refused):
+          ht.cmake_var('x.cmake', name)
 
   def test_only_literals_and_the_supported_expressions_are_read(self):
     self.assertEqual(ht.product('(8*1024*1024)', 'x'), 0x800000)
@@ -268,8 +294,8 @@ class SourceFacts(unittest.TestCase):
   def test_a_layout_that_disagrees_with_the_source_is_refused(self):
     b = ht.load_board(roster(Path(tempfile.mkdtemp()), tinyuf2={'layout': {
       'install': ['0x0', '0x8000'], 'app': ['0x8000', '0x98000'], 'pageSize': 512}}), BOARD)
-    with self.assertRaises(ht.Refused):
-      ht.check_layout(b, ht.source_facts(b))
+    with self.assertRaisesRegex(ht.Refused, 'disagrees with the source'):
+      ht.check_layout(b, dict(LPC_FACTS))
 
 
 def ihex(records):
@@ -372,7 +398,7 @@ class Exclusion(Tmp):
 class Fixture(Tmp):
   def setUp(self):
     super().setUp()
-    self.facts = ht.source_facts({'port': 'lpc55', 'name': BOARD, 'src': BOARD})
+    self.facts = dict(LPC_FACTS)
     self.fx = ht.fixture(self.facts, b'n' * 16)
 
   def test_vector_table_covers_every_vector_and_no_code_sits_inside_it(self):
