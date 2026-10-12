@@ -665,8 +665,7 @@ class RunBoard(Tmp):
   def test_a_failed_step_after_touching_restores_and_is_exit_1(self):
     def fail(bat, files, version):
       bat.touched = True
-      bat.steps.append({'step': 'app-ran', 'pass': False})
-      raise ht.StepFail('pc not in the loop')
+      bat.step('app-ran', lambda: (_ for _ in ()).throw(ht.StepFail('pc not in the loop')))
     row, code, restored = self.run_board(fail)
     self.assertEqual((code, row['pass'], restored), (1, False, [True]))
     self.assertIn('app-ran', row['detail'])
@@ -777,6 +776,15 @@ class RunBoard(Tmp):
     self.assertIn('interrupted by SIGTERM', row['detail'])
     self.assertIn('SIGTERM deferred', row['detail'])
     self.helper.flock_nb(BOARD).close()
+
+  def test_an_abort_names_the_step_it_cut_short_and_records_no_failing_step(self):
+    def cut_short(bat, files, version):
+      bat.touched = True
+      bat.step('dfu', lambda: {})
+      bat.step('copy', lambda: (_ for _ in ()).throw(ht.Interrupted('interrupted by SIGTERM')))
+    row, code, restored = self.run_board(cut_short)
+    self.assertEqual((code, restored, [s['pass'] for s in row['steps']]), (1, [True], [True]))
+    self.assertTrue(row['detail'].startswith('copy: Interrupted: interrupted by SIGTERM'), row['detail'])
 
   def test_a_locked_board_is_not_touched(self):
     held = self.helper.acquire_board_lock(BOARD, reason='someone')

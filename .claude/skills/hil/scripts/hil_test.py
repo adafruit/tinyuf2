@@ -872,11 +872,12 @@ class Battery:
     self.b, self.f, self.dir, self.fail_at, self.commissioning = board, facts, workdir, fail_at, commissioning
     self.log = workdir / 'hil.log'
     self.probe = Probe(board, workdir, self.log)
-    self.steps, self.usb_path, self.touched = [], None, False
+    self.steps, self.usb_path, self.touched, self.at = [], None, False, 'setup'
     self.zero = workdir / 'zero.bin'
     self.zero.write_bytes(b'\0' * board['page'])
 
   def step(self, name, fn):
+    self.at = name   # an abort names the step it cut short without recording it as a failing step
     if self.fail_at == name:
       self.steps.append({'step': name, 'pass': False, 'evidence': {}, 'detail': 'injected by --fail-at'})
       raise StepFail(f'--fail-at {name}: injected criterion failure (acceptance only)')
@@ -1171,8 +1172,7 @@ def run_board(args, board, facts, helper, workdir):
       bat.run(files, row['firmware']['version'])
     row['pass'] = True
   except BaseException as e:   # anything after admission still restores below
-    at = bat.steps[-1]['step'] if bat.steps else 'setup'
-    row['detail'] = f'{at}: {e}' if isinstance(e, StepFail) else f'{at}: {type(e).__name__}: {e}'
+    row['detail'] = f'{bat.at}: {e}' if isinstance(e, StepFail) else f'{bat.at}: {type(e).__name__}: {e}'
     code = 1
   row['steps'] = bat.steps
   code = clean_up(row, code, bat, fh, board, facts, helper, workdir)
