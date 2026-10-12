@@ -570,7 +570,8 @@ def expected_artifacts(port, board, backend, root):
     exp += [bin_dir / a for a in re.findall(r'\$\{ARTIFACT_PATH\}/(apps/[\w.-]+\.uf2)', cml)]
     return exp
   return [bin_dir / f for f in ('tinyuf2.bin', 'bootloader.bin', 'partition-table.bin', 'ota_data_initial.bin',
-                                'flash_args', 'combined.bin', 'apps/update-tinyuf2.uf2', 'apps/blinky.uf2')]
+                                'flash_args', 'combined.bin', 'apps/update-tinyuf2.uf2', 'apps/blinky.uf2',
+                                'apps/dfu_runtime.uf2')]
 
 
 # what an IDF build's flash layout also depends on: the HIL admits its segments only against these
