@@ -858,6 +858,7 @@ class BatteryRun(Tmp):
     board = ht.load_board(roster(self.tmp, tinyuf2={'reentry': reentry}), BOARD)
     facts = ht.source_facts(board)
     bat = ht.Battery(board, facts, self.tmp, commissioning=commissioning)
+    bootloader_bin(self.tmp / 'c.bin')
     rig = FakeRig(bat, reentry)
     (self.tmp / 'cur').mkdir()
     bat.probe.run = rig.probe
@@ -889,8 +890,8 @@ class BatteryRun(Tmp):
         bat, rig = self.battery(reentry)
         bat.run({'bin': self.tmp / 'c.bin'}, 'v1')
         self.assertEqual([x['step'] for x in bat.steps if x['pass']], list(ht.STEPS))
-        self.assertEqual(rig.scripts[1][:3], ['h', f'loadbin {self.tmp / "c.bin"},0x0',
-                                              f'loadbin {bat.zero},0x10000'])
+        image = self.tmp / 'program.bin'
+        self.assertEqual(rig.scripts[1], ['h', f'loadbin {image},0x0', f'verifybin {image},0x0', 'r', 'g'])
         self.assertIn(f'sleep {2 * bat.f["dblTapDelayMs"] + 200}', rig.scripts[2])
         for script in rig.scripts:
           if 'g' in script:
@@ -958,6 +959,37 @@ class BatteryRun(Tmp):
     with self.assertRaisesRegex(ht.StepFail, 'without the magic'):
       bat.run({'bin': self.tmp / 'c.bin'}, 'v1')
     self.assertIs(bat.steps[-1]['evidence']['controlBootedApp'], False)
+
+  def test_one_image_carries_the_bootloader_ff_padding_and_a_zero_page(self):
+    bat, rig = self.battery()
+    fw = bootloader_bin(self.tmp / 'fw.bin', size=0x5000)
+    bat.program(fw, 0, 0x10000)
+    image = (self.tmp / 'program.bin').read_bytes()
+    self.assertEqual(image, fw.read_bytes() + b'\xff' * 0xb000 + bytes(512))
+    self.assertEqual(rig.scripts, [['h', f'loadbin {self.tmp / "program.bin"},0x0',
+                                    f'verifybin {self.tmp / "program.bin"},0x0', 'r', 'g']])
+    self.assertEqual(bat.installed, (fw, 0))   # app-invalidate re-verifies the BIN, not the image
+
+  def test_a_bin_that_fills_the_install_span_exactly_has_no_padding(self):
+    bat, _ = self.battery()
+    fw = bootloader_bin(self.tmp / 'fw.bin', size=0x10000)
+    bat.program(fw, 0, 0x10000)
+    self.assertEqual((self.tmp / 'program.bin').read_bytes(), fw.read_bytes() + bytes(512))
+
+  def test_a_bin_past_the_app_start_is_refused_before_any_probe_session(self):
+    bat, rig = self.battery()
+    fw = bootloader_bin(self.tmp / 'fw.bin', size=0x10001)
+    with self.assertRaisesRegex(ht.StepFail, 'overlaps the app start'):
+      bat.program(fw, 0, 0x10000)
+    self.assertEqual((rig.scripts, bat.touched), ([], False))
+
+  def test_restore_programs_its_own_app_start(self):
+    bat, rig = self.battery()
+    r = bat.b['restore']
+    bootloader_bin(Path(r['bin']), size=0x100, version=b'v1')
+    r.update(sha256=ht.sha256(r['bin']), version='v1', appStart=0x8000)
+    ht.restore(bat.b, bat.f, self.tmp, bat)
+    self.assertEqual(len((self.tmp / 'program.bin').read_bytes()), 0x8000 + 512)
 
   def test_app_invalidate_reverifies_the_bootloader_before_its_reset(self):
     bat, rig = self.battery('app-invalidate')

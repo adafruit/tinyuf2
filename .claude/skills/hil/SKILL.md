@@ -62,7 +62,7 @@ python3 .claude/skills/hil/scripts/hil_test.py run -b <board> --build-record cma
 
 The battery's steps on one board, all under one lock:
 1. **identity:** the probe is selected by serial.
-2. **install:** the candidate bootloader is written at the flash base with a zero page at the app start, then read back.
+2. **install:** one image is written from the flash base and read back: the candidate bootloader, 0xFF up to the app start, then a zero page.
 3. **dfu:** the UF2 drive with this board's serial is found. `INFO_UF2.TXT` must name this build's version and board, and `CURRENT.UF2` must have its size.
 4. **copy:** a generated app is copied to the drive.
 5. **app-ran:** the probe shows the app counting in thread mode with VTOR at the app start.

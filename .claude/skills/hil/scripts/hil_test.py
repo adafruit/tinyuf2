@@ -911,14 +911,18 @@ class Battery:
     return {'cpuid': f'{v[SCB_CPUID]:#010x}', 'dhcsr': f'{v[DHCSR]:#010x}'}
 
   def program(self, bin_path, base, app_start):
-    """A bootloader BIN at `base` plus a zero page at app_start, both read back after both are written, so
-    a loader that disturbs the bootloader while writing the zero page is caught; the zeroed reset vector
+    """One image from `base`: the bootloader BIN, 0xFF up to app_start, then a zero page, written by a single
+    loadbin and read back, so no second write lands in the bootloader's erase block; the zeroed reset vector
     makes the app invalid by construction, so the next boot stays in DFU. No range erase is ever issued.
     Callers have range-checked both spans (check_bootloader_bin)."""
+    data = Path(bin_path).read_bytes()
+    if base + len(data) > app_start:
+      raise StepFail(f'{bin_path} [{base:#x}, {base + len(data):#x}) overlaps the app start {app_start:#x}')
+    image = self.dir / 'program.bin'
+    image.write_bytes(data + b'\xff' * (app_start - base - len(data)) + bytes(self.b['page']))
     self.touched = True
     self.installed = (bin_path, base)
-    self.probe.run(['h', f'loadbin {bin_path},{base:#x}', f'loadbin {self.zero},{app_start:#x}',
-                    f'verifybin {bin_path},{base:#x}', f'verifybin {self.zero},{app_start:#x}', 'r', 'g'])
+    self.probe.run(['h', f'loadbin {image},{base:#x}', f'verifybin {image},{base:#x}', 'r', 'g'])
 
   def dfu(self, version):
     f = self.f
