@@ -8,7 +8,7 @@
       "flasher": {"name": "jlink", "uid": "000727648789", "args": "-device LPC55S69_M33_0"},
       "tinyuf2": {
         "port": "lpc55",
-        "jlink": {"if": "SWD", "speed": "4000"},
+        "jlink": {"if": "SWD", "speed": "4000", "version": "V9.78"},
         "layout": {"install": ["0x0", "0x10000"], "app": ["0x10000", "0x98000"], "pageSize": 512},
         "restore": {
           "bin": "/home/hathach/.cache/tinyuf2-hil/release-0.35.0/x/tinyuf2-lpcxpresso55s69.bin",

@@ -302,6 +302,16 @@ class HilSelection(unittest.TestCase):
     h = self.hil('ports/stm32f4/boards/stm32f401_blackpill/board.h')
     self.assertEqual((h['boards'], [u['target'] for u in h['uncovered']]), ([], ['stm32f401_blackpill']))
 
+  def test_a_roster_name_maps_to_its_tinyuf2_board(self):
+    # the lock name is tinyusb's; tinyuf2.board names the source, so changes reach the roster entry by name
+    self.roster.write_text(json.dumps({'boards': [{'name': 'mimxrt1060_evk', 'tinyuf2': {'board': 'imxrt1060_evk'}}]}))
+    self.assertEqual(self.hil('ports/mimxrt10xx/boards/imxrt1060_evk/board.h')['boards'], ['mimxrt1060_evk'])
+    self.assertEqual(self.hil('ports/mimxrt10xx/board_flash.c')['boards'], ['mimxrt1060_evk'])
+    h = self.hil('src/main.c')
+    self.assertNotIn('mimxrt10xx', [u['target'] for u in h['uncovered']])
+    self.roster.write_text(json.dumps({'boards': [{'name': n, 'tinyuf2': {'board': 'imxrt1060_evk'}} for n in ('rt-a', 'rt-b')]}))
+    self.assertEqual(self.hil('ports/mimxrt10xx/boards/imxrt1060_evk/board.h')['boards'], ['rt-a', 'rt-b'])
+
   def test_unreadable_roster_fails(self):
     self.roster.write_text('{}')
     with self.assertRaises(cb.Fail):

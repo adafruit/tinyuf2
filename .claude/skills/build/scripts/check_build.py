@@ -409,12 +409,18 @@ def hil_selection(sel, config):
   any other change every roster board of the ports it selects, a core or HIL-control change the whole
   roster; what no roster board on this host can run is uncovered, whatever else was selected."""
   try:
-    roster = [b['name'] for b in json.loads((ROOT / config).read_text())['boards']]
-  except (OSError, ValueError, KeyError, TypeError) as e:
+    # a roster entry is named as tinyusb names the board (the shared lock); tinyuf2.board names its source
+    names = {b['name']: (b.get('tinyuf2') or {}).get('board', b['name'])
+             for b in json.loads((ROOT / config).read_text())['boards']}
+  except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
     raise Fail(f'cannot read boards from {config}: {e}')
+  roster = list(names)
+  by_src = {}
+  for name, src in names.items():
+    by_src.setdefault(src, []).append(name)
   by_port = {}
-  for b in roster:
-    by_port.setdefault(port_of(b), []).append(b)
+  for name, src in names.items():
+    by_port.setdefault(port_of(src), []).append(name)
   boards, uncovered = set(), {}
   if sel['full']:
     boards.update(roster)
@@ -427,8 +433,8 @@ def hil_selection(sel, config):
       uncovered[r['path']] = r['reason']
     elif r['rule'] == 'board':
       (b, _), = r['boards']
-      if b in roster:
-        boards.add(b)
+      if b in by_src:
+        boards.update(by_src[b])
       else:
         uncovered[b] = f'{r["path"]}: {b} is not in {config}'
     else:

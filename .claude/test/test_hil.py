@@ -24,6 +24,7 @@ spec = importlib.util.spec_from_file_location('hil_test', SCRIPT)
 ht = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ht)
 BOARD = 'lpcxpresso55s69'
+RT = {'port': 'mimxrt10xx', 'name': 'mimxrt1060_evk', 'src': 'imxrt1060_evk'}
 
 # the API hil_test.py uses from tinyusb's test/hil/helper/hil_lock.py, with the same flock and record
 # semantics; set TINYUSB_HIL_LOCK to the real helper to run the lock tests against it instead
@@ -74,7 +75,7 @@ time.sleep(60)
 
 
 def roster(tmp, host='testhost', **over):
-  t = {'port': 'lpc55', 'jlink': {'if': 'SWD', 'speed': '4000'},
+  t = {'port': 'lpc55', 'jlink': {'if': 'SWD', 'speed': '4000', 'version': 'V9.78'},
        'layout': {'install': ['0x0', '0x10000'], 'app': ['0x10000', '0x98000'], 'pageSize': 512},
        'reentry': 'retained-register',
        'restore': {'bin': str(tmp / 'restore.bin'), 'sha256': 'x', 'version': '0.35.0',
@@ -108,7 +109,10 @@ class Roster(Tmp):
                                          'pageSize': 512}}},
       'unknown device': {'flasher': {'name': 'jlink', 'uid': '1', 'args': '-device NRF52840_XXAA'}},
       'no host': {'host': None},
-      'no speed': {'tinyuf2': {'jlink': {'if': 'SWD'}}},
+      'no speed': {'tinyuf2': {'jlink': {'if': 'SWD', 'version': 'V9.78'}}},
+      'no J-Link version': {'tinyuf2': {'jlink': {'if': 'SWD', 'speed': '4000'}}},
+      'below the floor': {'flasher': {'name': 'jlink', 'uid': '1', 'args': '-device MIMXRT1062xxx6A'}},
+      'bad source board': {'tinyuf2': {'board': '../x'}},
       'bad range': {'tinyuf2': {'layout': {'install': ['0x10000', '0x0'], 'app': ['0x10000', '0x98000'],
                                            'pageSize': 512}}},
     }
@@ -123,6 +127,11 @@ class Roster(Tmp):
     cfg.write_text(json.dumps(d))
     with self.assertRaises(ht.Refused):
       ht.load_board(cfg, BOARD)
+
+  def test_the_source_board_defaults_to_the_lock_name_and_can_differ(self):
+    self.assertEqual(ht.load_board(roster(self.tmp), BOARD)['src'], BOARD)
+    b = ht.load_board(roster(self.tmp, tinyuf2={'board': 'other'}), BOARD)
+    self.assertEqual((b['name'], b['src']), (BOARD, 'other'))
 
   def test_the_committed_roster_is_well_formed_but_waits_for_commissioning(self):
     b = ht.load_board(ROOT / 'test' / 'hil' / 'local.json', BOARD)
@@ -186,13 +195,76 @@ class Admission(Tmp):
       ht.check_restore(self.board, self.facts)
 
 
+def rt_roster(tmp):
+  return roster(tmp, name='mimxrt1060_evk', flasher={'name': 'jlink', 'uid': '2', 'args': '-device MIMXRT1062xxx6A'},
+                tinyuf2={'port': 'mimxrt10xx', 'board': 'imxrt1060_evk', 'layout': {
+                  'install': ['0x60000000', '0x6000C000'], 'app': ['0x6000C000', '0x60800000'], 'pageSize': 512},
+                  'restore': {'bin': str(tmp / 'restore.bin'), 'sha256': 'x', 'version': '0.35.0',
+                              'layout': {'install': ['0x60000000', '0x6000C000'], 'appStart': '0x6000C000'}}})
+
+
+class Rt1060(Tmp):
+  """The RT1060 entry: lock name mimxrt1060_evk (tinyusb's), source imxrt1060_evk, flash from 0x60000000."""
+
+  def setUp(self):
+    super().setUp()
+    self.board = ht.load_board(rt_roster(self.tmp), 'mimxrt1060_evk')
+    self.facts = ht.source_facts(self.board)
+
+  def test_the_layout_agrees_with_the_source_and_spans_check_against_the_flash_base(self):
+    ht.check_layout(self.board, self.facts)
+    bl = bootloader_bin(self.tmp / 'c.bin', board_id=b'MIMXRT1060-EVK-revA')
+    ht.check_bootloader_bin(bl, self.board['install'], self.board['app'], self.board, self.facts, 'c')
+    with self.assertRaises(ht.Refused):   # bigger than the install span at its base
+      ht.check_bootloader_bin(bootloader_bin(self.tmp / 'big.bin', size=0xC001, board_id=b'MIMXRT1060-EVK-revA'),
+                              self.board['install'], self.board['app'], self.board, self.facts, 'c')
+    r = self.board['restore']
+    r.update(bin=str(bootloader_bin(self.tmp / 'restore.bin', board_id=b'MIMXRT1060-EVK-revA', version=b'0.35.0')))
+    r['sha256'] = ht.sha256(r['bin'])
+    ht.check_restore(self.board, self.facts)
+    r['install'] = (0, 0x6000C000)
+    with self.assertRaisesRegex(ht.Refused, 'flash base'):
+      ht.check_restore(self.board, self.facts)
+
+  def test_the_build_record_is_read_by_the_source_board_name(self):
+    build = self.tmp / 'b'
+    (build / '_bin').mkdir(parents=True)
+    rows = {}
+    for kind in ('hex', 'bin'):
+      f = build / '_bin' / f'tinyuf2-imxrt1060_evk.{kind}'
+      f.write_bytes(b'TinyUF2 Bootloader 1.0\r\n')
+      rows[f'_bin/{f.name}'] = ht.sha256(f)
+    now = {'head': 'h', 'submodules': {}, 'deps': {}, 'dirty': False}
+    rec = self.tmp / 'rec.json'
+    rec.write_text(json.dumps({'pass': True, 'input': now, 'boards': [
+      {'board': 'imxrt1060_evk', 'status': 'ok', 'backend': 'make', 'buildDir': str(build), 'sha256': rows}]}))
+    with mock.patch.object(ht.cb, 'identity', lambda ports: now), mock.patch.object(ht.cb, 'ROOT', Path('/')):
+      files, fw = ht.verify_record(rec, self.board, self.facts)
+    self.assertEqual((files['bin'].name, fw['version']), ('tinyuf2-imxrt1060_evk.bin', '1.0'))
+
+
 class SourceFacts(unittest.TestCase):
   def test_lpc55_facts_come_from_the_source(self):
-    f = ht.source_facts({'port': 'lpc55', 'name': BOARD})
-    self.assertEqual((f['appStart'], f['flashSize'], f['vid'], f['pid'], f['family']),
-                     (0x10000, 0x98000, 0x1fc9, 0x0094, 0x2abc77ec))
-    self.assertEqual((f['dblTapReg'], f['spareReg']), (0x4002C05C, 0x4002C058))   # RTC (non-secure) GPREG[7], [6]
+    f = ht.source_facts({'port': 'lpc55', 'name': BOARD, 'src': BOARD})
+    self.assertEqual((f['flashBase'], f['appStart'], f['flashSize'], f['vid'], f['pid'], f['family']),
+                     (0, 0x10000, 0x98000, 0x1fc9, 0x0094, 0x2abc77ec))
+    self.assertEqual(f['dblTapReg'], 0x4002C05C)   # RTC (non-secure) GPREG[7]
     self.assertEqual(f['vectors'], 76)
+
+  def test_rt1060_facts_come_from_the_source(self):
+    f = ht.source_facts(RT)
+    self.assertEqual((f['flashBase'], f['appStart'], f['flashSize'], f['vid'], f['pid'], f['boardId']),
+                     (0x60000000, 0x6000C000, 0x800000, 0x239a, 0x0083, 'MIMXRT1060-EVK-revA'))
+    self.assertEqual((f['dblTapReg'], f['ram'], f['vectors']), (0x400D410C, 0x20000000, 174))   # SNVS LPGPR[3]
+
+  def test_only_literals_and_the_supported_expressions_are_read(self):
+    self.assertEqual(ht.product('(8*1024*1024)', 'x'), 0x800000)
+    self.assertEqual(ht.product('(0x98000U)', 'x'), 0x98000)
+    self.assertEqual(ht.flash_addr('0x10000', None, 'x'), 0x10000)
+    self.assertEqual(ht.flash_addr('(FLASH_BASE + 0xC000)', 0x60000000, 'x'), 0x6000C000)
+    for expr, base in (('(FLASH_BASE + 0xC000)', None), ('(OTHER + 0xC000)', 0), ('FLASH_BASE - 4', 0), ('(1 << 20)', 0)):
+      with self.subTest(expr), self.assertRaises(ht.Refused):
+        ht.flash_addr(expr, base, 'x') if 'BASE' in expr or 'OTHER' in expr else ht.product(expr, 'x')
 
   def test_a_layout_that_disagrees_with_the_source_is_refused(self):
     b = ht.load_board(roster(Path(tempfile.mkdtemp()), tinyuf2={'layout': {
@@ -215,12 +287,15 @@ class Images(Tmp):
     p.write_text(ihex([(4, 0, b'\x00\x01'), (0, 0x0000, b'\xaa\xbb')]))   # 0x10000
     data = ht.parse_hex(p)
     self.assertEqual(data, {0x10000: 0xaa, 0x10001: 0xbb})
-    self.assertEqual(ht.check_ranges(data, [(0x10000, 0x98000)], 0x9D800, 'x'), (0x10000, 0x10002))
+    lim = (0, 0x9D800)
+    self.assertEqual(ht.check_ranges(data, [(0x10000, 0x98000)], lim, 'x'), (0x10000, 0x10002))
     with self.assertRaises(ht.Refused):
-      ht.check_ranges(data, [(0, 0x10000)], 0x9D800, 'x')
+      ht.check_ranges(data, [(0, 0x10000)], lim, 'x')
     with self.assertRaises(ht.Refused):
-      ht.check_ranges({0x9D7FF: 1, 0x9D800: 1}, [(0, 0x9E000)], 0x9D800, 'x')   # one byte over the ceiling
-    self.assertEqual(ht.check_ranges({0x9D7FF: 1}, [(0, 0x9E000)], 0x9D800, 'x'), (0x9D7FF, 0x9D800))
+      ht.check_ranges({0x9D7FF: 1, 0x9D800: 1}, [(0, 0x9E000)], lim, 'x')   # one byte over the ceiling
+    self.assertEqual(ht.check_ranges({0x9D7FF: 1}, [(0, 0x9E000)], lim, 'x'), (0x9D7FF, 0x9D800))
+    with self.assertRaises(ht.Refused):   # one byte under the floor, though inside the allowed span
+      ht.check_ranges({0x5FFFFFFF: 1, 0x60000000: 1}, [(0x5FFF0000, 0x60010000)], (0x60000000, 0x60800000), 'x')
 
   def test_a_bad_checksum_is_refused(self):
     p = self.tmp / 'a.hex'
@@ -228,13 +303,16 @@ class Images(Tmp):
     with self.assertRaises(ht.Refused):
       ht.parse_hex(p)
 
-  def test_bin_must_be_the_hex_laid_out_from_zero(self):
+  def test_bin_must_be_the_hex_laid_out_from_its_base(self):
     p, b = self.tmp / 'a.hex', self.tmp / 'a.bin'
     p.write_text(ihex([(0, 0, b'\x01\x02'), (0, 4, b'\x05')]))
     b.write_bytes(b'\x01\x02\xff\xff\x05')
-    self.assertTrue(ht.hex_matches_bin(ht.parse_hex(p), b))
+    self.assertTrue(ht.hex_matches_bin(ht.parse_hex(p), b, 0))
+    self.assertFalse(ht.hex_matches_bin(ht.parse_hex(p), b, 0x60000000))
     b.write_bytes(b'\x01\x02\xff\xff\x06')
-    self.assertFalse(ht.hex_matches_bin(ht.parse_hex(p), b))
+    self.assertFalse(ht.hex_matches_bin(ht.parse_hex(p), b, 0))
+    p.write_text(ihex([(4, 0, b'\x60\x00'), (0, 0, b'\x01\x02'), (0, 4, b'\x06')]))   # at 0x60000000
+    self.assertTrue(ht.hex_matches_bin(ht.parse_hex(p), b, 0x60000000))
 
   def test_embedded_version(self):
     b = self.tmp / 'a.bin'
@@ -282,7 +360,7 @@ class Exclusion(Tmp):
 class Fixture(Tmp):
   def setUp(self):
     super().setUp()
-    self.facts = ht.source_facts({'port': 'lpc55', 'name': BOARD})
+    self.facts = ht.source_facts({'port': 'lpc55', 'name': BOARD, 'src': BOARD})
     self.fx = ht.fixture(self.facts, b'n' * 16)
 
   def test_vector_table_covers_every_vector_and_no_code_sits_inside_it(self):
@@ -307,7 +385,7 @@ class Fixture(Tmp):
     blocks = ht.parse_uf2(uf2.read_bytes())
     self.assertTrue(all(b['family'] == self.facts['family'] for b in blocks))
     payload = {b['addr'] + i: x for b in blocks for i, x in enumerate(b['data'])}
-    self.assertEqual(ht.check_ranges(payload, [(0x10000, 0x98000)], 0x9D800, 'uf2')[0], 0x10000)
+    self.assertEqual(ht.check_ranges(payload, [(0x10000, 0x98000)], (0, 0x9D800), 'uf2')[0], 0x10000)
     status = subprocess.run(['git', '-C', str(ROOT / 'lib' / 'uf2'), 'status', '--porcelain', '--untracked-files=all'],
                             capture_output=True, text=True, env={k: v for k, v in os.environ.items()
                                                                  if not k.startswith('GIT_')})
@@ -539,10 +617,11 @@ class RunBoard(Tmp):
     self.helper = ht.load_helper(self.tmp / 'hil_lock.py')
     self.board = ht.load_board(roster(self.tmp), BOARD)
     self.facts = ht.source_facts(self.board)
-    self.args = mock.Mock(build_record='rec.json', fail_at=None)
+    self.args = mock.Mock(build_record='rec.json', fail_at=None, try_reentry=None)
     for p in (mock.patch.object(ht, 'verify_record', lambda *a: ({'hex': 'x.hex', 'bin': 'x.bin'}, {'version': 'v'})),
               mock.patch.object(ht, 'parse_hex', lambda p: {0: 1}),
-              mock.patch.object(ht, 'hex_matches_bin', lambda d, b: True),
+              mock.patch.object(ht, 'hex_matches_bin', lambda d, b, base: True),
+              mock.patch.object(ht, 'check_jlink_version', lambda *a: None),
               mock.patch.object(ht, 'check_bootloader_bin', lambda *a: None),
               mock.patch.object(ht, 'check_restore', lambda *a: None),
               mock.patch.object(ht, 'exclusion_configured', lambda *a: None),
@@ -595,6 +674,20 @@ class RunBoard(Tmp):
         row, code, _ = self.run_board(fail, restore=err)
         self.assertEqual((code, row['pass'], row['restored']['heldAfter'], row['restored']['holder']['pid']),
                          (4, False, True, 1))
+
+  def test_try_reentry_is_for_an_uncommissioned_board_only_and_reports_its_decision(self):
+    self.args.try_reentry = 'retained-register'
+    with self.assertRaisesRegex(ht.Refused, 'already commissioned'):
+      self.run_board(lambda *a: self.fail('ran'))
+    self.board['reentry'] = None
+
+    def ok(bat, files, version):
+      self.assertEqual((bat.b['reentry'], bat.commissioning), ('retained-register', True))
+      bat.touched = True
+      bat.steps.append({'step': 'reenter', 'pass': True, 'evidence': {
+        'controlBootedApp': True, 'dfuCameUp': True, 'magicConsumed': True}})
+    row, code, _ = self.run_board(ok)
+    self.assertEqual((code, row['commissioning'], row['reentryDecision']), (0, True, 'retained-register'))
 
   def test_another_host_or_an_uncommissioned_board_is_refused_before_the_lock(self):
     with mock.patch.object(ht.socket, 'gethostname', lambda: 'ci'), self.assertRaisesRegex(ht.Refused, 'host'):
@@ -696,7 +789,7 @@ class FakeRig:
 
   def __init__(self, bat, reentry):
     self.bat, self.reentry, self.scripts, self.present = bat, reentry, [], True
-    self.r0, self.mem = 5, {}
+    self.r0, self.mem, self.double_reset = 5, {}, False
 
   def probe(self, commands, judge=True):
     self.scripts.append(list(commands))
@@ -711,9 +804,11 @@ class FakeRig:
         a = int(c.split()[1], 16)
         v = f['appStart'] if a == ht.SCB_VTOR else self.mem.get(a, 0)
         out += f'J-Link>{c}\n{a:08X} = {v:08X} \n'
-      elif c.startswith(f'w4 {ht.SCB_AIRCR:08X}') or (c == 'r' and self.reentry == 'app-invalidate'):
+      elif c.startswith(f'w4 {ht.SCB_AIRCR:08X}'):
+        # DFU only with the magic retained, or when a second reset lands in the bootloader's own window
+        self.present = self.mem.pop(f['dblTapReg'], None) == f['dblTapMagic'] or self.double_reset
+      elif c == 'r' and self.reentry == 'app-invalidate':
         self.present = True
-        self.mem.pop(f['dblTapReg'], None)   # the bootloader consumes the magic
       elif c.startswith('w4 '):
         _, a, v = c.split()
         self.mem[int(a, 16)] = int(v, 16)
@@ -737,13 +832,14 @@ class FakeRig:
 class BatteryRun(Tmp):
   """Battery.run end to end over a fake probe transcript and a fake drive: the plumbing, not the rig."""
 
-  def battery(self, reentry='retained-register', corrupt=None):
+  def battery(self, reentry='retained-register', corrupt=None, commissioning=False):
     board = ht.load_board(roster(self.tmp, tinyuf2={'reentry': reentry}), BOARD)
     facts = ht.source_facts(board)
-    bat = ht.Battery(board, facts, self.tmp)
+    bat = ht.Battery(board, facts, self.tmp, commissioning=commissioning)
     rig = FakeRig(bat, reentry)
     (self.tmp / 'cur').mkdir()
     bat.probe.run = rig.probe
+    clock = [0.0]   # time passes only when the battery sleeps
 
     def fat_read(*a):
       if a[1] == 'CURRENT.UF2':
@@ -758,7 +854,8 @@ class BatteryRun(Tmp):
               mock.patch.object(ht, 'check_exclusive', lambda d: None),
               mock.patch.object(ht, 'fat_read', fat_read),
               mock.patch.object(ht, 'spawn', rig.spawn),
-              mock.patch.object(ht.time, 'sleep', lambda s: None)):
+              mock.patch.object(ht.time, 'sleep', lambda s: clock.__setitem__(0, clock[0] + s)),
+              mock.patch.object(ht.time, 'monotonic', lambda: clock[0] + 1e-3)):
       p.start()
       self.addCleanup(p.stop)
     return bat, rig
@@ -784,6 +881,53 @@ class BatteryRun(Tmp):
     with self.assertRaisesRegex(ht.StepFail, 'read back the fixture'):
       bat.run({'bin': self.tmp / 'c.bin'}, 'v1')
     self.assertEqual(bat.steps[-1]['step'], 'reenter')
+
+  def test_a_readback_failure_keeps_the_reentry_observations(self):
+    for what, corrupt, fat in (('mismatch', lambda img: img.__setitem__(0, img[0] ^ 1), None),
+                               ('not UF2', None, lambda: bytes(1024)),   # the empty CURRENT.UF2 suspected on RT1060
+                               ('truncated', None, lambda: ht.make_uf2(b'x' * 256, 0x10000, 1, self.tmp)[1].read_bytes() + b'x')):
+      with self.subTest(what):
+        self.tmp = Path(tempfile.mkdtemp(dir=self.tmp))
+        bat, rig = self.battery(corrupt=corrupt)
+        if fat:
+          read = ht.fat_read
+          ht.fat_read = lambda *a: dict(read(*a), data=fat()) if a[1] == 'CURRENT.UF2' else read(*a)
+          self.addCleanup(setattr, ht, 'fat_read', read)
+        with self.assertRaises(ht.StepFail):
+          bat.run({'bin': self.tmp / 'c.bin'}, 'v1')
+        last = bat.steps[-1]
+        self.assertEqual((last['step'], last['pass'], last['evidence']['failedAt']), ('reenter', False, 'readback'))
+        self.assertTrue(last['evidence']['dfuCameUp'] and last['evidence']['magicConsumed'])
+        self.assertEqual((last['evidence']['appIntact'], last['evidence']['claim']),
+                         ('unshown', 'the write/reset sequence re-entered DFU (register retention inferred)'))
+
+  def test_commissioning_runs_the_control_first_and_no_probe_session_before_dfu(self):
+    bat, rig = self.battery(commissioning=True)
+    dfu = bat.dfu
+    bat.dfu = lambda v: rig.scripts.append('dfu observed') or dfu(v)
+    bat.run({'bin': self.tmp / 'c.bin'}, 'v1')
+    ev = bat.steps[-1]['evidence']
+    self.assertTrue(ev['controlBootedApp'] and ev['dfuCameUp'] and ev['magicConsumed'])
+    aircr = [f'w4 {ht.SCB_AIRCR:08X} {ht.AIRCR_SYSRESETREQ:08X}']
+    reenter = rig.scripts[rig.scripts.index(aircr):]
+    self.assertEqual(reenter[0], aircr)                    # the control: no magic written before it
+    self.assertIn('regs', reenter[1])                      # the app observed again
+    self.assertEqual(reenter[2][1], f'w4 {bat.f["dblTapReg"]:08X} {bat.f["dblTapMagic"]:08X}')
+    self.assertEqual(reenter[3:5], [aircr, 'dfu observed'])   # nothing opens the probe in between
+
+  def test_a_control_that_lands_in_dfu_fails_without_a_decision(self):
+    bat, rig = self.battery(commissioning=True)
+    rig.double_reset = True
+    with self.assertRaisesRegex(ht.StepFail, 'without the magic'):
+      bat.run({'bin': self.tmp / 'c.bin'}, 'v1')
+    self.assertIs(bat.steps[-1]['evidence']['controlBootedApp'], False)
+
+  def test_app_invalidate_reverifies_the_bootloader_before_its_reset(self):
+    bat, rig = self.battery('app-invalidate')
+    bat.run({'bin': self.tmp / 'c.bin'}, 'v1')
+    script = [x for x in rig.scripts if 'r' in x][-1]
+    self.assertLess(script.index(f'verifybin {self.tmp / "c.bin"},0x0'), script.index('r'))
+    self.assertTrue(bat.steps[-1]['evidence']['bootloaderVerified'])
 
   def test_a_wrong_version_on_the_drive_fails_dfu(self):
     bat, _ = self.battery()
@@ -838,6 +982,51 @@ class AppRan(Tmp):
                      (0x10200, 5, 9, 0, 0x20001000))
 
 
+class Decision(unittest.TestCase):
+  def row(self, tried='retained-register', passed=True, failed_at=None, restored=True, held=False, **obs):
+    ev = {'controlBootedApp': True, 'dfuCameUp': True, 'magicConsumed': True, 'bootloaderVerified': True}
+    ev.update(obs)
+    if failed_at:
+      ev['failedAt'] = failed_at
+    steps = [{'step': s, 'pass': True, 'evidence': {}} for s in ht.STEPS[:-1]]
+    steps.append({'step': 'reenter', 'pass': passed, 'evidence': ev})
+    return {'commissioning': True, 'tried': tried, 'pass': passed, 'steps': steps,
+            'restored': {'pass': restored, 'heldAfter': held}}
+
+  def test_the_commissioning_decision(self):
+    for method in ht.REENTRY:
+      with self.subTest(method):
+        self.assertEqual(ht.reentry_decision(self.row(method)), method)
+        self.assertEqual(ht.reentry_decision(self.row(method, passed=False, failed_at='readback')), method)
+        self.assertIsNone(ht.reentry_decision(self.row(method, passed=False)))            # failed entry
+        self.assertIsNone(ht.reentry_decision(self.row(method, dfuCameUp=False)))
+        self.assertIsNone(ht.reentry_decision(self.row(method, restored=False)))          # failed cleanup
+        self.assertIsNone(ht.reentry_decision(self.row(method, held=True)))
+    self.assertIsNone(ht.reentry_decision(self.row(controlBootedApp=False)))
+    self.assertEqual(ht.reentry_decision(self.row('app-invalidate', controlBootedApp=False)), 'app-invalidate')
+    early = self.row(passed=False, failed_at='readback')
+    early['steps'][3]['pass'] = False
+    self.assertIsNone(ht.reentry_decision(early))                                          # another step failed too
+    self.assertIsNone(ht.reentry_decision(dict(self.row(), commissioning=False)))
+    self.assertIsNone(ht.reentry_decision(dict(self.row(), **{'pass': False})))   # aborted after every step passed
+
+
+class JLinkVersion(Tmp):
+  def test_only_the_commissioned_version_is_admitted_and_nothing_connects(self):
+    calls = []
+    board = ht.load_board(roster(self.tmp), BOARD)
+    for banner, ok in (('SEGGER J-Link Commander V9.78 (Compiled Sep 16 2026)', True),
+                       ('SEGGER J-Link Commander V9.80a (Compiled Oct 1 2026)', False), ('', False)):
+      with self.subTest(banner), mock.patch.object(ht.shutil, 'which', lambda t: '/usr/bin/' + t), \
+           mock.patch.object(ht, 'spawn', lambda cmd, *a, **k: calls.append(cmd) or (0, banner)):
+        if ok:
+          ht.check_jlink_version(board, self.tmp)
+        else:
+          self.assertRaises(ht.Refused, ht.check_jlink_version, board, self.tmp)
+    self.assertTrue(all('-USB' not in c and '-device' not in c for c in calls))
+    self.assertEqual((self.tmp / 'version.jlink').read_text(), 'exit\n')
+
+
 class Main(Tmp):
   def test_manual_install_needs_no_reentry_and_programs_the_bin_with_a_zero_page(self):
     cfg = roster(self.tmp, tinyuf2={'reentry': None})
@@ -847,10 +1036,28 @@ class Main(Tmp):
     with contextlib.redirect_stdout(out), mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp), \
          mock.patch.object(ht, 'load_helper', lambda p: None), mock.patch.object(ht, 'manual_holder', lambda *a: None), \
          mock.patch.object(ht, 'exclusion_configured', lambda *a: None), \
-         mock.patch.object(ht.Battery, 'program', lambda bat, b, a: programmed.append((b, a))):
+         mock.patch.object(ht, 'check_jlink_version', lambda *a: None), \
+         mock.patch.object(ht.Battery, 'program', lambda bat, b, base, a: programmed.append((b, base, a))):
       code = ht.main(['install', '-b', BOARD, '--firmware', str(fw), '--sha256', ht.sha256(fw),
                       '--under-hold', 'debug 7', str(cfg)])
-    self.assertEqual((code, programmed), (0, [(str(fw), 0x10000)]))
+    self.assertEqual((code, programmed), (0, [(str(fw), 0, 0x10000)]))
+
+  def test_a_wrong_jlink_version_programs_nothing_on_any_path(self):
+    fw = bootloader_bin(self.tmp / 'fw.bin')
+    r = bootloader_bin(self.tmp / 'restore.bin', version=b'0.35.0')
+    cfg = roster(self.tmp, tinyuf2={'reentry': None, 'restore': {
+      'bin': str(r), 'sha256': ht.sha256(r), 'version': '0.35.0', 'layout': {'install': ['0x0', '0x10000'], 'appStart': '0x10000'}}})
+    probed = []
+    for argv in (['install', '-b', BOARD, '--firmware', str(fw), '--sha256', ht.sha256(fw), '--under-hold', 'x'],
+                 ['restore', '-b', BOARD, '--under-hold', 'x']):
+      with self.subTest(argv[0]), contextlib.redirect_stdout(io.StringIO()), \
+           mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / argv[0]), mock.patch.object(ht, 'load_helper', lambda p: None), \
+           mock.patch.object(ht, 'manual_holder', lambda *a: None), mock.patch.object(ht, 'exclusion_configured', lambda *a: None), \
+           mock.patch.object(ht.shutil, 'which', lambda t: '/usr/bin/' + t), \
+           mock.patch.object(ht, 'spawn', lambda cmd, *a, **k: (0, 'SEGGER J-Link Commander V9.80 (x)')), \
+           mock.patch.object(ht.Probe, 'run', lambda *a, **k: probed.append(a)):
+        self.assertEqual(ht.main(argv + [str(cfg)]), 2)
+    self.assertEqual(probed, [])
 
 
   def test_a_refusal_is_a_ran_false_row_and_exit_2(self):
