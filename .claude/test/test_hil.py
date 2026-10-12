@@ -303,7 +303,9 @@ def idf_build(root, parts=S3_PARTS, flash_args=None, sdk=None):
            'sdkconfig': sdk or ('CONFIG_IDF_TARGET="esp32s3"\nCONFIG_ESPTOOLPY_FLASHMODE="dio"\nCONFIG_ESPTOOLPY_FLASHFREQ="80m"\n'
                                 'CONFIG_ESPTOOLPY_FLASHSIZE="8MB"\nCONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-8MB.csv"\n'
                                 'CONFIG_PARTITION_TABLE_OFFSET=0x8000\n'),
-           'flasher_args.json': '{}'}
+           'flasher_args.json': '{}',
+           '_bin/apps/dfu_runtime.uf2': ht.pack_uf2([(256 * i, bytes([i]) * 256) for i in range(3)], 0xc47e5767)}
+  (root / '_bin' / 'apps').mkdir()
   for rel, data in files.items():
     (root / rel).write_bytes(data if isinstance(data, bytes) else data.encode())
   return {'board': S3, 'status': 'ok', 'backend': 'idf', 'buildDir': str(root),
@@ -444,8 +446,8 @@ FAKE_ESP = textwrap.dedent('''
 ''')
 
 
-class EspFlash(Tmp):
-  """The esptool path against a fake session over an 8 MiB image: plumbing only, the rig is the evidence."""
+class EspFake(Tmp):
+  """A fake esptool session over an 8 MiB image: plumbing only, the rig is the evidence."""
 
   def setUp(self):
     super().setUp()
@@ -466,6 +468,10 @@ class EspFlash(Tmp):
 
   def sessions(self):
     return [json.loads(l) for l in (self.tmp / 'flash.img.sessions').read_text().splitlines()]
+
+
+class EspFlash(EspFake):
+  """The esptool install and invalidate."""
 
   def test_install_writes_the_segments_reads_them_back_and_keeps_the_preserved_regions(self):
     before = self.flash.read_bytes()
@@ -503,7 +509,8 @@ class EspFlash(Tmp):
 
   def test_invalidate_erases_the_bootloader_sector_and_rereads_it_from_a_new_session(self):
     bat = mock.Mock(log=self.work / 'hil.log', tool=ht.Esptool(self.board, self.work, self.work / 'hil.log'))
-    bat.preserved = ht.preserved_md5(self.board, bat.tool.run(ht.preserved_ops(self.board), 'no-reset'))
+    keep = self.board['regions']['preserved']
+    bat.preserved = {'regions': keep, 'md5': ht.preserved_md5(keep, bat.tool.run(ht.preserved_ops(keep), 'no-reset'))}
     out = ht.invalidate(self.board, None, self.work, bat)
     self.assertEqual(self.flash.read_bytes()[:0x1000], b'\xff' * 0x1000)
     self.assertEqual(self.flash.read_bytes()[0x1000:0x2000], (bytes(range(256)) * 16))
@@ -530,9 +537,46 @@ class EspFlash(Tmp):
     with mock.patch.dict(os.environ, {'FAKE_ESP_UNERASE': '1'}), self.assertRaisesRegex(ht.StepFail, 'erased'):
       ht.invalidate(dict(self.board), None, self.work)
     bat = mock.Mock(log=self.work / 'hil.log', tool=ht.Esptool(self.board, self.work, self.work / 'hil.log'),
-                    preserved={'nvs': 'x', 'ota_1': 'y', 'ffat': 'z'})
+                    preserved={'regions': self.board['regions']['preserved'], 'md5': {'nvs': 'x', 'ota_1': 'y', 'ffat': 'z'}})
     with self.assertRaisesRegex(ht.StepFail, 'preserved region changed during the run'):
       ht.invalidate(self.board, None, self.work, bat)
+
+  def test_a_recovery_checks_the_failed_runs_snapshot_without_a_layout(self):
+    keep = self.board['regions']['preserved']
+    md5 = ht.preserved_md5(keep, ht.Esptool(self.board, self.work, self.work / 'hil.log').run(ht.preserved_ops(keep), 'no-reset'))
+    row = {'steps': [{'step': 'identity', 'pass': True,
+                      'evidence': {'preserved': md5, 'preservedRegions': {n: list(r) for n, r in keep.items()}}}],
+           'cleanup': {'state': 'unknown'}}
+    snap = ht.report_snapshot(json.loads(json.dumps(row)))
+    self.assertEqual(snap, {'regions': keep, 'md5': md5})
+    board = dict(self.board)
+    del board['regions']
+    self.assertEqual(ht.invalidate(board, None, self.work, snapshot=snap)['evidence']['preserved'], 'unchanged')
+    with self.assertRaisesRegex(ht.StepFail, 'preserved region changed during the run'):
+      ht.invalidate(board, None, self.work, snapshot=dict(snap, md5=dict(md5, nvs='0' * 32)))
+
+  def test_a_malformed_snapshot_is_refused_not_coerced(self):
+    good = {'nvs': [0x9000, 0xe000]}, {'nvs': 'ab' * 16}
+    cases = {'empty': ({}, {}), 'zero length': ({'nvs': [0x9000, 0x9000]}, good[1]),
+             'reversed': ({'nvs': [0xe000, 0x9000]}, good[1]), 'fractional': ({'nvs': [0x9000, 57344.5]}, good[1]),
+             'a bool': ({'nvs': [False, 0xe000]}, good[1]), 'short md5': (good[0], {'nvs': 'ab'}),
+             'upper-case md5': (good[0], {'nvs': 'AB' * 16}), 'names differ': (good[0], {'ffat': 'ab' * 16}),
+             'past 4 GiB': ({'nvs': [0x9000, 1 << 32]}, good[1])}
+    for what, (regions, md5) in cases.items():
+      row = {'steps': [{'step': 'identity', 'pass': True, 'evidence': {'preserved': md5, 'preservedRegions': regions}}],
+             'cleanup': {'state': 'unknown'}}
+      with self.subTest(what), self.assertRaisesRegex(ht.Refused, 'malformed'):
+        ht.report_snapshot(json.loads(json.dumps(row)))
+
+  def test_a_touched_run_without_a_snapshot_is_not_recovered(self):
+    for state, want in (('unknown', ht.Refused), ('untouched', None)):
+      row = {'steps': [{'step': 'identity', 'pass': False, 'evidence': {}}], 'cleanup': {'state': state}}
+      with self.subTest(state):
+        if want:
+          with self.assertRaisesRegex(ht.Refused, 'no preserved-region snapshot'):
+            ht.report_snapshot(row)
+        else:
+          self.assertIsNone(ht.report_snapshot(row))
 
   def test_the_bridge_is_found_by_serial_exactly_once(self):
     for hits in ([], ['/dev/serial/by-id/a_x-if00-port0', '/dev/serial/by-id/b_x-if00-port0']):
@@ -554,14 +598,18 @@ class EspFlash(Tmp):
       code = ht.main(list(argv))
     return code, json.loads(out.getvalue().strip().splitlines()[-1])
 
-  def test_an_esptool_install_takes_a_build_record_and_the_battery_is_not_built_yet(self):
+  def test_an_esptool_install_takes_a_build_record_and_a_run_only_esptool_steps_and_methods(self):
     cfg = str(s3_roster(self.tmp))
     code, res = self.main('install', '-b', S3, '--firmware', 'x.bin', '--sha256', 'y', '--under-hold', 'r', cfg)
     self.assertEqual(code, 2)
     self.assertIn('takes --build-record', res['error'])
     code, res = self.main('run', '-b', S3, '--build-record', 'rec.json', cfg)
     self.assertEqual(code, 2)
-    self.assertIn('esptool battery is not built yet', res['error'])
+    self.assertIn('cannot read build record', res['error'])
+    unset = str(s3_roster(self.tmp, tinyuf2={}))
+    code, res = self.main('run', '-b', S3, '--build-record', 'rec.json', '--try-reentry', 'retained-register', unset)
+    self.assertEqual(code, 2)
+    self.assertIn("re-enters by one of ('dfu-detach',)", res['error'])
 
   def test_an_esptool_invalidate_under_hold_needs_no_candidate_source(self):
     with mock.patch.object(ht, 'source_facts', side_effect=AssertionError('read the source')), \
@@ -620,6 +668,127 @@ STUB_ESPTOOL = {
       def close(self): pass
   '''),
 }
+
+
+class EspRig:
+  """TinyUF2 and apps/dfu_runtime as the host sees them: who is on the bus, the app partition TinyUF2
+  writes from a copied UF2, and the string and DETACH the app answers."""
+  def __init__(self, bat, spawn):
+    self.bat, self.real_spawn, self.on, self.app, self.copied = bat, spawn, None, {}, []
+    self.detach_leaves, self.stale = True, None
+
+  def usb_device(self, vid, pid, serial):
+    f = self.bat.f
+    want = {'dfu': (f['vid'], f['pid']), 'app': (f['appVid'], f['appPid'])}.get(self.on)
+    return '1-2' if (vid, pid) == want and serial == self.bat.b['uid'] else None
+
+  def spawn(self, cmd, log, timeout, cwd=None):
+    if cmd[0] == 'mcopy':
+      blocks = ht.parse_uf2(Path(cmd[4]).read_bytes())
+      self.copied.append(blocks)
+      for bl in blocks:
+        self.app[bl['addr']] = bl['data']
+      # src/msc.c: the copy completes, and TinyUF2 resets, once every block of one numBlocks is written
+      if {bl['total'] for bl in blocks} == {len(blocks)} and {bl['no'] for bl in blocks} == set(range(len(blocks))):
+        self.on = 'app'
+      return 0, ''
+    if cmd[0] == 'sync':
+      return 0, ''
+    if str(cmd[2]) == str(ht.USB_DFU):
+      if cmd[-1] == 'detach':
+        self.on = 'dfu' if self.detach_leaves else 'app'
+        return 0, json.dumps({'ok': True, 'interface': 0})
+      blk = self.stale or self.app.get(self.bat.f['nonceOffset'], b'')
+      return 0, json.dumps({'ok': True, 'interface': 0, 'string': f'HIL {blk[12:28].hex()}'})
+    code, out = self.real_spawn(cmd, log, timeout, cwd)
+    if 'hard-reset' in map(str, cmd) and any(o['op'] == 'write' for o in json.loads(Path(cmd[-1]).read_text())):
+      self.on = 'dfu'   # blank otadata boots the factory app: TinyUF2
+    return code, out
+
+  def fat_read(self, dev, name, length, log, offset=0):
+    f, size = self.bat.f, self.bat.dfu_flash
+    if name == 'INFO_UF2.TXT':
+      data = (f'TinyUF2 Bootloader v1\r\nModel: x\r\nBoard-ID: {f["boardId"]}\r\nDate: d\r\n'
+              f'Flash Size: 0x{size:08X} bytes').encode()
+    else:
+      first, total = offset // 512, size // 256
+      data = b''.join(struct.pack('<8I', *ht.UF2_MAGIC[:2], ht.UF2_FLAG_FAMILY, 256 * i, 256, i, total, f['family']) +
+                      self.app.get(256 * i, b'\xff' * 256) + bytes(220) + struct.pack('<I', ht.UF2_MAGIC[2])
+                      for i in range(first, first + length // 512))
+    return {'entries': {'CURRENT.UF2': [9, size // 256 * 512]}, 'data': data, 'size': len(data)}
+
+
+class EspBatteryRun(EspFake):
+  """EspBattery.run over the fake esptool session and a fake bus and drive: the plumbing, not the rig."""
+
+  def battery(self):
+    bat = ht.EspBattery(self.board, self.facts, self.work)
+    rig = EspRig(bat, ht.spawn)
+    clock = [0.0]
+    for p in (mock.patch.object(ht, 'usb_device', rig.usb_device),
+              mock.patch.object(ht, 'block_device', lambda p: '/dev/sdz'),
+              mock.patch.object(ht, 'check_exclusive', lambda d: None),
+              mock.patch.object(ht, 'fat_read', rig.fat_read),
+              mock.patch.object(ht, 'spawn', rig.spawn),
+              mock.patch.object(ht.time, 'sleep', lambda s: clock.__setitem__(0, clock[0] + s)),
+              mock.patch.object(ht.time, 'monotonic', lambda: clock[0] + 1e-3)):
+      p.start()
+      self.addCleanup(p.stop)
+    files = {'segments': self.segments, 'appChunks': ht.esp_app_chunks(self.tmp / 'b' / ht.esp.APP_UF2, self.facts, self.board)}
+    return bat, rig, files
+
+  def test_every_step_passes_with_a_fresh_nonce_per_copy(self):
+    bat, rig, files = self.battery()
+    bat.run(files, 'v1')
+    self.assertEqual([x['step'] for x in bat.steps if x['pass']], list(ht.STEPS['esptool']))
+    ev = {x['step']: x['evidence'] for x in bat.steps}
+    self.assertEqual(ev['app-ran']['string'], f'HIL {ev["copy"]["nonce"]}')
+    self.assertEqual(ev['recopy']['string'], f'HIL {ev["recopy"]["nonce"]}')
+    self.assertNotEqual(ev['copy']['nonce'], ev['recopy']['nonce'])
+    self.assertTrue(all(ev['reenter'][k] is True for k in ('detachAcked', 'appLeft', 'dfuCameUp', 'appIntact')))
+    self.assertEqual(ev['dfu']['claim'], 'DFU observed')
+    for blocks in rig.copied:
+      self.assertEqual([(b['no'], b['total']) for b in blocks], [(i, len(blocks)) for i in range(len(blocks))])
+      self.assertEqual((blocks[-1]['addr'], blocks[-1]['data'][:8]), (self.facts['nonceOffset'], b'TUF2NONC'))
+    self.assertEqual(set(ev['identity']['preserved']), {'nvs', 'ota_1', 'ffat'})
+    self.assertTrue(bat.touched)
+
+  def test_a_stale_nonce_fails_app_ran(self):
+    bat, rig, files = self.battery()
+    rig.stale = ht.nonce_block(bytes(16))
+    with self.assertRaisesRegex(ht.StepFail, "does not report this copy's nonce"):
+      bat.run(files, 'v1')
+    self.assertEqual(bat.steps[-1]['step'], 'app-ran')
+
+  def test_an_app_that_stays_after_detach_fails_reenter_before_any_readback(self):
+    bat, rig, files = self.battery()
+    rig.detach_leaves = False
+    with self.assertRaisesRegex(ht.StepFail, 'the app leaving the bus'):
+      bat.run(files, 'v1')
+    ev = bat.steps[-1]['evidence']
+    self.assertEqual((bat.steps[-1]['step'], ev.get('detachAcked'), 'failedAt' in ev), ('reenter', True, False))
+
+  def test_a_nonce_block_that_does_not_read_back_fails_at_readback(self):
+    bat, rig, files = self.battery()
+    real = rig.fat_read
+    def fat_read(dev, name, length, log, offset=0):
+      if offset:
+        rig.app[self.facts['nonceOffset']] = ht.nonce_block(bytes(16))
+      return real(dev, name, length, log, offset)
+    with mock.patch.object(ht, 'fat_read', fat_read), self.assertRaisesRegex(ht.StepFail, 'nonce block at 0x1f0000'):
+      bat.run(files, 'v1')
+    self.assertEqual(bat.steps[-1]['evidence']['failedAt'], 'readback')
+
+  def test_app_chunks_refusals(self):
+    uf2 = self.tmp / 'a.uf2'
+    fam = self.facts['family']
+    cases = {'a gap': [(0, bytes(256)), (0x200, bytes(256))], 'another family': None,
+             'reaching the nonce block': [(256 * i, bytes(256)) for i in range(0x1F01)]}
+    for what, chunks in cases.items():
+      with self.subTest(what):
+        uf2.write_bytes(ht.pack_uf2(chunks or [(0, bytes(256))], fam if chunks else 0x1234))
+        with self.assertRaises(ht.Refused):
+          ht.esp_app_chunks(uf2, self.facts, self.board)
 
 
 class EspSession(Tmp):
@@ -691,6 +860,71 @@ class EspSession(Tmp):
     lines = [json.loads(l) for l in self.log.read_text().splitlines()]
     self.assertEqual([l for l in lines if l[0] != 'port'], [['dtr', False, False], ['rts', False, False],
                                                              ['rts', True, True], ['rts', False, True]])
+
+
+STUB_USB = {
+  'usb/__init__.py': '',
+  'usb/core.py': """import json, os
+
+class Itf:
+  def __init__(self, c, sub, proto, num, istr):
+    self.bInterfaceClass, self.bInterfaceSubClass, self.bInterfaceProtocol = c, sub, proto
+    self.bInterfaceNumber, self.iInterface = num, istr
+
+class Dev:
+  def __init__(self, d):
+    self.d, self.bus, self.port_numbers, self.serial_number = d, d['bus'], tuple(d['ports']), d['serial']
+  def get_active_configuration(self):
+    return [Itf(*i) for i in self.d['itfs']]
+  def ctrl_transfer(self, *a):
+    with open(os.environ['STUB_LOG'], 'a') as f:
+      f.write(json.dumps(list(a)) + '\\n')
+
+def find(find_all, idVendor, idProduct):
+  return [Dev(d) for d in json.loads(os.environ['STUB_USB']) if (d['vid'], d['pid']) == (idVendor, idProduct)]
+""",
+  'usb/util.py': """def get_string(dev, index):
+  return dev.d['strings'][str(index)]
+""",
+}
+
+
+class UsbDfu(Tmp):
+  """usb_dfu.py over a stub pyusb: device selection, the interface it picks and the request it sends.
+  The DETACH on a real device is proven only on the rig."""
+
+  APP = {'vid': 0xCAFE, 'pid': 0x4000, 'bus': 3, 'ports': [1, 2], 'serial': '7CDFA1E06FD0',
+         'itfs': [[0xFE, 1, 1, 2, 4]], 'strings': {'4': 'HIL 00ff'}}
+
+  def call(self, op, devs, path='3-1.2'):
+    stub = self.tmp / 'stub'
+    for rel, text in STUB_USB.items():
+      (stub / rel).parent.mkdir(parents=True, exist_ok=True)
+      (stub / rel).write_text(text)
+    log = self.tmp / 'usb.log'
+    log.unlink(missing_ok=True)
+    r = subprocess.run([sys.executable, '-B', ht.USB_DFU, '--vid', '0xcafe', '--pid', '0x4000', '--serial', '7CDFA1E06FD0',
+                        '--path', path, op], capture_output=True, text=True,
+                       env=dict(os.environ, PYTHONPATH=str(stub), STUB_USB=json.dumps(devs), STUB_LOG=str(log)))
+    calls = [json.loads(l) for l in log.read_text().splitlines()] if log.exists() else []
+    return r.returncode, json.loads(r.stdout.strip().splitlines()[-1]), calls
+
+  def test_string_and_detach_go_to_the_dfu_runtime_interface(self):
+    other = dict(self.APP, ports=[1, 3], strings={'4': 'HIL other'})
+    code, out, _ = self.call('string', [other, self.APP])
+    self.assertEqual((code, out['string'], out['interface']), (0, 'HIL 00ff', 2))
+    code, out, calls = self.call('detach', [self.APP])
+    self.assertEqual(code, 0, out)
+    self.assertEqual(calls, [[0x21, 0, 1000, 2, None, 1000]])
+
+  def test_no_match_two_matches_or_no_dfu_interface_is_an_error_with_no_request(self):
+    cases = {'another path': ([self.APP], '3-1.3', '0 devices'), 'two at one path': ([self.APP, self.APP], '3-1.2', '2 devices'),
+             'no dfu interface': ([dict(self.APP, itfs=[[0xFF, 0, 0, 0, 0]])], '3-1.2', '0 DFU runtime interfaces')}
+    for what, (devs, path, err) in cases.items():
+      with self.subTest(what):
+        code, out, calls = self.call('detach', devs, path)
+        self.assertEqual((code, out['ok'], calls), (1, False, []))
+        self.assertIn(err, out['error'])
 
 
 real_esp_port = ht.esp_port
@@ -858,6 +1092,13 @@ class Fat(Tmp):
     self.assertEqual(fat.entries(), {'INFO_UF2.TXT': (2, 5), 'CURRENT.UF2': (3, 1024)})
     self.assertEqual(fat.file('INFO_UF2.TXT'), (b'hello', 5))
     self.assertEqual(fat.file('CURRENT.UF2', 600)[0], b'a' * 512 + b'b' * 88)
+
+  def test_an_offset_skips_whole_clusters_unread(self):
+    fat = ht.Fat(self.vol(fat_image()))
+    self.assertEqual(fat.file('CURRENT.UF2', 100, 512)[0], b'b' * 100)
+    for off in (100, 1536):
+      with self.subTest(off), self.assertRaisesRegex(ValueError, 'not a cluster boundary'):
+        fat.file('CURRENT.UF2', 100, off)
 
   def test_malformed_geometry_is_refused(self):
     for what, (off, fmt, v) in {'no sectors per cluster': (13, '<B', 0), 'odd sector size': (11, '<H', 100),
@@ -1149,6 +1390,11 @@ class RunBoard(Tmp):
         self.assertEqual((code, row['pass'], row['cleanup']['heldAfter'], row['cleanup']['holder']['pid']),
                          (4, False, True, 1))
 
+  def test_a_step_or_method_of_the_other_flasher_is_refused_before_the_lock(self):
+    for attr, val, err in (('fail_at', 'recopy', 'has no step recopy'), ('try_reentry', 'dfu-detach', 're-enters by one of')):
+      with self.subTest(val), mock.patch.object(self.args, attr, val), self.assertRaisesRegex(ht.Refused, err):
+        ht.run_board(self.args, dict(self.board, reentry=None), self.facts, self.helper, self.tmp)
+
   def test_fail_at_cleanup_skips_the_invalidate_and_hands_the_board_to_a_holder(self):
     def ok(bat, files, version):
       bat.touched = True
@@ -1320,7 +1566,7 @@ class FakeRig:
       self.present = False
     return 0, ''
 
-  def fat_read(self, dev, name, length, log):
+  def fat_read(self, dev, name, length, log, offset=0):
     f = self.bat.f
     if name == 'INFO_UF2.TXT':
       data = (f'TinyUF2 Bootloader v1\r\nModel: x\r\nBoard-ID: {f["boardId"]}\r\nDate: d\r\n'
@@ -1363,12 +1609,12 @@ class BatteryRun(Tmp):
     return bat, rig
 
   def test_every_step_passes_and_resumes_only_after_a_halt(self):
-    for reentry in ht.REENTRY:
+    for reentry in ht.REENTRY['jlink']:
       with self.subTest(reentry):
         self.tmp = Path(tempfile.mkdtemp(dir=self.tmp))
         bat, rig = self.battery(reentry)
         bat.run({'bin': self.tmp / 'c.bin'}, 'v1')
-        self.assertEqual([x['step'] for x in bat.steps if x['pass']], list(ht.STEPS))
+        self.assertEqual([x['step'] for x in bat.steps if x['pass']], list(ht.STEPS['jlink']))
         image = self.tmp / 'program.bin'
         self.assertEqual(rig.scripts[1], ['h', f'loadbin {image},0x0', f'verifybin {image},0x0', 'r', 'g'])
         self.assertEqual(rig.scripts[2][:2], ['h', f'w4 {bat.f["dblTapReg"]:08X} 00000000'])   # cleared in dfu
@@ -1585,17 +1831,18 @@ class AppRan(Tmp):
 
 class Decision(unittest.TestCase):
   def row(self, tried='retained-register', passed=True, failed_at=None, cleaned=True, held=False, **obs):
-    ev = {'controlBootedApp': True, 'dfuCameUp': True, 'magicConsumed': True, 'bootloaderVerified': True}
+    ev = {'controlBootedApp': True, 'dfuCameUp': True, 'magicConsumed': True, 'bootloaderVerified': True,
+          'detachAcked': True, 'appLeft': True}
     ev.update(obs)
     if failed_at:
       ev['failedAt'] = failed_at
-    steps = [{'step': s, 'pass': True, 'evidence': {}} for s in ht.STEPS[:-1]]
+    steps = [{'step': s, 'pass': True, 'evidence': {}} for s in ht.STEPS['jlink'][:-1]]
     steps.append({'step': 'reenter', 'pass': passed, 'evidence': ev})
     return {'commissioning': True, 'tried': tried, 'pass': passed, 'steps': steps,
             'cleanup': {'pass': cleaned, 'heldAfter': held}}
 
   def test_the_commissioning_decision(self):
-    for method in ht.REENTRY:
+    for method in (*ht.REENTRY['jlink'], *ht.REENTRY['esptool']):
       with self.subTest(method):
         self.assertEqual(ht.reentry_decision(self.row(method)), method)
         self.assertEqual(ht.reentry_decision(self.row(method, passed=False, failed_at='readback')), method)
@@ -1634,7 +1881,7 @@ class Main(Tmp):
          mock.patch.object(ht, 'source_facts', side_effect=AssertionError('read the candidate source')), \
          mock.patch.object(ht, 'load_helper', lambda p: None), mock.patch.object(ht, 'manual_holder', lambda *a: None), \
          mock.patch.object(ht, 'check_jlink', lambda: None), mock.patch.object(ht, 'probe_users', lambda p: []), \
-         mock.patch.object(ht, 'invalidate', lambda b, f, d: invalidated.append(f) or {'pass': True}):
+         mock.patch.object(ht, 'invalidate', lambda b, f, d, **k: invalidated.append(f) or {'pass': True}):
       self.assertEqual(ht.main(['invalidate', '-b', BOARD, '--under-hold', 'x', str(cfg)]), 0)
     self.assertEqual(invalidated, [None])
 
@@ -1653,6 +1900,27 @@ class Main(Tmp):
     self.assertEqual((code, json.loads(out.getvalue().splitlines()[-1])['error']),
                      (2, f'{BOARD}: another recovery holds x.lock.recover'))
     self.assertEqual(busy.call_count, 1)
+
+  def test_an_esptool_recovery_checks_the_snapshot_in_the_failed_report(self):
+    holder = self.tmp / 'hil_test.py'
+    holder.write_text('import time; time.sleep(30)')
+    p = subprocess.Popen([sys.executable, str(holder)])
+    self.addCleanup(lambda: (p.kill(), p.wait()))
+    regions = {'nvs': [0x9000, 0xe000]}
+    report = self.tmp / 'failed.json'
+    report.write_text(json.dumps({'results': [{'board': S3, 'cleanup': {'holder': {'pid': p.pid}, 'state': 'unknown'},
+                                               'steps': [{'step': 'identity', 'pass': True,
+                                                          'evidence': {'preserved': {'nvs': 'ab' * 16}, 'preservedRegions': regions}}]}]}))
+    seen = []
+    with contextlib.redirect_stdout(io.StringIO()), mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp), \
+         mock.patch.object(ht, 'load_helper', lambda p: mock.Mock()), mock.patch.object(ht, 'check_esptool', lambda: None), \
+         mock.patch.object(ht, 'recovery_lock', lambda *a: mock.Mock()), mock.patch.object(ht, 'prove_hold', lambda *a, **k: {}), \
+         mock.patch.object(ht, 'probe_users', lambda b: []), mock.patch.object(ht.os, 'kill', lambda *a: None), \
+         mock.patch.object(ht, 'wait_for', lambda *a: True), \
+         mock.patch.object(ht, 'invalidate', lambda b, f, d, **k: seen.append(k) or {'pass': True}):
+      code = ht.main(['invalidate', '-b', S3, '--recover-holder', str(p.pid), '--report', str(report), str(s3_roster(self.tmp))])
+    self.assertEqual(code, 0)
+    self.assertEqual(seen, [{'snapshot': {'regions': {'nvs': (0x9000, 0xe000)}, 'md5': {'nvs': 'ab' * 16}}}])
 
   def test_no_jlinkexe_programs_nothing_on_any_path(self):
     fw = bootloader_bin(self.tmp / 'fw.bin')

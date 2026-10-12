@@ -318,6 +318,19 @@ class HilSelection(unittest.TestCase):
     self.assertEqual(self.hil('ports/mimxrt10xx/board_flash.c')['boards'], ['imxrt1060_evk'])
     self.assertNotIn('mimxrt10xx', [u['target'] for u in self.hil('src/main.c')['uncovered']])
 
+  def test_the_battery_app_selects_the_esptool_roster_boards_and_other_apps_none(self):
+    self.roster.write_text(json.dumps({'boards': [{'name': 'imxrt1060_evk', 'flasher': {'name': 'jlink'}},
+                                                  {'name': 'espressif_esp32s3_devkitc_1', 'flasher': {'name': 'esptool'}}]}))
+    for path in ('apps/dfu_runtime/src/nonce.c', 'ports/espressif/apps/dfu_runtime/main/board_dfu_runtime.c'):
+      with self.subTest(path):
+        h = self.hil(path)
+        self.assertEqual((h['boards'], h['uncovered']), (['espressif_esp32s3_devkitc_1'], []))
+    h = self.hil('apps/blinky/src/blinky.c', 'ports/espressif/apps/blinky/main/CMakeLists.txt')
+    self.assertEqual((h['boards'], len(h['uncovered'])), ([], 2))
+    self.roster.write_text(json.dumps({'boards': [{'name': 'imxrt1060_evk', 'flasher': {'name': 'jlink'}}]}))
+    h = self.hil('apps/dfu_runtime/src/nonce.c')
+    self.assertEqual((h['boards'], [u['reason'] for u in h['uncovered']]), ([], [f'no {self.config} esptool board runs dfu_runtime']))
+
   def test_the_hil_follows_its_cmake_build_not_cis_make(self):
     self.roster.write_text(json.dumps({'boards': [{'name': 'imxrt1060_evk'}]}))
     h = self.hil('ports/mimxrt10xx/family.cmake', 'ports/mimxrt10xx/boards/imxrt1060_evk/board.cmake')

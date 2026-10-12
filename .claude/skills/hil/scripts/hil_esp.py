@@ -19,7 +19,8 @@ TYPE = {'app': APP, 'data': DATA}
 SEGMENT_PATHS = {'bootloader/bootloader.bin': 'bootloader.bin', 'partition_table/partition-table.bin': 'partition-table.bin',
                  'ota_data_initial.bin': 'ota_data_initial.bin', 'tinyuf2.bin': 'tinyuf2.bin'}
 SEGMENTS = tuple(SEGMENT_PATHS.values())
-RECORD_FILES = ('_bin/flash_args', *(f'_bin/{s}' for s in SEGMENTS), 'sdkconfig', 'flasher_args.json')
+APP_UF2 = '_bin/apps/dfu_runtime.uf2'   # the battery's app, copied through TinyUF2
+RECORD_FILES = ('_bin/flash_args', *(f'_bin/{s}' for s in SEGMENTS), APP_UF2, 'sdkconfig', 'flasher_args.json')
 IMAGE_MAGIC = 0xE9
 
 

@@ -1,5 +1,7 @@
 """apps/dfu_runtime's nonce parser, compiled for the host and called through ctypes."""
 import ctypes
+import importlib.util
+import os
 import subprocess
 import tempfile
 import unittest
@@ -7,6 +9,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / 'apps' / 'dfu_runtime' / 'src'
+spec = importlib.util.spec_from_file_location('hil_test', ROOT / '.claude' / 'skills' / 'hil' / 'scripts' / 'hil_test.py')
+ht = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ht)
 STRING_SIZE = len('HIL ') + 1 + 2 * 16
 
 
@@ -42,6 +47,12 @@ class NonceBlock(unittest.TestCase):
       text = 'HIL ' + nonce.hex()
       self.assertEqual(raw[:len(text) + 1], text.encode() + b'\0')
       self.assertEqual(raw[len(text) + 1:], b'\xaa' * (len(raw) - len(text) - 1))
+
+  def test_the_runner_block_parses(self):
+    nonce = os.urandom(16)
+    ok, raw = self.parse(ht.nonce_block(nonce))
+    self.assertTrue(ok)
+    self.assertEqual(raw[:37], f'HIL {nonce.hex()}'.encode() + b'\0')
 
   def test_invalid_blocks_leave_the_string(self):
     bad_pad = block()

@@ -424,13 +424,18 @@ def path_view(records, effect=None, keys=('path', 'rule', 'effect', 'reason')):
   return [{k: r[k] for k in keys} for r in records if effect in (None, r['effect'])]
 
 
+HIL_APP = 'dfu_runtime'   # the app hil_test.py's esptool battery copies through TinyUF2
+
+
 def hil_selection(sel, config):
   """Roster boards the selection puts under the HIL battery. A board's own change reaches that board,
   an app change none, any other change every roster board of the ports it selects, a core or HIL-control
   change the whole roster; what no roster board on this host can run is uncovered, whatever else was
   selected."""
   try:
-    roster = sorted({b['name'] for b in json.loads((ROOT / config).read_text())['boards']})   # TinyUF2 names
+    entries = json.loads((ROOT / config).read_text())['boards']
+    roster = sorted({b['name'] for b in entries})   # TinyUF2 names
+    esptool = {b['name'] for b in entries if (b.get('flasher') or {}).get('name') == 'esptool'}
   except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
     raise Fail(f'cannot read boards from {config}: {e}')
   by_port = {}
@@ -465,7 +470,15 @@ def hil_selection(sel, config):
     elif r['effect'] == 'gap':   # firmware no build covers is no HIL board's either
       uncovered[r['path']] = r['reason']
     elif r['rule'] in ('app', 'port-app'):
-      uncovered[r['path']] = f'the battery runs the bootloader and its generated fixture, never {r["path"]}'
+      app = parts[1] if r['rule'] == 'app' else parts[3] if len(parts) > 3 else None
+      ports = {port_of(b) for b, _ in r['boards']} if r['rule'] == 'app' else {parts[1]}
+      own = sorted(b for b in esptool if port_of(b) in ports)
+      if app != HIL_APP:
+        uncovered[r['path']] = f'the battery runs the bootloader and {HIL_APP} on esptool boards, never {r["path"]}'
+      elif own:
+        boards.update(own)
+      else:
+        uncovered[r['path']] = f'no {config} esptool board runs {HIL_APP}'
     elif r['rule'] == 'board':
       (b, _), = r['boards']
       if b in roster:
