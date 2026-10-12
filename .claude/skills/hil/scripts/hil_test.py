@@ -1374,7 +1374,8 @@ class EspBattery(Battery):
 
   def identity(self):
     keep = self.b['regions']['preserved']
-    res = self.tool.run([{'op': 'mac'}, {'op': 'security'}, {'op': 'flash-size'}] + preserved_ops(keep), 'no-reset')
+    # reset after: a run that stops before install leaves the board as it found it, not in the ROM loader
+    res = self.tool.run([{'op': 'mac'}, {'op': 'security'}, {'op': 'flash-size'}] + preserved_ops(keep), 'hard-reset')
     ev = check_esp_identity(self.b, self.f, res)
     # in the report too: a recovery compares against it without candidate source
     ev.update(preserved=preserved_md5(keep, res[3:]), preservedRegions={n: list(r) for n, r in keep.items()})

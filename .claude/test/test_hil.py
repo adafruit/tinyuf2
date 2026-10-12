@@ -752,6 +752,7 @@ class EspBatteryRun(EspFake):
       self.assertEqual((blocks[-1]['addr'], blocks[-1]['data'][:8]), (self.facts['nonceOffset'], b'TUF2NONC'))
     self.assertEqual(set(ev['identity']['preserved']), {'nvs', 'ota_1', 'ffat'})
     self.assertTrue(bat.touched)
+    self.assertEqual(self.sessions()[0]['args'][-1], 'hard-reset')   # identity leaves an untouched board running
 
   def test_a_stale_nonce_fails_app_ran(self):
     bat, rig, files = self.battery()
