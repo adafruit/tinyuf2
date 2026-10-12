@@ -45,7 +45,7 @@ static void deselect(void) {
 
 static bool spi_error(const char *stage, unsigned value) {
   deselect();
-  printf("WiFi SPI detail: %s (%02X)\n", stage, value);
+  printf("WiFi SPI detail: %s (%02X)\n\r", stage, value);
   fflush(stdout);
   demo_service();
   return false;
@@ -172,6 +172,44 @@ static bool command_response(uint8_t command, uint8_t *count) {
   return send_command(command) && read_response(command, count);
 }
 
+// Indexed NINA commands each contain one one-byte network-index parameter.
+static bool network_detail(uint8_t command, uint8_t index, uint8_t length) {
+  if (!select_esp()) {
+    return false;
+  }
+  uint8_t packet[] = {0xe0, command, 1, 1, index, 0xee, 0xff, 0xff};
+  bool sent = transfer_bytes(packet, sizeof(packet), NULL);
+  deselect();
+  uint8_t count;
+  return sent && read_response(command, &count) && lengths[0] == length;
+}
+
+// NINA 3.3.0 returns ESP-IDF 5.5 wifi_auth_mode_t for indexed scan results.
+// This differs from the legacy NINA current-network encryption codes.
+// https://github.com/espressif/esp-idf/blob/v5.5/components/esp_wifi/include/esp_wifi_types_generic.h
+static const char *encryption_name(uint8_t mode) {
+  switch (mode) {
+    case 0: return "OPEN";
+    case 1: return "WEP";
+    case 2: return "WPA-PSK";
+    case 3: return "WPA2-PSK";
+    case 4: return "WPA/WPA2-PSK";
+    case 5: return "WPA2-Enterprise";
+    case 6: return "WPA3-PSK";
+    case 7: return "WPA2/WPA3-PSK";
+    case 8: return "WAPI-PSK";
+    case 9: return "OWE";
+    case 10: return "WPA3-Enterprise-192";
+    case 11: return "WPA3-PSK";
+    case 12: return "WPA3-PSK";
+    case 13: return "DPP";
+    case 14: return "WPA3-Enterprise";
+    case 15: return "WPA2/WPA3-Enterprise";
+    case 16: return "WPA-Enterprise";
+    default: return "UNKNOWN";
+  }
+}
+
 // No control characters from radio data may affect the fixture's result parser.
 static void print_escaped(const uint8_t *data, unsigned length) {
   static const char hex[] = "0123456789ABCDEF";
@@ -189,7 +227,7 @@ static void print_escaped(const uint8_t *data, unsigned length) {
     }
   }
   escaped[out] = 0;
-  printf("%s\n", escaped);
+  printf("%s", escaped);
   fflush(stdout);
   demo_service();
 }
@@ -252,12 +290,12 @@ int wifi_scan(void) {
   service_bytes = 0;
   uint8_t count;
   if (!init_esp()) {
-    printf("WiFi FAILED: initialization or timeout\n");
+    printf("WiFi FAILED: initialization or timeout\n\r");
     goto fail;
   }
   bool firmware_ok = command_response(0x37, &count);
   if (!firmware_ok || !lengths[0]) {
-    printf("WiFi FAILED: firmware response or timeout\n");
+    printf("WiFi FAILED: firmware response or timeout\n\r");
     goto fail;
   }
   printf("WiFi firmware: ");
@@ -266,21 +304,42 @@ int wifi_scan(void) {
     version_length--;
   }
   print_escaped(names[0], version_length);
+  printf("\n\r");
   if (!command_response(0x36, &count) || lengths[0] != 1 || names[0][0] != 1) {
-    printf("WiFi FAILED: start scan response or timeout\n");
+    printf("WiFi FAILED: start scan response or timeout\n\r");
     goto fail;
   }
   // Leave time for the radio scan; all waits share the same absolute deadline.
   while (millis() - scan_start < SCAN_BUDGET_MS - 2000U) {
     if (!pause_ms(2000) || !command_response(0x27, &count)) {
-      printf("WiFi FAILED: scan response or timeout\n");
+      printf("WiFi FAILED: scan response or timeout\n\r");
       goto fail;
     }
     int valid = 0;
     for (unsigned i = 0; i < count; i++) {
       if (has_name(i)) {
+        // Detail responses reuse slot zero; save this SSID before querying.
+        uint8_t name[MAX_SSID_LENGTH];
+        uint8_t name_length = lengths[i];
+        memcpy(name, names[i], name_length);
+        if (!network_detail(0x32, i, sizeof(int32_t))) {
+          printf("WiFi FAILED: RSSI response or timeout\n\r");
+          goto fail;
+        }
+        // NINA and this M7 both encode int32_t as little-endian.
+        int32_t rssi;
+        memcpy(&rssi, names[0], sizeof(rssi));
+        if (!network_detail(0x33, i, 1)) {
+          printf("WiFi FAILED: encryption response or timeout\n\r");
+          goto fail;
+        }
+        uint8_t encryption = names[0][0];
         printf("SSID: ");
-        print_escaped(names[i], lengths[i]);
+        print_escaped(name, name_length);
+        printf(" | %ld dBm | %s (%u)\n\r", (long)rssi,
+               encryption_name(encryption), encryption);
+        fflush(stdout);
+        demo_service();
         valid++;
       }
     }
@@ -288,7 +347,7 @@ int wifi_scan(void) {
       return valid;
     }
   }
-  printf("WiFi FAILED: no visible SSIDs\n");
+  printf("WiFi FAILED: no visible SSIDs\n\r");
   fflush(stdout);
   demo_service();
   return 0;

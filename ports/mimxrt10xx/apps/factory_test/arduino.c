@@ -185,7 +185,7 @@ int analogRead(uint32_t pinnum)
   while (0U == ADC_GetChannelStatusFlags(pindeets->adc, ADC_CHANNEL_GROUP))
   {
     if (millis() - started >= 100) {
-      Serial_printf("ADC conversion timeout on pin %lu\r\n", (unsigned long)pinnum);
+      Serial_printf("ADC conversion timeout on pin %lu\n\r", (unsigned long)pinnum);
       return -1;
     }
     fflush(stdout);
