@@ -134,8 +134,8 @@ class Roster(Tmp):
     self.assertEqual((b['name'], b['src']), (BOARD, 'other'))
 
   def test_the_committed_roster_is_well_formed_but_waits_for_commissioning(self):
-    b = ht.load_board(ROOT / 'test' / 'hil' / 'local.json', BOARD)
-    self.assertEqual((b['host'], b['reentry']), ('htpc', None))
+    b = ht.load_board(ROOT / 'test' / 'hil' / 'local.json', 'mimxrt1060_evk')
+    self.assertEqual((b['host'], b['src'], b['reentry']), ('htpc', 'imxrt1060_evk', None))
     ht.check_layout(b, ht.source_facts(b))
 
 
@@ -954,6 +954,19 @@ class BatteryRun(Tmp):
     bat.probe.run = rig.probe
     with self.assertRaisesRegex(ht.StepFail, 'reads back 00000000'):
       bat.probe.write32(0x4002C05C, 0xF01669EF)
+
+  def test_the_rt1062_missing_reset_vector_note_passes_only_with_its_completed_reset(self):
+    note = 'J-Link>r\nResetTarget() start\nCould not find valid reset vector.\nTarget halted on flash header read.\nJ-Link>g\n'
+    rt = ht.Probe({'probe': '1', 'device': 'MIMXRT1062xxx6A', 'if': 'SWD', 'speed': '4000'}, self.tmp, None)
+    other = ht.Probe({'probe': '1', 'device': 'LPC55S69_M33_0', 'if': 'SWD', 'speed': '4000'}, self.tmp, None)
+    with mock.patch.object(ht, 'spawn', lambda *a, **k: (0, note)):
+      rt.run(['r', 'g'])
+    for probe, out in ((rt, note + 'Could not read memory.\n'),                               # another failure beside it
+                       (rt, note.replace('Target halted on flash header read.\n', '')),       # reset not seen completing
+                       (other, note)):                                                        # another device
+      with self.subTest(out[-40:]), mock.patch.object(ht, 'spawn', lambda *a, o=out, **k: (0, o)), \
+           self.assertRaisesRegex(ht.StepFail, 'JLinkExe failed'):
+        probe.run(['r', 'g'])
 
   def test_a_failed_reset_fails_the_session(self):
     out = 'J-Link>r\nResetTarget failed (-1).\nFailed to halt CPU.\nJ-Link>g\n\n****** Error: CPU is not halted\n'

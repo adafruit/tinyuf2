@@ -3,22 +3,23 @@
   "lock": {"helper": "/home/hathach/code/tinyusb/test/hil/helper/hil_lock.py"},
   "boards": [
     {
-      "name": "lpcxpresso55s69",
-      "uid": "E059C3E208F9B955B3BA4C5CC7F3D13D",
-      "flasher": {"name": "jlink", "uid": "000727648789", "args": "-device LPC55S69_M33_0"},
+      "name": "mimxrt1060_evk",
+      "uid": "4629F865D2291713E000005002004200",
+      "flasher": {"name": "jlink", "uid": "000726129165", "args": "-device MIMXRT1062xxx6A"},
       "tinyuf2": {
-        "port": "lpc55",
+        "port": "mimxrt10xx",
+        "board": "imxrt1060_evk",
         "jlink": {"if": "SWD", "speed": "4000", "version": "V9.78"},
-        "layout": {"install": ["0x0", "0x10000"], "app": ["0x10000", "0x98000"], "pageSize": 512},
+        "layout": {"install": ["0x60000000", "0x6000C000"], "app": ["0x6000C000", "0x60800000"], "pageSize": 512},
         "restore": {
-          "bin": "/home/hathach/.cache/tinyuf2-hil/release-0.35.0/x/tinyuf2-lpcxpresso55s69.bin",
-          "sha256": "48e770fd846d6334151d38265c0617febbf6df758f93b5342bf09601b4619ca3",
+          "bin": "/home/hathach/.cache/tinyuf2-hil/release-0.35.0-imxrt1060_evk/x/tinyuf2-imxrt1060_evk.bin",
+          "sha256": "436d502ff26425bb4c5d8693b4541e421c818b43b83ba3151f2cea384dcf481a",
           "version": "0.35.0 - tinyusb (2a364ca27)",
-          "layout": {"install": ["0x0", "0x10000"], "appStart": "0x10000"}
+          "layout": {"install": ["0x60000000", "0x6000C000"], "appStart": "0x6000C000"}
         },
-        "recovery": "restore --recover-holder under hil-operator's forced-lock scope; if the probe cannot connect, ISP0 (PIO0_5) low at reset by a human"
+        "recovery": "restore --recover-holder under hil-operator's forced-lock scope; if the probe cannot connect, the human's serial download path (BOOT_MODE 01: SW7 OFF OFF OFF ON, inferred from the EVK guide)"
       },
-      "comment": "probe: LPC-Link2 J-Link OB on P6; tinyuf2 enumerates on USB0 FS (P10), tinyusb examples on USB1 HS (P9). uid is the tinyusb roster value until commissioning confirms it; reentry is set at commissioning (SKILL.md)."
+      "comment": "MIMXRT1060-EVK (SCH-31357 rev A2), RT1060_A silicon (marking 6A). Probe: the on-board J-Link OB, on a hub apart from the target's; TinyUF2 enumerates on USB OTG1. reentry is set by the commissioning run (SKILL.md)."
     }
   ]
 }

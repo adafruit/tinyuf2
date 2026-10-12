@@ -47,6 +47,9 @@ UF2_MAGIC = (0x0A324655, 0x9E5D5157, 0x0AB16F30)
 UF2_FLAG_FAMILY = 0x2000
 PROBE_TIMEOUT, USB_TIMEOUT, QUIET_TIME, KILL_WAIT, VERSION_TIMEOUT = 120, 20, 3, 5, 20
 UDEV_RULES = ('/etc/udev/rules.d', '/run/udev/rules.d')
+# J-Link notes that are not failures, per device, each with the line that shows the operation completed
+# (bench, V9.78: every MIMXRT1062 reset with an invalid app vector, then the reset halts as usual)
+BENIGN = {'MIMXRT1062xxx6A': r'(?m)^Could not find valid reset vector\.\nTarget halted on flash header read\.$'}
 
 
 class Refused(Exception):
@@ -440,8 +443,9 @@ class Probe:
     code, out = spawn(['JLinkExe', '-USB', self.b['probe'], '-device', self.b['device'], '-if', self.b['if'],
                        '-speed', self.b['speed'], '-autoconnect', '1', '-NoGui', '1', '-ExitOnError', '1',
                        '-CommandFile', script], self.log, PROBE_TIMEOUT)
+    judged = re.sub(BENIGN[self.b['device']], '', out) if self.b['device'] in BENIGN else out
     if judge and (code or re.search(r'Verify failed|Could not|Cannot connect|ERROR|ResetTarget failed|Failed to halt|'
-                                    r'CPU is not halted', out)):
+                                    r'CPU is not halted', judged)):
       raise StepFail(f'JLinkExe failed (exit {code})', {'tail': out.strip().splitlines()[-5:]})
     return out
 
