@@ -5,7 +5,6 @@
  */
 #include <stdbool.h>
 #include "sdkconfig.h"
-#include "esp_idf_version.h"
 #include "esp_log.h"
 #include "esp_rom_sys.h"
 #include "bootloader_init.h"
@@ -271,7 +270,7 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
     return boot_index;
 }
 
-#if ESP_IDF_VERSION_MAJOR < 6 || CONFIG_LIBC_NEWLIB
+#if CONFIG_LIBC_NEWLIB
 // Return global reent struct if any newlib functions are linked to bootloader
 struct _reent *__getreent(void)
 {
