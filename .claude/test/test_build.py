@@ -139,6 +139,8 @@ class Selection(unittest.TestCase):
     rule, effect, boards, _, tests = classify('.claude/skills/build/scripts/check_build.py')
     self.assertEqual((rule, effect, tests), ('build-control', 'select', True))
     self.assertEqual(sorted(b for _, b in boards), ['cmake', 'idf', 'make'])
+    self.assertTrue(cb.classify('.claude/skills/build/scripts/check_build.py')['hil'])   # hil_test.py imports it
+    self.assertFalse(cb.classify('.github/workflows/build.yml')['hil'])
 
   def test_unknown_port_fails_explicitly(self):
     with self.assertRaises(cb.Fail):
@@ -236,9 +238,13 @@ class ChangedPaths(unittest.TestCase):
       cb.changed_paths(scope=['b.c'])
 
 
-def run_main(argv, boards=None, ghostfat=None, tests=None):
-  """main() with builds stubbed: `boards` maps board -> status."""
+CLEAN = {'head': 'h', 'dirty': False, 'submodules': {}, 'deps': {}, 'dirtyInputs': [], 'missingInputs': [], 'depsOffPin': []}
+
+
+def run_main(argv, boards=None, ghostfat=None, tests=None, identities=None):
+  """main() with builds stubbed: `boards` maps board -> status; `identities`, the successive identity() results."""
   boards = boards or {}
+  identities = iter(identities or [])
 
   def build_board(board, backend, args, idf):
     status = boards.get(board, 'ok')
@@ -249,7 +255,7 @@ def run_main(argv, boards=None, ghostfat=None, tests=None):
   with mock.patch.object(cb, 'build_board', build_board), \
        mock.patch.object(cb, 'run_ghostfat', lambda v: ghostfat or []), \
        mock.patch.object(cb, 'run_tests', lambda: tests or {'status': 'ok', 'summary': 'OK', 'firstError': ''}), \
-       mock.patch.object(cb, 'identity', lambda ports=(): {'head': 'h', 'dirty': False, 'submodules': {}, 'deps': {}, 'dirtyInputs': [], 'missingInputs': [], 'depsOffPin': []}), \
+       mock.patch.object(cb, 'identity', lambda ports=(): dict(next(identities, CLEAN))), \
        contextlib.redirect_stdout(out):
     code = cb.main(argv)
   return code, json.loads(out.getvalue().splitlines()[-1])
@@ -275,6 +281,10 @@ class HilSelection(unittest.TestCase):
 
   def test_a_runner_change_selects_every_roster_board(self):
     h = self.hil('.claude/skills/hil/scripts/hil_test.py')
+    self.assertEqual((h['full'], h['boards'], h['uncovered']), (True, ['lpcxpresso55s69'], []))
+
+  def test_a_change_to_the_build_script_the_runner_imports_selects_every_roster_board(self):
+    h = self.hil('.claude/skills/build/scripts/check_build.py')
     self.assertEqual((h['full'], h['boards'], h['uncovered']), (True, ['lpcxpresso55s69'], []))
 
   def test_a_core_change_selects_every_roster_board_and_names_ports_without_one(self):
@@ -490,9 +500,19 @@ class Verdict(unittest.TestCase):
     self.assertIn('tools/get_deps.py', r['error'])
 
   def test_an_input_the_build_dirtied_is_recorded(self):
-    with mock.patch.object(cb, 'dirty_inputs', lambda paths: ['lib/uf2']):
-      _, r = run_main(['--board', 'lpcxpresso55s69'])
+    _, r = run_main(['--board', 'lpcxpresso55s69'], identities=[CLEAN, dict(CLEAN, dirtyInputs=['lib/uf2'])])
     self.assertEqual(r['input']['inputsDirtiedByBuild'], ['lib/uf2'])
+
+  def test_an_input_that_moved_during_the_build_is_recorded(self):
+    sdk = 'lib/mcu/nxp/mcux-sdk'
+    before = dict(CLEAN, submodules={'lib/uf2': 'a'}, deps={sdk: 'a'})
+    for what, changed, moved in (('nothing', {}, []), ('head', {'head': 'h2'}, ['.']), ('tree', {'dirty': True}, ['.']),
+                                 ('submodule commit', {'submodules': {'lib/uf2': 'b'}}, ['lib/uf2']),
+                                 ('dependency commit', {'deps': {sdk: 'b'}}, [sdk]),
+                                 ('dependency unlinked', {'deps': {}, 'missingInputs': [sdk]}, [sdk])):
+      with self.subTest(what):
+        _, r = run_main(['--board', 'lpcxpresso55s69'], identities=[before, dict(before, **changed)])
+        self.assertEqual(r['input']['inputsDirtiedByBuild'], moved)
 
   def test_resolution_error_is_json_exit_2(self):
     code, r = run_main(['--board', 'no_such_board'])

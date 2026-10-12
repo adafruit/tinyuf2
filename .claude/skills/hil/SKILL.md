@@ -127,7 +127,7 @@ A review (`pr-review`) maps each board's row, except a commissioning run's (`com
 
 ## Selection
 
-`python3 .claude/skills/build/scripts/check_build.py --select-only (--diff-file <file> | --base <ref> [--worktree]) --hil-config test/hil/local.json` adds `hil.{boards, full, uncovered}`. Run the battery when `full` is set or `boards` is non-empty. An empty diff file selects nothing; a caller without the changed-file list passes `--base`. A fresh worktree, a review worktree included, needs CLAUDE.md's worktree setup (submodules and dependency links) before `check_build.py` can build in it. `uncovered` names what no roster board on this host can run; report it, never treat it as covered. The runner and roster (`.claude/skills/hil/scripts/`, `test/hil/*.json`) select every roster board; a wording change to this page selects none.
+`python3 .claude/skills/build/scripts/check_build.py --select-only (--diff-file <file> | --base <ref> [--worktree]) --hil-config test/hil/local.json` adds `hil.{boards, full, uncovered}`. Run the battery when `full` is set or `boards` is non-empty. An empty diff file selects nothing; a caller without the changed-file list passes `--base`. A fresh worktree, a review worktree included, needs CLAUDE.md's worktree setup (submodules and dependency links) before `check_build.py` can build in it. `uncovered` names what no roster board on this host can run; report it, never treat it as covered. The runner, the build scripts it imports and the roster (`.claude/skills/hil/scripts/`, `.claude/skills/build/scripts/`, `test/hil/*.json`) select every roster board; a wording change to this page selects none.
 
 ## Commissioning a board
 

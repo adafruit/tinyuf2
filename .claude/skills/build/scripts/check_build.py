@@ -77,7 +77,9 @@ CORE = ('src/', 'lib/', 'ports/make.mk', 'ports/rules.mk', 'ports/family_support
 CONTRACT_TESTS = ('.claude/test/test_build', '.claude/test/test_hil')
 # the HIL contract's runner and rosters: a change there re-runs the battery on every roster board
 HIL_CONTROL = ('.claude/skills/hil/scripts/', 'test/hil/')
-BUILD_CONTROL = ('.claude/skills/build/scripts/', '.github/workflows/build.yml',
+# hil_test.py imports these: the identity, artifacts and build dirs the battery trusts
+HIL_IMPORTS = '.claude/skills/build/scripts/'
+BUILD_CONTROL = (HIL_IMPORTS, '.github/workflows/build.yml',
                  '.github/workflows/build_util.yml', '.github/workflows/ci_set_matrix.py', '.github/actions/')
 NOTHING = ('.claude/', '.github/', '.idea/', 'tools/codespell/', 'tools/gen_boards.py', 'tools/touch1200.py',
            'ports/build_all.py', 'CLAUDE.md', 'AGENTS.md', '.agents', 'LICENSE', '.gitignore', '.gitmodules',
@@ -259,8 +261,11 @@ def classify(path):
                'roster board', tests=True, hil=True)
   if path.startswith(BUILD_CONTROL):
     boards = {(b, be): f'{be} smoke build for {path}' for be, b in SMOKE.items()}
+    runner = path.startswith(HIL_IMPORTS)
     return out('build-control', 'select', 'how boards build changed: the contract tests and one smoke build '
-               'per backend; no firmware build verifies workflow syntax or orchestration', boards, tests=True)
+               'per backend; no firmware build verifies workflow syntax or orchestration' +
+               ('; the HIL runner imports it: the battery on every roster board' if runner else ''),
+               boards, tests=True, hil=runner)
   if path.endswith('.md'):
     return out('docs', 'none', 'documentation')
   codeql_port, codeql_board = codeql_build()
@@ -388,6 +393,15 @@ def identity(ports=()):
 def own_inputs(info):
   """The submodules and dependencies `identity` could check, i.e. those that are checkouts of their own."""
   return [p for p in [*info['submodules'], *info['deps']] if p not in info['missingInputs']]
+
+
+def moved_inputs(before, after):
+  """Inputs whose identity differs between two `identity` records: '.' for the checkout's HEAD or dirty
+  state, else each submodule or dependency whose commit or checkout changed."""
+  moved = {'.'} if (before['head'], before['dirty']) != (after['head'], after['dirty']) else set()
+  commits = [{**i['submodules'], **i['deps']} for i in (before, after)]
+  moved |= {p for p in commits[0].keys() | commits[1].keys() if commits[0].get(p) != commits[1].get(p)}
+  return moved | (set(before['missingInputs']) ^ set(after['missingInputs']))
 
 
 def select(paths):
@@ -764,7 +778,8 @@ def main(argv=None):
     if args.select_only:
       print(json.dumps(manifest(sel, info, args.hil_config)))
       return 0
-    info.update(identity({port_of(b) for b, _ in sel['boards']}))
+    ports = {port_of(b) for b, _ in sel['boards']}
+    info.update(identity(ports))
     result['input'] = info
     idf = {}
     if any(backend == 'idf' for _, backend in sel['boards']):
@@ -777,8 +792,10 @@ def main(argv=None):
     records = [build_board(b, backend, args, idf) for (b, backend) in sel['boards']]
     for r in records:
       r['selectedBy'] = sel['boards'][(r['board'], r['backend'])]
-    after = dirty_inputs(own_inputs(info))
-    info['inputsDirtiedByBuild'] = sorted(set(after) - set(info['dirtyInputs']))
+    # an input that moved while building, even if restored before the HIL checks it, leaves firmware
+    # the record cannot vouch for; hil_test.py refuses any entry here
+    now = identity(ports)
+    info['inputsDirtiedByBuild'] = sorted((set(now['dirtyInputs']) - set(info['dirtyInputs'])) | moved_inputs(info, now))
     ghostfat = run_ghostfat(args.verbose) if sel['ghostfat'] else []
     tests = run_tests() if sel['tests'] else None
     nothing = path_view(sel['records'], 'none', ('path', 'reason'))
