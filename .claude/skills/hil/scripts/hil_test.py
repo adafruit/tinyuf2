@@ -1049,8 +1049,13 @@ def invalidate(board, facts, workdir, battery=None):
   base = FLASH_LIMITS[board['device']][0]
   bat = battery or Battery(board, facts, workdir)
   bat.touched = True
-  bat.probe.run(['h', f'loadbin {bat.zero},{base:#x}', f'verifybin {bat.zero},{base:#x}', 'r', 'g'])
-  bat.probe.run(['h', f'verifybin {bat.zero},{base:#x}', 'g'])
+  load, verify = f'loadbin {bat.zero},{base:#x}', f'verifybin {bat.zero},{base:#x}'
+  bat.probe.run(['h', load, verify, 'r', 'g'])
+  # with no boot image, a new session reads flash wrong until a loadbin has run (bench-observed on MIMXRT1062,
+  # cause unknown: verifybin alone fails), so the check is a loadbin J-Link skips as already matching
+  out = bat.probe.run(['h', load, verify, 'g'])
+  if 'Skipped. Contents already match' not in ''.join(after(out, load)[:1]).split('J-Link>')[0]:
+    raise StepFail('the zero page did not persist past the reset; the new session wrote it again')
   return {'pass': True, 'state': 'bootloader invalidated', 'evidence': {'zeroPage': f'{base:#x}', 'verified': True}}
 
 

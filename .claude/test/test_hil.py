@@ -822,7 +822,7 @@ class FakeRig:
 
   def __init__(self, bat, reentry):
     self.bat, self.reentry, self.scripts, self.present = bat, reentry, [], True
-    self.r0, self.mem, self.double_reset = 5, {}, False
+    self.r0, self.mem, self.double_reset, self.flash = 5, {}, False, set()
 
   def probe(self, commands, judge=True):
     self.scripts.append(list(commands))
@@ -845,6 +845,10 @@ class FakeRig:
       elif c.startswith('w4 '):
         _, a, v = c.split()
         self.mem[int(a, 16)] = int(v, 16)
+      elif c.startswith('loadbin '):
+        note = 'Skipped. Contents already match' if c in self.flash else '1 range affected (65536 bytes)'
+        self.flash.add(c)
+        out += f'J-Link>{c}\nJ-Link: Flash download: Bank 0 @ 0x60000000: {note}\nO.K.\n'
     return out
 
   def spawn(self, cmd, log, timeout, cwd=None):
@@ -1001,9 +1005,16 @@ class BatteryRun(Tmp):
     out = ht.invalidate(b, bat.f, self.tmp, bat)
     zero = f'{bat.zero},0x60000000'
     self.assertEqual(rig.scripts, [['h', f'loadbin {zero}', f'verifybin {zero}', 'r', 'g'],
-                                   ['h', f'verifybin {zero}', 'g']])
+                                   ['h', f'loadbin {zero}', f'verifybin {zero}', 'g']])
     self.assertEqual((out['state'], out['evidence'], bat.touched),
                      ('bootloader invalidated', {'zeroPage': '0x60000000', 'verified': True}, True))
+
+  def test_cleanup_fails_when_the_new_session_has_to_write_the_zero_page_again(self):
+    bat, rig = self.battery()
+    b = dict(bat.b, device='MIMXRT1062xxx6A')
+    bat.probe.run = lambda commands, judge=True: rig.flash.clear() or rig.probe(commands, judge)
+    with self.assertRaisesRegex(ht.StepFail, 'did not persist'):
+      ht.invalidate(b, bat.f, self.tmp, bat)
 
   def test_app_invalidate_reverifies_the_bootloader_before_its_reset(self):
     bat, rig = self.battery('app-invalidate')
