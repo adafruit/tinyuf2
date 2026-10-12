@@ -46,6 +46,8 @@
  extern uint32_t _interrupts_length[];
  extern uint32_t _board_boot_length[];
 
+#define BOARD_FLASH_ADDR_ZERO FLASH_BASE
+
 // Flash Start Address of Application
 #ifndef BOARD_FLASH_APP_START
 #define BOARD_FLASH_APP_START (FLASH_BASE + 0xC000)
