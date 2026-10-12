@@ -1061,29 +1061,13 @@ class BatteryRun(Tmp):
            self.assertRaisesRegex(ht.StepFail, 'JLinkExe failed'):
         probe.run(['r', 'g'])
 
-  def test_only_the_probe_connect_crash_is_retried_once_and_any_crash_fails(self):
-    probe = ht.Probe({'probe': '000726129165', 'device': 'd', 'if': 'SWD', 'speed': '4000'}, self.tmp, self.tmp / 'hil.log')
-    banner = 'Connecting to J-Link ...O.K.\nFirmware: J-Link LPCXpresso V2\nS/N: 726129165\n'
-    segv, abort = (-11, banner), (-6, banner + 'double free or corruption (top)\n')
-    ok = (0, 'J-Link>exit\n')
-    cases = (([segv, ok], True, 1), ([abort, ok], True, 1),
-             ([segv, segv], False, 1),                                              # retried once only
-             ([(-9, ''), ok], False, 0),                                            # no transcript: state unknown
-             ([(-11, banner + 'VTref=3.300V\n'), ok], False, 0),                    # past the probe connect
-             ([(-11, banner.replace('726129165', '1')), ok], False, 0),             # another probe's serial
-             ([(-11, banner + 'Connecting to target via SWD\n'), ok], False, 0))
-    for outcomes, passes, retries in cases:
+  def test_any_crash_fails_the_session_even_a_reset_one(self):
+    probe = ht.Probe({'probe': '1', 'device': 'd', 'if': 'SWD', 'speed': '4000'}, self.tmp, None)
+    for code in (-11, -6, -9):
       for judge in (True, False):
-        calls = iter(outcomes)
-        probe.retried.clear()
-        with self.subTest(outcomes=outcomes, judge=judge), mock.patch.object(ht, 'JLINK_RETRY_DELAY', 0), \
-             mock.patch.object(ht, 'spawn', lambda *a, **k: next(calls)):
-          if passes:
-            probe.run(['h'], judge=judge)
-          else:
-            with self.assertRaisesRegex(ht.StepFail, r'exit -\d+'):
-              probe.run(['h'], judge=judge)
-          self.assertEqual(len(probe.retried), retries)
+        with self.subTest(code=code, judge=judge), mock.patch.object(ht, 'spawn', lambda *a, c=code, **k: (c, '')), \
+             self.assertRaisesRegex(ht.StepFail, rf'exit {code}'):
+          probe.run(['h'], judge=judge)
 
   def test_a_failed_reset_fails_the_session(self):
     out = 'J-Link>r\nResetTarget failed (-1).\nFailed to halt CPU.\nJ-Link>g\n\n****** Error: CPU is not halted\n'

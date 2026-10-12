@@ -73,7 +73,7 @@ A board's evidence is scoped as the report says. "app-ran" is execution after th
 
 The last stdout line is JSON, also written to its `reportPath`; read that path, never an older report. Its fields:
 - `pass`, `caveat`;
-- per board: `ran`, `pass`, `locked`, `lockBypassed`, `firmware` (path, sha256, version, build record), `steps[]` (`step`, `pass`, `evidence`, `detail`), `cleanup` (`pass`, `state`, `evidence`, `heldAfter`, `holder`, `survivors`), `jlinkRetried` (J-Link sessions run again after a crash before the target connect; Limits), and `detail`;
+- per board: `ran`, `pass`, `locked`, `lockBypassed`, `firmware` (path, sha256, version, build record), `steps[]` (`step`, `pass`, `evidence`, `detail`), `cleanup` (`pass`, `state`, `evidence`, `heldAfter`, `holder`, `survivors`), and `detail`;
 - `error` on a refusal or an operation failure.
 
 | Exit | Meaning |
@@ -182,7 +182,6 @@ Commissioning is the lead's, never `hil-operator`'s or a review's. It runs under
   - That a candidate BIN of another length behaves the same is an inference, not a measurement.
   - That `loadbin` erases only the 64 KiB blocks its range touches, and never the chip, is an unverified premise these points support.
   Under that premise, losses stay inside [0x60000000, 0x60010000), in regions the battery rewrites or never reads, while the install span and the zero page lie in that block.
-- `JLinkExe` intermittently crashes in `libjlinkarm` at the probe connect on htpc; the cause is unknown. On 2026-10-12 it crashed in 2 of the runner's 94 sessions and once in a hand session, against 30 clean back-to-back connects. Two of the crashes are SIGSEGV at the same offset in the kernel log; the other is a glibc "double free" abort. Both runner crashes came in a session started right after the target's UF2 drive appeared or vanished; a race in the DLL's USB scan is a hypothesis. A session that died this way (SIGSEGV or SIGABRT, the probe's `S/N:` its last J-Link line, no target connect) runs once more after 2 s, since it never reached the target (`jlinkRetried`). A second crash fails the run, and so does a session that hangs after a crash, as one cleanup did for 120 s.
 - A device hung mid-write makes the host controller retry its enumeration, which stalled a J-Link connect on the same hub for ~80 s (lpcxpresso55s69); that the hub is the cause is a hypothesis.
 - If no cleanup holder can be forked (exit 4 with `cleanup.holder.inProcess`), the runner never exits until recovered.
 - No reproducer for an instrumented build: the battery refuses a dirty build, and `install` only programs. A claim that needs one is reported pending.
