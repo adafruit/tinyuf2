@@ -122,7 +122,7 @@ A review (`pr-review`) maps each board's row, except a commissioning run's (`com
 
     `python3 .claude/skills/hil/scripts/hil_test.py invalidate -b <board> --recover-holder <pid> --report <reportPath> test/hil/local.json`
 
-    The command proves that pid holds the board as the failed run's cleanup holder and that none of the run's survivors and no J-Link process on the probe is alive, invalidates and verifies while the lock stays held, and only then releases the holder.
+    The command proves that pid holds the board as the failed run's cleanup holder and that none of the run's survivors and no J-Link process on the probe is alive, invalidates and verifies while the lock stays held, and only then releases the holder. A second recovery of the same board while one runs is refused (exit 2).
   - If the probe cannot connect, recovery is the human's: on imxrt1060_evk, serial download mode (BOOT_MODE 01: SW7 OFF OFF OFF ON, inferred from the EVK guide).
 
 ## Selection

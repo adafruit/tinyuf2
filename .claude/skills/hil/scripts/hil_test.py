@@ -12,6 +12,7 @@ SKILL.md beside this script is the contract; this file is its mechanics.
 """
 import argparse
 import contextlib
+import fcntl
 import hashlib
 import importlib.util
 import json
@@ -698,6 +699,23 @@ def prove_hold(helper, board, pid, reason=None, role=None):
   raise Refused(f'{board}: the flock on {path} is free')
 
 
+def recovery_lock(helper, board):
+  """An exclusive flock on `<lock file>.recover`, kept until the caller drops it: one recovery per board, so
+  none releases the holder while another is still between its probe sessions. tinyusb's helper lists `*.lock`
+  only, so it never reports this file as a holder."""
+  path = helper.lock_path(board) + '.recover'
+  try:
+    fh = os.fdopen(os.open(path, os.O_RDONLY | os.O_CREAT, 0o666))
+  except OSError as e:
+    raise Refused(f'cannot open {path}: {e}')
+  try:
+    fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+  except OSError as e:
+    fh.close()
+    raise Refused(f'{board}: another recovery holds {path}: {e}')
+  return fh
+
+
 def manual_holder(helper, board, reason):
   if reason in PROTECTED:
     raise Refused(f'{reason!r} is a protected holder; --under-hold takes the reason of your own manual hold')
@@ -801,7 +819,10 @@ def verify_record(record_path, board, facts):
   if row.get('backend') != 'cmake':
     raise Refused(f'{record_path}: a {row.get("backend")} build; the HIL takes cmake builds only '
                   f'(check_build.py --board {board["name"]} --backend cmake --shared)')
-  now = cb.identity({board['port']})
+  try:
+    now = cb.identity({board['port']})
+  except (cb.Fail, OSError) as e:
+    raise Refused(f'cannot establish the checkout identity: {e}')
   for key in ('head', 'submodules', 'deps'):
     if info.get(key) != now[key]:
       raise Refused(f'{record_path}: {key} {info.get(key)} differs from the checkout now ({now[key]})')
@@ -817,9 +838,13 @@ def verify_record(record_path, board, facts):
     if kind not in ('hex', 'bin'):
       continue
     digests[kind] = sha256(p)
+    if digests[kind] is None:
+      raise Refused(f'{p}: missing or unreadable; rebuild with --shared')
     if row.get('sha256', {}).get(str(p.relative_to(root))) != digests[kind]:
       raise Refused(f'{p}: hash differs from the build record')
     files[kind] = p
+  if files.keys() != {'hex', 'bin'}:
+    raise Refused(f'{record_path}: the build of {board["name"]} names no {" or ".join(sorted({"hex", "bin"} - files.keys()))}')
   return files, {'path': str(files['bin']), 'sha256': digests['bin'], 'buildRecord': str(record_path),
                  'defines': rec.get('defines', []), 'version': embedded_version(files['bin'])}
 
@@ -1218,7 +1243,7 @@ def main(argv=None):
     signal.signal(sig, on_signal)
   run_dir = cb.BUILD_DIR / 'hil' / f'run-{time.strftime("%Y%m%d-%H%M%S")}-{os.getpid()}'
   result = {'pass': False, 'caveat': '', 'results': [], 'reportPath': str(run_dir / 'hil_report.json')}
-  code = 2
+  code, recovery = 2, None
   try:
     run_dir.mkdir(parents=True)
     board = load_board(args.config, args.board)
@@ -1258,6 +1283,7 @@ def main(argv=None):
                 == args.recover_holder and x.get('board') == board['name']]
         if len(held) != 1:
           raise Refused(f'{args.report} names no cleanup holder {args.recover_holder} of {board["name"]}')
+        recovery = recovery_lock(helper, board['lock'])
         rec = prove_hold(helper, board['lock'], args.recover_holder, reason='hil_test.py', role=HOLDER_ROLE)
         cmdline = Path(f'/proc/{args.recover_holder}/cmdline').read_bytes()
         if b'hil_test.py' not in cmdline:
@@ -1292,6 +1318,8 @@ def main(argv=None):
   except (StepFail, Interrupted) as e:
     result['error'] = str(e)
     code = 1
+  if recovery:
+    recovery.close()
   if result.get('survivors'):   # a manual operation's survivor: keep your hold until it is gone
     result['pass'], code = False, 4
   try:

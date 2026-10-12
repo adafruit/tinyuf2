@@ -230,6 +230,13 @@ class Rt1060(Tmp):
       rec.write_text(json.dumps({'pass': True, 'input': now, 'boards': [dict(row, backend='make')]}))
       with self.assertRaisesRegex(ht.Refused, 'cmake builds only .*--backend cmake --shared'):
         ht.verify_record(rec, self.board, self.facts)
+      rec.write_text(json.dumps({'pass': True, 'input': now, 'boards': [row]}))
+      (build / '_bin' / 'tinyuf2.bin').unlink()
+      with self.assertRaisesRegex(ht.Refused, 'tinyuf2.bin: missing'):
+        ht.verify_record(rec, self.board, self.facts)
+    with mock.patch.object(ht.cb, 'identity', side_effect=ht.cb.Fail('git rev-parse HEAD failed')), \
+         self.assertRaisesRegex(ht.Refused, 'cannot establish the checkout identity: git rev-parse'):
+      ht.verify_record(rec, self.board, self.facts)
 
 
 class SourceFacts(unittest.TestCase):
@@ -583,6 +590,15 @@ class Locks(Tmp):
     self.addCleanup(lambda: _kill(holder['pid']))
     os.kill(holder['pid'], signal.SIGUSR1)
     ht.wait_for(lambda: ht.flock_free(self.lock), 5, 'release')
+
+  def test_one_recovery_per_board_and_tinyusb_never_lists_it_as_a_holder(self):
+    first = ht.recovery_lock(self.helper, BOARD)
+    with self.assertRaisesRegex(ht.Refused, 'another recovery holds'):
+      ht.recovery_lock(self.helper, BOARD)
+    self.helper.flock_nb(BOARD).close()   # the board lock itself stays free
+    self.assertEqual(sorted(os.listdir(Path(self.lock).parent)), [f'{BOARD}.lock', f'{BOARD}.lock.recover'])
+    first.close()
+    ht.recovery_lock(self.helper, BOARD).close()
 
   def test_survivors_are_identified_against_pid_reuse(self):
     me = {'pid': os.getpid(), 'start': ht.proc_start(os.getpid())}
@@ -1166,6 +1182,22 @@ class Main(Tmp):
          mock.patch.object(ht, 'invalidate', lambda b, f, d: invalidated.append(f) or {'pass': True}):
       self.assertEqual(ht.main(['invalidate', '-b', BOARD, '--under-hold', 'x', str(cfg)]), 0)
     self.assertEqual(invalidated, [None])
+
+  def test_a_recovery_while_another_runs_is_refused_before_it_checks_the_holder(self):
+    cfg = roster(self.tmp, tinyuf2={'reentry': None})
+    report = self.tmp / 'failed.json'
+    report.write_text(json.dumps({'results': [{'board': BOARD, 'cleanup': {'holder': {'pid': 4242}}}]}))
+    busy = mock.Mock(side_effect=ht.Refused(f'{BOARD}: another recovery holds x.lock.recover'))
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out), mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp), \
+         mock.patch.object(ht, 'load_helper', lambda p: None), mock.patch.object(ht, 'check_jlink', lambda: None), \
+         mock.patch.object(ht, 'recovery_lock', busy), \
+         mock.patch.object(ht, 'prove_hold', side_effect=AssertionError('checked the holder')), \
+         mock.patch.object(ht, 'invalidate', side_effect=AssertionError('probed')):
+      code = ht.main(['invalidate', '-b', BOARD, '--recover-holder', '4242', '--report', str(report), str(cfg)])
+    self.assertEqual((code, json.loads(out.getvalue().splitlines()[-1])['error']),
+                     (2, f'{BOARD}: another recovery holds x.lock.recover'))
+    self.assertEqual(busy.call_count, 1)
 
   def test_no_jlinkexe_programs_nothing_on_any_path(self):
     fw = bootloader_bin(self.tmp / 'fw.bin')
