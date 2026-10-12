@@ -13,6 +13,7 @@ SKILL.md beside this script is the contract; this file is its mechanics.
 import argparse
 import contextlib
 import fcntl
+import glob
 import hashlib
 import importlib.util
 import json
@@ -50,8 +51,12 @@ UF2_MAGIC = (0x0A324655, 0x9E5D5157, 0x0AB16F30)
 UF2_FLAG_FAMILY = 0x2000
 PROBE_TIMEOUT, USB_TIMEOUT, QUIET_TIME, KILL_WAIT, UDEV_TIMEOUT = 120, 20, 3, 5, 5
 JLINK_RETRY_DELAY = 2
+ESPTOOL_VERSION = '5.2.0'   # the CLI and API the esptool session helper is written and bench-checked against
+ESP_BAUD, ESP_TIMEOUT, ESP_BOOT_LOG_S, ESP_BOOT_LOG_MARGIN = 921600, 300, 2, 20
+ESP_SESSION = Path(__file__).resolve().parent / 'esp_session.py'
 JLINK_IF, JLINK_SPEED = 'SWD', '4000'
 ZERO_PAGE = 512   # bytes zeroed at the app start so its reset vector reads 0
+ESP_SECTOR = 0x1000   # erased at the bootloader offset: the 2nd-stage image header, so the ROM finds no bootloader
 UDEV_RULES = ('/etc/udev/rules.d', '/run/udev/rules.d')
 # J-Link notes that are not failures, per device, each with the line that shows the operation completed
 # (bench: every MIMXRT1062 reset with an invalid app vector, then the reset halts as usual)
@@ -504,6 +509,133 @@ class Probe:
     return hex(value)
 
 
+def esp_port(uid):
+  """The tty of the USB-UART bridge with this serial: exactly one, never a guessed /dev/ttyUSBn."""
+  hits = sorted(glob.glob(f'/dev/serial/by-id/*_{glob.escape(uid)}-if*'))
+  if len(hits) != 1:
+    raise StepFail(f'{len(hits)} serial ports for bridge {uid}: {hits}')
+  return os.path.realpath(hits[0])
+
+
+class Esptool:
+  """esptool sessions on one board, each one connection in its own child (esp_session.py)."""
+  def __init__(self, board, workdir, log):
+    self.b, self.dir, self.log = board, workdir, log
+    self.retried = []
+
+  def run(self, ops, after):
+    spec = self.dir / f'esp-{time.monotonic_ns()}.json'
+    spec.write_text(json.dumps(ops))
+    cmd = [sys.executable, '-B', ESP_SESSION, '--port', esp_port(self.b['probe']), '--chip', self.b['device'],
+           '--baud', str(ESP_BAUD), '--after', after, spec]
+    code, out = spawn(cmd, self.log, ESP_TIMEOUT)
+    tail = out.strip().splitlines()[-5:]
+    try:
+      res = json.loads(tail[-1])
+    except (IndexError, ValueError):
+      raise StepFail(f'esp_session.py ended without its JSON (exit {code})', {'tail': tail})
+    if code or not res.get('ok'):
+      raise StepFail(f'esptool session failed: {res.get("error")}', {'tail': tail})
+    return res['results']
+
+  def boot_log(self, seconds=ESP_BOOT_LOG_S):
+    """The UART output after an EN reset, captured by a child like every other bridge operation."""
+    code, out = spawn([sys.executable, '-B', ESP_SESSION, '--port', esp_port(self.b['probe']), '--boot-log', seconds],
+                      self.log, seconds + ESP_BOOT_LOG_MARGIN)
+    tail = out.strip().splitlines()[-5:]
+    try:
+      res = json.loads(tail[-1])
+    except (IndexError, ValueError):
+      raise StepFail(f'esp_session.py --boot-log ended without its JSON (exit {code})', {'tail': tail})
+    if code or not res.get('ok'):
+      raise StepFail(f'boot log capture failed: {res.get("error")}', {'tail': tail})
+    return res['results'][0]['text']
+
+
+def preserved_ops(board):
+  return [{'op': 'md5', 'addr': lo, 'size': hi - lo} for lo, hi in board['regions']['preserved'].values()]
+
+
+def preserved_md5(board, results):
+  md5 = [r['md5'] for r in results if r['op'] == 'md5']
+  return dict(zip(board['regions']['preserved'], md5))
+
+
+def check_esp_identity(board, facts, results):
+  """The bridge reaches this board's chip, with no security state the battery could not undo, and flash for
+  the candidate's layout."""
+  got = {r['op']: r for r in results}
+  sec, size = got['security'], got['flash-size']['flashSize']
+  ev = {'mac': got['mac']['mac'], 'securityFlags': hex(sec['flags']), 'flashCryptCnt': sec['flashCryptCnt'],
+        'chipId': sec['chipId'], 'flashSize': size}
+  if ev['mac'] != board['uid']:
+    raise StepFail(f'bridge {board["probe"]} reaches MAC {ev["mac"]}, not the roster uid {board["uid"]}', ev)
+  on = [k for k in ('SECURE_BOOT_EN', 'SECURE_DOWNLOAD_ENABLE') if sec['parsed'].get(k)]
+  if on or bin(sec['flashCryptCnt']).count('1') % 2:
+    raise StepFail(f'security enabled ({on or "flash encryption"}); the battery never runs on a secured chip', ev)
+  m = re.fullmatch(r'(\d+)MB', size or '')
+  if not m or int(m.group(1)) * 1024 * 1024 < facts['flashSize']:
+    raise StepFail(f'flash {size} is smaller than the candidate\'s {facts["flashSize"]:#x}', ev)
+  return ev
+
+
+def esp_program(esp, board, segments, workdir):
+  """Write every segment, read each back byte for byte and check the preserved regions' MD5s before and after,
+  all in one connection, then one reset."""
+  reads = [(off, path, workdir / f'readback-{off:x}.bin') for off, path in segments]
+  ops = [{'op': 'expect-mac', 'mac': board['uid']}] + preserved_ops(board) + \
+        [{'op': 'write', 'addr': off, 'file': str(path)} for off, path in segments] + \
+        [{'op': 'read', 'addr': off, 'size': path.stat().st_size, 'file': str(rb)} for off, path, rb in reads] + \
+        preserved_ops(board)
+  results = esp.run(ops, 'hard-reset')
+  n = len(board['regions']['preserved'])
+  before, after = preserved_md5(board, results[1:n + 1]), preserved_md5(board, results[-n:])
+  if before != after:
+    raise StepFail('a preserved region changed during the install', {'before': before, 'after': after})
+  for off, path, rb in reads:
+    if rb.read_bytes() != path.read_bytes():
+      raise StepFail(f'{path.name} at {off:#x} does not read back as written')
+  return before
+
+
+def esp_install(board, facts, segments, workdir):
+  """Identity first, so nothing is written to a board other than the roster's, then the segments."""
+  tool = Esptool(board, workdir, workdir / 'hil.log')
+  ev = check_esp_identity(board, facts, tool.run([{'op': 'mac'}, {'op': 'security'}, {'op': 'flash-size'}], 'no-reset'))
+  ev['preserved'] = esp_program(tool, board, segments, workdir)
+  return ev
+
+
+def esp_invalidate(board, workdir, battery=None):
+  """The board left unbootable: the bootloader's first sector erased and read back, an EN reset with its boot
+  output captured, then the sector read as erased from a new session, and the preserved regions' MD5s
+  compared with the run's own snapshot when there is one."""
+  lo = esp.BOOTLOADER_OFFSET[board['device']]
+  log = battery.log if battery else workdir / 'hil.log'
+  tool = battery.tool if battery else Esptool(board, workdir, log)
+  first, second = workdir / 'erased-1.bin', workdir / 'erased-2.bin'
+  # the roster's MAC before the erase, in the same connection: recovery has no other identity check
+  tool.run([{'op': 'expect-mac', 'mac': board['uid']}, {'op': 'erase', 'addr': lo, 'size': ESP_SECTOR},
+            {'op': 'read', 'addr': lo, 'size': ESP_SECTOR, 'file': str(first)}], 'no-reset')
+  if first.read_bytes() != b'\xff' * ESP_SECTOR:
+    raise StepFail(f'the bootloader sector at {lo:#x} does not read back erased')
+  boot = tool.boot_log()
+  # recovery runs without candidate source, so without a layout: the preserved regions are the run's to check
+  snap = getattr(battery, 'preserved', None)
+  results = tool.run([{'op': 'expect-mac', 'mac': board['uid']}, {'op': 'read', 'addr': lo, 'size': ESP_SECTOR,
+                                                                    'file': str(second)}] +
+                     (preserved_ops(board) if snap is not None else []), 'hard-reset')
+  if second.read_bytes() != b'\xff' * ESP_SECTOR:
+    raise StepFail('the erased bootloader sector did not persist past the reset')
+  ev = {'erased': f'{lo:#x}+{ESP_SECTOR:#x}', 'verified': True, 'bootLog': boot.strip().splitlines()[-6:]}
+  if snap is not None:
+    now = preserved_md5(board, results[2:])
+    if now != snap:
+      raise StepFail('a preserved region changed during the run', dict(ev, before=snap, after=now))
+    ev['preserved'] = 'unchanged'
+  return {'pass': True, 'state': 'bootloader invalidated', 'evidence': ev}
+
+
 def after(out, command):
   """The output chunks following each echo of `command` in a JLinkExe -CommandFile transcript; the
   transcript shape is bench-checked at commissioning."""
@@ -773,9 +905,12 @@ def manual_holder(helper, board, reason):
   prove_hold(helper, board, pid, reason=reason)
 
 
-def probe_users(probe):
-  """Processes that have this probe open by serial (a JLinkExe or GDB server from an earlier session)."""
-  users = []
+def probe_users(board):
+  """Processes using this board's probe: for J-Link one opened by serial (a JLinkExe or GDB server from an
+  earlier session), for esptool any process holding the bridge's tty open."""
+  if board['flasher'] == 'esptool':
+    return tty_users(esp_port(board['probe']))
+  probe, users = board['probe'], []
   for d in Path('/proc').iterdir():
     try:
       cmd = (d / 'cmdline').read_bytes().split(b'\0')
@@ -784,6 +919,19 @@ def probe_users(probe):
     if d.name.isdigit() and int(d.name) != os.getpid() and any(b'JLink' in c for c in cmd[:1]) and \
        any(probe.encode() in c for c in cmd):
       users.append(int(d.name))
+  return users
+
+
+def tty_users(dev):
+  users = []
+  for d in Path('/proc').iterdir():
+    if not d.name.isdigit() or int(d.name) == os.getpid():
+      continue
+    try:
+      if any(os.path.realpath(fd) == dev for fd in (d / 'fd').iterdir()):
+        users.append(int(d.name))
+    except OSError:
+      continue
   return users
 
 
@@ -1146,6 +1294,8 @@ class Battery:
 def invalidate(board, facts, workdir, battery=None):
   """The board left unbootable: a zero page at the device's flash floor (FLASH_LIMITS, never the candidate's
   layout) written and read back, the target reset, then the zero page verified again from a new session."""
+  if board['flasher'] == 'esptool':
+    return esp_invalidate(board, workdir, battery)
   base = FLASH_LIMITS[board['device']][0]
   bat = battery or Battery(board, facts, workdir)
   load, verify = f'loadbin {bat.zero},{base:#x}', f'verifybin {bat.zero},{base:#x}'
@@ -1184,6 +1334,20 @@ def check_jlink():
     raise Refused('JLinkExe must be on PATH')
 
 
+def check_esptool():
+  import importlib.metadata
+  try:
+    v = importlib.metadata.version('esptool')
+  except importlib.metadata.PackageNotFoundError:
+    v = None
+  if v != ESPTOOL_VERSION:
+    raise Refused(f'esptool {v} is installed for {sys.executable}; the runner needs esptool {ESPTOOL_VERSION}')
+
+
+def check_flasher(board):
+  check_esptool() if board['flasher'] == 'esptool' else check_jlink()
+
+
 def reentry_decision(row):
   """The re-entry method a commissioning run establishes (SKILL.md, Commissioning), or None: every
   observation of the tried method held, the board was cleaned up and released, and the run passed or failed
@@ -1210,6 +1374,8 @@ def run_board(args, board, facts, helper, workdir):
       raise Refused(f'{board["name"]}: reentry is already commissioned; --try-reentry is for commissioning only')
     board = dict(board, reentry=args.try_reentry)
     row.update(commissioning=True, tried=args.try_reentry)
+  elif board['flasher'] == 'esptool':
+    raise Refused(f'{board["name"]}: the esptool battery is not built yet; use install and invalidate')
   elif board['reentry'] not in REENTRY:
     raise Refused(f'{board["name"]}: tinyuf2.reentry must be one of {REENTRY} (set from commissioning)')
   files, row['firmware'] = verify_record(args.build_record, board, facts)
@@ -1296,11 +1462,12 @@ def main(argv=None):
                  'to exercise cleanup and its holder')
   r.add_argument('--try-reentry', choices=REENTRY, help="commissioning only, while the roster's reentry is unset")
   r.add_argument('config')
-  i = sub.add_parser('install', help='program a bootloader BIN under your own manual hold')
+  i = sub.add_parser('install', help='program a bootloader under your own manual hold')
   i.add_argument('-b', '--board', required=True)
-  i.add_argument('--firmware', required=True,
-                 help='a bootloader BIN, programmed at the install start with a zero page at the app start')
-  i.add_argument('--sha256', required=True)
+  i.add_argument('--firmware', help='J-Link: a bootloader BIN, programmed at the install start with a zero page at '
+                 'the app start')
+  i.add_argument('--sha256', help='J-Link: the --firmware hash')
+  i.add_argument('--build-record', help='esptool: the IDF build record whose segments are installed')
   i.add_argument('--under-hold', required=True, metavar='REASON')
   i.add_argument('config')
   s = sub.add_parser('invalidate', help='leave the board unbootable, under your hold or to recover a holder')
@@ -1334,7 +1501,22 @@ def main(argv=None):
       row, code = run_board(args, board, facts, helper, run_dir)
       result['results'].append(row)
       result['pass'] = code == 0 and row['pass']
+    elif args.cmd == 'install' and board['flasher'] == 'esptool':
+      if not args.build_record or args.firmware or args.sha256:
+        raise Refused(f'{board["name"]}: an esptool install takes --build-record, not --firmware/--sha256')
+      manual_holder(helper, board['lock'], args.under_hold)
+      files, fw = verify_record(args.build_record, board, facts)
+      exclusion_configured(facts, board['uid'])
+      check_esptool()
+      try:
+        ev = esp_install(board, facts, files['segments'], run_dir)
+      finally:
+        result['survivors'] = stuck_children()
+      result['results'].append({'board': board['name'], 'installed': fw, 'evidence': ev})
+      result['pass'], code = True, 0
     elif args.cmd == 'install':
+      if not (args.firmware and args.sha256) or args.build_record:
+        raise Refused(f'{board["name"]}: a J-Link install takes --firmware and --sha256')
       manual_holder(helper, board['lock'], args.under_hold)
       if sha256(args.firmware) != args.sha256:
         raise Refused(f'{args.firmware} does not match --sha256')
@@ -1348,7 +1530,7 @@ def main(argv=None):
       result['results'].append({'board': board['name'], 'installed': {'path': args.firmware, 'sha256': args.sha256}})
       result['pass'], code = True, 0
     else:
-      check_jlink()
+      check_flasher(board)
       rec = None
       if args.recover_holder is not None:
         if not args.report:
@@ -1371,7 +1553,7 @@ def main(argv=None):
           raise Refused(f'the failed run\'s children {alive} are still alive; recovery may not overlap them')
       else:
         manual_holder(helper, board['lock'], args.under_hold)
-      users = probe_users(board['probe'])
+      users = probe_users(board)
       if users:
         raise Refused(f'probe {board["probe"]} is still in use by pids {users}; recovery may not overlap them')
       try:

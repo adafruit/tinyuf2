@@ -407,6 +407,295 @@ class Esp(Tmp):
       self.verify(self.record(row))
 
 
+FAKE_ESP = textwrap.dedent('''
+  import hashlib, json, os, sys
+  if '--boot-log' in sys.argv:
+    print(json.dumps({'ok': True, 'results': [{'op': 'boot-log', 'text': 'invalid header: 0xffffffff\\n'}]})); sys.exit(0)
+  args, ops = sys.argv[1:-1], json.load(open(sys.argv[-1]))
+  img = os.environ['FAKE_ESP_FLASH']
+  data = bytearray(open(img, 'rb').read())
+  if os.environ.get('FAKE_ESP_FAIL'):
+    print(json.dumps({'ok': False, 'error': os.environ['FAKE_ESP_FAIL'], 'results': []})); sys.exit(1)
+  out = []
+  for op in ops:
+    k, r = op['op'], {'op': op['op']}
+    if k in ('mac', 'expect-mac'):
+      r['mac'] = os.environ.get('FAKE_ESP_MAC', '84F703C084E4')
+      if k == 'expect-mac' and r['mac'] != op['mac']:
+        print(json.dumps({'ok': False, 'error': 'RuntimeError: wrong MAC; nothing written', 'results': out})); sys.exit(1)
+    elif k == 'security':
+      flags = int(os.environ.get('FAKE_ESP_FLAGS', '0'))
+      r.update(flags=flags, parsed={'SECURE_BOOT_EN': bool(flags & 1), 'SECURE_DOWNLOAD_ENABLE': bool(flags & 4)},
+               flashCryptCnt=int(os.environ.get('FAKE_ESP_CRYPT', '0')), chipId=9, apiVersion=0)
+    elif k == 'flash-size': r['flashSize'] = os.environ.get('FAKE_ESP_SIZE', '8MB')
+    elif k == 'write':
+      blob = open(op['file'], 'rb').read()
+      if os.environ.get('FAKE_ESP_CORRUPT') == hex(op['addr']): blob = blob[:-1] + bytes([blob[-1] ^ 0xff])
+      data[op['addr']:op['addr'] + len(blob)] = blob
+      if os.environ.get('FAKE_ESP_SPILL') and op['addr'] == 0: data[0x9000] ^= 0xff
+    elif k == 'read': open(op['file'], 'wb').write(bytes(data[op['addr']:op['addr'] + op['size']]))
+    elif k == 'md5': r['md5'] = hashlib.md5(bytes(data[op['addr']:op['addr'] + op['size']])).hexdigest()
+    elif k == 'erase': data[op['addr']:op['addr'] + op['size']] = b'\\xff' * op['size']
+    out.append(r)
+  if os.environ.get('FAKE_ESP_UNERASE'): data[0] = 0xe9
+  open(img, 'wb').write(data)
+  with open(img + '.sessions', 'a') as f: f.write(json.dumps({'args': args, 'ops': [o['op'] for o in ops]}) + '\\n')
+  print(json.dumps({'ok': True, 'results': out}))
+''')
+
+
+class EspFlash(Tmp):
+  """The esptool path against a fake session over an 8 MiB image: plumbing only, the rig is the evidence."""
+
+  def setUp(self):
+    super().setUp()
+    self.board = self.load(s3_roster(self.tmp), S3)
+    self.facts = ht.source_facts(self.board)
+    self.flash = self.tmp / 'flash.img'
+    self.flash.write_bytes(bytes(range(256)) * (0x800000 // 256))
+    fake = self.tmp / 'fake_esp.py'
+    fake.write_text(FAKE_ESP)
+    self.segments = [(off, p) for off, p in ht.esp.admit(self.tmp / 'b', self.board, self.facts, self.board['regions'])] \
+      if idf_build(self.tmp / 'b') else None
+    for p in (mock.patch.object(ht, 'ESP_SESSION', fake), mock.patch.object(ht, 'esp_port', lambda uid: '/dev/fake'),
+              mock.patch.dict(os.environ, {'FAKE_ESP_FLASH': str(self.flash)})):
+      p.start()
+      self.addCleanup(p.stop)
+    self.work = self.tmp / 'run'
+    self.work.mkdir()
+
+  def sessions(self):
+    return [json.loads(l) for l in (self.tmp / 'flash.img.sessions').read_text().splitlines()]
+
+  def test_install_writes_the_segments_reads_them_back_and_keeps_the_preserved_regions(self):
+    before = self.flash.read_bytes()
+    ev = ht.esp_install(self.board, self.facts, self.segments, self.work)
+    img = self.flash.read_bytes()
+    for off, path in self.segments:
+      self.assertEqual(img[off:off + path.stat().st_size], path.read_bytes())
+    for lo, hi in self.board['regions']['preserved'].values():
+      self.assertEqual(img[lo:hi], before[lo:hi])
+    self.assertEqual(ev['mac'], '84F703C084E4')
+    self.assertEqual(set(ev['preserved']), {'nvs', 'ota_1', 'ffat'})
+    ident, prog = self.sessions()
+    self.assertEqual(ident['ops'], ['mac', 'security', 'flash-size'])
+    self.assertEqual(prog['ops'], ['expect-mac'] + ['md5'] * 3 + ['write'] * 4 + ['read'] * 4 + ['md5'] * 3)
+    self.assertEqual(prog['args'][-1], 'hard-reset')
+    self.assertIn('--chip', prog['args'])
+
+  def test_identity_refusals_write_nothing(self):
+    cases = {'another board': ({'FAKE_ESP_MAC': '000000000000'}, 'not the roster uid'),
+             'secure boot': ({'FAKE_ESP_FLAGS': '1'}, 'security enabled'),
+             'flash encryption': ({'FAKE_ESP_CRYPT': '1'}, 'security enabled'),
+             'small flash': ({'FAKE_ESP_SIZE': '4MB'}, 'smaller than'),
+             'a failed session': ({'FAKE_ESP_FAIL': 'No serial data received.'}, 'No serial data')}
+    before = self.flash.read_bytes()
+    for what, (env, err) in cases.items():
+      with self.subTest(what), mock.patch.dict(os.environ, env), self.assertRaisesRegex(ht.StepFail, err):
+        ht.esp_install(self.board, self.facts, self.segments, self.work)
+      self.assertEqual(self.flash.read_bytes(), before)
+
+  def test_a_bad_read_back_or_a_touched_preserved_region_fails_the_install(self):
+    for env, err in (({'FAKE_ESP_CORRUPT': '0x410000'}, 'tinyuf2.bin at 0x410000 does not read back'),
+                     ({'FAKE_ESP_SPILL': '1'}, 'preserved region changed during the install')):
+      with self.subTest(err), mock.patch.dict(os.environ, env), self.assertRaisesRegex(ht.StepFail, err):
+        ht.esp_install(self.board, self.facts, self.segments, self.work)
+
+  def test_invalidate_erases_the_bootloader_sector_and_rereads_it_from_a_new_session(self):
+    bat = mock.Mock(log=self.work / 'hil.log', tool=ht.Esptool(self.board, self.work, self.work / 'hil.log'))
+    bat.preserved = ht.preserved_md5(self.board, bat.tool.run(ht.preserved_ops(self.board), 'no-reset'))
+    out = ht.invalidate(self.board, None, self.work, bat)
+    self.assertEqual(self.flash.read_bytes()[:0x1000], b'\xff' * 0x1000)
+    self.assertEqual(self.flash.read_bytes()[0x1000:0x2000], (bytes(range(256)) * 16))
+    self.assertEqual((out['state'], out['evidence']['preserved']), ('bootloader invalidated', 'unchanged'))
+    first, second = self.sessions()[1:]
+    self.assertEqual((first['ops'], first['args'][-1]), (['expect-mac', 'erase', 'read'], 'no-reset'))
+    self.assertEqual((second['ops'], second['args'][-1]), (['expect-mac', 'read', 'md5', 'md5', 'md5'], 'hard-reset'))
+    self.assertEqual(out['evidence']['bootLog'], ['invalid header: 0xffffffff'])
+
+  def test_invalidate_without_a_run_needs_no_layout(self):
+    board = dict(self.board)
+    del board['regions']
+    out = ht.invalidate(board, None, self.work)
+    self.assertNotIn('preserved', out['evidence'])
+    self.assertEqual(self.sessions()[1]['ops'], ['expect-mac', 'read'])
+
+  def test_invalidate_of_another_board_erases_nothing(self):
+    before = self.flash.read_bytes()
+    with mock.patch.dict(os.environ, {'FAKE_ESP_MAC': '000000000000'}), self.assertRaisesRegex(ht.StepFail, 'wrong MAC'):
+      ht.invalidate(dict(self.board), None, self.work)
+    self.assertEqual(self.flash.read_bytes(), before)
+
+  def test_invalidate_fails_when_the_sector_comes_back_or_a_preserved_region_moved(self):
+    with mock.patch.dict(os.environ, {'FAKE_ESP_UNERASE': '1'}), self.assertRaisesRegex(ht.StepFail, 'erased'):
+      ht.invalidate(dict(self.board), None, self.work)
+    bat = mock.Mock(log=self.work / 'hil.log', tool=ht.Esptool(self.board, self.work, self.work / 'hil.log'),
+                    preserved={'nvs': 'x', 'ota_1': 'y', 'ffat': 'z'})
+    with self.assertRaisesRegex(ht.StepFail, 'preserved region changed during the run'):
+      ht.invalidate(self.board, None, self.work, bat)
+
+  def test_the_bridge_is_found_by_serial_exactly_once(self):
+    for hits in ([], ['/dev/serial/by-id/a_x-if00-port0', '/dev/serial/by-id/b_x-if00-port0']):
+      with self.subTest(len(hits)), mock.patch.object(ht.glob, 'glob', lambda pat: hits), \
+           self.assertRaisesRegex(ht.StepFail, f'{len(hits)} serial ports'):
+        real_esp_port('x')
+
+  def test_tty_users_sees_a_process_holding_the_device_open(self):
+    dev = self.tmp / 'tty'
+    dev.write_text('')
+    p = subprocess.Popen([sys.executable, '-c', f'f = open({str(dev)!r}); import time; time.sleep(30)'])
+    self.addCleanup(lambda: (p.kill(), p.wait()))
+    ht.wait_for(lambda: p.pid in ht.tty_users(str(dev)), 5, 'the holder')
+
+  def main(self, *argv):
+    out = io.StringIO()
+    with mock.patch.object(ht, 'load_helper', lambda path: mock.Mock()), mock.patch.object(ht, 'manual_holder', mock.Mock()), \
+         mock.patch.object(ht.cb, 'BUILD_DIR', Path(tempfile.mkdtemp(dir=self.tmp))), contextlib.redirect_stdout(out):
+      code = ht.main(list(argv))
+    return code, json.loads(out.getvalue().strip().splitlines()[-1])
+
+  def test_an_esptool_install_takes_a_build_record_and_the_battery_is_not_built_yet(self):
+    cfg = str(s3_roster(self.tmp))
+    code, res = self.main('install', '-b', S3, '--firmware', 'x.bin', '--sha256', 'y', '--under-hold', 'r', cfg)
+    self.assertEqual(code, 2)
+    self.assertIn('takes --build-record', res['error'])
+    code, res = self.main('run', '-b', S3, '--build-record', 'rec.json', cfg)
+    self.assertEqual(code, 2)
+    self.assertIn('esptool battery is not built yet', res['error'])
+
+  def test_an_esptool_invalidate_under_hold_needs_no_candidate_source(self):
+    with mock.patch.object(ht, 'source_facts', side_effect=AssertionError('read the source')), \
+         mock.patch.object(ht, 'check_esptool', lambda: None), mock.patch.object(ht, 'tty_users', lambda dev: []):
+      code, res = self.main('invalidate', '-b', S3, '--under-hold', 'r', str(s3_roster(self.tmp)))
+    self.assertEqual(code, 0, res)
+    self.assertEqual(res['results'][0]['cleanup']['state'], 'bootloader invalidated')
+    self.assertEqual(self.flash.read_bytes()[:0x1000], b'\xff' * 0x1000)
+
+  def test_the_esptool_version_is_gated(self):
+    with mock.patch('importlib.metadata.version', lambda name: '4.8.1'), self.assertRaisesRegex(ht.Refused, '5.2.0'):
+      ht.check_esptool()
+
+
+STUB_ESPTOOL = {
+  'esptool/__init__.py': "__version__ = '5.2.0'\n",
+  'esptool/cmds.py': textwrap.dedent('''
+    import json, os
+    LOG = os.environ['STUB_LOG']
+    def log(*a):
+      open(LOG, 'a').write(json.dumps(a) + '\\n')
+    class Port:
+      def close(self): log('close')
+    class Esp:
+      CHIP_NAME = os.environ.get('STUB_CHIP', 'ESP32-S3')
+      _port = Port()
+      def read_mac(self, kind): return (0x7C, 0xDF, 0xA1, 0xE0, 0x6F, 0xD0)
+      def get_security_info(self):
+        return {'flags': 0, 'parsed_flags': {}, 'flash_crypt_cnt': 0, 'chip_id': 9, 'api_version': 0}
+      def change_baud(self, b): log('baud', b)
+      def read_flash(self, addr, size):
+        if os.environ.get('STUB_FAIL_READ'): raise IOError('timed out')
+        return bytes([addr & 0xff]) * size
+      def flash_md5sum(self, addr, size): return f'md5-{addr:x}-{size:x}'
+    def detect_chip(port, connect_mode):
+      log('connect', port, connect_mode); return Esp()
+    def run_stub(esp): log('stub'); return esp
+    def attach_flash(esp): log('attach')
+    def detect_flash_size(esp): return '8MB'
+    def write_flash(esp, addr_data, flash_freq, flash_mode, flash_size):
+      (addr, f), = addr_data
+      log('write', addr, len(f.read()), flash_freq, flash_mode, flash_size)
+    def erase_region(esp, addr, size): log('erase', addr, size)
+    def reset_chip(esp, mode): log('reset', mode)
+  '''),
+  'serial/__init__.py': textwrap.dedent('''
+    import json, os
+    class Serial:
+      def __setattr__(self, k, v):
+        if k in ('dtr', 'rts', 'port'):
+          open(os.environ['STUB_LOG'], 'a').write(json.dumps([k, v, getattr(self, 'opened', False)]) + '\\n')
+        object.__setattr__(self, k, v)
+      def open(self): self.opened = True
+      def reset_input_buffer(self): pass
+      def read(self, n): return b'invalid header' if not getattr(self, 'done', False) and not setattr(self, 'done', True) else b''
+      def close(self): pass
+  '''),
+}
+
+
+class EspSession(Tmp):
+  """esp_session.py itself, over stub esptool and pyserial packages: its dispatch, arguments, guard and reset
+  order. The write and erase paths are only proven on the rig."""
+
+  def setUp(self):
+    super().setUp()
+    stub = self.tmp / 'stub'
+    for rel, text in STUB_ESPTOOL.items():
+      (stub / rel).parent.mkdir(parents=True, exist_ok=True)
+      (stub / rel).write_text(text)
+    self.log = self.tmp / 'stub.log'
+    self.env = dict(os.environ, PYTHONPATH=str(stub), STUB_LOG=str(self.log))
+
+  def session(self, ops, after='hard-reset', **env):
+    spec = self.tmp / 'ops.json'
+    spec.write_text(json.dumps(ops))
+    r = subprocess.run([sys.executable, '-B', ht.ESP_SESSION, '--port', '/dev/x', '--chip', 'esp32s3', '--baud', '921600',
+                        '--after', after, spec], capture_output=True, text=True, env=dict(self.env, **env))
+    calls = [json.loads(l) for l in self.log.read_text().splitlines()] if self.log.exists() else []
+    self.log.unlink(missing_ok=True)
+    return r.returncode, json.loads(r.stdout.strip().splitlines()[-1]), calls
+
+  def test_ops_run_in_order_in_one_connection_then_one_reset(self):
+    blob = self.tmp / 'seg.bin'
+    blob.write_bytes(b'\xe9' * 100)
+    code, out, calls = self.session([{'op': 'expect-mac', 'mac': '7CDFA1E06FD0'}, {'op': 'security'}, {'op': 'flash-size'},
+                                     {'op': 'write', 'addr': 0x8000, 'file': str(blob)},
+                                     {'op': 'read', 'addr': 0x10, 'size': 4, 'file': str(self.tmp / 'r.bin')},
+                                     {'op': 'md5', 'addr': 0x9000, 'size': 0x5000}, {'op': 'erase', 'addr': 0, 'size': 0x1000}])
+    self.assertEqual(code, 0, out)
+    self.assertEqual([r['op'] for r in out['results']], ['expect-mac', 'security', 'flash-size', 'write', 'read', 'md5', 'erase'])
+    self.assertEqual((out['results'][0]['mac'], out['results'][2]['flashSize'], out['results'][5]['md5']),
+                     ('7CDFA1E06FD0', '8MB', 'md5-9000-5000'))
+    self.assertEqual((self.tmp / 'r.bin').read_bytes(), b'\x10' * 4)
+    self.assertEqual([c[0] for c in calls], ['connect', 'stub', 'baud', 'attach', 'write', 'erase', 'reset', 'close'])
+    self.assertEqual(calls[0][2], 'default-reset')
+    self.assertEqual(calls[4], ['write', 0x8000, 100, 'keep', 'keep', 'keep'])
+    self.assertEqual(calls[-2], ['reset', 'hard-reset'])
+
+  def test_no_reset_leaves_the_chip_alone(self):
+    code, out, calls = self.session([{'op': 'mac'}], after='no-reset')
+    self.assertEqual(code, 0)
+    self.assertNotIn('reset', [c[0] for c in calls])
+
+  def test_a_wrong_mac_stops_before_any_later_op(self):
+    code, out, calls = self.session([{'op': 'expect-mac', 'mac': '000000000000'}, {'op': 'erase', 'addr': 0, 'size': 0x1000}])
+    self.assertEqual((code, out['ok']), (1, False))
+    self.assertIn('not 000000000000; nothing written', out['error'])
+    self.assertEqual([c[0] for c in calls], ['connect', 'stub', 'baud', 'attach', 'close'])
+
+  def test_another_chip_and_a_failing_op_are_reported_and_the_port_closed(self):
+    code, out, calls = self.session([{'op': 'mac'}], STUB_CHIP='ESP32-S2')
+    self.assertEqual(code, 1)
+    self.assertIn('not an esp32s3', out['error'])
+    code, out, calls = self.session([{'op': 'mac'}, {'op': 'read', 'addr': 0, 'size': 1, 'file': str(self.tmp / 'x')}],
+                                    STUB_FAIL_READ='1')
+    self.assertEqual((code, [r['op'] for r in out['results']]), (1, ['mac']))
+    self.assertIn('timed out', out['error'])
+    self.assertEqual(calls[-1], ['close'])
+    self.assertNotIn('reset', [c[0] for c in calls])
+
+  def test_the_boot_log_releases_both_lines_before_open_and_pulses_rts(self):
+    r = subprocess.run([sys.executable, '-B', ht.ESP_SESSION, '--port', '/dev/x', '--boot-log', '0.3'], capture_output=True,
+                       text=True, env=self.env)
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    self.assertEqual((r.returncode, out['results'][0]['text']), (0, 'invalid header'))
+    lines = [json.loads(l) for l in self.log.read_text().splitlines()]
+    self.assertEqual([l for l in lines if l[0] != 'port'], [['dtr', False, False], ['rts', False, False],
+                                                             ['rts', True, True], ['rts', False, True]])
+
+
+real_esp_port = ht.esp_port
+
+
 def ihex(records):
   lines = []
   for kind, addr, data in records:
