@@ -139,6 +139,8 @@ class Selection(unittest.TestCase):
     rule, effect, boards, _, tests = classify('.claude/skills/build/scripts/check_build.py')
     self.assertEqual((rule, effect, tests), ('build-control', 'select', True))
     self.assertEqual(sorted(b for _, b in boards), ['cmake', 'idf', 'make'])
+    self.assertTrue(cb.classify('.claude/skills/build/scripts/check_build.py')['hil'])   # hil_test.py imports it
+    self.assertFalse(cb.classify('.github/workflows/build.yml')['hil'])
 
   def test_unknown_port_fails_explicitly(self):
     with self.assertRaises(cb.Fail):
@@ -157,6 +159,13 @@ class Selection(unittest.TestCase):
   def test_nothing_to_build(self):
     for path in ('README.md', '.claude/skills/build/SKILL.md', 'tools/gen_boards.py', '.github/workflows/codeql.yml'):
       self.assertEqual(classify(path)[1], 'none', path)
+
+  def test_hil_runner_and_roster_select_tests_and_every_roster_board(self):
+    for path in ('.claude/skills/hil/scripts/hil_test.py', 'test/hil/local.json'):
+      r = cb.classify(path)
+      self.assertEqual((r['rule'], r['tests'], r['hil'], r['boards']), ('hil-control', True, True, {}), path)
+    self.assertEqual(cb.classify('.claude/skills/hil/SKILL.md')['effect'], 'none')   # wording costs no hardware
+    self.assertEqual(classify('.claude/test/test_hil.py'), ('contract-tests', 'select', [], False, True))
 
   def test_core_and_unclassified_select_every_representative(self):
     for path in ('src/main.c', 'lib/tinyusb', 'ports/family_support.cmake', 'some/new/file.c'):
@@ -229,9 +238,13 @@ class ChangedPaths(unittest.TestCase):
       cb.changed_paths(scope=['b.c'])
 
 
-def run_main(argv, boards=None, ghostfat=None, tests=None):
-  """main() with builds stubbed: `boards` maps board -> status."""
+CLEAN = {'head': 'h', 'dirty': False, 'submodules': {}, 'deps': {}, 'dirtyInputs': [], 'missingInputs': [], 'depsOffPin': []}
+
+
+def run_main(argv, boards=None, ghostfat=None, tests=None, identities=None):
+  """main() with builds stubbed: `boards` maps board -> status; `identities`, the successive identity() results."""
   boards = boards or {}
+  identities = iter(identities or [])
 
   def build_board(board, backend, args, idf):
     status = boards.get(board, 'ok')
@@ -242,10 +255,164 @@ def run_main(argv, boards=None, ghostfat=None, tests=None):
   with mock.patch.object(cb, 'build_board', build_board), \
        mock.patch.object(cb, 'run_ghostfat', lambda v: ghostfat or []), \
        mock.patch.object(cb, 'run_tests', lambda: tests or {'status': 'ok', 'summary': 'OK', 'firstError': ''}), \
-       mock.patch.object(cb, 'identity', lambda: {'head': 'h', 'dirty': False, 'submodules': {}}), \
+       mock.patch.object(cb, 'identity', lambda ports=(): dict(next(identities, CLEAN))), \
        contextlib.redirect_stdout(out):
     code = cb.main(argv)
   return code, json.loads(out.getvalue().splitlines()[-1])
+
+
+class HilSelection(unittest.TestCase):
+  def setUp(self):
+    tmp = build_tmpdir()
+    self.addCleanup(tmp.cleanup)
+    self.roster = Path(tmp.name) / 'local.json'
+    self.roster.write_text(json.dumps({'boards': [{'name': 'lpcxpresso55s69'}]}))
+    self.config = str(self.roster.relative_to(ROOT))
+
+  def hil(self, *paths):
+    return cb.hil_selection(cb.select(list(paths)), self.config)
+
+  def test_a_port_change_selects_its_roster_board(self):
+    self.assertEqual(self.hil('ports/lpc55/boards.c')['boards'], ['lpcxpresso55s69'])
+
+  def test_docs_select_no_board(self):
+    h = self.hil('README.md')
+    self.assertEqual((h['boards'], h['uncovered']), ([], []))
+
+  def test_a_runner_change_selects_every_roster_board(self):
+    h = self.hil('.claude/skills/hil/scripts/hil_test.py')
+    self.assertEqual((h['full'], h['boards'], h['uncovered']), (True, ['lpcxpresso55s69'], []))
+
+  def test_a_change_to_the_build_script_the_runner_imports_selects_every_roster_board(self):
+    h = self.hil('.claude/skills/build/scripts/check_build.py')
+    self.assertEqual((h['full'], h['boards'], h['uncovered']), (True, ['lpcxpresso55s69'], []))
+
+  def test_a_core_change_selects_every_roster_board_and_names_ports_without_one(self):
+    h = self.hil('src/main.c')
+    self.assertEqual((h['full'], h['boards']), (True, ['lpcxpresso55s69']))
+    self.assertIn('stm32f4', [u['target'] for u in h['uncovered']])
+    self.assertNotIn('lpc55', [u['target'] for u in h['uncovered']])
+
+  def test_a_port_without_a_roster_board_is_uncovered_even_beside_a_runner_change(self):
+    h = self.hil('ports/stm32f4/board_flash.c', 'ports/lpc55/boards.c', '.claude/skills/hil/scripts/hil_test.py')
+    self.assertEqual(h['boards'], ['lpcxpresso55s69'])
+    self.assertEqual([u['target'] for u in h['uncovered']], ['stm32f4'])
+
+  def test_a_build_gap_stays_uncovered_beside_a_runner_change(self):
+    h = self.hil('ports/ch32v20x/board_flash.c', '.claude/skills/hil/scripts/hil_test.py')
+    self.assertEqual(h['boards'], ['lpcxpresso55s69'])
+    self.assertEqual([u['target'] for u in h['uncovered']], ['ports/ch32v20x/board_flash.c'])
+
+  def test_a_port_change_reaches_roster_boards_that_are_not_its_representative(self):
+    self.roster.write_text(json.dumps({'boards': [{'name': 'stm32f401_blackpill'}]}))
+    self.assertEqual(self.hil('ports/stm32f4/board_flash.c')['boards'], ['stm32f401_blackpill'])
+
+  def test_another_boards_own_change_is_uncovered(self):
+    self.roster.write_text(json.dumps({'boards': [{'name': 'feather_stm32f405_express'}]}))
+    h = self.hil('ports/stm32f4/boards/stm32f401_blackpill/board.h')
+    self.assertEqual((h['boards'], [u['target'] for u in h['uncovered']]), ([], ['stm32f401_blackpill']))
+
+  def test_a_roster_entry_is_named_by_its_tinyuf2_board(self):
+    self.roster.write_text(json.dumps({'boards': [{'name': 'imxrt1060_evk', 'tinyuf2': {'lock': 'mimxrt1060_evk'}}]}))
+    self.assertEqual(self.hil('ports/mimxrt10xx/boards/imxrt1060_evk/board.h')['boards'], ['imxrt1060_evk'])
+    self.assertEqual(self.hil('ports/mimxrt10xx/board_flash.c')['boards'], ['imxrt1060_evk'])
+    self.assertNotIn('mimxrt10xx', [u['target'] for u in self.hil('src/main.c')['uncovered']])
+
+  def test_the_hil_follows_its_cmake_build_not_cis_make(self):
+    self.roster.write_text(json.dumps({'boards': [{'name': 'imxrt1060_evk'}]}))
+    h = self.hil('ports/mimxrt10xx/family.cmake', 'ports/mimxrt10xx/boards/imxrt1060_evk/board.cmake')
+    self.assertEqual((h['boards'], h['uncovered']), (['imxrt1060_evk'], []))
+    h = self.hil('ports/mimxrt10xx/port.mk', 'ports/mimxrt10xx/boards/imxrt1064_evk/board.cmake')
+    self.assertEqual(h['boards'], [])
+    self.assertEqual({u['target']: u['reason'] for u in h['uncovered']},
+                     {'ports/mimxrt10xx/port.mk': 'the HIL builds with cmake, which never reads ports/mimxrt10xx/port.mk',
+                      'ports/mimxrt10xx/boards/imxrt1064_evk/board.cmake':
+                        f'no {self.config} board builds ports/mimxrt10xx/boards/imxrt1064_evk/board.cmake'})
+
+  def test_shared_make_files_and_port_apps_are_outside_the_hil_build(self):
+    self.roster.write_text(json.dumps({'boards': [{'name': 'imxrt1060_evk'}]}))
+    h = self.hil('ports/make.mk', 'ports/mimxrt10xx/apps/factory_test/CMakeLists.txt')
+    self.assertEqual((h['full'], h['boards']), (False, []))
+    self.assertEqual([u['target'] for u in h['uncovered']],
+                     ['ports/make.mk', 'ports/mimxrt10xx/apps/factory_test/CMakeLists.txt'])
+    self.assertEqual(self.hil('ports/family_support.cmake')['boards'], ['imxrt1060_evk'])
+
+  def test_an_app_source_is_uncovered_since_the_battery_runs_no_app(self):
+    self.roster.write_text(json.dumps({'boards': [{'name': 'imxrt1060_evk'}]}))
+    app, shared = 'ports/mimxrt10xx/apps/factory_test/main.c', 'apps/blinky/src/blinky.c'
+    self.assertEqual(sorted(cb.select([app])['boards']), [('metro_m7_1011', 'make')])   # its build is unchanged
+    h = self.hil(app, shared)
+    self.assertEqual((h['full'], h['boards']), (False, []))
+    self.assertEqual([u['target'] for u in h['uncovered']], [shared, app])
+    h = self.hil(app, 'ports/mimxrt10xx/board_flash.c')   # a bootloader change beside it still runs the battery
+    self.assertEqual((h['boards'], [u['target'] for u in h['uncovered']]), (['imxrt1060_evk'], [app]))
+
+  def test_unreadable_roster_fails(self):
+    self.roster.write_text('{}')
+    with self.assertRaises(cb.Fail):
+      self.hil('ports/lpc55/boards.c')
+
+  def test_select_only_adds_hil_only_when_asked(self):
+    for argv, has in ((['--select-only', '--scope', 'README.md'], False),
+                      (['--select-only', '--scope', 'README.md', '--hil-config', self.config], True)):
+      with contextlib.redirect_stdout(io.StringIO()) as out:
+        self.assertEqual(cb.main(argv), 0)
+      self.assertEqual('hil' in json.loads(out.getvalue()), has)
+
+
+class Identity(unittest.TestCase):
+  """A build record names each input it used and whether it has local changes; a dependency is a
+  separate git checkout (a symlink in a worktree), so the parent's status cannot see its changes."""
+
+  def setUp(self):
+    tmp = tempfile.TemporaryDirectory()
+    self.addCleanup(tmp.cleanup)
+    self.repo = Path(tmp.name)
+    env = mock.patch.dict(os.environ, {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}, clear=True)
+    env.start()
+    self.addCleanup(env.stop)
+    self.pin = None
+    for patch in (mock.patch.object(cb, 'ROOT', self.repo),
+                  mock.patch.object(cb, 'get_deps_table', lambda: {'lib/mcu/dep': (self.pin, ['lpc55']),
+                                                                   'lib/mcu/other': ('x', ['maxim'])})):
+      patch.start()
+      self.addCleanup(patch.stop)
+    self.dep = self.repo / 'lib' / 'mcu' / 'dep'
+    for repo in (self.repo, self.dep):
+      repo.mkdir(parents=True, exist_ok=True)
+      self.git(repo, 'init', '-q', '-b', 'master')
+      (repo / 'x.c').write_text('x')
+      self.git(repo, 'add', 'x.c')
+      self.git(repo, 'commit', '-q', '-m', 'init')
+    self.pin = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=self.dep, capture_output=True, text=True).stdout.strip()
+
+  def git(self, repo, *args):
+    subprocess.run(['git', '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', *args],
+                   cwd=repo, check=True, capture_output=True)
+
+  def test_records_the_used_dependency_commit(self):
+    ident = cb.identity({'lpc55'})
+    self.assertEqual(ident['deps'], {'lib/mcu/dep': self.pin})
+    self.assertEqual((ident['dirtyInputs'], ident['missingInputs'], ident['depsOffPin']), ([], [], []))
+
+  def test_a_dependency_off_its_pin_is_flagged(self):
+    self.pin = '0' * 40
+    self.assertEqual(cb.identity({'lpc55'})['depsOffPin'], ['lib/mcu/dep'])
+
+  def test_a_dependency_that_is_not_its_own_checkout_is_missing_not_the_parent(self):
+    import shutil
+    shutil.rmtree(self.dep / '.git')   # a plain directory: git -C would answer for the parent
+    ident = cb.identity({'lpc55'})
+    self.assertEqual((ident['missingInputs'], ident['deps']), (['lib/mcu/dep'], {}))
+
+  def test_a_modified_or_untracked_dependency_file_at_the_same_commit_is_dirty(self):
+    sha = cb.identity({'lpc55'})['deps']['lib/mcu/dep']
+    (self.dep / 'x.c').write_text('changed')
+    ident = cb.identity({'lpc55'})
+    self.assertEqual((ident['deps']['lib/mcu/dep'], ident['dirtyInputs']), (sha, ['lib/mcu/dep']))
+    self.git(self.dep, 'checkout', '-q', '--', 'x.c')
+    (self.dep / 'new.h').write_text('untracked')
+    self.assertEqual(cb.identity({'lpc55'})['dirtyInputs'], ['lib/mcu/dep'])
 
 
 class Verdict(unittest.TestCase):
@@ -298,23 +465,64 @@ class Verdict(unittest.TestCase):
     self.assertEqual(e.exception.code, 2)
     self.assertIn('--worktree needs --base', json.loads(out.getvalue())['error'])
 
+  def test_backend_override_needs_board_and_shared_and_a_cmake_build(self):
+    for argv, error in ((['--board', 'imxrt1060_evk', '--backend', 'cmake'], '--backend needs --board and --shared'),
+                        (['--scope', 'src', '--shared', '--backend', 'cmake'], '--backend needs --board and --shared'),
+                        (['--board', 'lpcxpresso55s69', '--shared', '--backend', 'cmake'], 'ports/lpc55 has no cmake build'),
+                        (['--board', 'espressif_esp32s3_devkitm_1', '--shared', '--backend', 'cmake'],
+                         'ports/espressif has no cmake build')):
+      with self.subTest(argv), contextlib.redirect_stdout(io.StringIO()) as out, \
+           mock.patch.object(cb, 'build_board', side_effect=AssertionError('built')):
+        try:
+          code = cb.main(argv)
+        except SystemExit as e:
+          code = e.code
+      self.assertEqual(code, 2)
+      self.assertIn(error, json.loads(out.getvalue().splitlines()[-1])['error'])
+
+  def test_backend_override_builds_with_cmake(self):
+    seen = []
+    def build_board(board, backend, args, idf):
+      seen.append(backend)
+      return {'board': board, 'port': 'mimxrt10xx', 'backend': backend, 'buildDir': 'cmake-build/x', 'status': 'ok',
+              'firstError': '', 'artifacts': [], 'sha256': {}}
+    with mock.patch.object(cb, 'build_board', build_board), \
+         mock.patch.object(cb, 'identity', lambda ports=(): {'head': 'h', 'dirty': False, 'submodules': {}, 'deps': {}, 'dirtyInputs': [], 'missingInputs': [], 'depsOffPin': []}), contextlib.redirect_stdout(io.StringIO()):
+      self.assertEqual(cb.main(['--board', 'imxrt1060_evk', '--shared', '--backend', 'cmake']), 0)
+    self.assertEqual(seen, ['cmake'])
+
   def test_passing_private_roots_leave_nothing_in_built(self):
     def build_board(board, backend, args, idf):
       return {'board': board, 'port': 'lpc55', 'backend': backend, 'buildDir': 'cmake-build/x', 'status': 'ok',
               'firstError': '', 'artifacts': ['a.bin'], 'removed': True}
     with mock.patch.object(cb, 'build_board', build_board), \
-         mock.patch.object(cb, 'identity', lambda: {}), contextlib.redirect_stdout(io.StringIO()) as out:
+         mock.patch.object(cb, 'identity', lambda ports=(): {'head': 'h', 'dirty': False, 'submodules': {}, 'deps': {}, 'dirtyInputs': [], 'missingInputs': [], 'depsOffPin': []}), contextlib.redirect_stdout(io.StringIO()) as out:
       self.assertEqual(cb.main(['--board', 'lpcxpresso55s69']), 0)
     self.assertEqual(json.loads(out.getvalue().splitlines()[-1])['built'], [])
 
   def test_unreadable_get_deps_is_json_exit_2(self):
-    cb.deps_rows.cache_clear()
-    self.addCleanup(cb.deps_rows.cache_clear)
+    cb.get_deps_table.cache_clear()
+    self.addCleanup(cb.get_deps_table.cache_clear)
     with mock.patch.object(cb.runpy, 'run_path', side_effect=SyntaxError('invalid syntax')), \
          mock.patch.object(cb, 'changed_paths', lambda *a: (['lib/mcu/nxp/mcux-sdk/x.h'], {'mode': 'paths'})):
       code, r = run_main(['--scope', 'lib/mcu/nxp/mcux-sdk/x.h'])
     self.assertEqual((code, r['pass']), (2, False))
     self.assertIn('tools/get_deps.py', r['error'])
+
+  def test_an_input_the_build_dirtied_is_recorded(self):
+    _, r = run_main(['--board', 'lpcxpresso55s69'], identities=[CLEAN, dict(CLEAN, dirtyInputs=['lib/uf2'])])
+    self.assertEqual(r['input']['inputsDirtiedByBuild'], ['lib/uf2'])
+
+  def test_an_input_that_moved_during_the_build_is_recorded(self):
+    sdk = 'lib/mcu/nxp/mcux-sdk'
+    before = dict(CLEAN, submodules={'lib/uf2': 'a'}, deps={sdk: 'a'})
+    for what, changed, moved in (('nothing', {}, []), ('head', {'head': 'h2'}, ['.']), ('tree', {'dirty': True}, ['.']),
+                                 ('submodule commit', {'submodules': {'lib/uf2': 'b'}}, ['lib/uf2']),
+                                 ('dependency commit', {'deps': {sdk: 'b'}}, [sdk]),
+                                 ('dependency unlinked', {'deps': {}, 'missingInputs': [sdk]}, [sdk])):
+      with self.subTest(what):
+        _, r = run_main(['--board', 'lpcxpresso55s69'], identities=[before, dict(before, **changed)])
+        self.assertEqual(r['input']['inputsDirtiedByBuild'], moved)
 
   def test_resolution_error_is_json_exit_2(self):
     code, r = run_main(['--board', 'no_such_board'])
@@ -381,6 +589,7 @@ class BuildBoard(unittest.TestCase):
     self.assertEqual(rec['status'], 'ok', rec)
     self.assertNotIn('removed', rec)
     self.assertFalse((root / 'stale.o').exists())
+    self.assertEqual(set(rec['sha256']), set(rec['artifacts']))
     self.assertTrue((root / '_bin' / 'tinyuf2-lpcxpresso55s69.bin').is_file())
 
   def test_cmake_missing_app_image_fails(self):
@@ -485,6 +694,8 @@ class BackendCommands(unittest.TestCase):
     self.assertLessEqual({'_bin/combined.bin', '_bin/apps/update-tinyuf2.uf2'},
                          names('espressif', 'espressif_esp32s3_devkitm_1', 'idf'))
     self.assertNotIn('_bin/apps/update-tinyuf2-swan_r5.uf2', names('stm32l4', 'swan_r5', 'make'))
+    # mimxrt10xx copies its self-update image to ARTIFACT_PATH instead of building apps/self_update
+    self.assertIn('_bin/apps/update-tinyuf2.uf2', names('mimxrt10xx', 'imxrt1060_evk', 'cmake'))
 
 
 class FirstError(unittest.TestCase):

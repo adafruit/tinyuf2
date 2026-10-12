@@ -2,7 +2,7 @@
 """Build TinyUF2 for the boards a change affects, or for named boards: the project's build contract.
 
   check_build.py (--scope PATH... | --base REF [--worktree] | --board B...) [-D VAR=VAL]... [--shared] [--idf docker|local] [-v]
-  check_build.py --select-only (--scope PATH... | --base REF [--worktree] | --diff-file FILE)
+  check_build.py --select-only (--scope PATH... | --base REF [--worktree] | --diff-file FILE) [--hil-config ROSTER]
 
 Each board builds the way .github/workflows/build.yml builds its port (make, cmake or ESP-IDF)
 into its own build root, cmake-build/cmake-build-agent-<pid>-<board> (--shared:
@@ -16,6 +16,7 @@ resolution or a missing prerequisite ("error" names the remedy), 3 uncovered pat
 import argparse
 import functools
 import gzip
+import hashlib
 import json
 import os
 import re
@@ -73,8 +74,12 @@ GHOSTFAT_INPUTS = ('src/ghostfat.c', 'src/favicon/', 'src/board_api.h', 'src/com
                    '.github/workflows/build_ghostfat.yml')
 CORE = ('src/', 'lib/', 'ports/make.mk', 'ports/rules.mk', 'ports/family_support.cmake', 'CMakeLists.txt',
         'cmake/', 'tools/get_deps.py')
-CONTRACT_TESTS = '.claude/test/test_build'
-BUILD_CONTROL = ('.claude/skills/build/scripts/', '.github/workflows/build.yml',
+CONTRACT_TESTS = ('.claude/test/test_build', '.claude/test/test_hil')
+# the HIL contract's runner and rosters: a change there re-runs the battery on every roster board
+HIL_CONTROL = ('.claude/skills/hil/scripts/', 'test/hil/')
+# hil_test.py imports these: the identity, artifacts and build dirs the battery trusts
+HIL_IMPORTS = '.claude/skills/build/scripts/'
+BUILD_CONTROL = (HIL_IMPORTS, '.github/workflows/build.yml',
                  '.github/workflows/build_util.yml', '.github/workflows/ci_set_matrix.py', '.github/actions/')
 NOTHING = ('.claude/', '.github/', '.idea/', 'tools/codespell/', 'tools/gen_boards.py', 'tools/touch1200.py',
            'ports/build_all.py', 'CLAUDE.md', 'AGENTS.md', '.agents', 'LICENSE', '.gitignore', '.gitmodules',
@@ -208,14 +213,23 @@ def ports_using_app(app):
 
 
 @functools.cache
-def deps_rows():
-  """{dependency path: [families]} from tools/get_deps.py's deps_all."""
+def get_deps_table():
+  """{dependency path: (pinned commit, [families])} from tools/get_deps.py's deps_all."""
   try:
     # run_path, not an import: no __pycache__ written into tools/
     rows = runpy.run_path(str(ROOT / 'tools' / 'get_deps.py'), run_name='get_deps')['deps_all']
-    return {dep: row[2].split() for dep, row in rows.items()}
+    return {dep: (row[1], row[2].split()) for dep, row in rows.items()}
   except Exception as e:
     raise Fail(f'cannot read deps_all from tools/get_deps.py: {type(e).__name__}: {e}')
+
+
+def deps_rows():
+  """{dependency path: [families]} from tools/get_deps.py's deps_all."""
+  return {dep: families for dep, (_, families) in get_deps_table().items()}
+
+
+def deps_pins():
+  return {dep: pin for dep, (pin, _) in get_deps_table().items()}
 
 
 def deps_families(path):
@@ -234,18 +248,24 @@ def classify(path):
   """One path's rule: effect none (nothing to build), gap (uncovered), select or core, the boards
   it selects as {(board, backend): reason}, and whether it adds the ghostfat self-test or the
   contract's own tests."""
-  def out(rule, effect, reason, boards=None, ghostfat=False, tests=False):
+  def out(rule, effect, reason, boards=None, ghostfat=False, tests=False, hil=False):
     return {'path': path, 'rule': rule, 'effect': effect, 'reason': reason, 'boards': boards or {},
-            'ghostfat': ghostfat, 'tests': tests}
+            'ghostfat': ghostfat, 'tests': tests, 'hil': hil}
 
   ghostfat = path.startswith(GHOSTFAT_INPUTS)
   parts = path.split('/')
   if path.startswith(CONTRACT_TESTS):
     return out('contract-tests', 'select', "the contract's own tests; a test edit changes no board build", tests=True)
+  if path.startswith(HIL_CONTROL):
+    return out('hil-control', 'select', 'the HIL runner or a roster changed: its tests and the battery on every '
+               'roster board', tests=True, hil=True)
   if path.startswith(BUILD_CONTROL):
     boards = {(b, be): f'{be} smoke build for {path}' for be, b in SMOKE.items()}
+    runner = path.startswith(HIL_IMPORTS)
     return out('build-control', 'select', 'how boards build changed: the contract tests and one smoke build '
-               'per backend; no firmware build verifies workflow syntax or orchestration', boards, tests=True)
+               'per backend; no firmware build verifies workflow syntax or orchestration' +
+               ('; the HIL runner imports it: the battery on every roster board' if runner else ''),
+               boards, tests=True, hil=runner)
   if path.endswith('.md'):
     return out('docs', 'none', 'documentation')
   codeql_port, codeql_board = codeql_build()
@@ -332,14 +352,56 @@ def changed_paths(base=None, worktree=False, scope=None, diff_file=None):
   return sorted(set(paths)), info
 
 
-def identity():
-  """What a result was built from: HEAD, whether the tree differs from it, the submodule commits."""
+def own_checkout(path):
+  """Whether `path` is a git checkout of its own: git -C on a plain or empty directory (an
+  uninitialised submodule, an unpacked dependency) silently answers for the parent repository."""
+  r = subprocess.run(['git', '-C', str(ROOT / path), 'rev-parse', '--show-toplevel'], capture_output=True, text=True)
+  return r.returncode == 0 and os.path.realpath(r.stdout.strip()) == os.path.realpath(ROOT / path)
+
+
+def git_in(path, *args):
+  r = subprocess.run(['git', '-C', str(ROOT / path), *args], capture_output=True, text=True)
+  if r.returncode != 0:
+    raise Fail(f'git -C {path} {" ".join(args)} failed: {r.stderr.strip()}')
+  return r.stdout
+
+
+def dirty_inputs(paths):
+  return [p for p in paths if git_in(p, 'status', '--porcelain', '--untracked-files=all').strip()]
+
+
+def identity(ports=()):
+  """What a result was built from: HEAD, whether the tree differs from it, the submodule commits, the
+  commits of the get_deps dependencies `ports` use, and which of those inputs cannot be trusted:
+  local changes, not a checkout of its own, or a dependency off its get_deps pin."""
   subs = {}
   for line in git('submodule', 'status').splitlines():
     sha, path = line[1:].split()[:2]
     subs[path] = sha
-  return {'head': git('rev-parse', 'HEAD').strip(), 'dirty': bool(git('status', '--porcelain').strip()),
-          'submodules': subs}
+  used = [dep for dep, families in sorted(deps_rows().items()) if any(p in families for p in ports)]
+  # worktree deps are symlinks into the primary checkout, invisible to this checkout's status
+  missing = [p for p in [*subs, *used] if not own_checkout(p)]
+  deps = {dep: git_in(dep, 'rev-parse', 'HEAD').strip() for dep in used if dep not in missing}
+  pins = deps_pins()
+  info = {'head': git('rev-parse', 'HEAD').strip(), 'dirty': bool(git('status', '--porcelain').strip()),
+          'submodules': subs, 'deps': deps, 'missingInputs': missing,
+          'depsOffPin': [d for d, sha in deps.items() if sha != pins[d]]}
+  info['dirtyInputs'] = dirty_inputs(own_inputs(info))
+  return info
+
+
+def own_inputs(info):
+  """The submodules and dependencies `identity` could check, i.e. those that are checkouts of their own."""
+  return [p for p in [*info['submodules'], *info['deps']] if p not in info['missingInputs']]
+
+
+def moved_inputs(before, after):
+  """Inputs whose identity differs between two `identity` records: '.' for the checkout's HEAD or dirty
+  state, else each submodule or dependency whose commit or checkout changed."""
+  moved = {'.'} if (before['head'], before['dirty']) != (after['head'], after['dirty']) else set()
+  commits = [{**i['submodules'], **i['deps']} for i in (before, after)]
+  moved |= {p for p in commits[0].keys() | commits[1].keys() if commits[0].get(p) != commits[1].get(p)}
+  return moved | (set(before['missingInputs']) ^ set(after['missingInputs']))
 
 
 def select(paths):
@@ -362,11 +424,69 @@ def path_view(records, effect=None, keys=('path', 'rule', 'effect', 'reason')):
   return [{k: r[k] for k in keys} for r in records if effect in (None, r['effect'])]
 
 
-def manifest(sel, info):
+def hil_selection(sel, config):
+  """Roster boards the selection puts under the HIL battery. A board's own change reaches that board,
+  an app change none, any other change every roster board of the ports it selects, a core or HIL-control
+  change the whole roster; what no roster board on this host can run is uncovered, whatever else was
+  selected."""
+  try:
+    roster = sorted({b['name'] for b in json.loads((ROOT / config).read_text())['boards']})   # TinyUF2 names
+  except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+    raise Fail(f'cannot read boards from {config}: {e}')
+  by_port = {}
+  for name in roster:
+    by_port.setdefault(port_of(name), []).append(name)
+  def kind(parts):   # the HIL builds with cmake whatever CI uses: its build files decide, not CI's
+    if parts[0] == 'ports' and (len(parts) == 2 or parts[1] in BACKENDS):
+      return build_file_kind(parts[-1])
+    return None
+  records = [(r, parts, kind(parts)) for r in sel['records'] for parts in [r['path'].split('/')]]
+  full = any(r['effect'] == 'core' and k != 'make' for r, _, k in records)
+  boards, uncovered = set(), {}
+  if full:
+    boards.update(roster)
+    for p in sorted(set(BACKENDS) - set(by_port)):
+      uncovered[p] = f'core change: no {config} board for {p}'
+  for r, parts, k in records:
+    if r['hil']:
+      boards.update(roster)
+    elif k == 'make':
+      uncovered[r['path']] = f'the HIL builds with cmake, which never reads {r["path"]}'
+    # the battery builds no port app, and a core file reaches every roster board above
+    elif k == 'cmake' and len(parts) >= 3 and r['effect'] != 'core' and parts[2] != 'apps':
+      if parts[2] == 'boards' and len(parts) >= 5:
+        own = [parts[3]] if parts[3] in roster else []
+      else:
+        own = by_port.get(parts[1], [])
+      if own:
+        boards.update(own)
+      else:
+        uncovered[r['path']] = f'no {config} board builds {r["path"]}'
+    elif r['effect'] == 'gap':   # firmware no build covers is no HIL board's either
+      uncovered[r['path']] = r['reason']
+    elif r['rule'] in ('app', 'port-app'):
+      uncovered[r['path']] = f'the battery runs the bootloader and its generated fixture, never {r["path"]}'
+    elif r['rule'] == 'board':
+      (b, _), = r['boards']
+      if b in roster:
+        boards.add(b)
+      else:
+        uncovered[b] = f'{r["path"]}: {b} is not in {config}'
+    else:
+      for p in sorted({port_of(b) for b, _ in r['boards']}):
+        if p in by_port:
+          boards.update(by_port[p])
+        else:
+          uncovered[p] = f'{r["path"]}: no {config} board for {p}'
+  return {'config': config, 'full': full or any(r['hil'] for r in sel['records']), 'boards': sorted(boards),
+          'uncovered': [{'target': t, 'reason': why} for t, why in sorted(uncovered.items())]}
+
+
+def manifest(sel, info, hil_config=None):
   ports = {}
   for (b, backend) in sel['boards']:
     ports.setdefault(port_of(b), []).append(b)
-  return {
+  out = {
     'version': 1,
     'input': info,
     'build': {
@@ -379,6 +499,9 @@ def manifest(sel, info):
       'paths': path_view(sel['records']),
     },
   }
+  if hil_config:
+    out['hil'] = hil_selection(sel, hil_config)
+  return out
 
 
 # ------------------------------------------------------------------ building
@@ -444,6 +567,7 @@ def expected_artifacts(port, board, backend, root):
     cml = (ports_dir(port) / 'CMakeLists.txt').read_text()
     for app in re.findall(r'add_subdirectory\(\$\{TOP\}/apps/(\w+)', cml):
       exp.append(bin_dir / 'apps' / f'{"update-tinyuf2" if app == "self_update" else app}.uf2')
+    exp += [bin_dir / a for a in re.findall(r'\$\{ARTIFACT_PATH\}/(apps/[\w.-]+\.uf2)', cml)]
     return exp
   return [bin_dir / f for f in ('tinyuf2.bin', 'bootloader.bin', 'partition-table.bin', 'combined.bin',
                                 'apps/update-tinyuf2.uf2', 'apps/blinky.uf2')]
@@ -539,7 +663,9 @@ def build_board(board, backend, args, idf):
     return rec
   rec['artifacts'] = sorted(str(p.relative_to(root)) for p in (root / '_bin').rglob('*') if p.is_file())
   rec['artifacts'] += sorted(str(e.relative_to(root)) for a in apps for e in a.glob('*.elf'))
-  if not args.shared:
+  if args.shared:
+    rec['sha256'] = {a: hashlib.sha256((root / a).read_bytes()).hexdigest() for a in rec['artifacts']}
+  else:
     shutil.rmtree(root)
     rec['removed'] = True
   return rec
@@ -591,8 +717,8 @@ def run_ghostfat(verbose):
 
 
 def run_tests():
-  """The contract's own tests, for a change to how boards build."""
-  r = subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', '.claude/test', '-p', 'test_build*.py'],
+  """The .claude script tests, for a change to how boards build or to the HIL contract."""
+  r = subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', '.claude/test', '-p', 'test_*.py'],
                      capture_output=True, text=True, cwd=ROOT)
   last = [l for l in r.stderr.splitlines() if l.strip()]
   return {'status': 'ok' if r.returncode == 0 else 'failed', 'summary': last[-1] if last else '',
@@ -614,9 +740,12 @@ def main(argv=None):
   src.add_argument('--diff-file', metavar='FILE', help='changed paths, one per line (--select-only)')
   ap.add_argument('--worktree', action='store_true', help='with --base: add uncommitted and untracked files')
   ap.add_argument('--select-only', action='store_true', help='print the selection manifest and stop')
+  ap.add_argument('--hil-config', metavar='ROSTER', help="with --select-only: the host's HIL roster, adds `hil`")
   ap.add_argument('-D', '--define', action='append', default=[], metavar='VAR=VAL',
                   help="passed to the board's backend: make VAR=VAL, cmake/idf -DVAR=VAL")
   ap.add_argument('--shared', action='store_true', help='build into cmake-build/cmake-build-<board> and keep it')
+  ap.add_argument('--backend', choices=('cmake',),
+                  help="with --board and --shared: build with cmake whatever CI uses (the HIL's receipt)")
   ap.add_argument('--idf', choices=('docker', 'local'), default='docker',
                   help="ESP-IDF: CI's pinned docker image (default) or the exported local IDF")
   ap.add_argument('-v', '--verbose', action='store_true', help='stream build output to stderr')
@@ -625,6 +754,10 @@ def main(argv=None):
     ap.error('--worktree needs --base')
   if args.diff_file and not args.select_only:
     ap.error('--diff-file is for --select-only')
+  if args.hil_config and not args.select_only:
+    ap.error('--hil-config is for --select-only')
+  if args.backend and not (args.board and args.shared):
+    ap.error('--backend needs --board and --shared')
   if args.select_only and args.board:
     ap.error('--select-only takes --scope, --base or --diff-file')
 
@@ -634,9 +767,11 @@ def main(argv=None):
       boards = {}
       for b in args.board:
         port = port_of(b)
-        backend = backend_of(port)
+        backend = args.backend or backend_of(port)
         if not backend:
           raise Fail(f'ports/{port}: {UNBUILT[port][1]}')
+        if backend == 'cmake' and (backend_of(port) == 'idf' or not (ports_dir(port) / 'CMakeLists.txt').is_file()):
+          raise Fail(f'ports/{port} has no cmake build')
         boards[(b, backend)] = 'named'
       sel = {'full': False, 'boards': boards, 'ghostfat': False, 'tests': False, 'records': []}
       info = {'mode': 'boards'}
@@ -644,9 +779,10 @@ def main(argv=None):
       paths, info = changed_paths(args.base, args.worktree, args.scope, args.diff_file)
       sel = select(paths)
     if args.select_only:
-      print(json.dumps(manifest(sel, info)))
+      print(json.dumps(manifest(sel, info, args.hil_config)))
       return 0
-    info.update(identity())
+    ports = {port_of(b) for b, _ in sel['boards']}
+    info.update(identity(ports))
     result['input'] = info
     idf = {}
     if any(backend == 'idf' for _, backend in sel['boards']):
@@ -659,6 +795,10 @@ def main(argv=None):
     records = [build_board(b, backend, args, idf) for (b, backend) in sel['boards']]
     for r in records:
       r['selectedBy'] = sel['boards'][(r['board'], r['backend'])]
+    # an input that moved while building, even if restored before the HIL checks it, leaves firmware
+    # the record cannot vouch for; hil_test.py refuses any entry here
+    now = identity(ports)
+    info['inputsDirtiedByBuild'] = sorted((set(now['dirtyInputs']) - set(info['dirtyInputs'])) | moved_inputs(info, now))
     ghostfat = run_ghostfat(args.verbose) if sel['ghostfat'] else []
     tests = run_tests() if sel['tests'] else None
     nothing = path_view(sel['records'], 'none', ('path', 'reason'))
@@ -672,6 +812,7 @@ def main(argv=None):
       'ghostfat': ghostfat,
       'built': [f"{r['buildDir']}/{a}" for r in records if not r.get('removed') for a in r['artifacts']],
       'resolution': 'full' if sel['full'] else 'boards' if args.board else 'selected',
+      'defines': args.define,
       'paths': path_view(sel['records']),
       'nothingToBuild': nothing,
       'uncovered': uncovered,
