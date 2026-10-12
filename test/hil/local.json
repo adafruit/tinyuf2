@@ -10,6 +10,7 @@
         "port": "mimxrt10xx",
         "board": "imxrt1060_evk",
         "jlink": {"if": "SWD", "speed": "4000", "version": "V9.78"},
+        "reentry": "retained-register",
         "layout": {"install": ["0x60000000", "0x6000C000"], "app": ["0x6000C000", "0x60800000"], "pageSize": 512},
         "restore": {
           "bin": "/home/hathach/.cache/tinyuf2-hil/release-0.35.0-imxrt1060_evk/x/tinyuf2-imxrt1060_evk.bin",
@@ -19,7 +20,7 @@
         },
         "recovery": "restore --recover-holder under hil-operator's forced-lock scope; if the probe cannot connect, the human's serial download path (BOOT_MODE 01: SW7 OFF OFF OFF ON, inferred from the EVK guide)"
       },
-      "comment": "MIMXRT1060-EVK (SCH-31357 rev A2), RT1060_A silicon (marking 6A). Probe: the on-board J-Link OB, on a hub apart from the target's; TinyUF2 enumerates on USB OTG1. reentry is set by the commissioning run (SKILL.md)."
+      "comment": "MIMXRT1060-EVK (SCH-31357 rev A2), RT1060_A silicon (marking 6A). Probe: the on-board J-Link OB, on a hub apart from the target's; TinyUF2 enumerates on USB OTG1. reentry from the 2026-10-12 commissioning run (decision retained-register; its only failure was the CURRENT.UF2 readback)."
     }
   ]
 }

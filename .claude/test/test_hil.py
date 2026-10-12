@@ -133,9 +133,9 @@ class Roster(Tmp):
     b = ht.load_board(roster(self.tmp, tinyuf2={'board': 'other'}), BOARD)
     self.assertEqual((b['name'], b['src']), (BOARD, 'other'))
 
-  def test_the_committed_roster_is_well_formed_but_waits_for_commissioning(self):
+  def test_the_committed_roster_is_well_formed_and_commissioned(self):
     b = ht.load_board(ROOT / 'test' / 'hil' / 'local.json', 'mimxrt1060_evk')
-    self.assertEqual((b['host'], b['src'], b['reentry']), ('htpc', 'imxrt1060_evk', None))
+    self.assertEqual((b['host'], b['src'], b['reentry']), ('htpc', 'imxrt1060_evk', 'retained-register'))
     ht.check_layout(b, ht.source_facts(b))
 
 
