@@ -31,5 +31,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # the claude-tests hook reads lib/uf2's uf2conv.py and the RT1062 SDK source
+      - name: Fetch test inputs
+        run: |
+          git submodule update --init lib/uf2
+          python3 tools/get_deps.py mimxrt10xx
+
       - name: Run pre-commit
         uses: pre-commit/action@v3.0.1
