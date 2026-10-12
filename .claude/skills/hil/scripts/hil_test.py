@@ -3,11 +3,11 @@
 
   hil_test.py run -b BOARD --build-record FILE CONFIG [--fail-at STEP] [--try-reentry METHOD]
   hil_test.py install -b BOARD --firmware BIN --sha256 HASH --under-hold REASON CONFIG
-  hil_test.py restore -b BOARD (--under-hold REASON | --recover-holder PID --report FILE) CONFIG
+  hil_test.py invalidate -b BOARD (--under-hold REASON | --recover-holder PID --report FILE) CONFIG
 
-The last stdout line is JSON. Exit 0 every board passed and was restored, 1 a board failed or did not
-run (restored or never touched), 2 refused before any hardware access, 4 cleanup failed (the board is
-held when `restored.heldAfter`; not under HIL_NO_BOARD_LOCK) or a manual operation left `survivors`.
+The last stdout line is JSON. Exit 0 every board passed and was cleaned up, 1 a board failed or did not
+run (cleaned up or never touched), 2 refused before any hardware access, 4 cleanup failed (the board is
+held when `cleanup.heldAfter`; not under HIL_NO_BOARD_LOCK) or a manual operation left `survivors`.
 SKILL.md beside this script is the contract; this file is its mechanics.
 """
 import argparse
@@ -47,6 +47,8 @@ UF2_MAGIC = (0x0A324655, 0x9E5D5157, 0x0AB16F30)
 UF2_FLAG_FAMILY = 0x2000
 PROBE_TIMEOUT, USB_TIMEOUT, QUIET_TIME, KILL_WAIT, UDEV_TIMEOUT = 120, 20, 3, 5, 5
 JLINK_RETRY_DELAY = 2
+JLINK_IF, JLINK_SPEED = 'SWD', '4000'
+ZERO_PAGE = 512   # bytes zeroed at the app start so its reset vector reads 0
 UDEV_RULES = ('/etc/udev/rules.d', '/run/udev/rules.d')
 # J-Link notes that are not failures, per device, each with the line that shows the operation completed
 # (bench: every MIMXRT1062 reset with an invalid app vector, then the reset halts as usual)
@@ -69,22 +71,6 @@ class Interrupted(Exception):
 
 # ------------------------------------------------------------------ roster and source facts
 
-def hexint(v):
-  try:
-    return int(v, 16) if isinstance(v, str) else None
-  except ValueError:
-    return None
-
-
-def rng(v, what):
-  if not (isinstance(v, list) and len(v) == 2):
-    raise Refused(f'roster: {what} must be [start, end]')
-  lo, hi = (hexint(x) for x in v)
-  if lo is None or hi is None or not lo < hi:
-    raise Refused(f'roster: {what} must be [start, end] hex strings with start < end')
-  return lo, hi
-
-
 def load_board(config, name):
   try:
     cfg = json.loads(Path(config).read_text())
@@ -97,18 +83,16 @@ def load_board(config, name):
   host = cfg.get('host')
   if not isinstance(host, str) or not host:
     raise Refused(f'{config}: "host" (the hostname this roster describes) is required')
-  helper = (cfg.get('lock') or {}).get('helper')
-  if not (isinstance(helper, str) and os.path.isabs(helper)):
-    raise Refused(f'{config}: lock.helper must be the absolute path of tinyusb hil_lock.py')
+  tinyusb = os.environ.get('TINYUSB_DIR')
+  if not (tinyusb and os.path.isabs(tinyusb)):
+    raise Refused('set TINYUSB_DIR to the absolute path of the tinyusb checkout whose test/hil/helper/hil_lock.py '
+                  'owns the board locks')
   fl, t = b.get('flasher') or {}, b.get('tinyuf2') or {}
   m = re.fullmatch(r'-device (\S+)', fl.get('args') or '')
   if fl.get('name') != 'jlink' or not isinstance(fl.get('uid'), str) or not m:
     raise Refused(f'{name}: flasher must be jlink with a string uid and args exactly "-device NAME"')
   if not isinstance(b.get('uid'), str) or not b['uid']:
     raise Refused(f'{name}: uid (the bootloader USB serial) is required')
-  jl = t.get('jlink') or {}
-  if not (isinstance(jl.get('if'), str) and isinstance(jl.get('speed'), str)):
-    raise Refused(f'{name}: tinyuf2.jlink needs explicit "if" and "speed"')
   lock = t.get('lock', name)   # tinyusb's name for the board when it differs: both runners take one lock
   if not (isinstance(lock, str) and re.fullmatch(r'[\w.-]+', lock)):
     raise Refused(f'{name}: tinyuf2.lock must be the board lock name')
@@ -116,31 +100,12 @@ def load_board(config, name):
     port = cb.port_of(name)
   except cb.Fail as e:
     raise Refused(f'{name}: the roster names a board by its TinyUF2 name: {e}')
-  lay, rest = t.get('layout') or {}, t.get('restore') or {}
-  board = {
-    'name': name, 'lock': lock, 'host': host, 'uid': b['uid'], 'probe': fl['uid'], 'device': m.group(1),
-    'if': jl['if'], 'speed': jl['speed'], 'port': port, 'helper': helper,
-    'install': rng(lay.get('install'), 'layout.install'), 'app': rng(lay.get('app'), 'layout.app'),
-    'page': lay.get('pageSize'), 'reentry': t.get('reentry'),
-    'restore': {'bin': rest.get('bin'), 'sha256': rest.get('sha256'), 'version': rest.get('version'),
-                'install': rng((rest.get('layout') or {}).get('install'), 'restore.layout.install'),
-                'appStart': hexint((rest.get('layout') or {}).get('appStart'))},
-  }
-  if board['device'] not in FLASH_LIMITS:
-    raise Refused(f'{name}: no programming limits known for J-Link device {board["device"]}')
-  if not isinstance(board['page'], int) or board['page'] <= 0:
-    raise Refused(f'{name}: tinyuf2.layout.pageSize must be a positive integer')
-  r = board['restore']
-  if not (isinstance(r['bin'], str) and isinstance(r['sha256'], str) and isinstance(r['version'], str)
-          and r['appStart'] is not None):
-    raise Refused(f'{name}: tinyuf2.restore needs bin (a bootloader image based at its install start), sha256, '
-                  'version and layout')
-  floor, ceiling = FLASH_LIMITS[board['device']]
-  for what, (lo, hi) in (('install', board['install']), ('app', board['app']), ('restore.install', r['install'])):
-    if lo < floor or hi > ceiling:
-      raise Refused(f'{name}: layout.{what} [{lo:#x}, {hi:#x}) leaves the {board["device"]} flash '
-                    f'[{floor:#x}, {ceiling:#x})')
-  return board
+  if m.group(1) not in FLASH_LIMITS:
+    raise Refused(f'{name}: no programming limits known for J-Link device {m.group(1)}')
+  return {'name': name, 'lock': lock, 'host': host, 'uid': b['uid'], 'probe': fl['uid'], 'device': m.group(1),
+          'if': JLINK_IF, 'speed': JLINK_SPEED, 'port': port, 'page': ZERO_PAGE,
+          'helper': os.path.join(tinyusb, 'test', 'hil', 'helper', 'hil_lock.py'),
+          'reentry': t.get('reentry')}
 
 
 def define(path, name):
@@ -270,14 +235,17 @@ def register_layout(header, periph, member):
   return int(bases[-1], 16), int(f.group(1), 16), int(f.group(2), 16)
 
 
-def check_layout(board, facts):
-  install, app = board['install'], board['app']
-  base, start = facts['flashBase'], facts['appStart']
-  if install != (base, start) or app != (start, base + facts['flashSize']):
-    raise Refused(f'{board["name"]}: roster layout install={install} app={app} disagrees with the source '
-                  f'(app start {facts["appStart"]:#x}, flash size {facts["flashSize"]:#x})')
-  if facts['appStart'] % board['page']:
-    raise Refused(f'{board["name"]}: app start {facts["appStart"]:#x} is not page aligned')
+def apply_layout(board, facts):
+  """The install and app spans, from the candidate's source: the bootloader from the flash base up to the app
+  start, the app from there to the end of the board's flash, all inside the device's programming limits."""
+  base, start, end = facts['flashBase'], facts['appStart'], facts['flashBase'] + facts['flashSize']
+  floor, ceiling = FLASH_LIMITS[board['device']]
+  if not floor <= base < start < end <= ceiling:
+    raise Refused(f'{board["name"]}: flash [{base:#x}, {end:#x}) with app start {start:#x} leaves the '
+                  f'{board["device"]} flash [{floor:#x}, {ceiling:#x}) or is out of order')
+  if start % ZERO_PAGE:
+    raise Refused(f'{board["name"]}: app start {start:#x} is not {ZERO_PAGE}-byte aligned')
+  board.update(install=(base, start), app=(start, end))
 
 
 # ------------------------------------------------------------------ images
@@ -772,7 +740,7 @@ HELD_IN_PROCESS = []
 def keep_held(fh):
   """Hold until recovery's SIGUSR1, taken by sigwait with SIGUSR1 blocked since hand_off: a handler and
   pause() lose a signal that lands between the interpreter's check and the syscall. SIGTERM and SIGINT
-  are ignored: an operator's timeout kill must not free a board that was never restored."""
+  are ignored: an operator's timeout kill must not free a board that was never cleaned up."""
   for sig in (signal.SIGTERM, signal.SIGINT):
     signal.signal(sig, signal.SIG_IGN)
   signal.pthread_sigmask(signal.SIG_SETMASK, {signal.SIGUSR1})
@@ -879,21 +847,6 @@ def check_bootloader_bin(bin_path, install, app, board, facts, what):
     raise Refused(f'{what}: {bin_path} does not carry board id {facts["boardId"]!r}; not this board\'s bootloader')
 
 
-def check_restore(board, facts):
-  """The restoration profile, validated at admission: a run never discovers an unusable recovery
-  image after it has touched the board."""
-  r = board['restore']
-  if sha256(r['bin']) != r['sha256']:
-    raise Refused(f'restoration image {r["bin"]} does not match its pinned sha256')
-  if r['install'] != (facts['flashBase'], r['appStart']):
-    raise Refused(f'restoration layout install {r["install"]} must run from the flash base {facts["flashBase"]:#x} '
-                  f'to its appStart {r["appStart"]:#x}')
-  check_bootloader_bin(r['bin'], r['install'], (r['appStart'], FLASH_LIMITS[board['device']][1]), board, facts,
-                       'restoration image')
-  if f'TinyUF2 Bootloader {r["version"]}\r\n'.encode() not in Path(r['bin']).read_bytes():
-    raise Refused(f'restoration image does not embed version {r["version"]!r}')
-
-
 class Battery:
   def __init__(self, board, facts, workdir, fail_at=None, commissioning=False):
     self.b, self.f, self.dir, self.fail_at, self.commissioning = board, facts, workdir, fail_at, commissioning
@@ -982,7 +935,9 @@ class Battery:
     self.step('identity', self.identity)
     self.step('install', lambda: self.program(files['bin'], self.b['install'][0], f['appStart']) or
               {'zeroPage': f'{f["appStart"]:#x}', 'verified': True})
-    self.step('dfu', lambda: self.dfu(version))
+    # cleared once the bootloader has run board_init (the register's clock), so a magic a failed reenter left
+    # cannot send the copied app back to DFU
+    self.step('dfu', lambda: dict(self.dfu(version), dblTapReg=self.probe.write32(f['dblTapReg'], 0)))
 
     def copy():
       dev = block_device(self.usb_path)
@@ -1091,20 +1046,16 @@ class Battery:
     return {'control': self.observe_app(app_bin), 'controlWatchedS': watch, 'controlBootedApp': True}
 
 
-def restore(board, facts, workdir, battery=None):
-  """The pinned known-good bootloader and its zero page, read back, reset, DFU observed with the restoration
-  version, then the double-tap register cleared. Its layout is the restoration profile's (check_restore at
-  admission), never the candidate's."""
-  r = board['restore']
-  if sha256(r['bin']) != r['sha256']:
-    raise StepFail(f'restoration image {r["bin"]} changed since admission')
+
+def invalidate(board, facts, workdir, battery=None):
+  """The board left unbootable: a zero page at the device's flash floor (FLASH_LIMITS, never the candidate's
+  layout) written and read back, the target reset, then the zero page verified again from a new session."""
+  base = FLASH_LIMITS[board['device']][0]
   bat = battery or Battery(board, facts, workdir)
-  bat.program(r['bin'], r['install'][0], r['appStart'])
-  ev = bat.dfu(r['version'])
-  # cleared only now: the register is clocked once the bootloader has run board_init, and in DFU for an
-  # invalid app it is never read (src/main.c), so a magic left by a failed reenter would outlive restore
-  ev['dblTapReg'] = bat.probe.write32(facts['dblTapReg'], 0)
-  return {'pass': True, 'state': f'restoration bootloader {r["version"]} in DFU', 'evidence': ev}
+  bat.touched = True
+  bat.probe.run(['h', f'loadbin {bat.zero},{base:#x}', f'verifybin {bat.zero},{base:#x}', 'r', 'g'])
+  bat.probe.run(['h', f'verifybin {bat.zero},{base:#x}', 'g'])
+  return {'pass': True, 'state': 'bootloader invalidated', 'evidence': {'zeroPage': f'{base:#x}', 'verified': True}}
 
 
 TERM_SIGNALS = {signal.SIGTERM, signal.SIGINT}
@@ -1132,10 +1083,10 @@ def check_jlink():
 
 def reentry_decision(row):
   """The re-entry method a commissioning run establishes (SKILL.md, Commissioning), or None: every
-  observation of the tried method held, the board was restored and released, and the run passed or failed
+  observation of the tried method held, the board was cleaned up and released, and the run passed or failed
   only at reenter's CURRENT.UF2 readback."""
-  restored = row.get('restored') or {}
-  if not row.get('commissioning') or not restored.get('pass') or restored.get('heldAfter'):
+  cleanup = row.get('cleanup') or {}
+  if not row.get('commissioning') or not cleanup.get('pass') or cleanup.get('heldAfter'):
     return None
   steps = row.get('steps', [])
   failed = [x for x in steps if not x['pass']]
@@ -1150,7 +1101,7 @@ def reentry_decision(row):
 
 def run_board(args, board, facts, helper, workdir):
   row = {'board': board['name'], 'lock': board['lock'], 'ran': False, 'pass': False, 'locked': False,
-         'lockBypassed': False, 'steps': [], 'restored': None, 'detail': ''}
+         'lockBypassed': False, 'steps': [], 'cleanup': None, 'detail': ''}
   if socket.gethostname() != board['host']:
     raise Refused(f'this roster describes host {board["host"]!r}, not {socket.gethostname()!r}')
   if args.try_reentry:
@@ -1166,7 +1117,6 @@ def run_board(args, board, facts, helper, workdir):
   if not hex_matches_bin(data, files['bin'], board['install'][0]):
     raise Refused(f'{files["hex"]} and {files["bin"]} do not hold the same bytes')
   check_bootloader_bin(files['bin'], board['install'], board['app'], board, facts, 'candidate')
-  check_restore(board, facts)
   exclusion_configured(facts, board['uid'])
   if shutil.which('mcopy') is None:
     raise Refused('mcopy must be on PATH')
@@ -1190,10 +1140,10 @@ def run_board(args, board, facts, helper, workdir):
     with signals(signal.SIG_UNBLOCK):
       bat.run(files, row['firmware']['version'])
     row['pass'] = True
-  except BaseException as e:   # anything after admission still restores below
+  except BaseException as e:   # anything after admission still cleans up below
     row['detail'] = f'{bat.at}: {e}' if isinstance(e, StepFail) else f'{bat.at}: {type(e).__name__}: {e}'
     code = 1
-  row['steps'], row['jlinkRetried'] = bat.steps, bat.probe.retried   # the restore's retries land here too
+  row['steps'], row['jlinkRetried'] = bat.steps, bat.probe.retried   # the cleanup's retries land here too
   code = clean_up(row, code, bat, fh, board, facts, helper, workdir)
   if row.get('commissioning'):
     row['reentryDecision'] = reentry_decision(row)
@@ -1208,23 +1158,25 @@ def deferred(row):
 
 
 def clean_up(row, code, bat, fh, board, facts, helper, workdir):
-  """Restore a touched board, then release it. A child that survived SIGKILL, or any unsuccessful
-  restore, leaves the board held (exit 4), touched or not."""
+  """Invalidate a touched board, then release it. A child that survived SIGKILL, or any unsuccessful
+  cleanup, leaves the board held (exit 4), touched or not."""
   stuck = []
   try:
     stuck = stuck_children()
     if stuck:
       raise StepFail(f'children {[x["pid"] for x in stuck]} survived SIGKILL; no flash may overlap them')
     if bat.touched:
-      row['restored'] = dict(restore(board, facts, workdir, bat), heldAfter=False)
+      if bat.fail_at == 'cleanup':
+        raise StepFail('--fail-at cleanup: injected cleanup failure (acceptance only)')
+      row['cleanup'] = dict(invalidate(board, facts, workdir, bat), heldAfter=False)
   except BaseException as e:
     stuck += [x for x in stuck_children() if x not in stuck]
-    row['restored'] = {'pass': False, 'state': 'unknown' if bat.touched else 'untouched',
+    row['cleanup'] = {'pass': False, 'state': 'unknown' if bat.touched else 'untouched',
                        'evidence': getattr(e, 'evidence', {}), 'detail': f'{type(e).__name__}: {e}',
                        'survivors': stuck, 'heldAfter': fh is not None}
     row['pass'] = False
     if fh is not None:
-      row['restored']['holder'] = hand_off(fh, board['lock'], row['restored']['detail'], stuck)
+      row['cleanup']['holder'] = hand_off(fh, board['lock'], row['cleanup']['detail'], stuck)
       fh = None
     return 4
   if fh is not None:
@@ -1239,7 +1191,8 @@ def main(argv=None):
   r = sub.add_parser('run', help='the battery on one board (self-locking)')
   r.add_argument('-b', '--board', required=True)
   r.add_argument('--build-record', required=True, help='check_build.py --board B --shared JSON, under cmake-build/')
-  r.add_argument('--fail-at', choices=STEPS, help='acceptance only: fail this step to exercise cleanup')
+  r.add_argument('--fail-at', choices=(*STEPS, 'cleanup'), help='acceptance only: fail this step, or the cleanup, '
+                 'to exercise cleanup and its holder')
   r.add_argument('--try-reentry', choices=REENTRY, help="commissioning only, while the roster's reentry is unset")
   r.add_argument('config')
   i = sub.add_parser('install', help='program a bootloader BIN under your own manual hold')
@@ -1249,7 +1202,7 @@ def main(argv=None):
   i.add_argument('--sha256', required=True)
   i.add_argument('--under-hold', required=True, metavar='REASON')
   i.add_argument('config')
-  s = sub.add_parser('restore', help='restore the pinned bootloader under a hold')
+  s = sub.add_parser('invalidate', help='leave the board unbootable, under your hold or to recover a holder')
   s.add_argument('-b', '--board', required=True)
   g = s.add_mutually_exclusive_group(required=True)
   g.add_argument('--under-hold', metavar='REASON')
@@ -1271,8 +1224,10 @@ def main(argv=None):
   try:
     run_dir.mkdir(parents=True)
     board = load_board(args.config, args.board)
-    facts = source_facts(board)
-    check_layout(board, facts)
+    facts = None   # invalidate, recovery included, writes only at the device's flash floor: no candidate source
+    if args.cmd != 'invalidate':
+      facts = source_facts(board)
+      apply_layout(board, facts)
     helper = load_helper(board['helper'])
     if args.cmd == 'run':
       row, code = run_board(args, board, facts, helper, run_dir)
@@ -1292,8 +1247,6 @@ def main(argv=None):
       result['results'].append({'board': board['name'], 'installed': {'path': args.firmware, 'sha256': args.sha256}})
       result['pass'], code = True, 0
     else:
-      check_restore(board, facts)
-      exclusion_configured(facts, board['uid'])
       check_jlink()
       rec = None
       if args.recover_holder is not None:
@@ -1303,7 +1256,7 @@ def main(argv=None):
           rows = json.loads(Path(args.report).read_text())['results']
         except (OSError, ValueError, KeyError, TypeError) as e:
           raise Refused(f'cannot read {args.report}: {e}')
-        held = [x['restored'] for x in rows if ((x.get('restored') or {}).get('holder') or {}).get('pid')
+        held = [x['cleanup'] for x in rows if ((x.get('cleanup') or {}).get('holder') or {}).get('pid')
                 == args.recover_holder and x.get('board') == board['name']]
         if len(held) != 1:
           raise Refused(f'{args.report} names no cleanup holder {args.recover_holder} of {board["name"]}')
@@ -1320,17 +1273,17 @@ def main(argv=None):
       if users:
         raise Refused(f'probe {board["probe"]} is still in use by pids {users}; recovery may not overlap them')
       try:
-        restored = restore(board, facts, run_dir)
+        cleanup = invalidate(board, facts, run_dir)
       finally:
         result['survivors'] = stuck_children()
       if result['survivors']:
-        raise StepFail('restore left children that survived SIGKILL')
+        raise StepFail('invalidate left children that survived SIGKILL')
       if args.recover_holder is not None:
         os.kill(args.recover_holder, signal.SIGUSR1)
         wait_for(lambda: flock_free(helper.lock_path(board['lock'])), 10,
                  f'cleanup holder {args.recover_holder} releasing {board["name"]}')
-        restored['recovered'] = {'holder': args.recover_holder, 'record': rec}
-      result['results'].append({'board': board['name'], 'restored': restored})
+        cleanup['recovered'] = {'holder': args.recover_holder, 'record': rec}
+      result['results'].append({'board': board['name'], 'cleanup': cleanup})
       result['pass'], code = True, 0
   except Refused as e:
     result['error'] = str(e)

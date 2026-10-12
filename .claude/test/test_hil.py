@@ -75,18 +75,23 @@ time.sleep(60)
 
 
 def roster(tmp, host='testhost', **over):
-  t = {'jlink': {'if': 'SWD', 'speed': '4000'},
-       'layout': {'install': ['0x0', '0x10000'], 'app': ['0x10000', '0x98000'], 'pageSize': 512},
-       'reentry': 'retained-register',
-       'restore': {'bin': str(tmp / 'restore.bin'), 'sha256': 'x', 'version': '0.35.0',
-                   'layout': {'install': ['0x0', '0x10000'], 'appStart': '0x10000'}}}
+  t = {'reentry': 'retained-register'}
   t.update(over.pop('tinyuf2', {}))
   b = {'name': BOARD, 'uid': 'UID', 'flasher': {'name': 'jlink', 'uid': '1', 'args': '-device LPC55S69_M33_0'},
        'tinyuf2': t}
   b.update(over)
   cfg = tmp / 'local.json'
-  cfg.write_text(json.dumps({'host': host, 'lock': {'helper': str(tmp / 'hil_lock.py')}, 'boards': [b]}))
+  cfg.write_text(json.dumps({'host': host, 'boards': [b]}))
   return cfg
+
+
+HELPER = Path('test/hil/helper/hil_lock.py')   # under TINYUSB_DIR
+
+
+def write_helper(tmp, lockdir):
+  (tmp / HELPER).parent.mkdir(parents=True, exist_ok=True)
+  (tmp / HELPER).write_text(FAKE_HELPER.format(dir=str(lockdir)))
+  return tmp / HELPER
 
 
 # lpc55 has no cmake build, so the runner reads no facts for it; most tests keep its layout as synthetic facts
@@ -105,42 +110,46 @@ class Tmp(unittest.TestCase):
     t = tempfile.TemporaryDirectory()
     self.addCleanup(t.cleanup)
     self.tmp = Path(t.name)
-    p = mock.patch.object(ht, 'source_facts', source_facts)
-    p.start()
-    self.addCleanup(p.stop)
+    for p in (mock.patch.object(ht, 'source_facts', source_facts),
+              mock.patch.dict(os.environ, {'TINYUSB_DIR': str(self.tmp)})):
+      p.start()
+      self.addCleanup(p.stop)
+
+  def load(self, cfg, name=BOARD):
+    """A roster entry with its layout applied, as main() admits it."""
+    b = ht.load_board(cfg, name)
+    ht.apply_layout(b, ht.source_facts(b))
+    return b
 
 
 class Roster(Tmp):
-  def test_a_valid_entry_loads(self):
-    b = ht.load_board(roster(self.tmp), BOARD)
-    self.assertEqual((b['install'], b['app'], b['device']), ((0, 0x10000), (0x10000, 0x98000), 'LPC55S69_M33_0'))
+  def test_a_valid_entry_loads_with_its_layout_from_the_source(self):
+    b = self.load(roster(self.tmp))
+    self.assertEqual((b['install'], b['app'], b['page'], b['device'], b['if'], b['speed']),
+                     ((0, 0x10000), (0x10000, 0x98000), 512, 'LPC55S69_M33_0', 'SWD', '4000'))
+    self.assertEqual(b['helper'], str(self.tmp / HELPER))
 
   def test_refusals(self):
     cases = {
       'args': {'flasher': {'name': 'jlink', 'uid': '1', 'args': '-device LPC55S69_M33_0 -if SWD'}},
       'int uid': {'flasher': {'name': 'jlink', 'uid': 1, 'args': '-device LPC55S69_M33_0'}},
-      'ceiling': {'tinyuf2': {'layout': {'install': ['0x0', '0x10000'], 'app': ['0x10000', '0x9E000'],
-                                         'pageSize': 512}}},
       'unknown device': {'flasher': {'name': 'jlink', 'uid': '1', 'args': '-device NRF52840_XXAA'}},
       'no host': {'host': None},
-      'no speed': {'tinyuf2': {'jlink': {'if': 'SWD'}}},
-      'below the floor': {'flasher': {'name': 'jlink', 'uid': '1', 'args': '-device MIMXRT1062xxx6A'}},
       'bad lock name': {'tinyuf2': {'lock': '../x'}},
       'not a TinyUF2 board': {'name': 'no_such_board'},
-      'bad range': {'tinyuf2': {'layout': {'install': ['0x10000', '0x0'], 'app': ['0x10000', '0x98000'],
-                                           'pageSize': 512}}},
     }
     for what, over in cases.items():
       with self.subTest(what), self.assertRaises(ht.Refused):
         ht.load_board(roster(self.tmp, **over), over.get('name', BOARD))
 
-  def test_helper_path_is_required_and_absolute(self):
-    cfg = roster(self.tmp)
-    d = json.loads(cfg.read_text())
-    d['lock']['helper'] = 'hil_lock.py'
-    cfg.write_text(json.dumps(d))
-    with self.assertRaises(ht.Refused):
-      ht.load_board(cfg, BOARD)
+  def test_the_lock_helper_comes_from_an_absolute_tinyusb_dir(self):
+    for value in ('', 'tinyusb'):
+      with self.subTest(value), mock.patch.dict(os.environ, {'TINYUSB_DIR': value}), \
+           self.assertRaisesRegex(ht.Refused, 'TINYUSB_DIR'):
+        ht.load_board(roster(self.tmp), BOARD)
+    with mock.patch.dict(os.environ), self.assertRaisesRegex(ht.Refused, 'TINYUSB_DIR'):
+      del os.environ['TINYUSB_DIR']
+      ht.load_board(roster(self.tmp), BOARD)
 
   def test_the_lock_defaults_to_the_board_name_and_the_port_comes_from_it(self):
     b = ht.load_board(roster(self.tmp), BOARD)
@@ -148,10 +157,21 @@ class Roster(Tmp):
     b = ht.load_board(roster(self.tmp, tinyuf2={'lock': 'other'}), BOARD)
     self.assertEqual((b['name'], b['lock']), (BOARD, 'other'))
 
+  def test_layout_refusals(self):
+    b = ht.load_board(roster(self.tmp), BOARD)
+    cases = {'app start not page aligned': {'appStart': 0x10100},
+             'app start at the flash base': {'appStart': 0},
+             'app start past the flash end': {'appStart': 0x98000},
+             'flash past the ceiling': {'flashSize': 0x9E000},
+             'flash below the floor': {'flashBase': 0x100000000 - 0x98000 - 1}}
+    for what, over in cases.items():
+      with self.subTest(what), self.assertRaises(ht.Refused):
+        ht.apply_layout(dict(b), dict(LPC_FACTS, **over))
+
   def test_the_committed_roster_is_well_formed_and_commissioned(self):
-    b = ht.load_board(ROOT / 'test' / 'hil' / 'local.json', 'imxrt1060_evk')
+    b = self.load(ROOT / 'test' / 'hil' / 'local.json', 'imxrt1060_evk')
     self.assertEqual((b['host'], b['lock'], b['reentry']), ('htpc', 'mimxrt1060_evk', 'retained-register'))
-    ht.check_layout(b, ht.source_facts(b))
+    self.assertEqual(b['install'], (0x60000000, 0x6000C000))
 
 
 def bootloader_bin(path, size=0x5824, board_id=b'LPC55S69-Xpresso-revA', version=b'0.35.0 - tinyusb (x)'):
@@ -161,26 +181,16 @@ def bootloader_bin(path, size=0x5824, board_id=b'LPC55S69-Xpresso-revA', version
 
 
 class Admission(Tmp):
-  """Every span a bootloader install or a restore writes is checked before the lock is taken."""
+  """Every span a bootloader install writes is checked before the lock is taken."""
 
   def setUp(self):
     super().setUp()
-    self.board = ht.load_board(roster(self.tmp), BOARD)
+    self.board = self.load(roster(self.tmp))
     self.facts = ht.source_facts(self.board)
 
-  def restore_profile(self, **over):
-    r = self.board['restore']
-    r.update(bin=str(bootloader_bin(self.tmp / 'restore.bin')), version='0.35.0 - tinyusb (x)')
-    r.update(over)
-    r.setdefault('sha256', None)
-    r['sha256'] = ht.sha256(r['bin'])
-    return r
-
-  def test_a_good_candidate_and_restoration_image_pass(self):
+  def test_a_good_candidate_passes(self):
     ht.check_bootloader_bin(bootloader_bin(self.tmp / 'c.bin'), self.board['install'], self.board['app'],
                             self.board, self.facts, 'candidate')
-    self.restore_profile()
-    ht.check_restore(self.board, self.facts)
 
   def test_candidate_refusals(self):
     cases = {'too big for the install range': bootloader_bin(self.tmp / 'a.bin', size=0x10001),
@@ -189,33 +199,9 @@ class Admission(Tmp):
       with self.subTest(what), self.assertRaises(ht.Refused):
         ht.check_bootloader_bin(path, self.board['install'], self.board['app'], self.board, self.facts, 'c')
 
-  def test_restoration_refusals(self):
-    cases = {
-      'zero page in CMPA': {'appStart': 0x9E400, 'install': (0, 0x9E400)},   # Codex's reproduction
-      'zero page over the ceiling': {'appStart': 0x9D700, 'install': (0, 0x9D700)},
-      'install not ending at its app start': {'install': (0, 0x8000)},
-      'image bigger than its install range': {'appStart': 0x4000, 'install': (0, 0x4000)},
-    }
-    for what, over in cases.items():
-      with self.subTest(what), self.assertRaises(ht.Refused):
-        self.restore_profile(**over)
-        ht.check_restore(self.board, self.facts)
-
-  def test_a_restoration_image_without_its_version_or_hash_is_refused(self):
-    r = self.restore_profile(version='0.36.0')
-    with self.assertRaisesRegex(ht.Refused, 'version'):
-      ht.check_restore(self.board, self.facts)
-    r.update(version='0.35.0 - tinyusb (x)', sha256='0' * 64)
-    with self.assertRaisesRegex(ht.Refused, 'sha256'):
-      ht.check_restore(self.board, self.facts)
-
-
 def rt_roster(tmp):
   return roster(tmp, name='imxrt1060_evk', flasher={'name': 'jlink', 'uid': '2', 'args': '-device MIMXRT1062xxx6A'},
-                tinyuf2={'lock': 'mimxrt1060_evk', 'layout': {
-                  'install': ['0x60000000', '0x6000C000'], 'app': ['0x6000C000', '0x60800000'], 'pageSize': 512},
-                  'restore': {'bin': str(tmp / 'restore.bin'), 'sha256': 'x', 'version': '0.35.0',
-                              'layout': {'install': ['0x60000000', '0x6000C000'], 'appStart': '0x6000C000'}}})
+                tinyuf2={'lock': 'mimxrt1060_evk'})
 
 
 class Rt1060(Tmp):
@@ -223,23 +209,16 @@ class Rt1060(Tmp):
 
   def setUp(self):
     super().setUp()
-    self.board = ht.load_board(rt_roster(self.tmp), 'imxrt1060_evk')
+    self.board = self.load(rt_roster(self.tmp), 'imxrt1060_evk')
     self.facts = ht.source_facts(self.board)
 
-  def test_the_layout_agrees_with_the_source_and_spans_check_against_the_flash_base(self):
-    ht.check_layout(self.board, self.facts)
+  def test_the_layout_comes_from_the_source_and_spans_check_against_the_flash_base(self):
+    self.assertEqual((self.board['install'], self.board['app']), ((0x60000000, 0x6000C000), (0x6000C000, 0x60800000)))
     bl = bootloader_bin(self.tmp / 'c.bin', board_id=b'MIMXRT1060-EVK-revA')
     ht.check_bootloader_bin(bl, self.board['install'], self.board['app'], self.board, self.facts, 'c')
     with self.assertRaises(ht.Refused):   # bigger than the install span at its base
       ht.check_bootloader_bin(bootloader_bin(self.tmp / 'big.bin', size=0xC001, board_id=b'MIMXRT1060-EVK-revA'),
                               self.board['install'], self.board['app'], self.board, self.facts, 'c')
-    r = self.board['restore']
-    r.update(bin=str(bootloader_bin(self.tmp / 'restore.bin', board_id=b'MIMXRT1060-EVK-revA', version=b'0.35.0')))
-    r['sha256'] = ht.sha256(r['bin'])
-    ht.check_restore(self.board, self.facts)
-    r['install'] = (0, 0x6000C000)
-    with self.assertRaisesRegex(ht.Refused, 'flash base'):
-      ht.check_restore(self.board, self.facts)
 
   def test_the_build_record_is_read_by_the_source_board_name(self):
     build = self.tmp / 'b'
@@ -292,13 +271,6 @@ class SourceFacts(unittest.TestCase):
     for expr, base in (('(FLASH_BASE + 0xC000)', None), ('(OTHER + 0xC000)', 0), ('FLASH_BASE - 4', 0), ('(1 << 20)', 0)):
       with self.subTest(expr), self.assertRaises(ht.Refused):
         ht.flash_addr(expr, base, 'x') if 'BASE' in expr or 'OTHER' in expr else ht.product(expr, 'x')
-
-  def test_a_layout_that_disagrees_with_the_source_is_refused(self):
-    b = ht.load_board(roster(Path(tempfile.mkdtemp()), tinyuf2={'layout': {
-      'install': ['0x0', '0x8000'], 'app': ['0x8000', '0x98000'], 'pageSize': 512}}), BOARD)
-    with self.assertRaisesRegex(ht.Refused, 'disagrees with the source'):
-      ht.check_layout(b, dict(LPC_FACTS))
-
 
 def ihex(records):
   lines = []
@@ -537,14 +509,14 @@ class Locks(Tmp):
 
   def test_cleanup_handoff_keeps_the_board_held_across_exec_and_recovery_can_end_it(self):
     fh = self.helper.acquire_board_lock(BOARD)
-    holder = ht.hand_off(fh, BOARD, 'restore failed', [{'pid': 99, 'start': 1, 'cmd': ['mcopy']}])
+    holder = ht.hand_off(fh, BOARD, 'cleanup failed', [{'pid': 99, 'start': 1, 'cmd': ['mcopy']}])
     self.addCleanup(lambda: _kill(holder['pid']))
     self.assertTrue(holder['ready'])
     self.assertNotIn('inProcess', holder)
     with self.assertRaises(OSError):
       self.helper.flock_nb(BOARD)
     rec = ht.prove_hold(self.helper, BOARD, holder['pid'], reason='hil_test.py', role=ht.HOLDER_ROLE)
-    self.assertEqual((rec['detail'], rec['survivors'][0]['pid']), ('restore failed', 99))
+    self.assertEqual((rec['detail'], rec['survivors'][0]['pid']), ('cleanup failed', 99))
     self.assertFalse(ht.flock_free(self.lock))
     for sig in (signal.SIGTERM, signal.SIGINT):   # an operator's timeout kill does not free the board
       os.kill(holder['pid'], sig)
@@ -570,12 +542,12 @@ class Locks(Tmp):
       with self.subTest(what):
         fh = self.helper.acquire_board_lock(BOARD)
         with patch:
-          holder = ht.hand_off(fh, BOARD, 'restore failed')
+          holder = ht.hand_off(fh, BOARD, 'cleanup failed')
         self.assertEqual((holder['pid'], holder.get('inProcess')), (parent, True))
         with self.assertRaises(OSError):
           self.helper.flock_nb(BOARD)
         rec = ht.prove_hold(self.helper, BOARD, parent, reason='hil_test.py', role=ht.HOLDER_ROLE)
-        self.assertEqual(rec['detail'], 'restore failed')
+        self.assertEqual(rec['detail'], 'cleanup failed')
         ht.HELD_IN_PROCESS.pop().close()
 
   def test_with_no_descriptor_left_the_runner_itself_holds_and_releases_only_on_sigusr1(self):
@@ -594,7 +566,7 @@ class Locks(Tmp):
           hog.append(os.open(os.devnull, os.O_RDONLY))
       except OSError:
         pass
-      holder = ht.hand_off(fh, {BOARD!r}, 'restore failed')
+      holder = ht.hand_off(fh, {BOARD!r}, 'cleanup failed')
       print(json.dumps(holder), flush=True)
       ht.keep_held(ht.HELD_IN_PROCESS[0])
     ''')
@@ -615,7 +587,7 @@ class Locks(Tmp):
   def test_a_holder_handed_off_during_cleanup_still_ends_on_sigusr1(self):
     fh = self.helper.acquire_board_lock(BOARD)
     with ht.signals(signal.SIG_BLOCK):   # cleanup blocks SIGTERM and SIGINT; the holder must not care
-      holder = ht.hand_off(fh, BOARD, 'restore failed')
+      holder = ht.hand_off(fh, BOARD, 'cleanup failed')
     self.addCleanup(lambda: _kill(holder['pid']))
     os.kill(holder['pid'], signal.SIGUSR1)
     ht.wait_for(lambda: ht.flock_free(self.lock), 5, 'release')
@@ -641,14 +613,14 @@ def _kill(pid):
 
 
 class RunBoard(Tmp):
-  """The state machine around the battery: who restores, and what is left held."""
+  """The state machine around the battery: who cleans up, and what is left held."""
 
   def setUp(self):
     super().setUp()
     mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
     handlers = {sig: signal.getsignal(sig) for sig in ht.TERM_SIGNALS}
 
-    def unblock():   # run_board leaves the signals blocked until exit; drop what is pending, then restore
+    def unblock():   # run_board leaves the signals blocked until exit; drop what is pending, then put the mask back
       for sig in ht.TERM_SIGNALS:
         signal.signal(sig, signal.SIG_IGN)
       signal.pthread_sigmask(signal.SIG_SETMASK, mask)
@@ -657,7 +629,7 @@ class RunBoard(Tmp):
     self.addCleanup(unblock)
     (self.tmp / 'hil_lock.py').write_text(FAKE_HELPER.format(dir=str(self.tmp / 'locks')))
     self.helper = ht.load_helper(self.tmp / 'hil_lock.py')
-    self.board = ht.load_board(roster(self.tmp), BOARD)
+    self.board = self.load(roster(self.tmp))
     self.facts = ht.source_facts(self.board)
     self.args = mock.Mock(build_record='rec.json', fail_at=None, try_reentry=None)
     for p in (mock.patch.object(ht, 'verify_record', lambda *a: ({'hex': 'x.hex', 'bin': 'x.bin'}, {'version': 'v'})),
@@ -665,56 +637,64 @@ class RunBoard(Tmp):
               mock.patch.object(ht, 'hex_matches_bin', lambda d, b, base: True),
               mock.patch.object(ht, 'check_jlink', lambda: None),
               mock.patch.object(ht, 'check_bootloader_bin', lambda *a: None),
-              mock.patch.object(ht, 'check_restore', lambda *a: None),
               mock.patch.object(ht, 'exclusion_configured', lambda *a: None),
               mock.patch.object(ht.socket, 'gethostname', lambda: 'testhost'),
               mock.patch.object(ht.shutil, 'which', lambda t: '/usr/bin/' + t)):
       p.start()
       self.addCleanup(p.stop)
 
-  def run_board(self, battery_run, restore=None):
-    restored = []
+  def run_board(self, battery_run, cleanup_error=None):
+    cleaned = []
 
-    def fake_restore(*a, **k):
-      restored.append(True)
-      if restore:
-        raise restore
-      return {'pass': True, 'state': 'restoration bootloader in DFU', 'evidence': {}}
-    with mock.patch.object(ht.Battery, 'run', battery_run), mock.patch.object(ht, 'restore', fake_restore):
+    def fake_invalidate(*a, **k):
+      cleaned.append(True)
+      if cleanup_error:
+        raise cleanup_error
+      return {'pass': True, 'state': 'bootloader invalidated', 'evidence': {}}
+    with mock.patch.object(ht.Battery, 'run', battery_run), mock.patch.object(ht, 'invalidate', fake_invalidate):
       row, code = ht.run_board(self.args, self.board, self.facts, self.helper, self.tmp)
-    return row, code, restored
+    return row, code, cleaned
 
-  def test_pass_restores_and_releases(self):
+  def test_pass_cleans_up_and_releases(self):
     def ok(bat, files, version):
       bat.touched = True
-    row, code, restored = self.run_board(ok)
-    self.assertEqual((code, row['pass'], restored, row['restored']['heldAfter']), (0, True, [True], False))
+    row, code, cleaned = self.run_board(ok)
+    self.assertEqual((code, row['pass'], cleaned, row['cleanup']['heldAfter']), (0, True, [True], False))
     self.helper.flock_nb(BOARD).close()
 
-  def test_a_failed_step_after_touching_restores_and_is_exit_1(self):
+  def test_a_failed_step_after_touching_cleans_up_and_is_exit_1(self):
     def fail(bat, files, version):
       bat.touched = True
       bat.step('app-ran', lambda: (_ for _ in ()).throw(ht.StepFail('pc not in the loop')))
-    row, code, restored = self.run_board(fail)
-    self.assertEqual((code, row['pass'], restored), (1, False, [True]))
+    row, code, cleaned = self.run_board(fail)
+    self.assertEqual((code, row['pass'], cleaned), (1, False, [True]))
     self.assertIn('app-ran', row['detail'])
 
-  def test_an_untouched_board_is_not_restored(self):
+  def test_an_untouched_board_is_not_cleaned_up(self):
     def fail(bat, files, version):
       raise ht.StepFail('probe not found')
-    row, code, restored = self.run_board(fail)
-    self.assertEqual((code, restored, row['restored']), (1, [], None))
+    row, code, cleaned = self.run_board(fail)
+    self.assertEqual((code, cleaned, row['cleanup']), (1, [], None))
 
-  def test_any_failed_restore_hands_the_lock_to_a_holder_and_is_exit_4(self):
+  def test_any_failed_cleanup_hands_the_lock_to_a_holder_and_is_exit_4(self):
     def fail(bat, files, version):
       bat.touched = True
       raise ht.StepFail('x')
     for err in (ht.StepFail('verify failed'), ht.Refused('range'), ValueError('parse'), ht.Interrupted('TERM')):
       with self.subTest(type(err).__name__), \
            mock.patch.object(ht, 'hand_off', lambda fh, b, d, s: (fh.close(), {'pid': 1, 'reason': 'hil_test.py'})[1]):
-        row, code, _ = self.run_board(fail, restore=err)
-        self.assertEqual((code, row['pass'], row['restored']['heldAfter'], row['restored']['holder']['pid']),
+        row, code, _ = self.run_board(fail, cleanup_error=err)
+        self.assertEqual((code, row['pass'], row['cleanup']['heldAfter'], row['cleanup']['holder']['pid']),
                          (4, False, True, 1))
+
+  def test_fail_at_cleanup_skips_the_invalidate_and_hands_the_board_to_a_holder(self):
+    def ok(bat, files, version):
+      bat.touched = True
+    self.args.fail_at = 'cleanup'
+    with mock.patch.object(ht, 'hand_off', lambda fh, b, d, s: (fh.close(), {'pid': 1, 'reason': 'hil_test.py'})[1]):
+      row, code, cleaned = self.run_board(ok)
+    self.assertEqual((code, cleaned, row['cleanup']['heldAfter']), (4, [], True))
+    self.assertIn('--fail-at cleanup', row['cleanup']['detail'])
 
   def test_try_reentry_is_for_an_uncommissioned_board_only_and_reports_its_decision(self):
     self.args.try_reentry = 'retained-register'
@@ -742,14 +722,14 @@ class RunBoard(Tmp):
     def ok(bat, files, version):
       bat.touched = True
 
-    def restore_then_signalled(*a, **k):
+    def invalidate_then_signalled(*a, **k):
       os.kill(os.getpid(), signal.SIGTERM)   # blocked until cleanup has ended
       return {'pass': True, 'state': 's', 'evidence': {}}
 
     signal.signal(signal.SIGTERM, ht.on_signal)
-    with mock.patch.object(ht.Battery, 'run', ok), mock.patch.object(ht, 'restore', restore_then_signalled):
+    with mock.patch.object(ht.Battery, 'run', ok), mock.patch.object(ht, 'invalidate', invalidate_then_signalled):
       row, code = ht.run_board(self.args, self.board, self.facts, self.helper, self.tmp)
-    self.assertEqual((code, row['pass'], row['restored']['heldAfter']), (0, True, False))
+    self.assertEqual((code, row['pass'], row['cleanup']['heldAfter']), (0, True, False))
     self.assertIn('SIGTERM deferred', row['detail'])
     self.helper.flock_nb(BOARD).close()
 
@@ -767,24 +747,24 @@ class RunBoard(Tmp):
     self.assertEqual((code, row['locked'], row['ran']), (1, True, False))
     self.assertIn('SIGTERM deferred', row['detail'])
 
-  def test_a_stuck_child_is_a_cleanup_failure_with_no_restore(self):
+  def test_a_stuck_child_is_a_cleanup_failure_with_no_invalidate(self):
     def fail(bat, files, version):
       bat.touched = True
       raise ht.StepFail('x')
     stuck = [{'pid': 99, 'start': 7, 'cmd': ['JLinkExe']}]
     with mock.patch.object(ht, 'stuck_children', lambda: list(stuck)), \
          mock.patch.object(ht, 'hand_off', lambda fh, b, d, s: (fh.close(), {'pid': 1, 'survivors': s})[1]):
-      row, code, restored = self.run_board(fail)
-    self.assertEqual((code, restored, row['restored']['survivors']), (4, [], stuck))
-    self.assertIn('99', row['restored']['detail'])
+      row, code, cleaned = self.run_board(fail)
+    self.assertEqual((code, cleaned, row['cleanup']['survivors']), (4, [], stuck))
+    self.assertIn('99', row['cleanup']['detail'])
 
   def test_a_survivor_on_an_untouched_board_still_keeps_it_held(self):
     def fail(bat, files, version):
       raise ht.StepFail('identity: probe hung')
     with mock.patch.object(ht, 'stuck_children', lambda: [{'pid': 99, 'start': 7, 'cmd': ['JLinkExe']}]), \
          mock.patch.object(ht, 'hand_off', lambda fh, b, d, s: (fh.close(), {'pid': 1})[1]):
-      row, code, restored = self.run_board(fail)
-    self.assertEqual((code, restored, row['restored']['state'], row['restored']['heldAfter']),
+      row, code, cleaned = self.run_board(fail)
+    self.assertEqual((code, cleaned, row['cleanup']['state'], row['cleanup']['heldAfter']),
                      (4, [], 'untouched', True))
 
   def test_repeated_signals_interrupt_the_battery_but_never_the_cleanup(self):
@@ -795,13 +775,13 @@ class RunBoard(Tmp):
       os.kill(os.getpid(), signal.SIGTERM)
       self.fail('the signal did not interrupt the battery')
 
-    def restore_under_fire(*a, **k):
+    def invalidate_under_fire(*a, **k):
       for _ in range(3):
         os.kill(os.getpid(), signal.SIGTERM)
       return {'pass': True, 'state': 's', 'evidence': {}}
-    with mock.patch.object(ht.Battery, 'run', interrupted), mock.patch.object(ht, 'restore', restore_under_fire):
+    with mock.patch.object(ht.Battery, 'run', interrupted), mock.patch.object(ht, 'invalidate', invalidate_under_fire):
       row, code = ht.run_board(self.args, self.board, self.facts, self.helper, self.tmp)
-    self.assertEqual((code, row['restored']['pass'], row['restored']['heldAfter']), (1, True, False))
+    self.assertEqual((code, row['cleanup']['pass'], row['cleanup']['heldAfter']), (1, True, False))
     self.assertIn('interrupted by SIGTERM', row['detail'])
     self.assertIn('SIGTERM deferred', row['detail'])
     self.helper.flock_nb(BOARD).close()
@@ -811,18 +791,18 @@ class RunBoard(Tmp):
       bat.touched = True
       bat.step('dfu', lambda: {})
       bat.step('copy', lambda: (_ for _ in ()).throw(ht.Interrupted('interrupted by SIGTERM')))
-    row, code, restored = self.run_board(cut_short)
-    self.assertEqual((code, restored, [s['pass'] for s in row['steps']]), (1, [True], [True]))
+    row, code, cleaned = self.run_board(cut_short)
+    self.assertEqual((code, cleaned, [s['pass'] for s in row['steps']]), (1, [True], [True]))
     self.assertTrue(row['detail'].startswith('copy: Interrupted: interrupted by SIGTERM'), row['detail'])
 
   def test_a_locked_board_is_not_touched(self):
     held = self.helper.acquire_board_lock(BOARD, reason='someone')
     self.addCleanup(held.close)
-    row, code, restored = self.run_board(lambda *a: self.fail('ran'))
-    self.assertEqual((code, row['locked'], row['ran'], restored), (1, True, False, []))
+    row, code, cleaned = self.run_board(lambda *a: self.fail('ran'))
+    self.assertEqual((code, row['locked'], row['ran'], cleaned), (1, True, False, []))
 
   def test_the_board_is_locked_and_reported_under_its_lock_name(self):
-    self.board = ht.load_board(roster(self.tmp, tinyuf2={'lock': 'tinyusb_name'}), BOARD)
+    self.board = self.load(roster(self.tmp, tinyuf2={'lock': 'tinyusb_name'}))
     held = self.helper.acquire_board_lock('tinyusb_name', reason='someone')
     self.addCleanup(held.close)
     row, code, _ = self.run_board(lambda *a: self.fail('ran'))
@@ -890,7 +870,7 @@ class BatteryRun(Tmp):
   """Battery.run end to end over a fake probe transcript and a fake drive: the plumbing, not the rig."""
 
   def battery(self, reentry='retained-register', corrupt=None, commissioning=False):
-    board = ht.load_board(roster(self.tmp, tinyuf2={'reentry': reentry}), BOARD)
+    board = self.load(roster(self.tmp, tinyuf2={'reentry': reentry}))
     facts = ht.source_facts(board)
     bat = ht.Battery(board, facts, self.tmp, commissioning=commissioning)
     bootloader_bin(self.tmp / 'c.bin')
@@ -927,7 +907,8 @@ class BatteryRun(Tmp):
         self.assertEqual([x['step'] for x in bat.steps if x['pass']], list(ht.STEPS))
         image = self.tmp / 'program.bin'
         self.assertEqual(rig.scripts[1], ['h', f'loadbin {image},0x0', f'verifybin {image},0x0', 'r', 'g'])
-        self.assertIn(f'sleep {2 * bat.f["dblTapDelayMs"] + 200}', rig.scripts[2])
+        self.assertEqual(rig.scripts[2][:2], ['h', f'w4 {bat.f["dblTapReg"]:08X} 00000000'])   # cleared in dfu
+        self.assertIn(f'sleep {2 * bat.f["dblTapDelayMs"] + 200}', rig.scripts[3])
         for script in rig.scripts:
           if 'g' in script:
             self.assertEqual(script[0], 'h', script)
@@ -1018,13 +999,15 @@ class BatteryRun(Tmp):
       bat.program(fw, 0, 0x10000)
     self.assertEqual((rig.scripts, bat.touched), ([], False))
 
-  def test_restore_programs_its_own_app_start(self):
+  def test_cleanup_zeroes_the_device_flash_floor_and_reverifies_it_from_a_new_session(self):
     bat, rig = self.battery()
-    r = bat.b['restore']
-    bootloader_bin(Path(r['bin']), size=0x100, version=b'v1')
-    r.update(sha256=ht.sha256(r['bin']), version='v1', appStart=0x8000)
-    ht.restore(bat.b, bat.f, self.tmp, bat)
-    self.assertEqual(len((self.tmp / 'program.bin').read_bytes()), 0x8000 + 512)
+    b = dict(bat.b, device='MIMXRT1062xxx6A')   # the floor is the device's, never the candidate's layout
+    out = ht.invalidate(b, bat.f, self.tmp, bat)
+    zero = f'{bat.zero},0x60000000'
+    self.assertEqual(rig.scripts, [['h', f'loadbin {zero}', f'verifybin {zero}', 'r', 'g'],
+                                   ['h', f'verifybin {zero}', 'g']])
+    self.assertEqual((out['state'], out['evidence'], bat.touched),
+                     ('bootloader invalidated', {'zeroPage': '0x60000000', 'verified': True}, True))
 
   def test_app_invalidate_reverifies_the_bootloader_before_its_reset(self):
     bat, rig = self.battery('app-invalidate')
@@ -1038,19 +1021,26 @@ class BatteryRun(Tmp):
     with self.assertRaisesRegex(ht.StepFail, 'INFO_UF2'):
       bat.run({'bin': self.tmp / 'c.bin'}, 'v2')
 
-  def test_a_left_magic_is_cleared_only_after_dfu_and_read_back(self):
+  def test_a_left_magic_is_cleared_right_after_dfu_and_read_back(self):
     bat, rig = self.battery()
-    r = bat.b['restore']
-    Path(r['bin']).write_bytes(b'x')
-    r.update(sha256=ht.sha256(r['bin']), version='v1')
     reg = bat.f['dblTapReg']
     rig.mem[reg] = bat.f['dblTapMagic']
     dfu = bat.dfu
     bat.dfu = lambda v: rig.scripts.append('dfu observed') or dfu(v)
-    ev = ht.restore(bat.b, bat.f, self.tmp, bat)['evidence']
-    self.assertEqual((ev['dblTapReg'], rig.mem[reg]), ('0x0', 0))
-    self.assertNotIn(f'w4 {reg:08X} 00000000', rig.scripts[0])
-    self.assertEqual(rig.scripts[1:], ['dfu observed', ['h', f'w4 {reg:08X} 00000000', f'mem32 {reg:08X} 1', 'g']])
+    bat.run({'bin': self.tmp / 'c.bin'}, 'v1')
+    ev = [x for x in bat.steps if x['step'] == 'dfu'][0]['evidence']
+    self.assertEqual(ev['dblTapReg'], '0x0')
+    self.assertEqual(rig.scripts[2:4], ['dfu observed', ['h', f'w4 {reg:08X} 00000000', f'mem32 {reg:08X} 1', 'g']])
+
+  def test_a_double_tap_clear_that_does_not_read_back_fails_dfu(self):
+    bat, rig = self.battery()
+    real = rig.probe
+    rig.probe = lambda commands, judge=True: real([c for c in commands if not c.startswith('w4 ')], judge)
+    bat.probe.run = rig.probe
+    rig.mem[bat.f['dblTapReg']] = bat.f['dblTapMagic']
+    with self.assertRaisesRegex(ht.StepFail, 'reads back'):
+      bat.run({'bin': self.tmp / 'c.bin'}, 'v1')
+    self.assertEqual([(x['step'], x['pass']) for x in bat.steps][-1], ('dfu', False))
 
   def test_a_write_the_bus_dropped_fails_its_read_back(self):
     bat, rig = self.battery()
@@ -1124,7 +1114,7 @@ class AppRan(Tmp):
 
 
 class Decision(unittest.TestCase):
-  def row(self, tried='retained-register', passed=True, failed_at=None, restored=True, held=False, **obs):
+  def row(self, tried='retained-register', passed=True, failed_at=None, cleaned=True, held=False, **obs):
     ev = {'controlBootedApp': True, 'dfuCameUp': True, 'magicConsumed': True, 'bootloaderVerified': True}
     ev.update(obs)
     if failed_at:
@@ -1132,7 +1122,7 @@ class Decision(unittest.TestCase):
     steps = [{'step': s, 'pass': True, 'evidence': {}} for s in ht.STEPS[:-1]]
     steps.append({'step': 'reenter', 'pass': passed, 'evidence': ev})
     return {'commissioning': True, 'tried': tried, 'pass': passed, 'steps': steps,
-            'restored': {'pass': restored, 'heldAfter': held}}
+            'cleanup': {'pass': cleaned, 'heldAfter': held}}
 
   def test_the_commissioning_decision(self):
     for method in ht.REENTRY:
@@ -1141,7 +1131,7 @@ class Decision(unittest.TestCase):
         self.assertEqual(ht.reentry_decision(self.row(method, passed=False, failed_at='readback')), method)
         self.assertIsNone(ht.reentry_decision(self.row(method, passed=False)))            # failed entry
         self.assertIsNone(ht.reentry_decision(self.row(method, dfuCameUp=False)))
-        self.assertIsNone(ht.reentry_decision(self.row(method, restored=False)))          # failed cleanup
+        self.assertIsNone(ht.reentry_decision(self.row(method, cleaned=False)))           # failed cleanup
         self.assertIsNone(ht.reentry_decision(self.row(method, held=True)))
     self.assertIsNone(ht.reentry_decision(self.row(controlBootedApp=False)))
     self.assertEqual(ht.reentry_decision(self.row('app-invalidate', controlBootedApp=False)), 'app-invalidate')
@@ -1167,14 +1157,23 @@ class Main(Tmp):
                       '--under-hold', 'debug 7', str(cfg)])
     self.assertEqual((code, programmed), (0, [(str(fw), 0, 0x10000)]))
 
+  def test_invalidate_needs_no_candidate_source(self):
+    cfg = roster(self.tmp, tinyuf2={'reentry': None})
+    invalidated = []
+    with contextlib.redirect_stdout(io.StringIO()), mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp), \
+         mock.patch.object(ht, 'source_facts', side_effect=AssertionError('read the candidate source')), \
+         mock.patch.object(ht, 'load_helper', lambda p: None), mock.patch.object(ht, 'manual_holder', lambda *a: None), \
+         mock.patch.object(ht, 'check_jlink', lambda: None), mock.patch.object(ht, 'probe_users', lambda p: []), \
+         mock.patch.object(ht, 'invalidate', lambda b, f, d: invalidated.append(f) or {'pass': True}):
+      self.assertEqual(ht.main(['invalidate', '-b', BOARD, '--under-hold', 'x', str(cfg)]), 0)
+    self.assertEqual(invalidated, [None])
+
   def test_no_jlinkexe_programs_nothing_on_any_path(self):
     fw = bootloader_bin(self.tmp / 'fw.bin')
-    r = bootloader_bin(self.tmp / 'restore.bin', version=b'0.35.0')
-    cfg = roster(self.tmp, tinyuf2={'reentry': None, 'restore': {
-      'bin': str(r), 'sha256': ht.sha256(r), 'version': '0.35.0', 'layout': {'install': ['0x0', '0x10000'], 'appStart': '0x10000'}}})
+    cfg = roster(self.tmp, tinyuf2={'reentry': None})
     probed = []
     for argv in (['install', '-b', BOARD, '--firmware', str(fw), '--sha256', ht.sha256(fw), '--under-hold', 'x'],
-                 ['restore', '-b', BOARD, '--under-hold', 'x']):
+                 ['invalidate', '-b', BOARD, '--under-hold', 'x']):
       with self.subTest(argv[0]), contextlib.redirect_stdout(io.StringIO()), \
            mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / argv[0]), mock.patch.object(ht, 'load_helper', lambda p: None), \
            mock.patch.object(ht, 'manual_holder', lambda *a: None), mock.patch.object(ht, 'exclusion_configured', lambda *a: None), \
