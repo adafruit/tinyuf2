@@ -545,7 +545,8 @@ def udisks_ignored(dev):
 
 def check_exclusive(dev):
   # the block node shows in sysfs before udev has run its rules on it (bench: RT1060 re-entry), so the
-  # property gets a bounded wait; the mount check below still catches an automount that won the race
+  # property gets a bounded wait; the mount check still catches a rule that did not apply
+  start = time.monotonic()
   try:
     wait_for(lambda: udisks_ignored(dev), UDEV_TIMEOUT, f'UDISKS_IGNORE=1 on {dev}')
   except StepFail:
@@ -553,6 +554,7 @@ def check_exclusive(dev):
   mounted = [l.split()[0] for l in Path('/proc/mounts').read_text().splitlines()]
   if any(os.path.realpath(m) == dev for m in mounted):
     raise StepFail(f'{dev} is mounted; refusing raw I/O')
+  return round(time.monotonic() - start, 2)
 
 
 class Fat:
@@ -907,7 +909,7 @@ class Battery:
       raise StepFail(f'came back on USB port {path}, not {self.usb_path}')
     self.usb_path = path
     dev = wait_for(lambda: block_device(path), USB_TIMEOUT, f'the block device of USB {path}')
-    check_exclusive(dev)
+    udev_wait = check_exclusive(dev)
     info = fat_read(dev, 'INFO_UF2.TXT', 512, self.log)
     lines = info['data'].decode('ascii', 'replace').splitlines()
     want = f'TinyUF2 Bootloader {version}'
@@ -917,7 +919,7 @@ class Battery:
     size = (info['entries'].get('CURRENT.UF2') or [None, None])[1]
     if size != f['flashSize'] // 256 * 512:
       raise StepFail(f'CURRENT.UF2 is {size} bytes, not {f["flashSize"] // 256 * 512}')
-    return {'usb': path, 'dev': dev, 'info': lines[0], 'currentUf2': size,
+    return {'usb': path, 'dev': dev, 'udevWaitS': udev_wait, 'info': lines[0], 'currentUf2': size,
             'claim': 'app rejected (reset vector 0); DFU observed'}
 
   def current_uf2(self, length):
