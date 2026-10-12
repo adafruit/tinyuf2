@@ -425,23 +425,24 @@ def hil_selection(sel, config):
     if parts[0] == 'ports' and (len(parts) == 2 or parts[1] in BACKENDS):
       return build_file_kind(parts[-1])
     return None
-  records = [(r, r['path'].split('/')) for r in sel['records']]
-  full = any(r['effect'] == 'core' and kind(parts) != 'make' for r, parts in records)
+  records = [(r, parts, kind(parts)) for r in sel['records'] for parts in [r['path'].split('/')]]
+  full = any(r['effect'] == 'core' and k != 'make' for r, _, k in records)
   boards, uncovered = set(), {}
   if full:
     boards.update(roster)
     for p in sorted(set(BACKENDS) - set(by_port)):
       uncovered[p] = f'core change: no {config} board for {p}'
-  for r, parts in records:
-    k = kind(parts)
+  for r, parts, k in records:
     if r['hil']:
       boards.update(roster)
     elif k == 'make':
       uncovered[r['path']] = f'the HIL builds with cmake, which never reads {r["path"]}'
     # the battery builds no port app, and a core file reaches every roster board above
     elif k == 'cmake' and len(parts) >= 3 and r['effect'] != 'core' and parts[2] != 'apps':
-      board_file = parts[2] == 'boards' and len(parts) >= 5
-      own = ([parts[3]] if parts[3] in roster else []) if board_file else by_port.get(parts[1], [])
+      if parts[2] == 'boards' and len(parts) >= 5:
+        own = [parts[3]] if parts[3] in roster else []
+      else:
+        own = by_port.get(parts[1], [])
       if own:
         boards.update(own)
       else:

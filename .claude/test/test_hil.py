@@ -88,12 +88,6 @@ def roster(tmp, **over):
 HELPER = Path('test/hil/helper/hil_lock.py')   # under TINYUSB_DIR
 
 
-def write_helper(tmp, lockdir):
-  (tmp / HELPER).parent.mkdir(parents=True, exist_ok=True)
-  (tmp / HELPER).write_text(FAKE_HELPER.format(dir=str(lockdir)))
-  return tmp / HELPER
-
-
 # lpc55 has no cmake build, so the runner reads no facts for it; most tests keep its layout as synthetic facts
 LPC_FACTS = {'flashBase': 0, 'appStart': 0x10000, 'flashSize': 0x98000, 'vid': 0x1fc9, 'pid': 0x0094,
              'boardId': 'LPC55S69-Xpresso-revA', 'family': 0x2abc77ec, 'vectors': 76, 'ram': 0x20000000,
@@ -188,15 +182,14 @@ class Admission(Tmp):
     self.facts = ht.source_facts(self.board)
 
   def test_a_good_candidate_passes(self):
-    ht.check_bootloader_bin(bootloader_bin(self.tmp / 'c.bin'), self.board['install'], self.board['app'],
-                            self.board, self.facts, 'candidate')
+    ht.check_bootloader_bin(bootloader_bin(self.tmp / 'c.bin'), self.board, self.facts, 'candidate')
 
   def test_candidate_refusals(self):
     cases = {'too big for the install range': bootloader_bin(self.tmp / 'a.bin', size=0x10001),
              'another board': bootloader_bin(self.tmp / 'b.bin', board_id=b'OTHER')}
     for what, path in cases.items():
       with self.subTest(what), self.assertRaises(ht.Refused):
-        ht.check_bootloader_bin(path, self.board['install'], self.board['app'], self.board, self.facts, 'c')
+        ht.check_bootloader_bin(path, self.board, self.facts, 'c')
 
 def rt_roster(tmp):
   return roster(tmp, name='imxrt1060_evk', flasher={'name': 'jlink', 'uid': '2', 'args': '-device MIMXRT1062xxx6A'},
@@ -214,12 +207,12 @@ class Rt1060(Tmp):
   def test_the_layout_comes_from_the_source_and_spans_check_against_the_flash_base(self):
     self.assertEqual((self.board['install'], self.board['app']), ((0x60000000, 0x6000C000), (0x6000C000, 0x60800000)))
     bl = bootloader_bin(self.tmp / 'c.bin', board_id=b'MIMXRT1060-EVK-revA')
-    ht.check_bootloader_bin(bl, self.board['install'], self.board['app'], self.board, self.facts, 'c')
+    ht.check_bootloader_bin(bl, self.board, self.facts, 'c')
     with self.assertRaises(ht.Refused):   # bigger than the install span at its base
       ht.check_bootloader_bin(bootloader_bin(self.tmp / 'big.bin', size=0xC001, board_id=b'MIMXRT1060-EVK-revA'),
-                              self.board['install'], self.board['app'], self.board, self.facts, 'c')
+                              self.board, self.facts, 'c')
 
-  def test_the_build_record_is_read_by_the_source_board_name(self):
+  def test_the_build_record_is_read_by_board_name_and_must_be_cmake(self):
     build = self.tmp / 'b'
     (build / '_bin').mkdir(parents=True)
     rows = {}
@@ -254,7 +247,7 @@ class SourceFacts(unittest.TestCase):
   def test_a_cmake_value_is_one_plain_set(self):
     t = tempfile.TemporaryDirectory()
     self.addCleanup(t.cleanup)
-    (Path(t.name) / 'x.cmake').write_text('set(SDK_DIR ${TOP}/lib/sdk)\nset(ID 0x1)\nset(ID 0x2)\nset(V ${OTHER}/x)\n'
+    (Path(t.name) / 'x.cmake').write_text('  # set(SDK_DIR old)\nset(SDK_DIR ${TOP}/lib/sdk)\nset(ID 0x1)\nset(ID 0x2)\nset(V ${OTHER}/x)\n'
                                           'set(Q "a")\nset(F 0x1)\nSET (F 0x2)\nset(E)\n')
     with mock.patch.object(ht, 'ROOT', Path(t.name)):
       self.assertEqual(ht.cmake_var('x.cmake', 'SDK_DIR'), 'lib/sdk')
@@ -1006,8 +999,7 @@ class BatteryRun(Tmp):
     zero = f'{bat.zero},0x60000000'
     self.assertEqual(rig.scripts, [['h', f'loadbin {zero}', f'verifybin {zero}', 'r', 'g'],
                                    ['h', f'loadbin {zero}', f'verifybin {zero}', 'g']])
-    self.assertEqual((out['state'], out['evidence'], bat.touched),
-                     ('bootloader invalidated', {'zeroPage': '0x60000000', 'verified': True}, True))
+    self.assertEqual((out['state'], out['evidence']), ('bootloader invalidated', {'zeroPage': '0x60000000', 'verified': True}))
 
   def test_cleanup_fails_when_the_new_session_has_to_write_the_zero_page_again(self):
     bat, rig = self.battery()

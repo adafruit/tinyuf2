@@ -147,7 +147,7 @@ def flash_addr(expr, flash_base, what):
 
 def cmake_var(path, name):
   """The value of the one `set(NAME value)` in a CMake file, ${TOP}/ read as the checkout; nothing else."""
-  hits = re.findall(rf'\bset\s*\(\s*{name}\b([^)]*)\)', (ROOT / path).read_text(), re.I)
+  hits = re.findall(rf'\bset\s*\(\s*{name}\b([^)]*)\)', cb.code_lines(ROOT / path), re.I)
   if len(hits) != 1:
     raise Refused(f'{path}: expected one set({name} ...), found {len(hits)}')
   v = hits[0].strip().removeprefix('${TOP}/')
@@ -173,7 +173,7 @@ def port_sources(port, bdir):
 
 
 def source_facts(board):
-  """What the candidate's source says about this board; the roster layout must agree with it."""
+  """What the candidate's source says about this board."""
   port = board['port']
   bdir = f'ports/{port}/boards/{board["name"]}'
   if not (ROOT / bdir).is_dir():
@@ -831,10 +831,11 @@ def sha256(p):
     return None
 
 
-def check_bootloader_bin(bin_path, install, app, board, facts, what):
+def check_bootloader_bin(bin_path, board, facts, what):
   """Every span a bootloader install writes: the BIN from the install start inside `install` and the zero
   page at the start of `app` inside it, both within the device's flash limits; and the BIN is this
   board's (its UF2_BOARD_ID)."""
+  install, app = board['install'], board['app']
   size = Path(bin_path).stat().st_size
   limits = FLASH_LIMITS[board['device']]
   check_ranges({install[0]: 0, install[0] + size - 1: 0}, [install], limits, what)
@@ -1042,13 +1043,11 @@ class Battery:
     return {'control': self.observe_app(app_bin), 'controlWatchedS': watch, 'controlBootedApp': True}
 
 
-
 def invalidate(board, facts, workdir, battery=None):
   """The board left unbootable: a zero page at the device's flash floor (FLASH_LIMITS, never the candidate's
   layout) written and read back, the target reset, then the zero page verified again from a new session."""
   base = FLASH_LIMITS[board['device']][0]
   bat = battery or Battery(board, facts, workdir)
-  bat.touched = True
   load, verify = f'loadbin {bat.zero},{base:#x}', f'verifybin {bat.zero},{base:#x}'
   bat.probe.run(['h', load, verify, 'r', 'g'])
   # with no boot image, a new session reads flash wrong until a loadbin has run (bench-observed on MIMXRT1062,
@@ -1115,7 +1114,7 @@ def run_board(args, board, facts, helper, workdir):
   check_ranges(data, [board['install']], FLASH_LIMITS[board['device']], files['hex'])
   if not hex_matches_bin(data, files['bin'], board['install'][0]):
     raise Refused(f'{files["hex"]} and {files["bin"]} do not hold the same bytes')
-  check_bootloader_bin(files['bin'], board['install'], board['app'], board, facts, 'candidate')
+  check_bootloader_bin(files['bin'], board, facts, 'candidate')
   exclusion_configured(facts, board['uid'])
   if shutil.which('mcopy') is None:
     raise Refused('mcopy must be on PATH')
@@ -1189,7 +1188,7 @@ def main(argv=None):
   sub = ap.add_subparsers(dest='cmd', required=True)
   r = sub.add_parser('run', help='the battery on one board (self-locking)')
   r.add_argument('-b', '--board', required=True)
-  r.add_argument('--build-record', required=True, help='check_build.py --board B --shared JSON, under cmake-build/')
+  r.add_argument('--build-record', required=True, help='check_build.py --board B --backend cmake --shared JSON, under cmake-build/')
   r.add_argument('--fail-at', choices=(*STEPS, 'cleanup'), help='acceptance only: fail this step, or the cleanup, '
                  'to exercise cleanup and its holder')
   r.add_argument('--try-reentry', choices=REENTRY, help="commissioning only, while the roster's reentry is unset")
@@ -1236,7 +1235,7 @@ def main(argv=None):
       manual_holder(helper, board['lock'], args.under_hold)
       if sha256(args.firmware) != args.sha256:
         raise Refused(f'{args.firmware} does not match --sha256')
-      check_bootloader_bin(args.firmware, board['install'], board['app'], board, facts, args.firmware)
+      check_bootloader_bin(args.firmware, board, facts, args.firmware)
       exclusion_configured(facts, board['uid'])
       check_jlink()
       try:

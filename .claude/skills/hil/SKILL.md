@@ -59,11 +59,11 @@ python3 .claude/skills/hil/scripts/hil_test.py run -b <board> --build-record cma
 The battery's steps on one board, all under one lock:
 1. **identity:** the probe is selected by serial.
 2. **install:** one image is written from the flash base and read back: the candidate bootloader, 0xFF up to the app start, then a zero page.
-3. **dfu:** the UF2 drive with this board's serial is found. `INFO_UF2.TXT` must name this build's version and board, and `CURRENT.UF2` must have its size.
+3. **dfu:** the UF2 drive with this board's serial is found. `INFO_UF2.TXT` must name this build's version and board, and `CURRENT.UF2` must have its size. The double-tap register is then cleared and read back, once the bootloader runs.
 4. **copy:** a generated app is copied to the drive.
 5. **app-ran:** the probe shows the app counting in thread mode with VTOR at the app start.
 6. **reenter:** the bootloader is re-entered by the commissioned path, and the drive's `CURRENT.UF2` reads the app back.
-7. **cleanup** (reported as `cleanup`, not a step): a zero page is written at the device's flash floor (`FLASH_LIMITS`, never the candidate's layout) and read back, the target reset, and the zero page verified again from a new session, so the board boots nothing (on MIMXRT1062 with BOOT_MODE 10b, Internal Boot, an error falls to the Serial Downloader: IMXRT1060RM rev 4 §9.3.5 p199). The double-tap register is cleared in `dfu` instead, once the bootloader runs.
+7. **cleanup** (reported as `cleanup`, not a step): a zero page is written at the device's flash floor (`FLASH_LIMITS`, never the candidate's layout) and read back, the target reset, and the zero page verified again from a new session, so the board boots nothing (on MIMXRT1062 with BOOT_MODE 10b, Internal Boot, an error falls to the Serial Downloader: IMXRT1060RM rev 4 §9.3.5 p199).
 
 A board's evidence is scoped as the report says. "app-ran" is execution after the bootloader handoff; a run triggered by the upload alone is unverified. "reenter" by `retained-register` is the forced-entry path, not a physical double tap.
 
@@ -149,7 +149,7 @@ Commissioning is the lead's, never `hil-operator`'s or a review's. It runs under
   Then `sudo udevadm control --reload`.
 - **Bootloader:** `install` a known-good TinyUF2 BIN under the hold and observe DFU.
 - **USB serial:** confirm the enumerated serial equals `uid` (sysfs or `lsusb -v`), and record the USB port paths. If it differs, fix `uid` and the rule together, reload, and `install` again; its reset re-enumerates the board and udev applies the reloaded rules, so no replug should be needed (by mechanism, not yet observed on a uid fix).
-- **Cleanup:** `invalidate` under the hold, then confirm from a new session the zero page at the flash floor and the ROM fallback (on MIMXRT1062, the serial downloader's USB device on the board's port), and that `install` succeeds from that state and DFU comes up. Record the reset notes J-Link prints with no boot image (`BENIGN`).
+- **Cleanup:** `invalidate` under the hold (its `cleanup.evidence` is the zero page verified from a new session), then confirm the ROM fallback (on MIMXRT1062, the serial downloader's USB device on the board's port), and that `install` succeeds from that state and DFU comes up. Record the reset notes J-Link prints with no boot image (`BENIGN`).
 - **Exclusion proof:** delete the temporary rule and reload before the re-entry run below; its `dfu` step passes only when `udevadm info` on the enumerated block device shows `UDISKS_IGNORE=1` (`check_exclusive`). A host rule that ignores a whole VID, such as tinyusb's `88-tinyusb.rules` for 239a, sets the same property, so the proof cannot tell it from the serial rule; the runner still requires the serial line.
 - **Loader footprint:** for each `loadbin` shape the runner issues, place sentinels just past the written range and elsewhere in its erase block. Confirm them from a fresh session before the operation under test, and again from another fresh session after it: a verify in the session that wrote them cannot show what a later operation destroys. Make the written data differ from what is on the flash, since a `loadbin` whose data already matches is skipped ("Contents already match") and erases nothing. Record the result in Limits.
 - **Fixture prerequisites,** before anything executes the battery's fixture:
