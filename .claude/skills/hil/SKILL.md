@@ -14,7 +14,8 @@ Run `hostname` first.
 - Any other host has no TinyUF2 rig yet; ci.lan is a follow-up. An agent that cannot ask (`hil-operator`) returns an operator-authored row per requested board (Reporting) with `detail` naming the host.
 
 A roster entry keeps tinyusb's shape (`name`, `uid`, `flasher {name, uid, args}`), so agentrc's `rtt.py`, `pc_sample.py` and `probe_state.py` resolve the probe with `--hil-config test/hil/local.json --board <name>`. Those scripts do not read the `tinyuf2` block: pass its J-Link settings yourself, `--interface swd --speed 4000` for `{"if": "SWD", "speed": "4000"}`. The `tinyuf2` block holds what only TinyUF2 needs:
-- the J-Link interface and speed;
+- the source board (`board`) when it differs from the roster name, as `imxrt1060_evk` does for `mimxrt1060_evk`;
+- the J-Link interface and speed, and the J-Link software `version` the board was commissioned with;
 - the install and app ranges, cross-checked against the board's source before any hardware access;
 - the pinned restoration image;
 - the re-entry path and the recovery note.
@@ -35,7 +36,7 @@ Locks are tinyusb's: one kernel flock per board in `/tmp/tinyusb-hil-locks/`, ta
      python3 .claude/skills/hil/scripts/hil_test.py restore -b <board> --under-hold "<reason>" test/hil/local.json
      ```
 
-     `install` writes the BIN at 0x0 and a zero page at the app start, reads both back, and refuses a BIN that is outside the install range or lacks this board's `UF2_BOARD_ID`. Both need the automount exclusion rule (Commissioning). Both refuse unless the hold is provably yours: the record's reason, a live pid, a FLOCK on the lock file in that pid's own fds, and a failing probe of the flock.
+     `install` writes the BIN at the board's flash base and a zero page at the app start, reads both back, and refuses a BIN that is outside the install range or lacks this board's `UF2_BOARD_ID`. Both need the automount exclusion rule (Commissioning). Both refuse unless the hold is provably yours: the record's reason, a live pid, a FLOCK on the lock file in that pid's own fds, and a failing probe of the flock.
   3. Release with `python3 <lock.helper> release <board>`, only after a `restore` that exited 0 with no `survivors`. Otherwise the board is not restored: keep the hold and report it as a blocker.
 
   Manual exits: 0 the operation succeeded (for `restore`, the board is restored and in DFU with the pinned version); 1 it failed and the board's state is unknown; 2 refused before any hardware access; 4 a child survived SIGKILL, so keep the hold until it is gone.
@@ -48,22 +49,25 @@ Locks are tinyusb's: one kernel flock per board in `/tmp/tinyusb-hil-locks/`, ta
 
 ```bash
 mkdir -p cmake-build/hil
-python3 .claude/skills/build/scripts/check_build.py --board <board> --shared > cmake-build/hil/<board>.build.json
-python3 .claude/skills/hil/scripts/hil_test.py run -b <board> --build-record cmake-build/hil/<board>.build.json test/hil/local.json
+python3 .claude/skills/build/scripts/check_build.py --board <src> --shared > cmake-build/hil/<src>.build.json
+python3 .claude/skills/hil/scripts/hil_test.py run -b <board> --build-record cmake-build/hil/<src>.build.json test/hil/local.json
 ```
 
+`<board>` is the roster name and `<src>` its source board (`tinyuf2.board`, else the roster name).
+
 - **Admission.** Before taking the lock the run checks the host, the automount exclusion rule, and every span it could write, the candidate's and the restoration image's (BIN, zero page, ceiling, board id, version, pinned hash), so a run never discovers an unusable recovery image after touching the board.
+- **J-Link version.** `run`, `install` and `restore` refuse (exit 2) unless the first `JLinkExe` on PATH is the roster's `tinyuf2.jlink.version`: the loader's footprint (Limits) was measured with that version only. Put it first on PATH (on htpc, `/opt/SEGGER/JLink_V978` for V9.78), or recommission the board with the new one. Recovery is gated the same way (Exit 4).
 - **Build record.** It is this contract's build receipt: build it on the clean, pinned HEAD and pass it with `--build-record`. It must come from the make backend (the only one supported yet). The run refuses a build record that is not clean, does not match the checkout now (HEAD, submodules, `get_deps` dependencies at their pins), or whose artifacts changed since. Commit first. A debug build goes through `install`, not the battery.
 - **Background.** Run it in the background; one board takes about 2 minutes. Use one board per run.
 - **Selection.** There are no examples or test names to select: a run is the whole battery on one board, and the board is the only selection.
 
 The battery's steps on one board, all under one lock:
 1. **identity:** the probe is selected by serial.
-2. **install:** the candidate bootloader is written with a zero page at the app start, then read back.
+2. **install:** the candidate bootloader is written at the flash base with a zero page at the app start, then read back.
 3. **dfu:** the UF2 drive with this board's serial is found. `INFO_UF2.TXT` must name this build's version and board, and `CURRENT.UF2` must have its size.
 4. **copy:** a generated app is copied to the drive.
 5. **app-ran:** the probe shows the app counting in thread mode with VTOR at the app start.
-6. **reenter:** the bootloader is re-entered by the commissioned path, and the drive reads the app back.
+6. **reenter:** the bootloader is re-entered by the commissioned path, and the drive's `CURRENT.UF2` reads the app back.
 7. **restore** (reported as `restored`, not a step): the pinned release bootloader is written, the double-tap register cleared, and DFU is observed with its version.
 
 A board's evidence is scoped as the report says. "app-ran" is execution after the bootloader handoff; a run triggered by the upload alone is unverified. "reenter" by `retained-register` is the forced-entry path, not a physical double tap.
@@ -92,11 +96,11 @@ A delegated run (`hil-operator`) returns `{pass, results, caveat, wedged}` and, 
 - On another host, where nothing was launched, the operator writes `pass: false`, `caveat: ""` and one row per requested board, exactly `{board, ran: false, pass: false, locked: false, detail}`, with `detail` naming the host.
 - A launched run that ended without printing its JSON (killed, crashed) may have programmed the board and left it unrestored. The operator writes `pass: false`, `caveat: "run ended without a report; board state unknown"` and the same row shape with `ran: null`, and `detail` naming the exit status, the output tail and `python3 <lock.helper> status` at that moment.
 - The operator runs the battery once and returns. It never waits on a lock and never retries: a `locked` row comes back as is, and the caller rules below are the caller's (chief's).
-- A recovery dispatch names the board, the holder pid and the failed run's `reportPath`. It runs `restore --recover-holder` in the foreground and returns `{pass, results, caveat: "", wedged, exit, error, survivors}`: that JSON's `results`, `error` (`null` when absent) and `survivors` (`[]` when absent), and the exit status. Any exit but 0 is a blocker for the caller. A probe that cannot connect is `needs-user` (ISP0 below).
+- A recovery dispatch names the board, the holder pid and the failed run's `reportPath`. It runs `restore --recover-holder` in the foreground and returns `{pass, results, caveat: "", wedged, exit, error, survivors}`: that JSON's `results`, `error` (`null` when absent) and `survivors` (`[]` when absent), and the exit status. Any exit but 0 is a blocker for the caller. A probe that cannot connect is `needs-user` (the roster's `recovery`).
 
 ### Review mapping
 
-A review (`pr-review`) maps each board's row:
+A review (`pr-review`) maps each board's row, except a commissioning run's (`commissioning: true`, from `--try-reentry`), which is never validation:
 - `pass`: `ran`, `pass` and `restored.pass` all true;
 - `fail`: `ran` and not `pass`, with a step whose `pass` is false, and that step's `detail`;
 - `not-run`: `ran` false (`locked`, a refusal or another host), with its `detail`;
@@ -125,7 +129,8 @@ A review (`pr-review`) maps each board's row:
     `python3 .claude/skills/hil/scripts/hil_test.py restore -b <board> --recover-holder <pid> --report <reportPath> test/hil/local.json`
 
     The command proves that pid holds the board as the failed run's cleanup holder and that none of the run's survivors and no J-Link process on the probe is alive, restores and verifies while the lock stays held, and only then releases the holder.
-  - If the probe cannot connect, a human holds ISP0 (PIO0_5) low at reset; that recovery is the human's.
+  - Recovery passes the J-Link version gate too. If the J-Link software changed since commissioning, recover with the commissioned version first on PATH, then recommission with the new one. If the commissioned version is gone, the board stays held: that is the lead's blocker.
+  - If the probe cannot connect, the roster's `recovery` names the human's path (serial download mode on mimxrt1060_evk); that recovery is the human's.
 
 ## Selection
 
@@ -133,37 +138,51 @@ A review (`pr-review`) maps each board's row:
 
 ## Commissioning a board
 
-Commissioning is the lead's, done interactively under a manual hold, not an agent's; a `commission` subcommand that does the probe work is pending, to be written and validated on the first board. Record each result in the board's commissioning note (agentrc `target-debug` project notes) and the roster. In this order:
-- **Automount exclusion:** `/etc/udev/rules.d/99-tinyuf2-hil.rules`, one line per board, in exactly this form (the runner accepts only this form, with exact `==` matches):
+Commissioning is the lead's, never `hil-operator`'s or a review's. It runs under a manual hold, except for the re-entry run, which locks itself. Record each result in the board's commissioning note (agentrc `target-debug` project notes) and in the roster. In this order:
+- **Cabling:** cable the USB port TinyUF2 enumerates on (`BOARD_TUD_RHPORT`). It can differ from the one tinyusb examples use: P10, not P9, on lpcxpresso55s69; USB OTG1 on mimxrt1060_evk. A DFU device "not seen" with no new device in `dmesg` is a cabling problem first. Keep the probe on a hub apart from the target's (Limits).
+- **Silicon revision,** before any other result: read it from the chip marking or registers, and check that revision's errata through read-doc. RT1060's DIGPROG does not tell A from B, so the marking decides.
+- **Automount exclusion:** `/etc/udev/rules.d/99-tinyuf2-hil.rules`, one line per board, with the VID and PID from the board's source, in exactly this form (the runner accepts only this form, with exact `==` matches):
 
   ```
-  SUBSYSTEM=="block", ATTRS{idVendor}=="1fc9", ATTRS{idProduct}=="0094", ATTRS{serial}=="<uid>", ENV{UDISKS_IGNORE}="1"
+  SUBSYSTEM=="block", ATTRS{idVendor}=="<vid>", ATTRS{idProduct}=="<pid>", ATTRS{serial}=="<uid>", ENV{UDISKS_IGNORE}="1"
   ```
 
   Write it with the roster's `uid`, before the serial can be confirmed: `install`, `restore` and `run` refuse without the rule, and a fresh board runs whatever tinyusb last flashed, not TinyUF2. A serial a running tinyusb example reports (`lsusb -v`) is an early cross-check, not a confirmation. Until the serial is confirmed, also inhibit automount for every board of this VID:PID with a temporary `/etc/udev/rules.d/98-tinyuf2-hil-commissioning.rules`:
 
   ```
-  SUBSYSTEM=="block", ATTRS{idVendor}=="1fc9", ATTRS{idProduct}=="0094", ENV{UDISKS_IGNORE}="1"
+  SUBSYSTEM=="block", ATTRS{idVendor}=="<vid>", ATTRS{idProduct}=="<pid>", ENV{UDISKS_IGNORE}="1"
   ```
 
   Then `sudo udevadm control --reload`.
+- **J-Link version:** set `tinyuf2.jlink.version` to the `JLinkExe` version first on PATH; every step below, `restore` included, refuses another.
 - **Recovery:** `restore --under-hold` the pinned image and observe DFU with its version.
-- **USB serial:** confirm the enumerated 1fc9:0094 serial equals `uid` (sysfs or `lsusb -v`), and record the USB port paths. If it differs, the restore cannot have observed DFU: fix `uid` and the rule together, reload, replug and restore again.
-- **Exclusion proof:** delete the temporary rule, reload, and `restore` once more: it passes only when `udevadm info` on the enumerated block device shows `UDISKS_IGNORE=1` from the serial rule alone (`check_exclusive`).
-- **Loader footprint:** one sentinel per programming operation; a page just past each written range must keep its pattern. Without SEGGER UM08001 the general footprint stays "documentation unavailable".
-- **Re-entry path**, with a valid application running, since the bootloader enters DFU for an invalid one before it reads the double-tap register (`src/main.c`):
-  1. Install the counter fixture through the drive and observe it running, as the battery's copy and app-ran steps do.
-  2. Save GPREG[6], write a sentinel to it, and verify the write.
-  3. Write the double-tap magic to the double-tap register, then SYSRESETREQ.
-  4. Record separately whether the sentinel survived and whether DFU came up.
-  5. Restore GPREG[6] to its saved value, on every path, failures included.
+- **USB serial:** confirm the enumerated serial equals `uid` (sysfs or `lsusb -v`), and record the USB port paths. If it differs, the restore cannot have observed DFU: fix `uid` and the rule together, reload, and restore again. The restore's reset re-enumerates the board and udev applies the reloaded rules, so no replug should be needed (by mechanism, not yet observed on a uid fix).
+- **Exclusion proof:** delete the temporary rule, reload, and `restore` once more: it passes only when `udevadm info` on the enumerated block device shows `UDISKS_IGNORE=1` (`check_exclusive`). A host rule that ignores a whole VID, such as tinyusb's `88-tinyusb.rules` for 239a, sets the same property, so the proof cannot tell it from the serial rule; the runner still requires the serial line.
+- **Loader footprint:** for each `loadbin` shape the runner issues, place sentinels just past the written range and elsewhere in its erase block. Confirm them from a fresh session before the operation under test, and again from another fresh session after it: a verify in the session that wrote them cannot show what a later operation destroys. Make the written data differ from what is on the flash, since a `loadbin` whose data already matches is skipped ("Contents already match") and erases nothing. Record the result in Limits.
+- **Fixture prerequisites,** before anything executes the battery's fixture:
+  - the app start meets VTOR's alignment for the fixture's vector table (`fixture()`);
+  - its stack top, the `m_data` origin the runner reads (`ram_origin`) + 0x1000, is in RAM enabled when the bootloader hands off: the ROM default per read-doc, which TinyUF2 does not reconfigure (DTCM on mimxrt1060_evk);
+  - under a hold, a word just below that stack top takes a written value and reads it back, and then its saved value (0x20000FFC on mimxrt1060_evk).
+- **Re-entry:** commit the roster entry without `reentry`, build the record, and run the battery in commissioning mode:
 
-  Set `reentry: retained-register` only when the sentinel survived and DFU came up. Any other result leaves `reentry` unset: file a `followup` issue with the observations for diagnosis, not as a diagnosed bug. `app-invalidate` is set only after that path is validated on its own.
-- **J-Link transcript shape:** that `regs` and `mem32` output parses (`after()`, `regs()`).
+  ```bash
+  python3 .claude/skills/hil/scripts/hil_test.py run -b <board> --build-record cmake-build/hil/<src>.build.json --try-reentry retained-register test/hil/local.json
+  ```
+
+  `--try-reentry` is the lead's only, and is refused once `reentry` is set. The row's `reentryDecision` names the method when the run passed or failed only at `reenter`'s `CURRENT.UF2` readback, every observation of the tried method is true (`controlBootedApp`, `dfuCameUp` and `magicConsumed` for `retained-register`), and the board was restored and not held. Set `reentry` to it and commit. A null decision leaves `reentry` unset: file a `followup` issue with the observations for diagnosis, not as a diagnosed bug. `app-invalidate` is set only after that path is validated on its own. When the drive copy itself fails, a fixture installed by hand with J-Link `loadbin` can isolate re-entry from the copy for diagnosis; it never sets `reentry`.
+- **J-Link transcript shape:** that `regs` and `mem32` output parses (`after()`, `regs()`), and which reset notes are benign. A benign note is exempted by device and exact text in `BENIGN`: on MIMXRT1062xxx6A, "Could not find valid reset vector." followed by "Target halted on flash header read.", printed on every reset while the app is invalid. In a hand-written session, `-ExitOnError 0` still exits at a failed verify, before any later command runs, and leaves the target halted: resume it from a new session (`g`, or `r` then `g`), or keep verifies in a session ahead of the one that resumes.
 
 ## Limits
 
-- Not covered: self-update, an interrupted update, malformed UF2 input, the physical double tap, and boards other than lpcxpresso55s69.
-- Every probe and USB path is unverified until commissioning has run on the board.
+- Covered: mimxrt1060_evk on htpc. Not covered: lpcxpresso55s69 (its 0A silicon hangs TinyUF2 on a UF2 copy, #500), ESP32 boards (#502), self-update, an interrupted update, malformed UF2 input and the physical double tap.
+- Every probe and USB path is unverified until commissioning has run on the board, and commissioning is manual.
+- J-Link's QSPI loader on mimxrt1060_evk is undocumented: SEGGER UM08001 has nothing on it. Measured with V9.78 at single sentinel points, with the 0.35.0 release BIN (30304 B) only:
+  - a BIN `loadbin` at 0x60000000 erased every point measured past the BIN in its block (0x60007800, 0x6000A000, the zero page at 0x6000C000, 0x6000C200), and J-Link reports 65536 bytes per operation, so [BIN end, 0x60010000) is treated as lost;
+  - a sentinel at 0x60010000, in the next block, survived a BIN `loadbin`;
+  - a zero-page `loadbin`, after a bootloader written in an earlier session, kept the whole bootloader (`verifybin`) and a sentinel at 0x6000A000.
+  - That a candidate BIN of another length behaves the same is an inference, not a measurement.
+  - That `loadbin` erases only the 64 KiB blocks its range touches, and never the chip, is an unverified premise these points support.
+  Under that premise, losses stay inside [0x60000000, 0x60010000), in regions the battery rewrites or never reads, while the install span and the zero page lie in that block.
+- A device hung mid-write makes the host controller retry its enumeration, which stalled a J-Link connect on the same hub for ~80 s (lpcxpresso55s69); that the hub is the cause is a hypothesis.
 - If no cleanup holder can be forked (exit 4 with `restored.holder.inProcess`), the runner never exits until recovered.
-- No reproducer for an instrumented build: the battery refuses a dirty build, and `install` only programs. A claim that needs one waits for the `commission` subcommand's steps, or is reported pending.
+- No reproducer for an instrumented build: the battery refuses a dirty build, and `install` only programs. A claim that needs one is reported pending.
