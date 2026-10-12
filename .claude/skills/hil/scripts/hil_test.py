@@ -20,7 +20,6 @@ import re
 import select
 import shutil
 import signal
-import socket
 import struct
 import subprocess
 import sys
@@ -80,9 +79,6 @@ def load_board(config, name):
   if len(boards) != 1:
     raise Refused(f'{config} has {len(boards)} entries named {name!r}')
   b = boards[0]
-  host = cfg.get('host')
-  if not isinstance(host, str) or not host:
-    raise Refused(f'{config}: "host" (the hostname this roster describes) is required')
   tinyusb = os.environ.get('TINYUSB_DIR')
   if not (tinyusb and os.path.isabs(tinyusb)):
     raise Refused('set TINYUSB_DIR to the absolute path of the tinyusb checkout whose test/hil/helper/hil_lock.py '
@@ -102,7 +98,7 @@ def load_board(config, name):
     raise Refused(f'{name}: the roster names a board by its TinyUF2 name: {e}')
   if m.group(1) not in FLASH_LIMITS:
     raise Refused(f'{name}: no programming limits known for J-Link device {m.group(1)}')
-  return {'name': name, 'lock': lock, 'host': host, 'uid': b['uid'], 'probe': fl['uid'], 'device': m.group(1),
+  return {'name': name, 'lock': lock, 'uid': b['uid'], 'probe': fl['uid'], 'device': m.group(1),
           'if': JLINK_IF, 'speed': JLINK_SPEED, 'port': port, 'page': ZERO_PAGE,
           'helper': os.path.join(tinyusb, 'test', 'hil', 'helper', 'hil_lock.py'),
           'reentry': t.get('reentry')}
@@ -543,7 +539,7 @@ def check_exclusive(dev):
   try:
     wait_for(lambda: udisks_ignored(dev), UDEV_TIMEOUT, f'UDISKS_IGNORE=1 on {dev}')
   except StepFail:
-    raise StepFail(f'{dev} has no UDISKS_IGNORE=1: desktop automount could race the raw I/O (SKILL.md, host)')
+    raise StepFail(f'{dev} has no UDISKS_IGNORE=1: desktop automount could race the raw I/O (SKILL.md, Commissioning)')
   mounted = [l.split()[0] for l in Path('/proc/mounts').read_text().splitlines()]
   if any(os.path.realpath(m) == dev for m in mounted):
     raise StepFail(f'{dev} is mounted; refusing raw I/O')
@@ -1102,8 +1098,6 @@ def reentry_decision(row):
 def run_board(args, board, facts, helper, workdir):
   row = {'board': board['name'], 'lock': board['lock'], 'ran': False, 'pass': False, 'locked': False,
          'lockBypassed': False, 'steps': [], 'cleanup': None, 'detail': ''}
-  if socket.gethostname() != board['host']:
-    raise Refused(f'this roster describes host {board["host"]!r}, not {socket.gethostname()!r}')
   if args.try_reentry:
     if board['reentry'] is not None:
       raise Refused(f'{board["name"]}: reentry is already commissioned; --try-reentry is for commissioning only')

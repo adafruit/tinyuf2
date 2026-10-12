@@ -1,5 +1,4 @@
 {
-  "host": "htpc",
   "boards": [
     {
       "name": "imxrt1060_evk",

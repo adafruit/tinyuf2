@@ -74,14 +74,14 @@ time.sleep(60)
 '''
 
 
-def roster(tmp, host='testhost', **over):
+def roster(tmp, **over):
   t = {'reentry': 'retained-register'}
   t.update(over.pop('tinyuf2', {}))
   b = {'name': BOARD, 'uid': 'UID', 'flasher': {'name': 'jlink', 'uid': '1', 'args': '-device LPC55S69_M33_0'},
        'tinyuf2': t}
   b.update(over)
   cfg = tmp / 'local.json'
-  cfg.write_text(json.dumps({'host': host, 'boards': [b]}))
+  cfg.write_text(json.dumps({'boards': [b]}))
   return cfg
 
 
@@ -134,7 +134,6 @@ class Roster(Tmp):
       'args': {'flasher': {'name': 'jlink', 'uid': '1', 'args': '-device LPC55S69_M33_0 -if SWD'}},
       'int uid': {'flasher': {'name': 'jlink', 'uid': 1, 'args': '-device LPC55S69_M33_0'}},
       'unknown device': {'flasher': {'name': 'jlink', 'uid': '1', 'args': '-device NRF52840_XXAA'}},
-      'no host': {'host': None},
       'bad lock name': {'tinyuf2': {'lock': '../x'}},
       'not a TinyUF2 board': {'name': 'no_such_board'},
     }
@@ -170,7 +169,7 @@ class Roster(Tmp):
 
   def test_the_committed_roster_is_well_formed_and_commissioned(self):
     b = self.load(ROOT / 'test' / 'hil' / 'local.json', 'imxrt1060_evk')
-    self.assertEqual((b['host'], b['lock'], b['reentry']), ('htpc', 'mimxrt1060_evk', 'retained-register'))
+    self.assertEqual((b['lock'], b['reentry']), ('mimxrt1060_evk', 'retained-register'))
     self.assertEqual(b['install'], (0x60000000, 0x6000C000))
 
 
@@ -638,7 +637,6 @@ class RunBoard(Tmp):
               mock.patch.object(ht, 'check_jlink', lambda: None),
               mock.patch.object(ht, 'check_bootloader_bin', lambda *a: None),
               mock.patch.object(ht, 'exclusion_configured', lambda *a: None),
-              mock.patch.object(ht.socket, 'gethostname', lambda: 'testhost'),
               mock.patch.object(ht.shutil, 'which', lambda t: '/usr/bin/' + t)):
       p.start()
       self.addCleanup(p.stop)
@@ -710,9 +708,7 @@ class RunBoard(Tmp):
     row, code, _ = self.run_board(ok)
     self.assertEqual((code, row['commissioning'], row['reentryDecision']), (0, True, 'retained-register'))
 
-  def test_another_host_or_an_uncommissioned_board_is_refused_before_the_lock(self):
-    with mock.patch.object(ht.socket, 'gethostname', lambda: 'ci'), self.assertRaisesRegex(ht.Refused, 'host'):
-      self.run_board(lambda *a: self.fail('ran'))
+  def test_an_uncommissioned_board_is_refused_before_the_lock(self):
     self.board['reentry'] = None
     with self.assertRaisesRegex(ht.Refused, 'commissioning'):
       self.run_board(lambda *a: self.fail('ran'))

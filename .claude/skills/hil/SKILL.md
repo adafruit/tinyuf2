@@ -1,18 +1,16 @@
 ---
 name: hil
-description: The TinyUF2 HIL contract. Use when a change needs hardware evidence on a rig board, when a debug or validation session must take, flash, clean up or release a TinyUF2 rig board, or when a workflow asks for "the project's HIL contract". Runs the bootloader battery on the host's roster boards, owns the board lock, and reports pass/fail per board with target-side evidence.
+description: The TinyUF2 HIL contract. Use when a change needs hardware evidence on a rig board, when a debug or validation session must take, flash, clean up or release a TinyUF2 rig board, or when a workflow asks for "the project's HIL contract". Runs the bootloader battery on the roster's boards, owns the board lock, and reports pass/fail per board with target-side evidence.
 ---
 
 # HIL contract
 
 `scripts/hil_test.py` holds the mechanics: roster and source checks, firmware binding, locking, the probe and USB steps, cleanup and the JSON report. Agents call it instead of composing J-Link, mtools or lock commands. This page is the judgment.
 
-## Host and roster
+## Roster
 
-Run `hostname` first.
-- `htpc`: the roster is `test/hil/local.json`, whose `host` names it; `run` refuses on any other host.
+- The roster is `test/hil/local.json`, the boards on htpc's bench. On a machine without a board, its run fails at `identity`, where J-Link finds no probe with that serial, before anything is written. ci.lan has no TinyUF2 rig yet (a follow-up).
 - `TINYUSB_DIR` must name the tinyusb checkout whose `test/hil/helper/hil_lock.py` owns the board locks; every command refuses without it. Set it in the login profile, which headless sessions (chief, `hil-operator`) inherit.
-- Any other host has no TinyUF2 rig yet; ci.lan is a follow-up. An agent that cannot ask (`hil-operator`) returns an operator-authored row per requested board (Reporting) with `detail` naming the host.
 
 A roster entry is named by its TinyUF2 board (`ports/<port>/boards/<name>`, which also gives the port) and keeps tinyusb's shape (`name`, `uid`, `flasher {name, uid, args}`), so agentrc's `rtt.py`, `pc_sample.py` and `probe_state.py` resolve the probe with `--hil-config test/hil/local.json --board <name>`. The runner uses SWD at 4000 kHz; pass the same to those scripts, `--interface swd --speed 4000`. The roster holds the board's hardware only; layouts come from the candidate's source. The `tinyuf2` block holds:
 - the board lock name (`lock`) when tinyusb names the board differently, as `mimxrt1060_evk` for `imxrt1060_evk`; both runners take that one lock, and the helper's `status`, holder records and the report rows' `lock` show it. It defaults to the board name;
@@ -53,7 +51,7 @@ python3 .claude/skills/hil/scripts/hil_test.py run -b <board> --build-record cma
 
 `<board>` is the roster name, the TinyUF2 board name.
 
-- **Admission.** Before taking the lock the run checks the host, the automount exclusion rule, and every span it could write (BIN, zero page, the device's flash limits, board id), with the install and app spans taken from the candidate's source.
+- **Admission.** Before taking the lock the run checks the automount exclusion rule, and every span it could write (BIN, zero page, the device's flash limits, board id), with the install and app spans taken from the candidate's source.
 - **Build record.** It is this contract's build receipt: build it on the clean, pinned HEAD and pass it with `--build-record`. It must be a cmake build (`--backend cmake`), whatever backend CI builds the port with; board facts are read from the port's CMake files too. The run refuses a build record that is not clean, does not match the checkout now (HEAD, submodules, `get_deps` dependencies at their pins), or whose artifacts changed since. Commit first. A debug build goes through `install`, not the battery.
 - **Background.** Run it in the background; one board takes about 2 minutes. Use one board per run.
 - **Selection.** There are no examples or test names to select: a run is the whole battery on one board, and the board is the only selection.
@@ -90,17 +88,16 @@ A delegated run (`hil-operator`) returns `{pass, results, caveat, wedged}` and, 
 - `wedged` lists the boards the operator saw stop responding;
 - `reportPaths` maps each board to its JSON's `reportPath`, which a recovery dispatch needs.
 - With several boards, the operator runs one battery per board, one after another: `results` holds every board's row, `pass` is true only when every run's is, and `caveat` joins the runs' non-empty caveats.
-- On another host, where nothing was launched, the operator writes `pass: false`, `caveat: ""` and one row per requested board, exactly `{board, ran: false, pass: false, locked: false, detail}`, with `detail` naming the host.
-- A launched run that ended without printing its JSON (killed, crashed) may have programmed the board and left it running a candidate. The operator writes `pass: false`, `caveat: "run ended without a report; board state unknown"` and the same row shape with `ran: null`, and `detail` naming the exit status, the output tail and `python3 $TINYUSB_DIR/test/hil/helper/hil_lock.py status` at that moment.
+- A launched run that ended without printing its JSON (killed, crashed) may have programmed the board and left it running a candidate. The operator writes `pass: false`, `caveat: "run ended without a report; board state unknown"` and one row per board, exactly `{board, ran: null, pass: false, locked: false, detail}`, with `detail` naming the exit status, the output tail and `python3 $TINYUSB_DIR/test/hil/helper/hil_lock.py status` at that moment.
 - The operator runs the battery once and returns. It never waits on a lock and never retries: a `locked` row comes back as is, and the caller rules below are the caller's (chief's).
 - A recovery dispatch names the board, the holder pid and the failed run's `reportPath`. It runs `invalidate --recover-holder` in the foreground and returns `{pass, results, caveat: "", wedged, exit, error, survivors}`: that JSON's `results`, `error` (`null` when absent) and `survivors` (`[]` when absent), and the exit status. Any exit but 0 is a blocker for the caller. A probe that cannot connect is `needs-user` (the board's recovery note, Exit 4).
 
 ### Review mapping
 
-A review (`pr-review`) maps each board's row, except a commissioning run's (`commissioning: true`, from `--try-reentry`), which is never validation:
+A review (`pr-review`) maps each board's row, except a commissioning run's (`commissioning: true`, from `--try-reentry`), which is never validation. A blocker takes precedence over every other mapping:
 - `pass`: `ran`, `pass` and `cleanup.pass` all true;
-- `fail`: `ran` and not `pass`, with a step whose `pass` is false, and that step's `detail`;
-- `not-run`: `ran` false (`locked`, a refusal or another host), with its `detail`;
+- `fail`: `ran` and not `pass`, with a failing step other than `identity`, and that step's `detail`;
+- `not-run`: `ran` false (`locked` or a refusal), or a failing `identity`, with its `detail`. `identity` runs before anything is written, so its failure is the rig's: no probe with that serial on this machine, or one unplugged or dead;
 - a blocker, never a `fail` row: exit 4, `ran: null` (no report), and an abort, which is `ran` and not `pass` with no failing step (an interruption or an unexpected error, named in the board's `detail`).
 
 `testedHead` is the build record's `input.head`. `regression` is `unknown` unless the battery also ran on the merge base.
