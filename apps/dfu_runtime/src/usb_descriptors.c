@@ -83,14 +83,18 @@ static uint16_t _desc_str[48 + 1];
 
 uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
   (void) langid;
-  char const* str;
-  uint8_t chr_count;
+  char const* str = NULL;
+  uint8_t chr_count = 0;
 
   switch (index) {
     case STRID_LANGID:
       _desc_str[1] = 0x0409;
       chr_count = 1;
       break;
+
+    case STRID_MANUFACTURER: str = "TinyUF2"; break;
+    case STRID_PRODUCT: str = "TinyUF2 DFU runtime example"; break;
+    case STRID_DFU_RT: str = dfu_rt_string; break;
 
     // same format as TinyUF2's serial, so the app and the bootloader report one identity
     case STRID_SERIAL: {
@@ -106,17 +110,14 @@ uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
     }
 
     default:
-      switch (index) {
-        case STRID_MANUFACTURER: str = "TinyUF2"; break;
-        case STRID_PRODUCT: str = "TinyUF2 DFU runtime example"; break;
-        case STRID_DFU_RT: str = dfu_rt_string; break;
-        default: return NULL;
-      }
-      chr_count = (uint8_t) TU_MIN(strlen(str), TU_ARRAY_SIZE(_desc_str) - 1);
-      for (uint8_t i = 0; i < chr_count; i++) {
-        _desc_str[1 + i] = str[i];
-      }
-      break;
+      return NULL;
+  }
+
+  if (str != NULL) {
+    chr_count = (uint8_t) TU_MIN(strlen(str), TU_ARRAY_SIZE(_desc_str) - 1);
+    for (uint8_t i = 0; i < chr_count; i++) {
+      _desc_str[1 + i] = str[i];
+    }
   }
 
   _desc_str[0] = (uint16_t) ((TUSB_DESC_STRING << 8) | (2 * chr_count + 2));

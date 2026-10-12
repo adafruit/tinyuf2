@@ -584,11 +584,11 @@ def expected_artifacts(port, board, backend, root):
     return exp
   return [bin_dir / f for f in ('tinyuf2.bin', 'bootloader.bin', 'partition-table.bin', 'ota_data_initial.bin',
                                 'flash_args', 'combined.bin', 'apps/update-tinyuf2.uf2', 'apps/blinky.uf2',
-                                'apps/dfu_runtime.uf2')]
+                                f'apps/{HIL_APP}.uf2')]
 
 
 # what an IDF build's flash layout also depends on: the HIL admits its segments only against these
-IDF_CONFIG = ('sdkconfig', 'flasher_args.json')
+IDF_CONFIG = ('sdkconfig',)
 
 
 def build_make(port, board, root, defines, log, verbose, rec):

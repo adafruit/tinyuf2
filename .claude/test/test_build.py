@@ -620,7 +620,7 @@ class BuildBoard(unittest.TestCase):
          mock.patch.object(cb, 'git', lambda *a: str(self.build_dir)):
       rec = cb.build_board('espressif_esp32s3_devkitc_1', 'idf', self.args, {'image': 'espressif/idf:v5.3.2'})
       self.assertEqual(rec['status'], 'ok', rec)
-      self.assertLessEqual({'sdkconfig', 'flasher_args.json', '_bin/flash_args', '_bin/ota_data_initial.bin'},
+      self.assertLessEqual({'sdkconfig', '_bin/flash_args', '_bin/ota_data_initial.bin', '_bin/apps/dfu_runtime.uf2'},
                            set(rec['sha256']))
       made.remove('sdkconfig')
       rec = cb.build_board('espressif_esp32s3_devkitc_1', 'idf', self.args, {'image': 'espressif/idf:v5.3.2'})

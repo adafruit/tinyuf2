@@ -41,8 +41,8 @@ import hil_esp as esp  # noqa: E402
 # Table 3-1) holding the EVK's 8 MiB IS25WP064A (EVK hardware user's guide 2.7).
 FLASH_LIMITS = {'LPC55S69_M33_0': (0, 0x9D800), 'MIMXRT1062xxx6A': (0x60000000, 0x60800000)}
 FLASHER_ARGS = {'jlink': r'-device (\S+)', 'esptool': r'--chip (\w+)'}
-STEPS = {'jlink': ('identity', 'install', 'dfu', 'copy', 'app-ran', 'reenter'),
-         'esptool': ('identity', 'install', 'dfu', 'copy', 'app-ran', 'reenter', 'recopy')}
+STEPS = {'jlink': ('identity', 'install', 'dfu', 'copy', 'app-ran', 'reenter')}
+STEPS['esptool'] = STEPS['jlink'] + ('recopy',)
 REENTRY = {'jlink': ('retained-register', 'app-invalidate'), 'esptool': ('dfu-detach',)}
 PROTECTED = {'hil_test.py', 'pool_check'}   # tinyusb hil_lock.PROTECTED_REASONS, checked at load
 HOLDER_ROLE = 'cleanup-holder'
@@ -236,10 +236,10 @@ def esp_source_facts(board, bdir):
                detectionDelayMs=int(delay.group(1)) if delay else
                num(define('ports/espressif/bootloader_components/main/bootloader_start.c', 'UF2_DETECTION_DELAY_MS'),
                    'UF2_DETECTION_DELAY_MS'),
-               appVid=num(define('apps/dfu_runtime/src/usb_descriptors.c', 'USB_VID'), 'USB_VID'),
-               appPid=num(define('apps/dfu_runtime/src/usb_descriptors.c', 'USB_PID'), 'USB_PID'),
-               nonceOffset=num(define('ports/espressif/apps/dfu_runtime/main/board_dfu_runtime.c', 'NONCE_BLOCK_OFFSET'),
-                               'NONCE_BLOCK_OFFSET'))
+               appVid=num(define(f'apps/{cb.HIL_APP}/src/usb_descriptors.c', 'USB_VID'), 'USB_VID'),
+               appPid=num(define(f'apps/{cb.HIL_APP}/src/usb_descriptors.c', 'USB_PID'), 'USB_PID'),
+               family=int(cmake_var('ports/espressif/family.cmake', f'UF2_FAMILY_ID_{board["device"]}'), 16),
+               flashCache=product(define('ports/espressif/boards/board_flash.c', 'FLASH_CACHE_SIZE'), 'FLASH_CACHE_SIZE'))
   return facts
 
 
@@ -524,39 +524,37 @@ def esp_port(uid):
   return os.path.realpath(hits[0])
 
 
+def child_json(cmd, log, timeout, what):
+  """The JSON last line of a helper child (esp_session.py, usb_dfu.py, fat-read); a missing line, a non-zero
+  exit or an `ok` other than true fails the step with the helper's `reason` (else `error`) and the output tail."""
+  code, out = spawn(cmd, log, timeout)
+  tail = out.strip().splitlines()[-5:]
+  try:
+    res = json.loads(tail[-1])
+  except (IndexError, ValueError):
+    res = None
+  if not isinstance(res, dict):
+    raise StepFail(f'{what} ended without its JSON (exit {code})', {'tail': tail})
+  if code or res.get('ok') is not True:
+    raise StepFail(f'{what}: {res.get("reason") or res.get("error")}', {'tail': tail, 'error': res.get('error')})
+  return res
+
+
 class Esptool:
   """esptool sessions on one board, each one connection in its own child (esp_session.py)."""
   def __init__(self, board, workdir, log):
     self.b, self.dir, self.log = board, workdir, log
-    self.retried = []
 
   def run(self, ops, after):
     spec = self.dir / f'esp-{time.monotonic_ns()}.json'
     spec.write_text(json.dumps(ops))
-    cmd = [sys.executable, '-B', ESP_SESSION, '--port', esp_port(self.b['probe']), '--chip', self.b['device'],
-           '--baud', str(ESP_BAUD), '--after', after, spec]
-    code, out = spawn(cmd, self.log, ESP_TIMEOUT)
-    tail = out.strip().splitlines()[-5:]
-    try:
-      res = json.loads(tail[-1])
-    except (IndexError, ValueError):
-      raise StepFail(f'esp_session.py ended without its JSON (exit {code})', {'tail': tail})
-    if code or not res.get('ok'):
-      raise StepFail(f'esptool session failed: {res.get("error")}', {'tail': tail})
-    return res['results']
+    return child_json([sys.executable, '-B', ESP_SESSION, '--port', esp_port(self.b['probe']), '--chip', self.b['device'],
+                       '--baud', str(ESP_BAUD), '--after', after, spec], self.log, ESP_TIMEOUT, 'esptool session')['results']
 
   def boot_log(self, seconds=ESP_BOOT_LOG_S):
     """The UART output after an EN reset, captured by a child like every other bridge operation."""
-    code, out = spawn([sys.executable, '-B', ESP_SESSION, '--port', esp_port(self.b['probe']), '--boot-log', seconds],
-                      self.log, seconds + ESP_BOOT_LOG_MARGIN)
-    tail = out.strip().splitlines()[-5:]
-    try:
-      res = json.loads(tail[-1])
-    except (IndexError, ValueError):
-      raise StepFail(f'esp_session.py --boot-log ended without its JSON (exit {code})', {'tail': tail})
-    if code or not res.get('ok'):
-      raise StepFail(f'boot log capture failed: {res.get("error")}', {'tail': tail})
-    return res['results'][0]['text']
+    return child_json([sys.executable, '-B', ESP_SESSION, '--port', esp_port(self.b['probe']), '--boot-log', seconds],
+                      self.log, seconds + ESP_BOOT_LOG_MARGIN, 'boot log capture')['results'][0]['text']
 
 
 def preserved_ops(regions):
@@ -586,30 +584,38 @@ def check_esp_identity(board, facts, results):
   return ev
 
 
-def esp_program(esp, board, segments, workdir):
-  """Write every segment, read each back byte for byte and check the preserved regions' MD5s before and after,
-  all in one connection, then one reset."""
+def esp_program(esp, board, segments, workdir, snapshot=None):
+  """Write every segment and read each back byte for byte in one connection, then one reset. The preserved
+  regions' MD5s after the writes must equal `snapshot`'s (the battery's identity) or, without one, MD5s taken
+  in the same connection before the writes (a manual install)."""
   reads = [(off, path, workdir / f'readback-{off:x}.bin') for off, path in segments]
   keep = board['regions']['preserved']
-  ops = [{'op': 'expect-mac', 'mac': board['uid']}] + preserved_ops(keep) + \
+  ops = [{'op': 'expect-mac', 'mac': board['uid']}] + ([] if snapshot else preserved_ops(keep)) + \
         [{'op': 'write', 'addr': off, 'file': str(path)} for off, path in segments] + \
         [{'op': 'read', 'addr': off, 'size': path.stat().st_size, 'file': str(rb)} for off, path, rb in reads] + \
         preserved_ops(keep)
-  results = esp.run(ops, 'hard-reset')
-  before, after = preserved_md5(keep, results[1:len(keep) + 1]), preserved_md5(keep, results[-len(keep):])
+  md5s = [r for r in esp.run(ops, 'hard-reset') if r['op'] == 'md5']
+  before = snapshot['md5'] if snapshot else preserved_md5(keep, md5s[:len(keep)])
+  after = preserved_md5(keep, md5s[-len(keep):])
   if before != after:
-    raise StepFail('a preserved region changed during the install', {'before': before, 'after': after})
+    raise StepFail('a preserved region changed by the end of the install', {'before': before, 'after': after})
   for off, path, rb in reads:
     if rb.read_bytes() != path.read_bytes():
-      raise StepFail(f'{path.name} at {off:#x} does not read back as written')
-  return before
+      raise StepFail(f'{path.name} does not read back as written', {'addr': hex(off)})
+  return {'preserved': after, 'writes': [write_span(path.name, off, path.stat().st_size) for off, path in segments]}
+
+
+def write_span(what, addr, length, block=0x1000):
+  """A write's payload span and the `block`-aligned span covering it."""
+  lo, hi = addr // block * block, -(-(addr + length) // block) * block
+  return {'what': what, 'span': [hex(addr), hex(addr + length)], 'blocks': [hex(lo), hex(hi)]}
 
 
 def esp_install(board, facts, segments, workdir):
   """Identity first, so nothing is written to a board other than the roster's, then the segments."""
   tool = Esptool(board, workdir, workdir / 'hil.log')
   ev = check_esp_identity(board, facts, tool.run([{'op': 'mac'}, {'op': 'security'}, {'op': 'flash-size'}], 'no-reset'))
-  ev['preserved'] = esp_program(tool, board, segments, workdir)
+  ev.update(esp_program(tool, board, segments, workdir))
   return ev
 
 
@@ -630,33 +636,30 @@ def report_snapshot(row):
   return {'regions': {n: tuple(r) for n, r in regions.items()}, 'md5': md5}
 
 
-def esp_invalidate(board, workdir, battery=None, snapshot=None):
+def esp_invalidate(board, tool, snapshot=None):
   """The board left unbootable: the bootloader's first sector erased and read back, an EN reset with its boot
   output captured, then the sector read as erased from a new session, and the preserved regions' MD5s
-  compared with the run's own snapshot ({'regions', 'md5'}: the battery's, or a recovery's from the failed
-  run's report) when there is one."""
+  compared with `snapshot` ({'regions', 'md5'}: the battery's, or a recovery's from the failed run's report)
+  when there is one."""
   lo = esp.BOOTLOADER_OFFSET[board['device']]
-  log = battery.log if battery else workdir / 'hil.log'
-  tool = battery.tool if battery else Esptool(board, workdir, log)
-  first, second = workdir / 'erased-1.bin', workdir / 'erased-2.bin'
+  first, second = tool.dir / 'erased-1.bin', tool.dir / 'erased-2.bin'
   # the roster's MAC before the erase, in the same connection: recovery has no other identity check
   tool.run([{'op': 'expect-mac', 'mac': board['uid']}, {'op': 'erase', 'addr': lo, 'size': ESP_SECTOR},
             {'op': 'read', 'addr': lo, 'size': ESP_SECTOR, 'file': str(first)}], 'no-reset')
   if first.read_bytes() != b'\xff' * ESP_SECTOR:
-    raise StepFail(f'the bootloader sector at {lo:#x} does not read back erased')
+    raise StepFail('the bootloader sector does not read back erased')
   boot = tool.boot_log()
   # recovery runs without candidate source, so without a layout: the snapshot carries its own regions
-  snap = battery.preserved if battery else snapshot
   results = tool.run([{'op': 'expect-mac', 'mac': board['uid']}, {'op': 'read', 'addr': lo, 'size': ESP_SECTOR,
                                                                     'file': str(second)}] +
-                     (preserved_ops(snap['regions']) if snap else []), 'hard-reset')
+                     (preserved_ops(snapshot['regions']) if snapshot else []), 'hard-reset')
   if second.read_bytes() != b'\xff' * ESP_SECTOR:
     raise StepFail('the erased bootloader sector did not persist past the reset')
   ev = {'erased': f'{lo:#x}+{ESP_SECTOR:#x}', 'verified': True, 'bootLog': boot.strip().splitlines()[-6:]}
-  if snap:
-    now = preserved_md5(snap['regions'], results[2:])
-    if now != snap['md5']:
-      raise StepFail('a preserved region changed during the run', dict(ev, before=snap['md5'], after=now))
+  if snapshot:
+    now = preserved_md5(snapshot['regions'], results)
+    if now != snapshot['md5']:
+      raise StepFail('a preserved region changed during the run', dict(ev, before=snapshot['md5'], after=now))
     ev['preserved'] = 'unchanged'
   return {'pass': True, 'state': 'bootloader invalidated', 'evidence': ev}
 
@@ -754,9 +757,24 @@ def check_exclusive(dev):
 class Fat:
   """Read-only FAT12/16 reader for the ghostfat volume. Its geometry and chains come from the firmware
   under test, so every one is bounded; it runs in its own process (fat_read) so a stuck USB read cannot
-  hold the process that owns cleanup."""
+  hold the process that owns cleanup. It keeps one descriptor for its life: the device's last close drops its
+  page cache (Linux block/bdev.c blkdev_put_whole -> kill_bdev), so a reader that reopened it per read would
+  cost a USB read per cluster (bench: the nonce block 4 MiB into CURRENT.UF2 took >20s)."""
   def __init__(self, dev):
-    self.dev = dev
+    self.dev, self.fd = dev, os.open(dev, os.O_RDONLY)
+    try:
+      self._geometry()
+    except BaseException:
+      os.close(self.fd)
+      raise
+
+  def __enter__(self):
+    return self
+
+  def __exit__(self, *exc):
+    os.close(self.fd)
+
+  def _geometry(self):
     bs = self.read(0, 512)
     self.bps, self.spc, self.res, self.nfat = struct.unpack_from('<HBHB', bs, 11)
     self.roots, = struct.unpack_from('<H', bs, 17)
@@ -767,16 +785,10 @@ class Fat:
     self.root = (self.res + self.nfat * self.spf) * self.bps
     self.data = self.root + self.roots * 32
     self.fat16 = bs[54:62].startswith(b'FAT16')
-    # read once: each read opens the device, and its last close drops the page cache, so a chain walked
-    # entry by entry costs a USB read per cluster (bench: the nonce block 4 MiB into CURRENT.UF2 took >20s)
-    self.fat = self.read(self.res * self.bps, self.spf * self.bps)
+    self.fat = self.read(self.res * self.bps, self.spf * self.bps)   # the first FAT, walked in memory
 
   def read(self, off, n):
-    fd = os.open(self.dev, os.O_RDONLY)
-    try:
-      b = os.pread(fd, n, off)
-    finally:
-      os.close(fd)
+    b = os.pread(self.fd, n, off)
     if len(b) != n:
       raise ValueError(f'short read at {off:#x}: {len(b)} of {n} bytes')
     return b
@@ -823,26 +835,25 @@ class Fat:
 
 def fat_read(dev, name, length, log, offset=0):
   """{'entries': {...}, 'data': bytes} of `name` on `dev`, read by a bounded child process."""
-  code, out = spawn([sys.executable, '-B', __file__, 'fat-read', '--dev', dev, '--file', name,
-                     '--length', str(length), '--offset', str(offset)], log, USB_TIMEOUT)
   try:
-    r = json.loads(out.strip().splitlines()[-1])
-  except (ValueError, IndexError):
-    raise StepFail(f'fat-read of {name} gave no result (exit {code})', {'tail': out.strip().splitlines()[-3:]})
-  if 'error' in r:
-    raise StepFail(f'{name}: {r["reason"]}', {'dev': dev, 'error': r['error']})
+    r = child_json([sys.executable, '-B', __file__, 'fat-read', '--dev', dev, '--file', name, '--length', str(length),
+                    '--offset', str(offset)], log, USB_TIMEOUT, name)
+  except StepFail as e:
+    e.evidence['dev'] = dev
+    raise
   return {'entries': r['entries'], 'data': bytes.fromhex(r['data']), 'size': r['size']}
 
 
 def fat_read_main(args):
   try:
-    fat = Fat(args.dev)
-    data, size = fat.file(args.file, args.length, args.offset) if args.length else (b'', fat.entries()[args.file][1])
-    print(json.dumps({'entries': fat.entries(), 'data': data.hex(), 'size': size}))
+    with Fat(args.dev) as fat:
+      entries = fat.entries()
+      data, size = fat.file(args.file, args.length, args.offset) if args.length else (b'', entries[args.file][1])
+    print(json.dumps({'ok': True, 'entries': entries, 'data': data.hex(), 'size': size}))
   except (OSError, ValueError, KeyError, struct.error) as e:
     # reason: the same failure reads the same in every run; an OSError's text names the device node
     reason = f'{type(e).__name__}: {e.strerror}' if isinstance(e, OSError) and e.strerror else f'{type(e).__name__}: {e}'
-    print(json.dumps({'error': f'{type(e).__name__}: {e}', 'reason': reason}))
+    print(json.dumps({'ok': False, 'error': f'{type(e).__name__}: {e}', 'reason': reason}))
   return 0
 
 
@@ -1105,8 +1116,7 @@ def esp_record(record_path, rec, row, root, board, facts):
   except (esp.Refused, OSError, ValueError) as e:
     raise Refused(f'{record_path}: {e}')
   app = root / '_bin' / 'tinyuf2.bin'
-  chunks = esp_app_chunks(root / esp.APP_UF2, facts, board)
-  return {'segments': segments, 'appChunks': chunks}, {'path': str(app), 'sha256': sha256(app), 'buildRecord': str(record_path),
+  return {'segments': segments, **esp_app_chunks(root / esp.APP_UF2, facts, board)}, {'path': str(app), 'sha256': sha256(app), 'buildRecord': str(record_path),
                                   'defines': rec.get('defines', []), 'version': embedded_version(app)}
 
 
@@ -1347,8 +1357,10 @@ def pack_uf2(chunks, family):
 
 
 def esp_app_chunks(uf2_path, facts, board):
-  """The 256-byte chunks of the record's apps/dfu_runtime.uf2: one family, contiguous from address 0
-  (espressif UF2 addresses are ota_0 offsets), ending before the nonce block, which fits in ota_0."""
+  """The 256-byte chunks of the record's apps/dfu_runtime.uf2 (one family, contiguous from address 0: espressif
+  UF2 addresses are ota_0 offsets) and the nonce block's offset, ota_0's last 256 bytes, where the app reads it.
+  The image must end before it, and TinyUF2's flash cache window over it must lie inside ota_0
+  (board_flash.c reads and rewrites the whole FLASH_CACHE_SIZE-aligned window)."""
   try:
     blocks = parse_uf2(Path(uf2_path).read_bytes())
   except (OSError, ValueError) as e:
@@ -1357,11 +1369,12 @@ def esp_app_chunks(uf2_path, facts, board):
     if (bl['no'], bl['total'], bl['addr'], bl['size'], bl['family']) != (i, len(blocks), 256 * i, 256, facts['family']) \
        or not bl['flags'] & UF2_FLAG_FAMILY:
       raise Refused(f'{uf2_path}: block {i} is not block {i} of {len(blocks)} at {256 * i:#x} for family {facts["family"]:#x}')
-  off, size = facts['nonceOffset'], board['app'][1] - board['app'][0]
-  if not blocks or 256 * len(blocks) > off or off % 256 or off + NONCE_BLOCK > size:
-    raise Refused(f'{uf2_path}: the app [0, {256 * len(blocks):#x}) and the nonce block at {off:#x} do not both fit '
-                  f'in the {size:#x} app partition in order')
-  return [bl['data'] for bl in blocks]
+  size, cache = board['app'][1] - board['app'][0], facts['flashCache']
+  off = size - NONCE_BLOCK
+  if not blocks or off < 256 * len(blocks) or off % 256 or off // cache * cache + cache > size:
+    raise Refused(f'{uf2_path}: the app [0, {256 * len(blocks):#x}) and the nonce block at {off:#x} (in a {cache:#x} '
+                  f'cache window) do not both fit in the {size:#x} app partition in order')
+  return {'appChunks': [bl['data'] for bl in blocks], 'nonceOffset': off}
 
 
 class EspBattery(Battery):
@@ -1380,49 +1393,40 @@ class EspBattery(Battery):
     res = self.tool.run([{'op': 'mac'}, {'op': 'security'}, {'op': 'flash-size'}] + preserved_ops(keep), 'hard-reset')
     ev = check_esp_identity(self.b, self.f, res)
     # in the report too: a recovery compares against it without candidate source
-    ev.update(preserved=preserved_md5(keep, res[3:]), preservedRegions={n: list(r) for n, r in keep.items()})
+    ev.update(preserved=preserved_md5(keep, res), preservedRegions={n: list(r) for n, r in keep.items()})
     self.preserved = {'regions': keep, 'md5': ev['preserved']}
     return ev
 
   def install(self, segments):
     self.touched = True
-    before = esp_program(self.tool, self.b, segments, self.dir)
-    if before != self.preserved['md5']:
-      raise StepFail('a preserved region changed between identity and install',
-                     {'identity': self.preserved['md5'], 'install': before})
-    return {'segments': [f'{off:#x} {p.name}' for off, p in segments], 'readBack': True}
+    ev = esp_program(self.tool, self.b, segments, self.dir, snapshot=self.preserved)
+    return {'writes': ev['writes'], 'readBack': True}
 
   def usb_dfu(self, op):
     f = self.f
-    code, out = spawn([sys.executable, '-B', USB_DFU, '--vid', hex(f['appVid']), '--pid', hex(f['appPid']),
-                       '--serial', self.b['uid'], '--path', self.usb_path, op], self.log, USB_TIMEOUT)
-    tail = out.strip().splitlines()[-3:]
-    try:
-      res = json.loads(tail[-1])
-    except (IndexError, ValueError):
-      raise StepFail(f'usb_dfu.py {op} ended without its JSON (exit {code})', {'tail': tail})
-    if code or not res.get('ok'):
-      raise StepFail(f'usb_dfu.py {op} failed: {res.get("error")}', {'tail': tail})
-    return res
+    return child_json([sys.executable, '-B', USB_DFU, '--vid', hex(f['appVid']), '--pid', hex(f['appPid']),
+                       '--serial', self.b['uid'], '--path', self.usb_path, op], self.log, USB_TIMEOUT, f'usb_dfu.py {op}')
 
   def app(self):
     return usb_device(self.f['appVid'], self.f['appPid'], self.b['uid'])
 
-  def copy_app(self, chunks, step):
-    nonce = os.urandom(16)
+  def copy_app(self, step):
+    self.nonce, cache = os.urandom(16), self.f['flashCache']
+    image = 256 * len(self.chunks)
     uf2 = self.dir / f'{step}.uf2'
-    uf2.write_bytes(pack_uf2([(256 * i, c) for i, c in enumerate(chunks)] + [(self.f['nonceOffset'], nonce_block(nonce))],
-                             self.f['family']))
-    return self.copy(uf2, len(chunks) + 1, nonce), nonce
+    uf2.write_bytes(pack_uf2([(256 * i, c) for i, c in enumerate(self.chunks)] +
+                             [(self.nonce_off, nonce_block(self.nonce))], self.f['family']))
+    return dict(self.copy(uf2, len(self.chunks) + 1, self.nonce),
+                writes=[write_span('app image', 0, image, cache), write_span('nonce block', self.nonce_off, NONCE_BLOCK, cache)])
 
-  def app_ran(self, nonce):
+  def app_ran(self):
     f = self.f
     path = wait_for(self.app, USB_TIMEOUT, f'the app {f["appVid"]:04x}:{f["appPid"]:04x} serial {self.b["uid"]}')
     ev = {'usb': path}
     if path != self.usb_path:
       raise StepFail('the app came up on another USB port than DFU', dict(ev, expected=self.usb_path))
     ev['string'] = self.usb_dfu('string')['string']
-    if ev['string'] != f'HIL {nonce.hex()}':
+    if ev['string'] != f'HIL {self.nonce.hex()}':
       raise StepFail('the app does not report this copy\'s nonce', ev)
     time.sleep(QUIET_TIME)
     if usb_device(f['vid'], f['pid'], self.b['uid']):
@@ -1431,7 +1435,7 @@ class EspBattery(Battery):
       raise StepFail('the app left the bus', ev)
     return ev
 
-  def reenter(self, chunks, nonce, version):
+  def reenter(self, version):
     ev = {'path': self.b['reentry']}
     try:
       self.usb_dfu('detach')
@@ -1443,10 +1447,10 @@ class EspBattery(Battery):
       e.evidence = {**ev, **e.evidence}
       raise
     try:
-      if self.current_uf2(512 * len(chunks)) != b''.join(chunks):
+      if self.current_uf2(512 * len(self.chunks)) != b''.join(self.chunks):
         raise StepFail('CURRENT.UF2 does not read back the app image')
-      off = self.f['nonceOffset']
-      if self.current_uf2(512, off // 256 * 512) != nonce_block(nonce):
+      off = self.nonce_off
+      if self.current_uf2(512, off // 256 * 512) != nonce_block(self.nonce):
         raise StepFail(f'CURRENT.UF2 does not read back the nonce block at {off:#x}')
     except StepFail as e:
       e.evidence = {**ev, **e.evidence, 'failedAt': 'readback', 'appIntact': 'unshown'}
@@ -1455,18 +1459,14 @@ class EspBattery(Battery):
     return ev
 
   def run(self, files, version):
-    chunks = files['appChunks']
+    self.chunks, self.nonce_off = files['appChunks'], files['nonceOffset']
     self.step('identity', self.identity)
     self.step('install', lambda: self.install(files['segments']))
     self.step('dfu', lambda: self.dfu(version))
-    nonce = {}
-    def copy(step):
-      ev, nonce[step] = self.copy_app(chunks, step)
-      return ev
-    self.step('copy', lambda: copy('copy'))
-    self.step('app-ran', lambda: self.app_ran(nonce['copy']))
-    self.step('reenter', lambda: self.reenter(chunks, nonce['copy'], version))
-    self.step('recopy', lambda: dict(copy('recopy'), **self.app_ran(nonce['recopy']),
+    self.step('copy', lambda: self.copy_app('copy'))
+    self.step('app-ran', self.app_ran)
+    self.step('reenter', lambda: self.reenter(version))
+    self.step('recopy', lambda: dict(self.copy_app('recopy'), **self.app_ran(),
                                      claim='a fresh copy boots the app after re-entry'))
 
 
@@ -1474,7 +1474,9 @@ def invalidate(board, facts, workdir, battery=None, snapshot=None):
   """The board left unbootable: a zero page at the device's flash floor (FLASH_LIMITS, never the candidate's
   layout) written and read back, the target reset, then the zero page verified again from a new session."""
   if board['flasher'] == 'esptool':
-    return esp_invalidate(board, workdir, battery, snapshot)
+    if battery:
+      return esp_invalidate(board, battery.tool, battery.preserved)
+    return esp_invalidate(board, Esptool(board, workdir, workdir / 'hil.log'), snapshot)
   base = FLASH_LIMITS[board['device']][0]
   bat = battery or Battery(board, facts, workdir)
   load, verify = f'loadbin {bat.zero},{base:#x}', f'verifybin {bat.zero},{base:#x}'
@@ -1606,7 +1608,9 @@ def run_board(args, board, facts, helper, workdir):
   except BaseException as e:   # anything after admission still cleans up below
     row['detail'] = f'{bat.at}: {e}' if isinstance(e, StepFail) else f'{bat.at}: {type(e).__name__}: {e}'
     code = 1
-  row['steps'], row['jlinkRetried'] = bat.steps, bat.probe.retried   # the cleanup's retries land here too
+  row['steps'] = bat.steps
+  if board['flasher'] == 'jlink':
+    row['jlinkRetried'] = bat.probe.retried   # the cleanup's retries land here too
   code = clean_up(row, code, bat, fh, board, facts, helper, workdir)
   if row.get('commissioning'):
     row['reentryDecision'] = reentry_decision(row)

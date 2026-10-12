@@ -7,6 +7,8 @@ import re
 import struct
 from pathlib import Path
 
+from check_build import HIL_APP
+
 # 2nd-stage bootloader offset per chip, independent of the build: the ROM loads it from here (IDF v5.3.2
 # bootloader/Kconfig.projbuild BOOTLOADER_OFFSET_IN_FLASH, esptool 5.2.0 targets/esp32s3.py; no checked TRM states it)
 BOOTLOADER_OFFSET = {'esp32s3': 0x0}
@@ -19,8 +21,8 @@ TYPE = {'app': APP, 'data': DATA}
 SEGMENT_PATHS = {'bootloader/bootloader.bin': 'bootloader.bin', 'partition_table/partition-table.bin': 'partition-table.bin',
                  'ota_data_initial.bin': 'ota_data_initial.bin', 'tinyuf2.bin': 'tinyuf2.bin'}
 SEGMENTS = tuple(SEGMENT_PATHS.values())
-APP_UF2 = '_bin/apps/dfu_runtime.uf2'   # the battery's app, copied through TinyUF2
-RECORD_FILES = ('_bin/flash_args', *(f'_bin/{s}' for s in SEGMENTS), APP_UF2, 'sdkconfig', 'flasher_args.json')
+APP_UF2 = f'_bin/apps/{HIL_APP}.uf2'   # the battery's app, copied through TinyUF2
+RECORD_FILES = ('_bin/flash_args', *(f'_bin/{s}' for s in SEGMENTS), APP_UF2, 'sdkconfig')
 IMAGE_MAGIC = 0xE9
 
 
@@ -74,8 +76,7 @@ def sdkconfig(text):
 
 
 def facts(root, board):
-  """What the candidate's source says about an espressif board: target, flash size, partitions, USB
-  identity, UF2 family and the GPIO0 detection window."""
+  """What the candidate's source says about an espressif board's chip, flash size and partitions."""
   bdir = f'ports/espressif/boards/{board["name"]}'
   m = re.search(r'^\s*set\s*\(\s*IDF_TARGET\s+"?(\w+)"?\s*\)', (root / bdir / 'board.cmake').read_text(), re.M)
   if not m or m.group(1) != board['device']:
@@ -86,17 +87,12 @@ def facts(root, board):
   name = cfg.get('CONFIG_PARTITION_TABLE_CUSTOM_FILENAME', '').strip('"')
   if len(sizes) != 1 or not re.fullmatch(r'partitions-[\w-]+\.csv', name):
     raise Refused(f'{bdir}/sdkconfig: expected one CONFIG_ESPTOOLPY_FLASHSIZE_<N>MB=y and a partitions-*.csv')
-  family = re.search(rf'^\s*set\s*\(\s*UF2_FAMILY_ID_{board["device"]}\s+(0x[0-9a-fA-F]+)\s*\)',
-                     (root / 'ports/espressif/family.cmake').read_text(), re.M)
-  if not family:
-    raise Refused(f'ports/espressif/family.cmake: no UF2_FAMILY_ID_{board["device"]}')
   return {'flashSize': sizes[0] * 1024 * 1024, 'partitionCsv': name,
-          'partitions': parse_csv((root / 'ports/espressif' / name).read_text(), name),
-          'family': int(family.group(1), 16)}
+          'partitions': parse_csv((root / 'ports/espressif' / name).read_text(), name)}
 
 
 def layout(f, chip):
-  """Where the runner may write, from the partitions: the install segments' regions, the app (ota_0, which
+  """Where the runner may write, from the partitions: each install segment's region, the app (ota_0, which
   only TinyUF2 writes, through copy), and every other partition, preserved."""
   parts = {p[0]: p for p in f['partitions']}
   by_kind = {(p[1], p[2]): p for p in f['partitions']}
@@ -104,17 +100,17 @@ def layout(f, chip):
   missing = [k for k, v in need.items() if v not in by_kind]
   if missing:
     raise Refused(f'{f["partitionCsv"]}: no {", ".join(missing)} partition')
-  boot = BOOTLOADER_OFFSET[chip]
-  spans = sorted((p[3], p[3] + p[4], p[0]) for p in f['partitions'])
-  spans = [(boot, PARTITION_TABLE[0], 'bootloader'), (PARTITION_TABLE[0], sum(PARTITION_TABLE), 'partition table')] + spans
+  span = lambda p: (p[3], p[3] + p[4])
+  install = {'bootloader.bin': (BOOTLOADER_OFFSET[chip], PARTITION_TABLE[0]),
+             'partition-table.bin': (PARTITION_TABLE[0], sum(PARTITION_TABLE)),
+             'ota_data_initial.bin': span(by_kind[need['otadata']]), 'tinyuf2.bin': span(by_kind[need['factory']])}
+  spans = sorted([(*install['bootloader.bin'], 'bootloader'), (*install['partition-table.bin'], 'partition table')] +
+                 [(*span(p), p[0]) for p in f['partitions']])
   for (s0, e0, a), (s1, e1, b) in zip(spans, spans[1:]):
     if e0 > s1:
       raise Refused(f'{f["partitionCsv"]}: {a} [{s0:#x},{e0:#x}) overlaps {b} at {s1:#x}')
   if spans[-1][1] > f['flashSize']:
     raise Refused(f'{f["partitionCsv"]}: {spans[-1][2]} ends at {spans[-1][1]:#x}, past the {f["flashSize"]:#x} flash')
-  span = lambda p: (p[3], p[3] + p[4])
-  install = {'bootloader': (boot, PARTITION_TABLE[0]), 'partition table': (PARTITION_TABLE[0], sum(PARTITION_TABLE)),
-             'otadata': span(by_kind[need['otadata']]), 'factory': span(by_kind[need['factory']])}
   owned = {by_kind[v][0] for v in need.values()}
   return {'install': install, 'app': span(by_kind[need['app']]),
           'preserved': {n: span(p) for n, p in parts.items() if n not in owned}}
@@ -158,8 +154,6 @@ def admit(root, board, f, lay):
                ('flash_size', gen.get('CONFIG_ESPTOOLPY_FLASHSIZE'))):
     if f'"{settings.get(k)}"' != v:
       raise Refused(f'flash_args --{k} {settings.get(k)} differs from the generated sdkconfig {v}')
-  where = {'bootloader.bin': 'bootloader', 'partition-table.bin': 'partition table', 'ota_data_initial.bin': 'otadata',
-           'tinyuf2.bin': 'factory'}
   if sorted(segs.values()) != sorted(SEGMENTS):
     raise Refused(f'flash_args names {sorted(segs.values())}, not exactly {sorted(SEGMENTS)}')
   table = parse_table((root / '_bin' / 'partition-table.bin').read_bytes(), 'partition-table.bin')
@@ -168,11 +162,13 @@ def admit(root, board, f, lay):
   out = []
   for off, name in sorted(segs.items()):
     path = root / '_bin' / name
-    lo, hi = lay['install'][where[name]]
+    lo, hi = lay['install'][name]
     size = path.stat().st_size
     if off != lo or off + size > hi:
-      raise Refused(f'{name} [{off:#x},{off + size:#x}) is not at the start of its {where[name]} region [{lo:#x},{hi:#x})')
-    if name in ('bootloader.bin', 'tinyuf2.bin') and path.read_bytes()[:1] != bytes([IMAGE_MAGIC]):
+      raise Refused(f'{name} [{off:#x},{off + size:#x}) is not at the start of its region [{lo:#x},{hi:#x})')
+    with open(path, 'rb') as fh:
+      magic = fh.read(1)
+    if name in ('bootloader.bin', 'tinyuf2.bin') and magic != bytes([IMAGE_MAGIC]):
       raise Refused(f'{name} is not an ESP image (no 0xE9 magic)')
     out.append((off, path))
   return out

@@ -303,7 +303,6 @@ def idf_build(root, parts=S3_PARTS, flash_args=None, sdk=None):
            'sdkconfig': sdk or ('CONFIG_IDF_TARGET="esp32s3"\nCONFIG_ESPTOOLPY_FLASHMODE="dio"\nCONFIG_ESPTOOLPY_FLASHFREQ="80m"\n'
                                 'CONFIG_ESPTOOLPY_FLASHSIZE="8MB"\nCONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-8MB.csv"\n'
                                 'CONFIG_PARTITION_TABLE_OFFSET=0x8000\n'),
-           'flasher_args.json': '{}',
            '_bin/apps/dfu_runtime.uf2': ht.pack_uf2([(256 * i, bytes([i]) * 256) for i in range(3)], 0xc47e5767)}
   (root / '_bin' / 'apps').mkdir()
   for rel, data in files.items():
@@ -337,12 +336,13 @@ class Esp(Tmp):
     self.assertEqual((f['flashSize'], f['partitionCsv'], f['partitions']), (0x800000, 'partitions-8MB.csv', S3_PARTS))
     self.assertEqual((f['vid'], f['pid'], f['boardId'], f['family'], f['detectionDelayMs']),
                      (0x239a, 0x00a5, 'ESP32S3-DevKitC-v1.0', 0xc47e5767, 500))
+    self.assertEqual(f['flashCache'], 0x10000)
     self.assertEqual((self.board['flasher'], self.board['probe'], self.board['device']), ('esptool', 'cp2102n', 'esp32s3'))
 
   def test_the_layout_names_what_an_install_writes_and_what_is_preserved(self):
     lay = self.board['regions']
-    self.assertEqual(lay['install'], {'bootloader': (0, 0x8000), 'partition table': (0x8000, 0x9000),
-                                      'otadata': (0xe000, 0x10000), 'factory': (0x410000, 0x450000)})
+    self.assertEqual(lay['install'], {'bootloader.bin': (0, 0x8000), 'partition-table.bin': (0x8000, 0x9000),
+                                      'ota_data_initial.bin': (0xe000, 0x10000), 'tinyuf2.bin': (0x410000, 0x450000)})
     self.assertEqual(lay['app'], (0x10000, 0x210000))
     self.assertEqual(lay['preserved'], {'nvs': (0x9000, 0xe000), 'ota_1': (0x210000, 0x410000),
                                         'ffat': (0x450000, 0x800000)})
@@ -379,7 +379,7 @@ class Esp(Tmp):
       'another image': ({}, {'mode': 'docker', 'image': 'espressif/idf:v5.4'}, 'only'),
       'a cmake build': ({'backend': 'cmake'}, None, 'idf builds only'),
       'a segment moved': ({'flash_args': fa.replace('0x410000', '0x400000') + '0xe000 ota_data_initial.bin\n'}, None,
-                          'not at the start of its factory region'),
+                          'tinyuf2.bin .* is not at the start of its region \\[0x410000,0x450000\\)'),
       'combined.bin flashed': ({'flash_args': fa + '0xe000 ota_data_initial.bin\n0x0 combined.bin\n'}, None, 'two segments'),
       'another file': ({'flash_args': fa + '0xd000 combined.bin\n'}, None, "'combined.bin' is not one of"),
       'an escaping path': ({'flash_args': fa.replace('0x0 bootloader/', '0x0 ../../x/') + '0xe000 ota_data_initial.bin\n'},
@@ -502,10 +502,21 @@ class EspFlash(EspFake):
       self.assertEqual(self.flash.read_bytes(), before)
 
   def test_a_bad_read_back_or_a_touched_preserved_region_fails_the_install(self):
-    for env, err in (({'FAKE_ESP_CORRUPT': '0x410000'}, 'tinyuf2.bin at 0x410000 does not read back'),
-                     ({'FAKE_ESP_SPILL': '1'}, 'preserved region changed during the install')):
+    for env, err in (({'FAKE_ESP_CORRUPT': '0x410000'}, 'tinyuf2.bin does not read back as written'),
+                     ({'FAKE_ESP_SPILL': '1'}, 'preserved region changed by the end of the install')):
       with self.subTest(err), mock.patch.dict(os.environ, env), self.assertRaisesRegex(ht.StepFail, err):
         ht.esp_install(self.board, self.facts, self.segments, self.work)
+
+  def test_a_battery_install_compares_the_preserved_regions_with_its_identity_snapshot(self):
+    tool, keep = ht.Esptool(self.board, self.work, self.work / 'hil.log'), self.board['regions']['preserved']
+    snap = {'regions': keep, 'md5': ht.preserved_md5(keep, tool.run(ht.preserved_ops(keep), 'no-reset'))}
+    ev = ht.esp_program(tool, self.board, self.segments, self.work, snapshot=snap)
+    self.assertEqual(ev['preserved'], snap['md5'])
+    self.assertEqual(ev['writes'][-1], {'what': 'tinyuf2.bin', 'span': ['0x410000', hex(0x410000 + self.segments[-1][1].stat().st_size)],
+                                        'blocks': ['0x410000', ev['writes'][-1]['blocks'][1]]})
+    self.assertEqual(self.sessions()[-1]['ops'], ['expect-mac'] + ['write'] * 4 + ['read'] * 4 + ['md5'] * 3)
+    with self.assertRaisesRegex(ht.StepFail, 'preserved region changed by the end of the install'):
+      ht.esp_program(tool, self.board, self.segments, self.work, snapshot=dict(snap, md5=dict(snap['md5'], nvs='x')))
 
   def test_invalidate_erases_the_bootloader_sector_and_rereads_it_from_a_new_session(self):
     bat = mock.Mock(log=self.work / 'hil.log', tool=ht.Esptool(self.board, self.work, self.work / 'hil.log'))
@@ -698,7 +709,7 @@ class EspRig:
       if cmd[-1] == 'detach':
         self.on = 'dfu' if self.detach_leaves else 'app'
         return 0, json.dumps({'ok': True, 'interface': 0})
-      blk = self.stale or self.app.get(self.bat.f['nonceOffset'], b'')
+      blk = self.stale or self.app.get(self.bat.nonce_off, b'')
       return 0, json.dumps({'ok': True, 'interface': 0, 'string': f'HIL {blk[12:28].hex()}'})
     code, out = self.real_spawn(cmd, log, timeout, cwd)
     if 'hard-reset' in map(str, cmd) and any(o['op'] == 'write' for o in json.loads(Path(cmd[-1]).read_text())):
@@ -734,7 +745,7 @@ class EspBatteryRun(EspFake):
               mock.patch.object(ht.time, 'monotonic', lambda: clock[0] + 1e-3)):
       p.start()
       self.addCleanup(p.stop)
-    files = {'segments': self.segments, 'appChunks': ht.esp_app_chunks(self.tmp / 'b' / ht.esp.APP_UF2, self.facts, self.board)}
+    files = {'segments': self.segments, **ht.esp_app_chunks(self.tmp / 'b' / ht.esp.APP_UF2, self.facts, self.board)}
     return bat, rig, files
 
   def test_every_step_passes_with_a_fresh_nonce_per_copy(self):
@@ -749,7 +760,10 @@ class EspBatteryRun(EspFake):
     self.assertEqual(ev['dfu']['claim'], 'DFU observed')
     for blocks in rig.copied:
       self.assertEqual([(b['no'], b['total']) for b in blocks], [(i, len(blocks)) for i in range(len(blocks))])
-      self.assertEqual((blocks[-1]['addr'], blocks[-1]['data'][:8]), (self.facts['nonceOffset'], b'TUF2NONC'))
+      self.assertEqual((blocks[-1]['addr'], blocks[-1]['data'][:8]), (0x1fff00, b'TUF2NONC'))
+    self.assertEqual(ev['copy']['writes'][1], {'what': 'nonce block', 'span': ['0x1fff00', '0x200000'],
+                                               'blocks': ['0x1f0000', '0x200000']})
+    self.assertEqual(ev['copy']['writes'][0]['blocks'][0], '0x0')
     self.assertEqual(set(ev['identity']['preserved']), {'nvs', 'ota_1', 'ffat'})
     self.assertTrue(bat.touched)
     self.assertEqual(self.sessions()[0]['args'][-1], 'hard-reset')   # identity leaves an untouched board running
@@ -784,9 +798,9 @@ class EspBatteryRun(EspFake):
     real = rig.fat_read
     def fat_read(dev, name, length, log, offset=0):
       if offset:
-        rig.app[self.facts['nonceOffset']] = ht.nonce_block(bytes(16))
+        rig.app[0x1fff00] = ht.nonce_block(bytes(16))
       return real(dev, name, length, log, offset)
-    with mock.patch.object(ht, 'fat_read', fat_read), self.assertRaisesRegex(ht.StepFail, 'nonce block at 0x1f0000'):
+    with mock.patch.object(ht, 'fat_read', fat_read), self.assertRaisesRegex(ht.StepFail, 'nonce block at 0x1fff00'):
       bat.run(files, 'v1')
     self.assertEqual(bat.steps[-1]['evidence']['failedAt'], 'readback')
 
@@ -794,12 +808,24 @@ class EspBatteryRun(EspFake):
     uf2 = self.tmp / 'a.uf2'
     fam = self.facts['family']
     cases = {'a gap': [(0, bytes(256)), (0x200, bytes(256))], 'another family': None,
-             'reaching the nonce block': [(256 * i, bytes(256)) for i in range(0x1F01)]}
+             'reaching the nonce block': [(256 * i, bytes(256)) for i in range(0x2000)]}
     for what, chunks in cases.items():
       with self.subTest(what):
         uf2.write_bytes(ht.pack_uf2(chunks or [(0, bytes(256))], fam if chunks else 0x1234))
         with self.assertRaises(ht.Refused):
           ht.esp_app_chunks(uf2, self.facts, self.board)
+
+  def test_the_nonce_block_ends_the_app_partition_inside_one_cache_window(self):
+    uf2 = self.tmp / 'a.uf2'
+    uf2.write_bytes(ht.pack_uf2([(0, bytes(256))], self.facts['family']))
+    for size, off in ((0x200000, 0x1fff00), (0x160000, 0x15ff00), (0x151000, None), (0x8000, None)):
+      with self.subTest(hex(size)):
+        board = dict(self.board, app=(0x10000, 0x10000 + size))
+        if off is None:
+          with self.assertRaisesRegex(ht.Refused, 'cache window'):
+            ht.esp_app_chunks(uf2, self.facts, board)
+        else:
+          self.assertEqual(ht.esp_app_chunks(uf2, self.facts, board)['nonceOffset'], off)
 
 
 class EspSession(Tmp):
@@ -1092,20 +1118,40 @@ def fat_image():
     return img
 
 
+class ChildJson(Tmp):
+  """A helper child succeeds only with exit 0 and a last-line JSON object whose ok is true."""
+
+  def child(self, line, code=0):
+    return [sys.executable, '-c', f'import sys; print({line!r}); sys.exit({code})']
+
+  def test_only_ok_true_with_exit_0_passes(self):
+    log = self.tmp / 'log'
+    self.assertEqual(ht.child_json(self.child('{"ok": true, "x": 1}'), log, 30, 'h')['x'], 1)
+    for line, code in (('{}', 0), ('{"ok": 0}', 0), ('{"ok": null}', 0), ('{"error": "transfer failed"}', 0),
+                       ('[true]', 0), ('not json', 0), ('{"ok": true}', 1)):
+      with self.subTest(line=line, code=code), self.assertRaises(ht.StepFail):
+        ht.child_json(self.child(line, code), log, 30, 'h')
+
+
 class Fat(Tmp):
+  def setUp(self):
+    super().setUp()
+    fds = os.listdir('/proc/self/fd')
+    self.addCleanup(lambda: self.assertEqual(len(os.listdir('/proc/self/fd')), len(fds), 'a Fat left its descriptor open'))
+
   def vol(self, img):
     dev = self.tmp / 'vol'
     dev.write_bytes(bytes(img))
     return str(dev)
 
   def test_reads_entries_and_a_file_prefix(self):
-    fat = ht.Fat(self.vol(fat_image()))
-    self.assertEqual(fat.entries(), {'INFO_UF2.TXT': (2, 5), 'CURRENT.UF2': (3, 1024)})
-    self.assertEqual(fat.file('INFO_UF2.TXT'), (b'hello', 5))
-    self.assertEqual(fat.file('CURRENT.UF2', 600)[0], b'a' * 512 + b'b' * 88)
+    with ht.Fat(self.vol(fat_image())) as fat:
+      self.assertEqual(fat.entries(), {'INFO_UF2.TXT': (2, 5), 'CURRENT.UF2': (3, 1024)})
+      self.assertEqual(fat.file('INFO_UF2.TXT'), (b'hello', 5))
+      self.assertEqual(fat.file('CURRENT.UF2', 600)[0], b'a' * 512 + b'b' * 88)
 
   def test_an_offset_skips_whole_clusters_unread(self):
-    fat = ht.Fat(self.vol(fat_image()))
+    fat = self.enterContext(ht.Fat(self.vol(fat_image())))
     reads = []
     real = fat.read
     with mock.patch.object(fat, 'read', lambda off, n: reads.append(off) or real(off, n)):
@@ -1128,13 +1174,16 @@ class Fat(Tmp):
     struct.pack_into('<H', img, 512 + 8, 3)   # cluster 4 -> 3: a loop, read until the file's 4 KiB
     struct.pack_into('<I', img, (1 + 2 * 1) * 512 + 32 + 28, 4096)
     with self.assertRaisesRegex(ValueError, 'chain broken'):
-      ht.Fat(self.vol(img)).file('CURRENT.UF2')
+      with ht.Fat(self.vol(img)) as fat:
+        fat.file('CURRENT.UF2')
     img = fat_image()
     struct.pack_into('<H', img, 512 + 6, 0)   # cluster 3 -> free
     with self.assertRaisesRegex(ValueError, 'chain broken'):
-      ht.Fat(self.vol(img)).file('CURRENT.UF2')
+      with ht.Fat(self.vol(img)) as fat:
+        fat.file('CURRENT.UF2')
     with self.assertRaisesRegex(ValueError, 'short read'):
-      ht.Fat(self.vol(fat_image()[:3 * 512])).entries()   # the root dir is cut off
+      with ht.Fat(self.vol(fat_image()[:3 * 512])) as fat:   # the root dir is cut off
+        fat.entries()
 
   def test_fat_read_runs_in_a_bounded_child_and_reports_errors_as_step_failures(self):
     log = self.tmp / 'log'

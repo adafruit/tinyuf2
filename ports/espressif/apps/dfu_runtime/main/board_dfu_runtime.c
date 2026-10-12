@@ -38,9 +38,6 @@
 // ports/espressif/bootloader_components/main/bootloader_start.c APP_REQUEST_UF2_RESET_HINT
 #define APP_REQUEST_UF2_RESET_HINT  0x11F2
 
-// nonce block's UF2 address, which TinyUF2 takes as an offset into ota_0: the last 64 KiB of an 8 MB board's ota_0
-#define NONCE_BLOCK_OFFSET          0x1F0000
-
 extern int main(void);
 
 static esp_timer_handle_t timer_hdl;
@@ -75,6 +72,7 @@ void board_dfu_init(void) {
     .controller = USB_PHY_CTRL_OTG,
     .target = USB_PHY_TARGET_INT,
     .otg_mode = USB_OTG_MODE_DEVICE,
+    // https://github.com/hathach/tinyusb/issues/2943#issuecomment-2601888322
     .otg_speed = USB_PHY_SPEED_UNDEFINED,
   };
   usb_new_phy(&phy_conf, &phy_hdl);
@@ -93,10 +91,11 @@ void board_reboot_to_bootloader(void) {
   esp_restart();
 }
 
+// the HIL runner puts the nonce block in the running partition's last 256 bytes
 bool board_nonce_block_read(uint8_t block[NONCE_BLOCK_SIZE]) {
   esp_partition_t const* part = esp_ota_get_running_partition();
-  if (part == NULL || part->size < NONCE_BLOCK_OFFSET + NONCE_BLOCK_SIZE) {
+  if (part == NULL || part->size < NONCE_BLOCK_SIZE) {
     return false;
   }
-  return esp_partition_read(part, NONCE_BLOCK_OFFSET, block, NONCE_BLOCK_SIZE) == ESP_OK;
+  return esp_partition_read(part, part->size - NONCE_BLOCK_SIZE, block, NONCE_BLOCK_SIZE) == ESP_OK;
 }
