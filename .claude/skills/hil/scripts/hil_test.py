@@ -45,7 +45,7 @@ SCB_VTOR, SCB_AIRCR, SCB_CPUID, DHCSR = 0xE000ED08, 0xE000ED0C, 0xE000ED00, 0xE0
 AIRCR_SYSRESETREQ = 0x05FA0004
 UF2_MAGIC = (0x0A324655, 0x9E5D5157, 0x0AB16F30)
 UF2_FLAG_FAMILY = 0x2000
-PROBE_TIMEOUT, USB_TIMEOUT, QUIET_TIME, KILL_WAIT, VERSION_TIMEOUT = 120, 20, 3, 5, 20
+PROBE_TIMEOUT, USB_TIMEOUT, QUIET_TIME, KILL_WAIT, VERSION_TIMEOUT, UDEV_TIMEOUT = 120, 20, 3, 5, 20, 5
 UDEV_RULES = ('/etc/udev/rules.d', '/run/udev/rules.d')
 # J-Link notes that are not failures, per device, each with the line that shows the operation completed
 # (bench, V9.78: every MIMXRT1062 reset with an invalid app vector, then the reset halts as usual)
@@ -538,9 +538,17 @@ def exclusion_configured(facts, serial):
                 f'{want[("ATTRS{idVendor}", "==")]}, idProduct {want[("ATTRS{idProduct}", "==")]} and serial {serial}')
 
 
-def check_exclusive(dev):
+def udisks_ignored(dev):
   props = subprocess.run(['udevadm', 'info', '--query=property', f'--name={dev}'], capture_output=True, text=True)
-  if 'UDISKS_IGNORE=1' not in props.stdout.split():
+  return 'UDISKS_IGNORE=1' in props.stdout.split()
+
+
+def check_exclusive(dev):
+  # the block node shows in sysfs before udev has run its rules on it (bench: RT1060 re-entry), so the
+  # property gets a bounded wait; the mount check below still catches an automount that won the race
+  try:
+    wait_for(lambda: udisks_ignored(dev), UDEV_TIMEOUT, f'UDISKS_IGNORE=1 on {dev}')
+  except StepFail:
     raise StepFail(f'{dev} has no UDISKS_IGNORE=1: desktop automount could race the raw I/O (SKILL.md, host)')
   mounted = [l.split()[0] for l in Path('/proc/mounts').read_text().splitlines()]
   if any(os.path.realpath(m) == dev for m in mounted):
@@ -965,8 +973,15 @@ class Battery:
     self.step('app-ran', app_ran)
 
     def reenter():
-      method = self.b['reentry']
-      ev = {'path': method}
+      ev = {'path': self.b['reentry']}
+      try:
+        return entered(ev)
+      except StepFail as e:   # what was observed before the failure stays in the step's evidence
+        e.evidence = {**ev, **e.evidence}
+        raise
+
+    def entered(ev):
+      method = ev['path']
       if method == 'retained-register':
         if self.commissioning:
           ev.update(self.control(app_bin))

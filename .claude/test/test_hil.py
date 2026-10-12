@@ -320,6 +320,19 @@ class Images(Tmp):
     self.assertEqual(ht.embedded_version(b), '0.35.0-1-gabc - tinyusb (x)')
 
 
+class Exclusive(unittest.TestCase):
+  def test_the_udev_property_gets_a_bounded_wait(self):
+    seen = iter([False, False, True])
+    with mock.patch.object(ht, 'udisks_ignored', lambda d: next(seen)), mock.patch.object(ht.time, 'sleep', lambda s: None), \
+         mock.patch.object(ht, 'Path', lambda p: mock.Mock(read_text=lambda: '')):
+      ht.check_exclusive('/dev/sdz')
+    clock = [0.0]
+    with mock.patch.object(ht, 'udisks_ignored', lambda d: False), \
+         mock.patch.object(ht.time, 'sleep', lambda s: clock.__setitem__(0, clock[0] + s)), \
+         mock.patch.object(ht.time, 'monotonic', lambda: clock[0]), self.assertRaisesRegex(ht.StepFail, 'no UDISKS_IGNORE'):
+      ht.check_exclusive('/dev/sdz')
+
+
 class Exclusion(Tmp):
   def test_a_udev_rule_must_ignore_this_bootloader_by_serial(self):
     facts = {'vid': 0x1fc9, 'pid': 0x0094}
@@ -914,6 +927,21 @@ class BatteryRun(Tmp):
     self.assertIn('regs', reenter[1])                      # the app observed again
     self.assertEqual(reenter[2][1], f'w4 {bat.f["dblTapReg"]:08X} {bat.f["dblTapMagic"]:08X}')
     self.assertEqual(reenter[3:5], [aircr, 'dfu observed'])   # nothing opens the probe in between
+
+  def test_a_failure_after_the_control_keeps_what_was_observed(self):
+    bat, rig = self.battery(commissioning=True)
+    dfu, calls = bat.dfu, []
+
+    def flaky(v):   # the install's DFU passes; the re-entry's finds no exclusion property
+      calls.append(v)
+      if len(calls) > 1:
+        raise ht.StepFail('/dev/sdz has no UDISKS_IGNORE=1')
+      return dfu(v)
+    bat.dfu = flaky
+    with self.assertRaises(ht.StepFail):
+      bat.run({'bin': self.tmp / 'c.bin'}, 'v1')
+    ev = bat.steps[-1]['evidence']
+    self.assertEqual((bat.steps[-1]['step'], ev['controlBootedApp'], 'dfuCameUp' in ev), ('reenter', True, False))
 
   def test_a_control_that_lands_in_dfu_fails_without_a_decision(self):
     bat, rig = self.battery(commissioning=True)
