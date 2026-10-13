@@ -51,10 +51,10 @@
 // Flash Start Address of Application
 #ifndef BOARD_FLASH_APP_START
 #define BOARD_FLASH_APP_START (FLASH_BASE + 0xC000)
+#endif
 
 // Flash TinyUF2 serves, at most 8 MiB: CURRENT.UF2 could otherwise occupy the whole 32 MiB virtual disk
 #define BOARD_FLASH_UF2_SIZE  ((BOARD_FLASH_SIZE < 8*1024*1024) ? BOARD_FLASH_SIZE : 8*1024*1024)
-#endif
 
 // Double Reset tap to enter DFU
 #define TINYUF2_DBL_TAP_DFU     1
