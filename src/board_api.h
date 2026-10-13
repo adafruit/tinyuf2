@@ -188,7 +188,7 @@ bool board_app_valid2(void) __attribute__ ((weak));
 // Jump to Application, no return
 void board_app_jump(void);
 
-// Init USB hardware (not used for now)
+// Init USB hardware
 void board_usb_init(void);
 
 // Init DFU process, mostly for starting USB

@@ -6,7 +6,6 @@ SRC_C += \
 	apps/dfu_runtime/src/main.c \
 	apps/dfu_runtime/src/nonce.c \
 	apps/dfu_runtime/src/usb_descriptors.c \
-	$(SDK_DIR)/drivers/common/fsl_common_arm.c \
 
 INC += \
 	$(TOP)/apps/dfu_runtime/src \

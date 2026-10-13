@@ -196,6 +196,12 @@ void board_reset(void) {
   NVIC_SystemReset();
 }
 
+// the bootloader's double-tap check reads the magic from SNVS LPGPR, which a system reset keeps
+void board_reboot_to_bootloader(void) {
+  TINYUF2_DBL_TAP_REG = DBL_TAP_MAGIC;
+  board_reset();
+}
+
 void board_dfu_complete(void) {
   NVIC_SystemReset();
 }

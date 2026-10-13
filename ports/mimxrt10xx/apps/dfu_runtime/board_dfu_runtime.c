@@ -25,12 +25,6 @@
 #include "board_api.h"
 #include "dfu_runtime.h"
 
-// the bootloader's double-tap check reads the magic from SNVS LPGPR, which a system reset keeps
-void board_reboot_to_bootloader(void) {
-  TINYUF2_DBL_TAP_REG = DBL_TAP_MAGIC;
-  NVIC_SystemReset();
-}
-
 // the nonce block sits in the last 256 bytes of the flash TinyUF2 serves, read through XIP
 bool board_nonce_block_read(uint8_t block[NONCE_BLOCK_SIZE]) {
   memcpy(block, (void const*) (FLASH_BASE + BOARD_FLASH_UF2_SIZE - NONCE_BLOCK_SIZE), NONCE_BLOCK_SIZE);

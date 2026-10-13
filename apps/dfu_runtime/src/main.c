@@ -43,8 +43,9 @@ int main(void) {
   if (board_nonce_block_read(block)) {
     nonce_block_to_string(block, dfu_rt_string);
   }
-  board_dfu_init();
-  board_timer_start(1);   // after board_dfu_init(), which may change the clock the tick is derived from
+  board_timer_start(1);
+
+  board_usb_init();
   tud_init(BOARD_TUD_RHPORT);
 
   while (1) {

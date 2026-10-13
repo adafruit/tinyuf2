@@ -22,7 +22,6 @@
  * THE SOFTWARE.
  */
 
-#include <string.h>
 
 #include "board_api.h"
 #include "tusb.h"

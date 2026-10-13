@@ -10,7 +10,6 @@ add_executable(dfu_runtime
   ${app_src}/nonce.c
   ${app_src}/usb_descriptors.c
   ${CMAKE_CURRENT_LIST_DIR}/../../boards.c
-  ${TOP}/lib/mcu/nxp/mcux-sdk/drivers/common/fsl_common_arm.c
   ${TOP}/lib/tinyusb/src/portable/chipidea/ci_hs/dcd_ci_hs.c
   )
 target_include_directories(dfu_runtime PUBLIC
