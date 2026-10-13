@@ -69,7 +69,7 @@ void dotstar_write(uint8_t const rgb[]);
 
 #if defined(TCA9554_ADDR) || defined(AW9523_ADDR)
 #include "esp_err.h"
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"
 #endif
 
 #ifdef LED_PIN
@@ -140,71 +140,45 @@ void app_main(void) {
 void board_init(void) {
 // Peripheral control through I2C Expander
 #if defined(TCA9554_ADDR) || defined(AW9523_ADDR)
-  int i2c_num = I2C_MASTER_NUM;
-  i2c_config_t conf = {
-      .mode = I2C_MODE_MASTER,
+  i2c_master_bus_config_t bus_config = {
+      .i2c_port = I2C_MASTER_NUM,
       .sda_io_num = I2C_MASTER_SDA_IO,
       .scl_io_num = I2C_MASTER_SCL_IO,
-      .sda_pullup_en = GPIO_PULLUP_ENABLE,
-      .scl_pullup_en = GPIO_PULLUP_ENABLE,
-      .master.clk_speed = I2C_MASTER_FREQ_HZ,
+      .clk_source = I2C_CLK_SRC_DEFAULT,
+      .glitch_ignore_cnt = 7,
+      .flags.enable_internal_pullup = true,
   };
-  i2c_param_config(i2c_num, &conf);
-  i2c_driver_install(i2c_num, conf.mode, I2C_MASTER_RX_BUF_DISABLE, I2C_MASTER_TX_BUF_DISABLE, 0);
+  i2c_master_bus_handle_t i2c_bus;
+  if (i2c_new_master_bus(&bus_config, &i2c_bus) == ESP_OK) {
+    i2c_device_config_t dev_config = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .scl_speed_hz = I2C_MASTER_FREQ_HZ,
+    };
+    i2c_master_dev_handle_t i2c_dev;
 
-#if defined(TCA9554_ADDR)
-  // Turn on PERI_POWER that is controlled by TC9554 I2C Expander
-  i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-  i2c_master_start(cmd);
-  i2c_master_write_byte(cmd, TCA9554_ADDR << 1 | I2C_MASTER_WRITE, true);
-  i2c_master_write_byte(cmd, TCA9554_CONFIGURATION_REG, true);
-  i2c_master_write_byte(cmd, TCA9554_DEFAULT_CONFIG, true);
-  i2c_master_stop(cmd);
-  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_PERIOD_MS);
-  i2c_cmd_link_delete(cmd);
-  vTaskDelay(30 / portTICK_PERIOD_MS);
-  cmd = i2c_cmd_link_create();
-  i2c_master_start(cmd);
-  i2c_master_write_byte(cmd, TCA9554_ADDR << 1 | I2C_MASTER_WRITE, true);
-  i2c_master_write_byte(cmd, TCA9554_OUTPUT_PORT_REG, true);
-  i2c_master_write_byte(cmd, TCA9554_DEFAULT_VALUE, true);
-  i2c_master_stop(cmd);
-  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_PERIOD_MS);
-  i2c_cmd_link_delete(cmd);
-#endif
+  #if defined(TCA9554_ADDR)
+    // Turn on PERI_POWER that is controlled by TC9554 I2C Expander
+    dev_config.device_address = TCA9554_ADDR;
+    if (i2c_master_bus_add_device(i2c_bus, &dev_config, &i2c_dev) == ESP_OK) {
+      i2c_master_transmit(i2c_dev, (uint8_t[]) {TCA9554_CONFIGURATION_REG, TCA9554_DEFAULT_CONFIG}, 2, 1000);
+      vTaskDelay(30 / portTICK_PERIOD_MS);
+      i2c_master_transmit(i2c_dev, (uint8_t[]) {TCA9554_OUTPUT_PORT_REG, TCA9554_DEFAULT_VALUE}, 2, 1000);
+      i2c_master_bus_rm_device(i2c_dev);
+    }
+  #endif
 
-#if defined(AW9523_ADDR)
-  i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-  i2c_master_start(cmd);
-  i2c_master_write_byte(cmd, AW9523_ADDR << 1 | I2C_MASTER_WRITE, true);
-  i2c_master_write_byte(cmd, AW9523_REG_SOFTRESET, true);
-  i2c_master_write_byte(cmd, 0, true);
-  i2c_master_stop(cmd);
-  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_PERIOD_MS);
-  i2c_cmd_link_delete(cmd);
+  #if defined(AW9523_ADDR)
+    dev_config.device_address = AW9523_ADDR;
+    if (i2c_master_bus_add_device(i2c_bus, &dev_config, &i2c_dev) == ESP_OK) {
+      i2c_master_transmit(i2c_dev, (uint8_t[]) {AW9523_REG_SOFTRESET, 0}, 2, 1000);
+      i2c_master_transmit(i2c_dev, (uint8_t[]) {AW9523_REG_CONFIG0, AW9523_DEFAULT_CONFIG >> 8, AW9523_DEFAULT_CONFIG & 0xff}, 3, 1000);
+      i2c_master_transmit(i2c_dev, (uint8_t[]) {AW9523_REG_OUTPUT0, AW9523_DEFAULT_OUTPUT >> 8, AW9523_DEFAULT_OUTPUT & 0xff}, 3, 1000);
+      i2c_master_bus_rm_device(i2c_dev);
+    }
+  #endif
 
-  cmd = i2c_cmd_link_create();
-  i2c_master_start(cmd);
-  i2c_master_write_byte(cmd, AW9523_ADDR << 1 | I2C_MASTER_WRITE, true);
-  i2c_master_write_byte(cmd, AW9523_REG_CONFIG0, true);
-  i2c_master_write_byte(cmd, AW9523_DEFAULT_CONFIG >> 8, true);
-  i2c_master_write_byte(cmd, AW9523_DEFAULT_CONFIG & 0xff, true);
-  i2c_master_stop(cmd);
-  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_PERIOD_MS);
-  i2c_cmd_link_delete(cmd);
-
-  cmd = i2c_cmd_link_create();
-  i2c_master_start(cmd);
-  i2c_master_write_byte(cmd, AW9523_ADDR << 1 | I2C_MASTER_WRITE, true);
-  i2c_master_write_byte(cmd, AW9523_REG_OUTPUT0, true);
-  i2c_master_write_byte(cmd, AW9523_DEFAULT_OUTPUT >> 8, true);
-  i2c_master_write_byte(cmd, AW9523_DEFAULT_OUTPUT & 0xff, true);
-  i2c_master_stop(cmd);
-  i2c_master_cmd_begin(i2c_num, cmd, 1000 / portTICK_PERIOD_MS);
-  i2c_cmd_link_delete(cmd);
-#endif
-
-  i2c_driver_delete(i2c_num);
+    i2c_del_master_bus(i2c_bus);
+  }
 #endif // TCA9554_ADDR, AW9523_ADDR
 
 #ifdef LED_PIN
