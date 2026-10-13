@@ -119,8 +119,8 @@ class Tmp(unittest.TestCase):
 class Roster(Tmp):
   def test_a_valid_entry_loads_with_its_layout_from_the_source(self):
     b = self.load(roster(self.tmp))
-    self.assertEqual((b['install'], b['app'], b['page'], b['device'], b['if'], b['speed']),
-                     ((0, 0x10000), (0x10000, 0x98000), 512, 'LPC55S69_M33_0', 'SWD', '4000'))
+    self.assertEqual((b['install'], b['app'], b['device'], b['if'], b['speed']),
+                     ((0, 0x10000), (0x10000, 0x98000), 'LPC55S69_M33_0', 'SWD', '4000'))
     self.assertEqual(b['helper'], str(self.tmp / HELPER))
 
   def test_refusals(self):
@@ -152,8 +152,7 @@ class Roster(Tmp):
 
   def test_layout_refusals(self):
     b = ht.load_board(roster(self.tmp), BOARD)
-    cases = {'app start not page aligned': {'appStart': 0x10100},
-             'app start at the flash base': {'appStart': 0},
+    cases = {'app start at the flash base': {'appStart': 0},
              'app start past the flash end': {'appStart': 0x98000},
              'flash past the ceiling': {'flashSize': 0x9E000},
              'flash below the floor': {'flashBase': 0x100000000 - 0x98000 - 1}}
@@ -220,17 +219,30 @@ class Rt1060(Tmp):
       f = build / '_bin' / f'tinyuf2.{kind}'
       f.write_bytes(b'TinyUF2 Bootloader 1.0\r\n')
       rows[f'_bin/{f.name}'] = ht.sha256(f)
+    for rel, data in (('tinyuf2.hex', b'hex'), ('tinyuf2.jlink', b'halt')):
+      (build / rel).write_bytes(data)
+      rows[rel] = ht.sha256(build / rel)
     (build / '_bin' / 'apps').mkdir()
     blinky = build / '_bin' / 'apps' / 'blinky.uf2'
     blinky.write_bytes(ht.pack_uf2([(0x6000C000, bytes(256)), (0x6000C100, bytes(256))], self.facts['family']))
     rows['_bin/apps/blinky.uf2'] = ht.sha256(blinky)
     now = {'head': 'h', 'submodules': {}, 'deps': {}, 'dirty': False}
     rec = self.tmp / 'rec.json'
-    row = {'board': 'imxrt1060_evk', 'status': 'ok', 'backend': 'cmake', 'buildDir': str(build), 'sha256': rows}
+    row = {'board': 'imxrt1060_evk', 'status': 'ok', 'backend': 'cmake', 'buildDir': str(build), 'sha256': rows,
+           'flash': {'target': 'tinyuf2-jlink', 'flasher': {'name': 'jlink', 'uid': '2', 'device': 'MIMXRT1062xxx6A'},
+                     'inputs': ['tinyuf2.jlink', 'tinyuf2.hex']}}
     rec.write_text(json.dumps({'pass': True, 'input': now, 'boards': [row]}))
     with mock.patch.object(ht.cb, 'identity', lambda ports: now):   # an absolute buildDir ignores cb.ROOT
       files, fw = ht.verify_record(rec, self.board, self.facts)
       self.assertEqual((files['bin'].name, fw['version']), ('tinyuf2.bin', '1.0'))
+      self.assertEqual((files['hex'], files['flash']['root'], files['flash']['sha256']['tinyuf2.hex']),
+                       (build / 'tinyuf2.hex', build, rows['tinyuf2.hex']))   # the HEX the target loads, not a copy
+      for what, flash in (('another probe', dict(row['flash'], flasher={'name': 'jlink', 'uid': '9', 'device': 'MIMXRT1062xxx6A'})),
+                          ('no binding', None)):
+        with self.subTest(what), self.assertRaisesRegex(ht.Refused, 'not bound to this roster flasher'):
+          rec.write_text(json.dumps({'pass': True, 'input': now, 'boards': [dict(row, flash=flash)]}))
+          ht.verify_record(rec, self.board, self.facts)
+      rec.write_text(json.dumps({'pass': True, 'input': now, 'boards': [row]}))
       self.assertEqual((files['blinky'], files['blinkyBlocks']), (blinky, 2))
       good = blinky.read_bytes()
       for what, data in (('outside the app', ht.pack_uf2([(0x60000000, bytes(256))], self.facts['family'])),
@@ -329,10 +341,15 @@ def idf_build(root, parts=S3_PARTS, flash_args=None, sdk=None):
            '_bin/apps/dfu_runtime.uf2': ht.pack_uf2([(256 * i, bytes([i]) * 256) for i in range(3)], 0xc47e5767),
            '_bin/apps/blinky.uf2': ht.pack_uf2([(256 * i, bytes([0xb0 + i]) * 256) for i in range(2)], 0xc47e5767)}
   (root / '_bin' / 'apps').mkdir()
+  for rel in ht.cb.FLASH['esptool'][1]:   # what the flash target reads, as the build leaves it
+    files[rel] = files['_bin/' + Path(rel).name]
+    (root / rel).parent.mkdir(parents=True, exist_ok=True)
   for rel, data in files.items():
     (root / rel).write_bytes(data if isinstance(data, bytes) else data.encode())
   return {'board': S3, 'status': 'ok', 'backend': 'idf', 'buildDir': str(root),
-          'sha256': {rel: ht.sha256(root / rel) for rel in files}}
+          'sha256': {rel: ht.sha256(root / rel) for rel in files},
+          'flash': {'target': 'flash', 'flasher': {'name': 'esptool', 'uid': 'cp2102n', 'device': 'esp32s3'},
+                    'inputs': list(ht.cb.FLASH['esptool'][1])}}
 
 
 class Esp(Tmp):
@@ -431,6 +448,19 @@ class Esp(Tmp):
     (self.tmp / 'b' / 'sdkconfig').write_text('changed')
     with self.assertRaisesRegex(ht.Refused, 'sdkconfig: hash differs'):
       self.verify(self.record(row))
+    row = idf_build(self.tmp / 'c')
+    (self.tmp / 'c' / 'tinyuf2.bin').write_bytes(b'changed')   # read by the flash target, not a _bin copy
+    with self.assertRaisesRegex(ht.Refused, 'tinyuf2.bin: missing, unreadable or changed'):
+      self.verify(self.record(row))
+
+  def test_a_record_not_bound_to_the_roster_flasher_is_refused(self):
+    for what, flash in (('no binding', None),
+                        ('another bridge', {'flasher': {'name': 'esptool', 'uid': 'other', 'device': 'esp32s3'}}),
+                        ('another target', {'target': 'combined-flash'})):
+      with self.subTest(what), self.assertRaisesRegex(ht.Refused, 'not bound to this roster flasher'):
+        row = idf_build(Path(tempfile.mkdtemp(dir=self.tmp)) / 'b')
+        row['flash'] = flash and dict(row['flash'], **flash)
+        self.verify(self.record(row))
 
 
 FAKE_ESP = textwrap.dedent('''
@@ -581,9 +611,6 @@ class EspFlash(EspFake):
 
   def test_an_esptool_install_takes_a_build_record_and_a_run_only_esptool_steps_and_methods(self):
     cfg = str(s3_roster(self.tmp))
-    code, res = self.main('install', '-b', S3, '--firmware', 'x.bin', '--sha256', 'y', '--under-hold', 'r', cfg)
-    self.assertEqual(code, 2)
-    self.assertIn('takes --build-record', res['error'])
     code, res = self.main('run', '-b', S3, '--build-record', 'rec.json', cfg)
     self.assertEqual(code, 2)
     self.assertIn('cannot read build record', res['error'])
@@ -1592,12 +1619,28 @@ class RunBoard(Tmp):
       bat.step('dfu', lambda: {})
 
 
+def jlink_target(hex_path, download='1 range affected (65536 bytes)', tail='O.K.\n'):
+  """tinyuf2-jlink's transcript through CMake and Ninja, in the shape the bench recorded on metro_m7_1011."""
+  return (f'[1/1] cd /b && JLinkExe -device D -USB 1 -ExitOnError 1 -NoGui 1 -if swd -JTAGConf -1,-1 -speed auto '
+          f'-CommandFile /b/tinyuf2.jlink\nJ-Link>halt\nConnecting to J-Link ...O.K.\nS/N: 1\nConnecting to target via SWD\n'
+          f'Cortex-M7 identified.\nJ-Link>loadfile {hex_path}\nResetTarget() start\n'
+          f'ResetTarget() end - Took 117ms\nDownloading file [{hex_path}]...\n'
+          f'Comparing flash   [000%]100%] Done.\nJ-Link: Flash download: Bank 0 @ 0x60000000: {download}\n{tail}'
+          f'J-Link>r\nJ-Link>go\nJ-Link>exit\n\nScript processing completed.\n')
+
+
+JLINK_NO_PROBE = ('[1/1] cd /b && JLinkExe -USB 999999999 -ExitOnError 1\nJ-Link>halt\nJ-Link connection not established yet but '
+                  'required for command.\nConnecting to J-Link ...FAILED: Cannot connect to J-Link.\nFAILED: CMakeFiles/tinyuf2-jlink\n'
+                  'ninja: build stopped: subcommand failed.\n')
+
+
 class FakeRig:
   """A probe and a UF2 drive that behave as the battery expects; each test breaks one thing."""
 
   def __init__(self, bat):
     self.bat, self.scripts, self.present = bat, [], True
     self.r0, self.mem, self.double_reset, self.flash = 5, {}, False, set()
+    self.hex, self.app_survives = None, False   # the install erases the app start (bench), so DFU follows it
 
   def probe(self, commands, judge=True):
     self.scripts.append(list(commands))
@@ -1627,6 +1670,10 @@ class FakeRig:
   def spawn(self, cmd, log, timeout, cwd=None):
     if cmd[0] == 'mcopy':
       self.present = False
+    if cmd[0] == 'cmake':
+      self.scripts.append(['target ' + cmd[-1]])
+      self.present = not self.app_survives
+      return 0, jlink_target(self.hex)
     return 0, ''
 
   def fat_read(self, dev, name, length, log, offset=0):
@@ -1648,6 +1695,13 @@ class BatteryRun(Tmp):
     bat = ht.Battery(board, facts, self.tmp, commissioning=commissioning)
     bootloader_bin(self.tmp / 'c.bin')
     rig = FakeRig(bat)
+    build = self.tmp / 'build'
+    build.mkdir(exist_ok=True)
+    rig.hex = build / 'tinyuf2.hex'
+    rig.hex.write_text(':00000001FF\n')
+    self.files = {'bin': self.tmp / 'c.bin', 'hex': rig.hex,
+                  'flash': {'root': build, 'binding': {'target': 'tinyuf2-jlink'}, 'sha256': {'tinyuf2.hex': ht.sha256(rig.hex)},
+                            'ninja': None}}
     (self.tmp / 'cur').mkdir()
     bat.probe.run = rig.probe
     clock = [0.0]   # time passes only when the battery sleeps
@@ -1658,7 +1712,8 @@ class BatteryRun(Tmp):
         if corrupt:
           corrupt(rig.current)
       return rig.fat_read(*a)
-    for p in (mock.patch.object(ht, 'usb_device', lambda *a: '1-2' if rig.present else None),
+    for p in (mock.patch.object(ht.cb, 'flash_ready', lambda *a: None),
+              mock.patch.object(ht, 'usb_device', lambda *a: '1-2' if rig.present else None),
               mock.patch.object(ht, 'block_device', lambda p: '/dev/sdz'),
               mock.patch.object(ht, 'check_exclusive', lambda d: None),
               mock.patch.object(ht, 'fat_read', fat_read),
@@ -1671,12 +1726,12 @@ class BatteryRun(Tmp):
 
   def test_every_step_passes_and_resumes_only_after_a_halt(self):
     bat, rig = self.battery()
-    bat.run({'bin': self.tmp / 'c.bin'}, 'v1')
+    bat.run(self.files, 'v1')
     self.assertEqual([x['step'] for x in bat.steps if x['pass']], list(ht.STEPS['jlink']))
-    image = self.tmp / 'program.bin'
-    self.assertEqual(rig.scripts[0], ['h', f'loadbin {image},0x0', f'verifybin {image},0x0', 'r', 'g'])
-    self.assertEqual(rig.scripts[1][:2], ['h', f'w4 {bat.f["dblTapReg"]:08X} 00000000'])   # cleared in dfu
-    self.assertIn(f'sleep {2 * bat.f["dblTapDelayMs"] + 200}', rig.scripts[2])
+    self.assertEqual(rig.scripts[:2], [['target tinyuf2-jlink'], ['h', f'verifybin {self.tmp / "c.bin"},0x0', 'r', 'g']])
+    self.assertEqual(rig.scripts[2][:2], ['h', f'w4 {bat.f["dblTapReg"]:08X} 00000000'])   # cleared in dfu
+    self.assertIn(f'sleep {2 * bat.f["dblTapDelayMs"] + 200}', rig.scripts[3])
+    self.assertEqual(bat.steps[0]['evidence'], {'flashDownload': '1 range affected (65536 bytes)', 'verified': True})
     for script in rig.scripts:
       if 'g' in script:
         self.assertEqual(script[0], 'h', script)
@@ -1685,7 +1740,7 @@ class BatteryRun(Tmp):
   def test_the_whole_fixture_is_read_back_including_its_last_partial_block(self):
     bat, _ = self.battery(corrupt=lambda img: img.__setitem__(len(img) - 1, img[-1] ^ 1))
     with self.assertRaisesRegex(ht.StepFail, 'read back the fixture'):
-      bat.run({'bin': self.tmp / 'c.bin'}, 'v1')
+      bat.run(self.files, 'v1')
     self.assertEqual(bat.steps[-1]['step'], 'reenter')
 
   def test_a_readback_failure_keeps_the_reentry_observations(self):
@@ -1700,7 +1755,7 @@ class BatteryRun(Tmp):
           ht.fat_read = lambda *a: dict(read(*a), data=fat()) if a[1] == 'CURRENT.UF2' else read(*a)
           self.addCleanup(setattr, ht, 'fat_read', read)
         with self.assertRaises(ht.StepFail):
-          bat.run({'bin': self.tmp / 'c.bin'}, 'v1')
+          bat.run(self.files, 'v1')
         last = bat.steps[-1]
         self.assertEqual((last['step'], last['pass'], last['evidence']['failedAt']), ('reenter', False, 'readback'))
         self.assertTrue(last['evidence']['dfuCameUp'] and last['evidence']['magicConsumed'])
@@ -1711,7 +1766,7 @@ class BatteryRun(Tmp):
     bat, rig = self.battery(commissioning=True)
     dfu = bat.dfu
     bat.dfu = lambda v: rig.scripts.append('dfu observed') or dfu(v)
-    bat.run({'bin': self.tmp / 'c.bin'}, 'v1')
+    bat.run(self.files, 'v1')
     ev = bat.steps[-1]['evidence']
     self.assertTrue(ev['controlBootedApp'] and ev['dfuCameUp'] and ev['magicConsumed'])
     aircr = [f'w4 {ht.SCB_AIRCR:08X} {ht.AIRCR_SYSRESETREQ:08X}']
@@ -1732,7 +1787,7 @@ class BatteryRun(Tmp):
       return dfu(v)
     bat.dfu = flaky
     with self.assertRaises(ht.StepFail):
-      bat.run({'bin': self.tmp / 'c.bin'}, 'v1')
+      bat.run(self.files, 'v1')
     ev = bat.steps[-1]['evidence']
     self.assertEqual((bat.steps[-1]['step'], ev['controlBootedApp'], 'dfuCameUp' in ev), ('reenter', True, False))
 
@@ -1740,29 +1795,8 @@ class BatteryRun(Tmp):
     bat, rig = self.battery(commissioning=True)
     rig.double_reset = True
     with self.assertRaisesRegex(ht.StepFail, 'without the magic'):
-      bat.run({'bin': self.tmp / 'c.bin'}, 'v1')
+      bat.run(self.files, 'v1')
     self.assertIs(bat.steps[-1]['evidence']['controlBootedApp'], False)
-
-  def test_one_image_carries_the_bootloader_ff_padding_and_a_zero_page(self):
-    bat, rig = self.battery()
-    fw = bootloader_bin(self.tmp / 'fw.bin', size=0x5000)
-    bat.f.update(binBase=0, appStart=0x10000)
-    bat.program(fw)
-    image = (self.tmp / 'program.bin').read_bytes()
-    self.assertEqual(image, fw.read_bytes() + b'\xff' * 0xb000 + bytes(512))
-    self.assertEqual(rig.scripts, [['h', f'loadbin {self.tmp / "program.bin"},0x0',
-                                    f'verifybin {self.tmp / "program.bin"},0x0', 'r', 'g']])
-
-  def test_a_bin_that_starts_past_the_flash_base_is_padded_in_front(self):
-    bat, rig = self.battery()
-    fw = bootloader_bin(self.tmp / 'fw.bin', size=0x5000)
-    bat.f.update(binBase=0x400, appStart=0x10000)
-    bat.program(fw)
-    image = (self.tmp / 'program.bin').read_bytes()
-    self.assertEqual(image, b'\xff' * 0x400 + fw.read_bytes() + b'\xff' * 0xac00 + bytes(512))
-    with self.assertRaisesRegex(ht.StepFail, 'overlaps the app start'):
-      bat.f.update(binBase=0x400, appStart=0x10000)
-      bat.program(bootloader_bin(self.tmp / 'big.bin', size=0xFC01))
 
   def test_restore_reinstalls_the_record_and_leaves_dfu_after_blinky(self):
     bat, rig = self.battery()
@@ -1770,11 +1804,10 @@ class BatteryRun(Tmp):
     blinky.write_bytes(ht.pack_uf2([(bat.f['appStart'], bytes(256))], bat.f['family']))
     copies = []
     with mock.patch.object(ht, 'spawn', lambda cmd, *a, **k: copies.append(cmd) or rig.spawn(cmd, *a, **k)):
-      out = bat.restore({'bin': self.tmp / 'c.bin', 'blinky': blinky, 'blinkyBlocks': 1}, 'v1')
+      out = bat.restore(dict(self.files, blinky=blinky, blinkyBlocks=1), 'v1')
     self.assertEqual((out['state'], out['evidence']['copy']), ('blinky copied', {'blocks': 1}))
-    image = self.tmp / 'program.bin'
-    self.assertEqual(rig.scripts, [['h', f'loadbin {image},0x0', f'verifybin {image},0x0', 'r', 'g']])
-    self.assertEqual(copies[0][4], blinky)
+    self.assertEqual(rig.scripts, [['target tinyuf2-jlink'], ['h', f'verifybin {self.tmp / "c.bin"},0x0', 'r', 'g']])
+    self.assertEqual(copies[1][4], blinky)   # after the target's cmake
     rig.present, polls = True, []
     def blip(*a):   # DFU shows once, mid-way through the quiet period, then is gone again
       if rig.present:
@@ -1782,43 +1815,98 @@ class BatteryRun(Tmp):
       polls.append(1)
       return '1-2' if len(polls) == 3 else None
     with mock.patch.object(ht, 'usb_device', blip), self.assertRaisesRegex(ht.StepFail, 'came back after the blinky copy'):
-      bat.restore({'bin': self.tmp / 'c.bin', 'blinky': blinky, 'blinkyBlocks': 1}, 'v1')
+      bat.restore(dict(self.files, blinky=blinky, blinkyBlocks=1), 'v1')
 
-  def test_a_bin_that_fills_the_install_span_exactly_has_no_padding(self):
+  def test_the_target_transcript_is_judged_not_its_exit(self):
     bat, _ = self.battery()
-    fw = bootloader_bin(self.tmp / 'fw.bin', size=0x10000)
-    bat.f.update(binBase=0, appStart=0x10000)
-    bat.program(fw)
-    self.assertEqual((self.tmp / 'program.bin').read_bytes(), fw.read_bytes() + bytes(512))
+    hexp = self.files['hex']
+    self.assertEqual(ht.judge_jlink_target(0, jlink_target(hexp), bat.b, hexp),
+                     {'flashDownload': '1 range affected (65536 bytes)'})
+    skip = 'Skipped. Contents already match'   # an already-matching image is a success
+    self.assertEqual(ht.judge_jlink_target(0, jlink_target(hexp, skip), bat.b, hexp)['flashDownload'], skip)
+    cases = (('every command FAILED, exit 0', 0, JLINK_NO_PROBE, True), ('ninja failed', 1, JLINK_NO_PROBE, True),
+             ('another image', 0, jlink_target(self.tmp / 'other.hex'), False),
+             ('no O.K.', 0, jlink_target(hexp, tail=''), False),
+             ('a failure line', 0, jlink_target(hexp, tail='O.K.\nCannot connect to target.\n'), False),
+             ('cut short', 0, jlink_target(hexp).replace('Script processing completed.\n', ''), False),
+             ('a nonzero exit', 2, jlink_target(hexp), False), ('nothing', 0, '', False))
+    for what, code, out, before in cases:
+      with self.subTest(what), self.assertRaisesRegex(ht.StepFail, 'tinyuf2-jlink failed') as e:
+        ht.judge_jlink_target(code, out, bat.b, hexp)
+      self.assertEqual(e.exception.evidence['beforeTarget'], before, what)
 
-  def test_an_install_session_that_never_reached_the_target_leaves_the_board_untouched(self):
-    bat, _ = self.battery()
-    bat.probe = ht.Probe(bat.b, self.tmp, self.tmp / 'hil.log')
-    bat.f.update(binBase=0, appStart=0x10000)
-    fw = bootloader_bin(self.tmp / 'fw.bin', size=0x5000)
-    missing = 'J-Link>h\nJ-Link connection not established yet but required for command.\nConnecting to J-Link ...FAILED\n'
-    reached = 'Connecting to J-Link ...O.K.\nConnecting to target via SWD\nCannot connect to target.\n'
-    cases = (((1, missing), False, False), ((1, reached), False, True), ((1, missing), True, True),
-             ((-11, ''), False, True))                                         # a crash with no transcript: unknown
-    for result, before, after in cases:
-      bat.touched = before
-      with self.subTest(result=result, before=before), mock.patch.object(ht, 'spawn', lambda *a, r=result, **k: r), \
-           self.assertRaisesRegex(ht.StepFail, 'JLinkExe failed'):
-        bat.program(fw)
-      self.assertEqual(bat.touched, after)
+  def test_the_rt_reset_vector_note_passes_in_the_target_transcript_on_rt_devices_only(self):
+    hexp = self.tmp / 'tinyuf2.hex'
+    out = jlink_target(hexp).replace('ResetTarget() start\n', 'ResetTarget() start\nCould not find valid reset vector.\n'
+                                     'Target halted on flash header read.\n')
+    ht.judge_jlink_target(0, out, {'device': 'MIMXRT1011DAE5A', 'probe': '1'}, hexp)
+    with self.assertRaises(ht.StepFail):
+      ht.judge_jlink_target(0, out, {'device': 'LPC55S69_M33_0', 'probe': '1'}, hexp)
 
-  def test_a_bin_past_the_app_start_is_refused_before_any_probe_session(self):
+  def test_the_target_runs_under_the_build_lock_between_two_input_checks(self):
     bat, rig = self.battery()
-    fw = bootloader_bin(self.tmp / 'fw.bin', size=0x10001)
-    with self.assertRaisesRegex(ht.StepFail, 'overlaps the app start'):
-      bat.f.update(binBase=0, appStart=0x10000)
-      bat.program(fw)
-    self.assertEqual((rig.scripts, bat.touched), ([], False))
+    fl, hexp = self.files['flash'], self.files['hex']
+    judge = lambda code, out: ht.judge_jlink_target(code, out, bat.b, hexp)   # noqa: E731
+    with self.subTest('a build holds the dir'), ht.cb.build_lock(fl['root']), \
+         self.assertRaisesRegex(ht.StepFail, 'in use by a build or another flash'):
+      bat.flash_target(fl, judge)
+    good = hexp.read_text()
+    hexp.write_text('changed')
+    with self.subTest('an input changed'), self.assertRaisesRegex(ht.StepFail, 'changed before the flash'):
+      bat.flash_target(fl, judge)
+    hexp.write_text(good)
+    with self.subTest('a dry run with more than the flasher'), \
+         mock.patch.object(ht.cb, 'flash_ready', side_effect=ht.cb.Fail('would not run only its flasher')), \
+         self.assertRaisesRegex(ht.StepFail, 'only its flasher'):
+      bat.flash_target(fl, judge)
+    self.assertEqual((rig.scripts, bat.touched), ([], False))   # none of these ran the target
+    for what, result, touched in (('no probe', (1, JLINK_NO_PROBE), False),
+                                  ('the target reached', (1, jlink_target(hexp, tail='Cannot connect to target.\n')), True)):
+      bat.touched = False
+      with self.subTest(what), mock.patch.object(ht, 'spawn', lambda *a, r=result, **k: r), \
+           self.assertRaisesRegex(ht.StepFail, 'tinyuf2-jlink failed'):
+        bat.flash_target(fl, judge)
+      self.assertEqual(bat.touched, touched, what)
+    bat.touched = False
+    spawn = rig.spawn
+    with self.subTest('rebuilt while flashing'), \
+         mock.patch.object(ht, 'spawn', lambda cmd, *a, **k: (hexp.write_text('rebuilt'), spawn(cmd, *a, **k))[1]), \
+         self.assertRaisesRegex(ht.StepFail, 'changed while flashing') as e:
+      bat.flash_target(fl, judge)
+    self.assertEqual((bat.touched, e.exception.evidence['flashDownload']), (True, '1 range affected (65536 bytes)'))
+
+  def test_dfu_after_an_install_reenters_only_when_dfu_never_enumerates(self):
+    aircr = [f'w4 {ht.SCB_AIRCR:08X} {ht.AIRCR_SYSRESETREQ:08X}']
+    for what, reentry, survives, version, err in (
+        ('a valid app booted', 'retained-register', True, 'v1', None),
+        ('uncommissioned', None, True, 'v1', 'has no retained-register re-entry'),
+        ('another failure', 'retained-register', False, 'v2', 'INFO_UF2')):
+      with self.subTest(what):
+        self.tmp = Path(tempfile.mkdtemp(dir=self.tmp))
+        bat, rig = self.battery(reentry=reentry)
+        rig.app_survives = survives
+        bat.install(self.files)
+        if err:
+          with self.assertRaisesRegex(ht.StepFail, err):
+            bat.dfu_after_install(version)
+          self.assertNotIn(aircr, rig.scripts)
+        else:
+          ev = bat.dfu_after_install(version)
+          self.assertTrue(ev['dfuCameUp'] and ev['magicConsumed'])
+          self.assertIn('did not enumerate after the install', ev['claim'])
+          self.assertIn(aircr, rig.scripts)
+    rig.app_survives = True   # the last case's rig: a re-entry whose final register read fails keeps what it saw
+    bat.install(self.files)
+    with mock.patch.object(bat.probe, 'mem32', side_effect=ht.StepFail('mem32 read gave no value')), \
+         self.assertRaisesRegex(ht.StepFail, 'no value') as e:
+      bat.dfu_after_install('v1')
+    self.assertEqual((e.exception.evidence['dfuCameUp'], e.exception.evidence['usb']), (True, '1-2'))
 
   def test_a_wrong_version_on_the_drive_fails_dfu(self):
+
     bat, _ = self.battery()
     with self.assertRaisesRegex(ht.StepFail, 'INFO_UF2'):
-      bat.run({'bin': self.tmp / 'c.bin'}, 'v2')
+      bat.run(self.files, 'v2')
 
   def test_a_left_magic_is_cleared_right_after_dfu_and_read_back(self):
     bat, rig = self.battery()
@@ -1826,10 +1914,10 @@ class BatteryRun(Tmp):
     rig.mem[reg] = bat.f['dblTapMagic']
     dfu = bat.dfu
     bat.dfu = lambda v: rig.scripts.append('dfu observed') or dfu(v)
-    bat.run({'bin': self.tmp / 'c.bin'}, 'v1')
+    bat.run(self.files, 'v1')
     ev = [x for x in bat.steps if x['step'] == 'dfu'][0]['evidence']
     self.assertEqual(ev['dblTapReg'], '0x0')
-    self.assertEqual(rig.scripts[1:3], ['dfu observed', ['h', f'w4 {reg:08X} 00000000', f'mem32 {reg:08X} 1', 'g']])
+    self.assertEqual(rig.scripts[2:4], ['dfu observed', ['h', f'w4 {reg:08X} 00000000', f'mem32 {reg:08X} 1', 'g']])
 
   def test_a_double_tap_clear_that_does_not_read_back_fails_dfu(self):
     bat, rig = self.battery()
@@ -1838,7 +1926,7 @@ class BatteryRun(Tmp):
     bat.probe.run = rig.probe
     rig.mem[bat.f['dblTapReg']] = bat.f['dblTapMagic']
     with self.assertRaisesRegex(ht.StepFail, 'reads back'):
-      bat.run({'bin': self.tmp / 'c.bin'}, 'v1')
+      bat.run(self.files, 'v1')
     self.assertEqual([(x['step'], x['pass']) for x in bat.steps][-1], ('dfu', False))
 
   def test_a_write_the_bus_dropped_fails_its_read_back(self):
@@ -1951,20 +2039,33 @@ class Decision(unittest.TestCase):
 
 
 class Main(Tmp):
-  def test_manual_install_needs_no_reentry_and_programs_the_bin_with_a_zero_page(self):
+  def test_manual_install_runs_the_record_and_brings_up_dfu_with_reentry_only_on_trial(self):
+    for what, reentry, extra, want, calls in (
+        ('uncommissioned', None, [], 0, [('install', None), ('dfu', 'v')]),
+        ('a trial', None, ['--try-reentry', 'retained-register'], 0, [('install', 'retained-register'), ('dfu', 'v')]),
+        ('a trial once commissioned', 'retained-register', ['--try-reentry', 'retained-register'], 2, [])):
+      seen = []
+      cfg = roster(self.tmp, tinyuf2={'reentry': reentry})
+      with self.subTest(what), contextlib.redirect_stdout(io.StringIO()), \
+           mock.patch.object(ht.cb, 'BUILD_DIR', Path(tempfile.mkdtemp(dir=self.tmp))), \
+           mock.patch.object(ht, 'load_helper', lambda p: None), mock.patch.object(ht, 'manual_holder', lambda *a: None), \
+           mock.patch.object(ht, 'admit_record', lambda *a: ({'bin': 'b'}, {'version': 'v'})), \
+           mock.patch.object(ht.Battery, 'install', lambda bat, f: seen.append(('install', bat.b['reentry'])) or {}), \
+           mock.patch.object(ht.Battery, 'dfu_after_install', lambda bat, v: seen.append(('dfu', v)) or {}):
+        code = ht.main(['install', '-b', BOARD, '--build-record', 'r.json', '--under-hold', 'debug 7', *extra, str(cfg)])
+        self.assertEqual((code, seen), (want, calls))
+
+  def test_an_install_that_fails_after_touching_the_board_is_exit_4(self):
     cfg = roster(self.tmp, tinyuf2={'reentry': None})
-    fw = bootloader_bin(self.tmp / 'fw.bin')
-    programmed = []
-    out = io.StringIO()
-    with contextlib.redirect_stdout(out), mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp), \
-         mock.patch.object(ht, 'load_helper', lambda p: None), mock.patch.object(ht, 'manual_holder', lambda *a: None), \
-         mock.patch.object(ht, 'exclusion_configured', lambda *a: None), \
-         mock.patch.object(ht, 'check_jlink', lambda: None), \
-         mock.patch.object(ht.Battery, 'program',
-                           lambda bat, b: programmed.append((b, bat.b['install'][0], bat.f['binBase'], bat.f['appStart']))):
-      code = ht.main(['install', '-b', BOARD, '--firmware', str(fw), '--sha256', ht.sha256(fw),
-                      '--under-hold', 'debug 7', str(cfg)])
-    self.assertEqual((code, programmed), (0, [(str(fw), 0, 0, 0x10000)]))
+    for touched, want in ((True, 4), (False, 1)):
+      def fail(bat, files, touched=touched):
+        bat.touched = touched
+        raise ht.StepFail('tinyuf2-jlink failed (exit 1)')
+      with self.subTest(touched), contextlib.redirect_stdout(io.StringIO()), \
+           mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / f'i{want}'), mock.patch.object(ht, 'load_helper', lambda p: None), \
+           mock.patch.object(ht, 'manual_holder', lambda *a: None), \
+           mock.patch.object(ht, 'admit_record', lambda *a: ({}, {'version': 'v'})), mock.patch.object(ht.Battery, 'install', fail):
+        self.assertEqual(ht.main(['install', '-b', BOARD, '--build-record', 'r.json', '--under-hold', 'x', str(cfg)]), want)
 
   def test_a_restore_that_fails_after_touching_the_board_is_exit_4(self):
     cfg = roster(self.tmp, tinyuf2={'reentry': None})
@@ -2030,7 +2131,7 @@ class Main(Tmp):
     fw = bootloader_bin(self.tmp / 'fw.bin')
     cfg = roster(self.tmp, tinyuf2={'reentry': None})
     probed = []
-    for argv in (['install', '-b', BOARD, '--firmware', str(fw), '--sha256', ht.sha256(fw), '--under-hold', 'x'],
+    for argv in (['install', '-b', BOARD, '--build-record', 'r.json', '--under-hold', 'x'],
                  ['restore', '-b', BOARD, '--build-record', 'r.json', '--under-hold', 'x']):
       with self.subTest(argv[0]), contextlib.redirect_stdout(io.StringIO()), \
            mock.patch.object(ht, 'verify_record', lambda *a: ({'hex': 'x.hex', 'bin': fw}, {'version': 'v'})), \

@@ -793,11 +793,12 @@ def flash_ready(root, flash, ninja_for):
 
 
 @contextlib.contextmanager
-def build_lock(root):
-  """Excludes a rebuild of a shared build dir while another build or a HIL flash uses it."""
+def build_lock(root, wait=True):
+  """Excludes a rebuild of a shared build dir while another build or a HIL flash uses it; without `wait`, a held
+  lock raises BlockingIOError."""
   root.parent.mkdir(parents=True, exist_ok=True)
   with open(root.with_name(root.name + '.lock'), 'a') as f:
-    fcntl.flock(f, fcntl.LOCK_EX)
+    fcntl.flock(f, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
     yield
 
 

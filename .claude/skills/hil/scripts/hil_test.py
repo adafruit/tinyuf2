@@ -2,8 +2,8 @@
 """TinyUF2 HIL battery and the probe operations debug sessions share with it.
 
   hil_test.py run -b BOARD --build-record FILE CONFIG [--fail-at STEP] [--try-reentry METHOD]
-  hil_test.py install -b BOARD --firmware BIN --sha256 HASH --under-hold REASON CONFIG
-  hil_test.py restore -b BOARD --build-record FILE (--under-hold REASON | --recover-holder PID --report FILE) CONFIG
+  hil_test.py install -b BOARD --build-record FILE --under-hold REASON [--try-reentry METHOD] CONFIG
+  hil_test.py restore -b BOARD --build-record FILE (--under-hold REASON [--try-reentry METHOD] | --recover-holder PID --report FILE) CONFIG
 
 The last stdout line is JSON. Exit 0 every board passed and was cleaned up, 1 a board failed or did not
 run (cleaned up or never touched), 2 refused before any hardware access, 4 cleanup failed (the board is
@@ -61,8 +61,8 @@ ESP_SESSION = Path(__file__).resolve().parent / 'esp_session.py'
 USB_DFU = Path(__file__).resolve().parent / 'usb_dfu.py'
 NONCE_MAGIC, NONCE_BLOCK = b'TUF2NONC', 256   # apps/dfu_runtime/src/dfu_runtime.h
 JLINK_IF, JLINK_SPEED = 'SWD', '4000'
-CMAKE_RECORD_FILES = {'tinyuf2.bin': 'bin', 'tinyuf2.hex': 'hex', 'blinky.uf2': 'blinky'}
-ZERO_PAGE = 512   # bytes zeroed at the app start so its reset vector reads 0
+CMAKE_RECORD_FILES = {'tinyuf2.bin': 'bin', 'blinky.uf2': 'blinky'}
+JLINK_ERRORS = r'Verify failed|Could not|Cannot connect|ERROR|ResetTarget failed|Failed to halt|CPU is not halted'
 UDEV_RULES = ('/etc/udev/rules.d', '/run/udev/rules.d')
 # J-Link notes that are not failures, per device, each with the line that shows the operation completed
 # (bench: every MIMXRT1062 reset with an invalid app vector, then the reset halts as usual; every MIMXRT1011 reset
@@ -79,6 +79,10 @@ class StepFail(Exception):
   def __init__(self, msg, evidence=None):
     super().__init__(msg)
     self.evidence = evidence or {}
+
+
+class NotEnumerated(StepFail):
+  """The DFU device never appeared: the only failure after an install that re-entry may follow."""
 
 
 class Interrupted(Exception):
@@ -120,7 +124,7 @@ def load_board(config, name):
   elif m.group(1) not in FLASH_LIMITS:
     raise Refused(f'{name}: no programming limits known for J-Link device {m.group(1)}')
   return {'name': name, 'lock': lock, 'uid': b['uid'], 'flasher': fl['name'], 'probe': fl['uid'], 'device': m.group(1),
-          'if': JLINK_IF, 'speed': JLINK_SPEED, 'port': port, 'page': ZERO_PAGE,
+          'if': JLINK_IF, 'speed': JLINK_SPEED, 'port': port,
           'helper': os.path.join(tinyusb, 'test', 'hil', 'helper', 'hil_lock.py'),
           'reentry': t.get('reentry')}
 
@@ -295,8 +299,6 @@ def apply_layout(board, facts):
   if not floor <= base < start < end <= ceiling:
     raise Refused(f'{board["name"]}: flash [{base:#x}, {end:#x}) with app start {start:#x} leaves the '
                   f'{board["device"]} flash [{floor:#x}, {ceiling:#x}) or is out of order')
-  if start % ZERO_PAGE:
-    raise Refused(f'{board["name"]}: app start {start:#x} is not {ZERO_PAGE}-byte aligned')
   board.update(install=(base, start), app=(start, end))
 
 
@@ -492,6 +494,20 @@ def stopped_before_target(code, out, probe):
   return bool(no_probe) or died_at_probe_connect(code, out, probe)
 
 
+def judge_jlink_target(code, out, board, hex_path):
+  """The tinyuf2-jlink transcript, through CMake and Ninja: JLinkExe can exit 0 with every command FAILED (no probe
+  with the serial), so success is read from the transcript: this HEX downloaded, programmed or already matching,
+  then O.K. and the script completed, with no failure line anywhere."""
+  judged = re.sub(BENIGN[board['device']], '', out) if board['device'] in BENIGN else out
+  m = re.search(rf'^Downloading file \[{re.escape(str(hex_path))}\]\.\.\.$(?:\n.*)*?\nJ-Link: Flash download: Bank \d+ @ '
+                r'0x[0-9A-F]+: (Skipped\. Contents already match|\d+ ranges? affected \(\d+ bytes\))$(?:\n.*)*?\nO\.K\.$',
+                judged, re.M)
+  if code or not m or 'Script processing completed.' not in judged or re.search(JLINK_ERRORS + '|FAILED', judged):
+    raise StepFail(f'tinyuf2-jlink failed (exit {code})', {'tail': out.strip().splitlines()[-5:],
+                                                           'beforeTarget': stopped_before_target(code, out, board['probe'])})
+  return {'flashDownload': m[1]}
+
+
 class Probe:
   def __init__(self, board, workdir, log):
     self.b, self.dir, self.log = board, workdir, log
@@ -513,8 +529,7 @@ class Probe:
       code, out = spawn(cmd, self.log, PROBE_TIMEOUT)
     judged = re.sub(BENIGN[self.b['device']], '', out) if self.b['device'] in BENIGN else out
     # a crash fails even a reset session (judge=False): its commands may not have run
-    if code < 0 or judge and (code or re.search(r'Verify failed|Could not|Cannot connect|ERROR|ResetTarget failed|'
-                                                r'Failed to halt|CPU is not halted', judged)):
+    if code < 0 or judge and (code or re.search(JLINK_ERRORS, judged)):
       raise StepFail(f'JLinkExe failed (exit {code})', {'tail': out.strip().splitlines()[-5:],
                                                         'beforeTarget': stopped_before_target(code, out, self.b['probe'])})
     return out
@@ -669,14 +684,14 @@ def block_device(usb_path):
   return None
 
 
-def wait_for(fn, timeout, what):
+def wait_for(fn, timeout, what, fail=None):
   end = time.monotonic() + timeout
   while time.monotonic() < end:
     v = fn()
     if v:
       return v
     time.sleep(0.2)
-  raise StepFail(f'{what} not seen within {timeout}s')
+  raise (fail or StepFail)(f'{what} not seen within {timeout}s')
 
 
 def stays_away(fn, seconds, what, ev):
@@ -1036,7 +1051,8 @@ def verify_record(record_path, board, facts):
   want = 'idf' if board.get('flasher') == 'esptool' else 'cmake'
   if row.get('backend') != want:
     raise Refused(f'{record_path}: a {row.get("backend")} build; the HIL takes {want} builds only for this board '
-                  f'(check_build.py --board {board["name"]}{" --backend cmake" if want == "cmake" else ""} --shared)')
+                  f'(check_build.py --board {board["name"]}{" --backend cmake" if want == "cmake" else ""} --shared '
+                  f'--hil-config <roster>)')
   if want == 'idf':
     try:
       image = f'espressif/idf:{cb.ci_idf_version()}'
@@ -1058,6 +1074,7 @@ def verify_record(record_path, board, facts):
     if bad:
       raise Refused(f'build inputs are not clean: {bad} (commit, or rebuild from a clean checkout)')
   root = cb.ROOT / row['buildDir']
+  flash = flash_binding(record_path, rec, row, root, board)
   if want == 'idf':
     return esp_record(record_path, rec, row, root, board, facts)
   files, digests = {}, {}
@@ -1074,9 +1091,28 @@ def verify_record(record_path, board, facts):
   missing = set(CMAKE_RECORD_FILES.values()) - files.keys()
   if missing:
     raise Refused(f'{record_path}: the build of {board["name"]} names no {" or ".join(sorted(missing))}')
-  files.update(check_blinky(files.pop('blinky'), board['app'], facts))
+  files.update(check_blinky(files.pop('blinky'), board['app'], facts), flash=flash, hex=root / 'tinyuf2.hex')
   return files, {'path': str(files['bin']), 'sha256': digests['bin'], 'buildRecord': str(record_path),
                  'defines': rec.get('defines', []), 'version': embedded_version(files['bin'])}
+
+
+def flash_binding(record_path, rec, row, root, board):
+  """The record's flash target, bound by check_build --hil-config to this roster flasher, with every file it reads
+  hash-checked; the install runs that target, under the build dir's lock."""
+  fl = row.get('flash') or {}
+  target, inputs = cb.FLASH[board['flasher']]
+  want = {'name': board['flasher'], 'uid': board['probe'], 'device': board['device']}
+  if (fl.get('flasher'), fl.get('target'), fl.get('inputs')) != (want, target, list(inputs)):
+    raise Refused(f'{record_path}: its flash target is not bound to this roster flasher {want} (rebuild it with '
+                  f'check_build.py --board {board["name"]} ... --shared --hil-config <roster>)')
+  digests = {}
+  for rel in inputs:
+    digests[rel] = sha256(root / rel)
+    if digests[rel] is None or row.get('sha256', {}).get(rel) != digests[rel]:
+      raise Refused(f'{root / rel}: missing, unreadable or changed since the build record')
+  idf = rec.get('idf') or {}
+  return {'root': root, 'binding': fl, 'sha256': digests,
+          'ninja': lambda d: cb.ninja_in(d, row['backend'], idf.get('mode'), idf.get('image'))}
 
 
 def check_blinky(path, span, facts):
@@ -1122,14 +1158,10 @@ def sha256(p):
 
 
 def check_bootloader_bin(bin_path, board, facts, what):
-  """Every span a bootloader install writes: the BIN from its flash address (`binBase`) inside `install` and
-  the zero page at the start of `app` inside it, both within the device's flash limits; and the BIN is this
+  """The BIN from its flash address (`binBase`) inside `install`, within the device's flash limits, and this
   board's (its UF2_BOARD_ID)."""
-  install, app, start = board['install'], board['app'], facts['binBase']
-  size = Path(bin_path).stat().st_size
-  limits = FLASH_LIMITS[board['device']]
-  check_ranges({start: 0, start + size - 1: 0}, [install], limits, what)
-  check_ranges({app[0]: 0, app[0] + board['page'] - 1: 0}, [app], limits, f'{what} zero page')
+  start, size = facts['binBase'], Path(bin_path).stat().st_size
+  check_ranges({start: 0, start + size - 1: 0}, [board['install']], FLASH_LIMITS[board['device']], what)
   if facts['boardId'].encode() not in Path(bin_path).read_bytes():
     raise Refused(f'{what}: {bin_path} does not carry board id {facts["boardId"]!r}; not this board\'s bootloader')
 
@@ -1142,7 +1174,7 @@ class Battery:
     self.steps, self.usb_path, self.touched, self.at = [], None, False, 'setup'
     # where CURRENT.UF2 starts and the flash size INFO_UF2.TXT reports
     self.app_start, self.dfu_flash = facts.get('appStart'), facts['flashSize']
-    self.dfu_claim = 'app rejected (reset vector 0); DFU observed'
+    self.dfu_claim = 'DFU observed after the install'
 
   def step(self, name, fn):
     self.at = name   # an abort names the step it cut short without recording it as a failing step
@@ -1156,32 +1188,71 @@ class Battery:
       raise
     self.steps.append({'step': name, 'pass': True, 'evidence': ev, 'detail': ''})
 
-  def program(self, bin_path):
-    """One image from the install base: 0xFF up to binBase, the bootloader BIN, 0xFF up to appStart, then a zero
-    page, written by a single loadbin and read back, so no second write lands in the bootloader's erase block;
-    the zeroed reset vector makes the app invalid by construction, so the next boot stays in DFU. No range
-    erase is ever issued. Callers have range-checked both spans (check_bootloader_bin)."""
-    base, bin_base, app_start = self.b['install'][0], self.f['binBase'], self.f['appStart']
-    data = Path(bin_path).read_bytes()
-    if bin_base + len(data) > app_start:
-      raise StepFail(f'{bin_path} [{bin_base:#x}, {bin_base + len(data):#x}) overlaps the app start {app_start:#x}')
-    image = self.dir / 'program.bin'
-    image.write_bytes(b'\xff' * (bin_base - base) + data + b'\xff' * (app_start - bin_base - len(data)) +
-                      bytes(self.b['page']))
-    # touched before the session, so an interruption mid-write counts; only a session recognised as ending before
-    # the target connect leaves the board as it was
-    was, self.touched = self.touched, True
+  def flash_target(self, flash, judge):
+    """The record's flash target, under its build dir's lock: the inputs still hash as recorded and a dry run shows
+    the target runs nothing but its flasher (cb.flash_ready); after it, the inputs are hashed again. Touched from the
+    target's start; only a transcript recognised as ending before any target connect leaves the board as it was."""
+    root, fl = flash['root'], flash['binding']
+    with contextlib.ExitStack() as held:
+      try:
+        held.enter_context(cb.build_lock(root, wait=False))
+      except BlockingIOError:
+        raise StepFail(f'{root.name} is in use by a build or another flash; nothing was flashed')
+      self.check_inputs(flash, 'before the flash')
+      try:
+        cb.flash_ready(root, fl, flash['ninja'])
+      except cb.Fail as e:
+        raise StepFail(str(e))
+      was, self.touched = self.touched, True
+      code, out = spawn(['cmake', '--build', root, '--target', fl['target']], self.log, PROBE_TIMEOUT)
+      try:
+        ev = judge(code, out)
+      except StepFail as e:
+        if e.evidence.get('beforeTarget'):
+          self.touched = was
+        raise
+      self.check_inputs(flash, 'while flashing', ev)
+    return ev
+
+  @staticmethod
+  def check_inputs(flash, when, ev=None):
+    changed = [rel for rel, digest in flash['sha256'].items() if sha256(flash['root'] / rel) != digest]
+    if changed:
+      raise StepFail(f'flash inputs changed {when}: {changed}', ev or {})
+
+  def dfu_after_install(self, version):
+    """DFU after an install: J-Link's download erased the bootloader's whole 64 KiB block on the bench, the app start
+    with it (SKILL.md Limits), so DFU comes up; should enumeration time out instead, as when a valid app boots, the
+    board's commissioned retained-register re-entry brings DFU up. Any other failure fails as it is."""
     try:
-      self.probe.run(['h', f'loadbin {image},{base:#x}', f'verifybin {image},{base:#x}', 'r', 'g'])
+      return self.dfu(version)
+    except NotEnumerated as e:
+      if self.b['reentry'] != 'retained-register':
+        raise StepFail(f'{e}, and {self.b["name"]} has no retained-register re-entry to try', e.evidence)
+    return self.retained_reentry(version, 'DFU did not enumerate after the install; the retained-register re-entry '
+                                          'brought it up')
+
+  def retained_reentry(self, version, claim):
+    f = self.f
+    self.probe.write32(f['dblTapReg'], f['dblTapMagic'])
+    # SYSRESETREQ may drop the debug connection mid-write: its exit is not judged, enumeration is;
+    # no probe session opens again until DFU is observed
+    tail = self.probe.run([f'w4 {SCB_AIRCR:08X} {AIRCR_SYSRESETREQ:08X}'], judge=False)
+    ev = dict(self.dfu(version), dfuCameUp=True, resetTail=tail.strip().splitlines()[-3:], claim=claim)
+    try:
+      left = self.probe.mem32([f['dblTapReg']])[f['dblTapReg']]
     except StepFail as e:
-      if e.evidence.get('beforeTarget'):
-        self.touched = was
+      e.evidence = {**ev, **e.evidence}
       raise
+    ev.update(dblTapRegAfter=hex(left), magicConsumed=not left)
+    if left:
+      raise StepFail('the double-tap register was not consumed', ev)
+    return ev
 
   def dfu(self, version):
     f = self.f
     path = wait_for(lambda: usb_device(f['vid'], f['pid'], self.b['uid']), USB_TIMEOUT,
-                    f'{f["vid"]:04x}:{f["pid"]:04x} serial {self.b["uid"]}')
+                    f'{f["vid"]:04x}:{f["pid"]:04x} serial {self.b["uid"]}', NotEnumerated)
     if self.usb_path and path != self.usb_path:
       raise StepFail('came back on another USB port', {'usb': path, 'expected': self.usb_path})
     self.usb_path = path
@@ -1237,7 +1308,7 @@ class Battery:
     self.step('install', lambda: self.install(files))
     # cleared once the bootloader has run board_init (the register's clock), so a magic a failed reenter left
     # cannot send the copied app back to DFU
-    self.step('dfu', lambda: dict(self.dfu(version), dblTapReg=self.probe.write32(f['dblTapReg'], 0)))
+    self.step('dfu', lambda: dict(self.dfu_after_install(version), dblTapReg=self.probe.write32(f['dblTapReg'], 0)))
 
     self.step('copy', lambda: self.copy(app_uf2, len(blocks), nonce))
 
@@ -1264,16 +1335,7 @@ class Battery:
     def entered(ev):
       if self.commissioning:
         ev.update(self.control(app_bin))
-      self.probe.write32(f['dblTapReg'], f['dblTapMagic'])
-      # SYSRESETREQ may drop the debug connection mid-write: its exit is not judged, enumeration is;
-      # no probe session opens again until DFU is observed
-      tail = self.probe.run([f'w4 {SCB_AIRCR:08X} {AIRCR_SYSRESETREQ:08X}'], judge=False)
-      ev.update(self.dfu(version), dfuCameUp=True, resetTail=tail.strip().splitlines()[-3:],
-                claim='the write/reset sequence re-entered DFU (register retention inferred)')
-      left = self.probe.mem32([f['dblTapReg']])[f['dblTapReg']]
-      ev.update(dblTapRegAfter=hex(left), magicConsumed=not left)
-      if left:
-        raise StepFail('the double-tap register was not consumed', ev)
+      ev.update(self.retained_reentry(version, 'the write/reset sequence re-entered DFU (register retention inferred)'))
       expect = self.fix['image']
       n = -(-len(expect) // 256)
       try:
@@ -1291,7 +1353,7 @@ class Battery:
     """Cleanup: the record's TinyUF2 installed again and its blinky copied through the drive; the board must
     leave DFU and stay out of it."""
     self.install(files)
-    ev = {'dfu': self.dfu(version)['usb'], 'copy': self.copy(files['blinky'], files['blinkyBlocks'])}
+    ev = {'dfu': self.dfu_after_install(version)['usb'], 'copy': self.copy(files['blinky'], files['blinkyBlocks'])}
     ev.update(self.after_copy())
     stays_away(lambda: usb_device(self.f['vid'], self.f['pid'], self.b['uid']), QUIET_TIME,
                'the DFU device came back after the blinky copy', ev)
@@ -1301,8 +1363,10 @@ class Battery:
     return {'jlinkRetried': self.probe.retried}   # the cleanup's retries land here too: the same list
 
   def install(self, files):
-    self.program(files['bin'])
-    return {'zeroPage': f'{self.f["appStart"]:#x}', 'verified': True}
+    """The record's tinyuf2-jlink target, then the BIN verified at its flash address in a session of the runner's."""
+    ev = self.flash_target(files['flash'], lambda code, out: judge_jlink_target(code, out, self.b, files['hex']))
+    self.probe.run(['h', f'verifybin {files["bin"]},{self.f["binBase"]:#x}', 'r', 'g'])
+    return dict(ev, verified=True)
 
   def after_copy(self):
     return {}
@@ -1562,6 +1626,17 @@ def admit_record(record_path, board, facts):
   return files, fw
 
 
+def trial_reentry(board, method):
+  """The board with `method` as its re-entry, for commissioning: refused once the roster's reentry is set."""
+  if not method:
+    return board
+  if board['reentry'] is not None:
+    raise Refused(f'{board["name"]}: reentry is already commissioned; --try-reentry is for commissioning only')
+  if method not in REENTRY[board['flasher']]:
+    raise Refused(f'{board["name"]}: a {board["flasher"]} board re-enters by one of {REENTRY[board["flasher"]]}')
+  return dict(board, reentry=method)
+
+
 def run_board(args, board, facts, helper, workdir):
   row = {'board': board['name'], 'lock': board['lock'], 'ran': False, 'pass': False, 'locked': False,
          'lockBypassed': False, 'steps': [], 'cleanup': None, 'detail': ''}
@@ -1569,11 +1644,7 @@ def run_board(args, board, facts, helper, workdir):
   if args.fail_at and args.fail_at not in (*STEPS[board['flasher']], 'cleanup'):
     raise Refused(f'{board["name"]}: the {board["flasher"]} battery has no step {args.fail_at}')
   if args.try_reentry:
-    if board['reentry'] is not None:
-      raise Refused(f'{board["name"]}: reentry is already commissioned; --try-reentry is for commissioning only')
-    if args.try_reentry not in methods:
-      raise Refused(f'{board["name"]}: a {board["flasher"]} board re-enters by one of {methods}')
-    board = dict(board, reentry=args.try_reentry)
+    board = trial_reentry(board, args.try_reentry)
     row.update(commissioning=True, tried=args.try_reentry)
   elif board['reentry'] not in methods:
     raise Refused(f'{board["name"]}: tinyuf2.reentry must be one of {methods} (set from commissioning)')
@@ -1652,18 +1723,18 @@ def main(argv=None):
   sub = ap.add_subparsers(dest='cmd', required=True)
   r = sub.add_parser('run', help='the battery on one board (self-locking)')
   r.add_argument('-b', '--board', required=True)
-  r.add_argument('--build-record', required=True, help='check_build.py --board B --backend cmake --shared JSON, under cmake-build/')
+  r.add_argument('--build-record', required=True, help='check_build.py --board B [--backend cmake] --shared --hil-config ROSTER '
+                 'JSON, under cmake-build/')
   r.add_argument('--fail-at', choices=(*STEPS['esptool'], 'cleanup'), help='acceptance only: fail this step, or the cleanup, '
                  'to exercise cleanup and its holder')
   r.add_argument('--try-reentry', choices=sorted({m for v in REENTRY.values() for m in v}), help="commissioning only, while the roster's reentry is unset")
   r.add_argument('config')
   i = sub.add_parser('install', help='program a bootloader under your own manual hold')
   i.add_argument('-b', '--board', required=True)
-  i.add_argument('--firmware', help='J-Link: a bootloader BIN, programmed at the install start with a zero page at '
-                 'the app start')
-  i.add_argument('--sha256', help='J-Link: the --firmware hash')
-  i.add_argument('--build-record', help='esptool: the IDF build record whose segments are installed')
+  i.add_argument('--build-record', required=True, help="the HIL build record whose TinyUF2 is installed")
   i.add_argument('--under-hold', required=True, metavar='REASON')
+  i.add_argument('--try-reentry', choices=sorted({m for v in REENTRY.values() for m in v}),
+                 help="commissioning only, while the roster's reentry is unset: DFU's fallback after the install")
   i.add_argument('config')
   s = sub.add_parser('restore', help="install the record's TinyUF2 and copy its blinky, under your hold or to "
                      'recover a holder')
@@ -1673,6 +1744,8 @@ def main(argv=None):
   g.add_argument('--under-hold', metavar='REASON')
   g.add_argument('--recover-holder', type=int, metavar='PID')
   s.add_argument('--report', help="the failed run's hil_report.json (with --recover-holder)")
+  s.add_argument('--try-reentry', choices=sorted({m for v in REENTRY.values() for m in v}),
+                 help="commissioning only, under your hold, while the roster's reentry is unset")
   s.add_argument('config')
   fr = sub.add_parser('fat-read')
   fr.add_argument('--dev', required=True)
@@ -1697,38 +1770,24 @@ def main(argv=None):
       row, code = run_board(args, board, facts, helper, run_dir)
       result['results'].append(row)
       result['pass'] = code == 0 and row['pass']
-    elif args.cmd == 'install' and board['flasher'] == 'esptool':
-      if not args.build_record or args.firmware or args.sha256:
-        raise Refused(f'{board["name"]}: an esptool install takes --build-record, not --firmware/--sha256')
+    elif args.cmd == 'install':
+      board = trial_reentry(board, args.try_reentry)
       manual_holder(helper, board['lock'], args.under_hold)
-      files, fw = verify_record(args.build_record, board, facts)
-      exclusion_configured(facts, board['uid'])
-      check_esptool()
+      files, fw = admit_record(args.build_record, board, facts)
+      bat = BATTERIES[board['flasher']](board, facts, run_dir)
       try:
-        ev = EspBattery(board, facts, run_dir).install(files)
+        ev = bat.install(files)
+        ev['dfu'] = bat.dfu_after_install(fw['version'])
       finally:
         result['survivors'] = stuck_children()
       result['results'].append({'board': board['name'], 'installed': fw, 'evidence': ev})
-      result['pass'], code = True, 0
-    elif args.cmd == 'install':
-      if not (args.firmware and args.sha256) or args.build_record:
-        raise Refused(f'{board["name"]}: a J-Link install takes --firmware and --sha256')
-      manual_holder(helper, board['lock'], args.under_hold)
-      if sha256(args.firmware) != args.sha256:
-        raise Refused(f'{args.firmware} does not match --sha256')
-      check_bootloader_bin(args.firmware, board, facts, args.firmware)
-      exclusion_configured(facts, board['uid'])
-      check_jlink()
-      try:
-        Battery(board, facts, run_dir).program(args.firmware)
-      finally:
-        result['survivors'] = stuck_children()
-      result['results'].append({'board': board['name'], 'installed': {'path': args.firmware, 'sha256': args.sha256}})
       result['pass'], code = True, 0
     else:
       files, fw = admit_record(args.build_record, board, facts)
       rec = snapshot = None
       if args.recover_holder is not None:
+        if args.try_reentry:
+          raise Refused('--try-reentry is for a restore under your own hold, not a recovery')
         if not args.report:
           raise Refused("--recover-holder needs --report, the failed run's report naming that holder")
         try:
@@ -1751,6 +1810,7 @@ def main(argv=None):
         if alive:
           raise Refused(f'the failed run\'s children {alive} are still alive; recovery may not overlap them')
       else:
+        board = trial_reentry(board, args.try_reentry)
         manual_holder(helper, board['lock'], args.under_hold)
       users = probe_users(board)
       if users:
