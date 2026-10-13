@@ -1111,7 +1111,7 @@ def hand_off(fh, board, detail, survivors=()):
 
 # ------------------------------------------------------------------ the battery
 
-def verify_record(record_path, board, facts):
+def verify_record(record_path, board, facts, workdir):
   try:
     rec = json.loads(Path(record_path).read_text())
   except (OSError, ValueError) as e:
@@ -1147,14 +1147,19 @@ def verify_record(record_path, board, facts):
       raise Refused(f'build inputs are not clean: {bad} (commit, or rebuild from a clean checkout)')
   root = cb.ROOT / row['buildDir']
   flash = admit_flash(record_path, rec, row, root, board)
+  # the runner reads its own copies of the BIN, segments and blinky: the build dir's lock covers the flash target
+  # only, and a rebuild may replace the dir after it
+  copy = workdir / 'record'
   if want == 'idf':
-    files = esp_record(record_path, row, root, board, facts)
+    bin_rel = 'tinyuf2.bin'
+    copied(root, (*esp.RECORD_FILES, *flash['sha256']), row, copy)
+    files = esp_record(record_path, copy, board, facts)
   else:
-    recorded(root, CMAKE_RECORD_FILES, row)
-    files = dict(check_blinky(root / CMAKE_RECORD_FILES[1], board['app'], facts), bin=root / CMAKE_RECORD_FILES[0],
-                 hex=root / 'tinyuf2.hex')
+    bin_rel, blinky_rel = CMAKE_RECORD_FILES
+    copies = copied(root, CMAKE_RECORD_FILES, row, copy)
+    files = dict(check_blinky(copies[blinky_rel], board['app'], facts), bin=copies[bin_rel], hex=root / 'tinyuf2.hex')
   files['flash'] = flash
-  return files, {'path': str(files['bin']), 'sha256': sha256(files['bin']), 'buildRecord': str(record_path),
+  return files, {'path': str(root / bin_rel), 'sha256': sha256(files['bin']), 'buildRecord': str(record_path),
                  'defines': rec.get('defines', []), 'version': embedded_version(files['bin'])}
 
 
@@ -1174,11 +1179,28 @@ def admit_flash(record_path, rec, row, root, board):
 
 def recorded(root, rels, row):
   """Each file's sha256, which must be the build record's."""
-  digests = {rel: sha256(root / rel) for rel in rels}
-  for rel, digest in digests.items():
-    if digest is None or row.get('sha256', {}).get(rel) != digest:
-      raise Refused(f'{root / rel}: missing, unreadable or changed since the build record')
-  return digests
+  return {rel: hashlib.sha256(recorded_bytes(root, rel, row)).hexdigest() for rel in rels}
+
+
+def recorded_bytes(root, rel, row):
+  try:
+    data = (root / rel).read_bytes()
+  except OSError:
+    data = None
+  if data is None or row.get('sha256', {}).get(rel) != hashlib.sha256(data).hexdigest():
+    raise Refused(f'{root / rel}: missing, unreadable or changed since the build record')
+  return data
+
+
+def copied(root, rels, row, dest):
+  """Each file copied to the same relative path under `dest`, from bytes that hash as the build record's."""
+  out = {}
+  for rel in rels:
+    data = recorded_bytes(root, rel, row)
+    out[rel] = dest / rel
+    out[rel].parent.mkdir(parents=True, exist_ok=True)
+    out[rel].write_bytes(data)
+  return out
 
 
 def check_blinky(path, span, facts):
@@ -1198,9 +1220,8 @@ def check_blinky(path, span, facts):
   return {'blinky': Path(path), 'blinkyBlocks': len(blocks)}
 
 
-def esp_record(record_path, row, root, board, facts):
-  """An IDF record's segments, every file it binds hash-checked first."""
-  recorded(root, esp.RECORD_FILES, row)
+def esp_record(record_path, root, board, facts):
+  """An IDF record's segments, from `root`, the run's copy of every file the record binds."""
   try:
     segments = esp.admit(root, board, facts, board['regions'])
   except (esp.Refused, OSError, ValueError) as e:
@@ -1687,9 +1708,9 @@ def reentry_decision(row):
   return row['tried'] if all(reenter[0]['evidence'].get(k) is True for k in need) else None
 
 
-def admit_record(record_path, board, facts):
+def admit_record(record_path, board, facts, workdir):
   """A build record the battery and restore may install, with what they need on this host."""
-  files, fw = verify_record(record_path, board, facts)
+  files, fw = verify_record(record_path, board, facts, workdir)
   if board['flasher'] == 'jlink':
     data = parse_hex(files['hex'])
     check_ranges(data, [board['install']], FLASH_LIMITS[board['device']], files['hex'])
@@ -1725,7 +1746,7 @@ def run_board(args, board, facts, helper, workdir):
     row.update(commissioning=True, tried=args.try_reentry)
   elif board['reentry'] not in methods:
     raise Refused(f'{board["name"]}: tinyuf2.reentry must be one of {methods} (set from commissioning)')
-  files, row['firmware'] = admit_record(args.build_record, board, facts)
+  files, row['firmware'] = admit_record(args.build_record, board, facts, workdir)
   if board['flasher'] == 'esptool':
     check_pyusb()
   bypass = os.environ.get('HIL_NO_BOARD_LOCK') == '1'
@@ -1751,8 +1772,8 @@ def run_board(args, board, facts, helper, workdir):
     row['detail'] = f'{bat.at}: {e}' if isinstance(e, StepFail) else f'{bat.at}: {type(e).__name__}: {e}'
     code = 1
   row['steps'] = bat.steps
-  row.update(bat.report_fields())
   code = clean_up(row, code, bat, fh, board, helper, files)
+  row.update(bat.report_fields())   # after the cleanup, whose install may take the snapshot a recovery needs
   if row.get('commissioning'):
     row['reentryDecision'] = reentry_decision(row)
   return deferred(row), code
@@ -1850,7 +1871,7 @@ def main(argv=None):
     elif args.cmd == 'install':
       board = trial_reentry(board, args.try_reentry)
       manual_holder(helper, board['lock'], args.under_hold)
-      files, fw = admit_record(args.build_record, board, facts)
+      files, fw = admit_record(args.build_record, board, facts, run_dir)
       bat = BATTERIES[board['flasher']](board, facts, run_dir)
       try:
         ev = bat.install(files)
@@ -1860,7 +1881,7 @@ def main(argv=None):
       result['results'].append({'board': board['name'], 'installed': fw, 'evidence': ev})
       result['pass'], code = True, 0
     else:
-      files, fw = admit_record(args.build_record, board, facts)
+      files, fw = admit_record(args.build_record, board, facts, run_dir)
       rec = snapshot = None
       if args.recover_holder is not None:
         if args.try_reentry:

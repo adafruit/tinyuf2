@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import signal
 import struct
 import subprocess
@@ -233,18 +234,20 @@ class Rt1060(Tmp):
            'flash': {'target': 'tinyuf2-jlink', 'flasher': {'name': 'jlink', 'uid': '2', 'device': 'MIMXRT1062xxx6A'},
                      'inputs': ['tinyuf2.jlink', 'tinyuf2.hex']}}
     rec.write_text(json.dumps({'pass': True, 'input': now, 'boards': [row]}))
+    work = self.tmp / 'run'
     with mock.patch.object(ht.cb, 'identity', lambda ports: now):   # an absolute buildDir ignores cb.ROOT
-      files, fw = ht.verify_record(rec, self.board, self.facts)
-      self.assertEqual((files['bin'].name, fw['version']), ('tinyuf2.bin', '1.0'))
+      files, fw = ht.verify_record(rec, self.board, self.facts, work)
+      self.assertEqual((files['bin'], fw['path'], fw['version']),
+                       (work / 'record/_bin/tinyuf2.bin', str(build / '_bin/tinyuf2.bin'), '1.0'))
       self.assertEqual((files['hex'], files['flash']['root'], files['flash']['sha256']['tinyuf2.hex']),
                        (build / 'tinyuf2.hex', build, rows['tinyuf2.hex']))   # the HEX the target loads, not a copy
       for what, flash in (('another probe', dict(row['flash'], flasher={'name': 'jlink', 'uid': '9', 'device': 'MIMXRT1062xxx6A'})),
                           ('no binding', None)):
         with self.subTest(what), self.assertRaisesRegex(ht.Refused, 'not bound to this roster flasher'):
           rec.write_text(json.dumps({'pass': True, 'input': now, 'boards': [dict(row, flash=flash)]}))
-          ht.verify_record(rec, self.board, self.facts)
+          ht.verify_record(rec, self.board, self.facts, work)
       rec.write_text(json.dumps({'pass': True, 'input': now, 'boards': [row]}))
-      self.assertEqual((files['blinky'], files['blinkyBlocks']), (blinky, 2))
+      self.assertEqual((files['blinky'], files['blinkyBlocks']), (work / 'record/_bin/apps/blinky.uf2', 2))
       good = blinky.read_bytes()
       for what, data in (('outside the app', ht.pack_uf2([(0x60000000, bytes(256))], self.facts['family'])),
                          ('another family', ht.pack_uf2([(0x6000C000, bytes(256))], 0x1234))):
@@ -253,19 +256,20 @@ class Rt1060(Tmp):
           rows['_bin/apps/blinky.uf2'] = ht.sha256(blinky)
           rec.write_text(json.dumps({'pass': True, 'input': now, 'boards': [dict(row, sha256=rows)]}))
           with self.assertRaisesRegex(ht.Refused, 'blinky.uf2: block 0'):
-            ht.verify_record(rec, self.board, self.facts)
+            ht.verify_record(rec, self.board, self.facts, work)
       blinky.write_bytes(good)
       rows['_bin/apps/blinky.uf2'] = ht.sha256(blinky)
       rec.write_text(json.dumps({'pass': True, 'input': now, 'boards': [dict(row, backend='make')]}))
       with self.assertRaisesRegex(ht.Refused, 'cmake builds only .*--backend cmake --shared'):
-        ht.verify_record(rec, self.board, self.facts)
+        ht.verify_record(rec, self.board, self.facts, work)
       rec.write_text(json.dumps({'pass': True, 'input': now, 'boards': [row]}))
       (build / '_bin' / 'tinyuf2.bin').unlink()
       with self.assertRaisesRegex(ht.Refused, 'tinyuf2.bin: missing'):
-        ht.verify_record(rec, self.board, self.facts)
+        ht.verify_record(rec, self.board, self.facts, work)
+      self.assertEqual(files['bin'].read_bytes(), b'TinyUF2 Bootloader 1.0\r\n')   # verifybin's copy outlives a rebuild
     with mock.patch.object(ht.cb, 'identity', side_effect=ht.cb.Fail('git rev-parse HEAD failed')), \
          self.assertRaisesRegex(ht.Refused, 'cannot establish the checkout identity: git rev-parse'):
-      ht.verify_record(rec, self.board, self.facts)
+      ht.verify_record(rec, self.board, self.facts, work)
 
 
 class SourceFacts(unittest.TestCase):
@@ -371,7 +375,7 @@ class Esp(Tmp):
   def verify(self, rec):
     with mock.patch.object(ht.cb, 'identity', lambda ports: self.now), \
          mock.patch.object(ht.cb, 'ci_idf_version', lambda: 'v5.3.2'):
-      return ht.verify_record(rec, self.board, self.facts)
+      return ht.verify_record(rec, self.board, self.facts, self.tmp / 'run')
 
   def test_the_facts_come_from_the_idf_port(self):
     f = self.facts
@@ -407,11 +411,17 @@ class Esp(Tmp):
         ht.load_board(s3_roster(self.tmp, **over), over.get('name', S3))
 
   def test_an_idf_record_gives_the_four_segments_at_their_regions(self):
-    files, fw = self.verify(self.record(idf_build(self.tmp / 'b')))
+    build = self.tmp / 'b'
+    row = idf_build(build)
+    files, fw = self.verify(self.record(row))
     self.assertEqual([(off, p.name) for off, p in files['segments']],
                      [(0, 'bootloader.bin'), (0x8000, 'partition-table.bin'), (0xe000, 'ota_data_initial.bin'),
                       (0x410000, 'tinyuf2.bin')])
-    self.assertEqual(fw['version'], '1.0')
+    self.assertEqual((fw['version'], fw['path']), ('1.0', str(build / 'tinyuf2.bin')))
+    shutil.rmtree(build)   # a rebuild once the flash target's lock is released: the read-back and cleanup read copies
+    for p in [p for _, p in files['segments']] + [files['blinky']]:
+      rel = str(p.relative_to(self.tmp / 'run' / 'record'))
+      self.assertEqual(ht.sha256(p), row['sha256'][rel])
 
   def test_idf_record_refusals(self):
     fa = ('--flash_mode dio --flash_freq 80m --flash_size 8MB\n0x0 bootloader/bootloader.bin\n0x410000 tinyuf2.bin\n'
@@ -608,7 +618,7 @@ class EspFlash(EspFake):
     rec.write_text(json.dumps({'pass': True, 'input': now, 'boards': [self.row],
                                'idf': {'mode': 'docker', 'image': 'espressif/idf:v5.3.2'}}))
     with mock.patch.object(ht.cb, 'identity', lambda ports: now), mock.patch.object(ht.cb, 'ci_idf_version', lambda: 'v5.3.2'):
-      files, _ = ht.verify_record(rec, self.board, self.facts)
+      files, _ = ht.verify_record(rec, self.board, self.facts, self.work)
     self.bat = ht.EspBattery(self.board, self.facts, self.work)
     self.assertTrue(self.bat.install(files)['readBack'])
     self.assertEqual(self.targets[0][self.targets[0].index('--device') - 1], f'tinyuf2-hil-{S3}')
@@ -1642,6 +1652,20 @@ class RunBoard(Tmp):
         row, code, _ = self.run_board(fail, cleanup_error=err)
         self.assertEqual((code, row['pass'], row['cleanup']['heldAfter'], row['cleanup']['holder']['pid']),
                          (4, False, True, 1))
+
+  def test_a_snapshot_the_cleanups_install_took_reaches_the_report_when_the_cleanup_fails(self):
+    def no_snapshot(bat, files, version):   # the run's snapshot session failed after touching the board
+      bat.touched = True
+      raise ht.StepFail('snapshot session failed')
+
+    def snapshot_then_fail(bat, *a):
+      bat.snap = {'nvs': '0' * 32}
+      raise ht.StepFail('read-back failed')
+    with mock.patch.object(ht.Battery, 'report_fields', lambda bat: {'snapshot': getattr(bat, 'snap', None)}), \
+         mock.patch.object(ht.Battery, 'run', no_snapshot), mock.patch.object(ht.Battery, 'restore', snapshot_then_fail), \
+         mock.patch.object(ht, 'hand_off', lambda fh, b, d, s: (fh.close(), {'pid': 1, 'reason': 'hil_test.py'})[1]):
+      row, code = ht.run_board(self.args, self.board, self.facts, self.helper, self.tmp)
+    self.assertEqual((code, row['cleanup']['pass'], row['snapshot']), (4, False, {'nvs': '0' * 32}))
 
   def test_a_step_or_method_of_the_other_flasher_is_refused_before_the_lock(self):
     for attr, val, err in (('fail_at', 'recopy', 'has no step recopy'), ('try_reentry', 'dfu-detach', 're-enters by one of')):
