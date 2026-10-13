@@ -10,8 +10,8 @@ from pathlib import Path
 
 from check_build import FLASH, HIL_APP, IDF_CONFIG
 
-# 2nd-stage bootloader offset per chip, independent of the build: the ROM loads it from here (IDF v5.3.2
-# bootloader/Kconfig.projbuild BOOTLOADER_OFFSET_IN_FLASH, esptool 5.2.0 targets/esp32s3.py; no checked TRM states it)
+# 2nd-stage bootloader offset per chip, independent of the build: the ROM loads it from here (IDF v6.1
+# esp_rom/esp32s3/esp_rom_caps.h ESP_ROM_BOOTLOADER_OFFSET_FLASH, esptool 5.2.0 targets/esp32s3.py; no checked TRM states it)
 BOOTLOADER_OFFSET = {'esp32s3': 0x0}
 PARTITION_TABLE = (0x8000, 0x1000)   # ports/espressif/sdkconfig.defaults CONFIG_PARTITION_TABLE_OFFSET; one sector
 APP, DATA = 0x00, 0x01
@@ -154,8 +154,8 @@ def admit(root, board, f, lay):
   if bad:
     raise Refused(f'generated sdkconfig differs from the candidate source: {bad}')
   settings, segs = read_flash_args((root / 'flash_args').read_text(), 'flash_args')
-  for k, v in (('flash_mode', gen.get('CONFIG_ESPTOOLPY_FLASHMODE')), ('flash_freq', gen.get('CONFIG_ESPTOOLPY_FLASHFREQ')),
-               ('flash_size', gen.get('CONFIG_ESPTOOLPY_FLASHSIZE'))):
+  for k, v in (('flash-mode', gen.get('CONFIG_ESPTOOLPY_FLASHMODE')), ('flash-freq', gen.get('CONFIG_ESPTOOLPY_FLASHFREQ')),
+               ('flash-size', gen.get('CONFIG_ESPTOOLPY_FLASHSIZE'))):
     if f'"{settings.get(k)}"' != v:
       raise Refused(f'flash_args --{k} {settings.get(k)} differs from the generated sdkconfig {v}')
   if sorted(segs.values()) != sorted(SEGMENTS):

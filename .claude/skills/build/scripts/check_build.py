@@ -708,9 +708,11 @@ def flash_binding(flasher, root, ninja):
     defs = dict(v.split('=', 1) for k, v in zip(argv[1:-2], argv[2:-2]) if k == '-D' and '=' in v)
     tool_argv = defs.get('SERIAL_TOOL', '').split(';')
     ok = len(argv) == 1 + 2 * len(defs) + 2 and argv[-2] == '-P' and Path(argv[-1]).name == 'run_serial_tool.cmake' and \
-      defs.keys() == {'IDF_PATH', 'SERIAL_TOOL', 'SERIAL_TOOL_ARGS', 'WORKING_DIRECTORY'} and \
-      Path(tool_argv[-3]).name == 'esptool.py' and tool_argv[-2:] == ['--chip', flasher['device']] and \
-      defs['SERIAL_TOOL_ARGS'].split(';') == ['--before=default_reset', '--after=hard_reset', 'write_flash', '@flash_args'] and \
+      defs.keys() == {'IDF_PATH', 'SERIAL_TOOL', 'SERIAL_TOOL_ARGS', 'SERIAL_TOOL_IS_WRITE_FLASH',
+                      'SERIAL_TOOL_FLASH_ARGS_FILE', 'WORKING_DIRECTORY'} and \
+      tool_argv[1:] == ['-m', 'esptool', '--chip', flasher['device']] and \
+      defs['SERIAL_TOOL_ARGS'].split(';') == ['--before=default-reset', '--after=hard-reset', 'write-flash', '@flash_args'] and \
+      defs['SERIAL_TOOL_IS_WRITE_FLASH'] == '1' and defs['SERIAL_TOOL_FLASH_ARGS_FILE'] == 'flash_args' and \
       defs['WORKING_DIRECTORY'] == str(root)
     # flash_args: one settings line, then "<offset> <file>" per segment
     segs = (root / 'flash_args').read_text().splitlines()[1:] if (root / 'flash_args').is_file() else []
