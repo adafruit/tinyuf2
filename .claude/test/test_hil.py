@@ -485,19 +485,21 @@ class EspFlash(EspFake):
   """The esptool install."""
 
   def install(self):
-    return ht.esp_program(ht.Esptool(self.board, self.work, self.work / 'hil.log'), self.board, self.segments, self.work)
+    self.bat = ht.EspBattery(self.board, self.facts, self.work)
+    return self.bat.install({'segments': self.segments})
 
   def test_install_writes_the_segments_reads_them_back_and_keeps_the_preserved_regions(self):
     before = self.flash.read_bytes()
-    ev = self.install()
+    self.install()
     img = self.flash.read_bytes()
     for off, path in self.segments:
       self.assertEqual(img[off:off + path.stat().st_size], path.read_bytes())
     for lo, hi in self.board['regions']['preserved'].values():
       self.assertEqual(img[lo:hi], before[lo:hi])
-    self.assertEqual(set(ev['preserved']), {'nvs', 'ota_1', 'ffat'})
-    prog, = self.sessions()
-    self.assertEqual(prog['ops'], ['md5'] * 3 + ['write'] * 4 + ['read'] * 4 + ['md5'] * 3)
+    self.assertEqual(set(self.bat.preserved), {'nvs', 'ota_1', 'ffat'})
+    snap, prog = self.sessions()
+    self.assertEqual((snap['ops'], snap['args'][-1]), (['md5'] * 3, 'no-reset'))
+    self.assertEqual(prog['ops'], ['write'] * 4 + ['read'] * 4 + ['md5'] * 3)
     self.assertEqual(prog['args'][-1], 'hard-reset')
     self.assertIn('--chip', prog['args'])
 
@@ -708,7 +710,7 @@ class EspBatteryRun(EspFake):
     self.assertEqual(ev['copy']['writes'][1], {'what': 'nonce block', 'span': ['0x1fff00', '0x200000'],
                                                'blocks': ['0x1f0000', '0x200000']})
     self.assertEqual(ev['copy']['writes'][0]['blocks'][0], '0x0')
-    self.assertEqual(set(bat.snapshot['preserved']), {'nvs', 'ota_1', 'ffat'})
+    self.assertEqual(set(bat.report_fields()['snapshot']['preserved']), {'nvs', 'ota_1', 'ffat'})
     self.assertTrue(bat.touched)
     snap, prog = self.sessions()[:2]
     self.assertEqual((snap['ops'], snap['args'][-1]), (['md5'] * 3, 'no-reset'))
@@ -722,7 +724,7 @@ class EspBatteryRun(EspFake):
       bat, rig, files = self.battery()
       with self.subTest(what), ctx, self.assertRaises(err):
         bat.run(files, 'v1')
-      row = {'snapshot': bat.snapshot, 'cleanup': {'state': 'unknown'}}
+      row = dict(bat.report_fields(), cleanup={'state': 'unknown'})
       self.assertTrue(bat.touched)
       self.assertEqual(ht.report_snapshot(json.loads(json.dumps(row)), self.board['regions']['preserved']), bat.preserved)
 
@@ -734,7 +736,7 @@ class EspBatteryRun(EspFake):
       bat, rig, files = self.battery()
       with self.subTest(what), patch, self.assertRaises(ht.StepFail):
         bat.run(files, 'v1')
-      self.assertEqual((bat.touched, bat.snapshot), (touched, None))
+      self.assertEqual((bat.touched, bat.report_fields()['snapshot']), (touched, None))
 
   def test_an_app_on_another_port_keeps_the_paths_out_of_the_detail(self):
     bat, rig, files = self.battery()

@@ -587,19 +587,17 @@ def check_preserved(before, after, by):
     raise StepFail(f'a preserved region changed by the end of the {by}', {'before': before, 'after': after})
 
 
-def esp_program(esp, board, segments, workdir, snapshot=None):
+def esp_program(esp, board, segments, workdir, snapshot):
   """Write every segment and read each back byte for byte in one connection, then one reset. The preserved
-  regions' MD5s after the writes must equal `snapshot` (the battery's, taken before install) or, without one,
-  MD5s taken in the same connection before the writes (a manual install)."""
+  regions' MD5s after the writes must equal `snapshot`, taken before the install."""
   reads = [(off, path, workdir / f'readback-{off:x}.bin') for off, path in segments]
   keep = board['regions']['preserved']
-  ops = ([] if snapshot else preserved_ops(keep)) + \
-        [{'op': 'write', 'addr': off, 'file': str(path)} for off, path in segments] + \
+  ops = [{'op': 'write', 'addr': off, 'file': str(path)} for off, path in segments] + \
         [{'op': 'read', 'addr': off, 'size': path.stat().st_size, 'file': str(rb)} for off, path, rb in reads] + \
         preserved_ops(keep)
   md5s = [r for r in esp.run(ops, 'hard-reset') if r['op'] == 'md5']
   after = preserved_md5(keep, md5s[-len(keep):])
-  check_preserved(snapshot or preserved_md5(keep, md5s[:len(keep)]), after, 'install')
+  check_preserved(snapshot, after, 'install')
   for off, path, rb in reads:
     if rb.read_bytes() != path.read_bytes():
       raise StepFail(f'{path.name} does not read back as written', {'addr': hex(off)})
@@ -1299,6 +1297,9 @@ class Battery:
                'the DFU device came back after the blinky copy', ev)
     return {'pass': True, 'state': 'blinky copied', 'evidence': ev}
 
+  def report_fields(self):
+    return {'jlinkRetried': self.probe.retried}   # the cleanup's retries land here too: the same list
+
   def install(self, files):
     self.program(files['bin'])
     return {'zeroPage': f'{self.f["appStart"]:#x}', 'verified': True}
@@ -1381,30 +1382,32 @@ class EspBattery(Battery):
   image; the app reports the nonce in its DFU runtime interface string and returns to DFU on DFU_DETACH."""
   def __init__(self, board, facts, workdir, fail_at=None, commissioning=False):
     super().__init__(board, facts, workdir, fail_at, commissioning)
-    self.tool, self.preserved, self.snapshot = Esptool(board, workdir, self.log), None, None
+    self.tool, self.preserved = Esptool(board, workdir, self.log), None
     # TinyUF2 takes espressif UF2 addresses as ota_0 offsets and reports ota_0 as its flash
     self.app_start, self.dfu_flash = 0, board['app'][1] - board['app'][0]
     self.dfu_claim = 'DFU observed'
 
   def after_copy(self):
-    """The preserved regions checked again once blinky is copied, against the install's baseline."""
+    """The preserved regions checked again once blinky is copied, against the snapshot."""
     keep = self.b['regions']['preserved']
-    check_preserved(self.baseline, preserved_md5(keep, self.tool.run(preserved_ops(keep), 'hard-reset')), 'restore')
+    check_preserved(self.preserved, preserved_md5(keep, self.tool.run(preserved_ops(keep), 'hard-reset')), 'restore')
     return {'preserved': 'unchanged since the snapshot before the install'}
 
   def install(self, files):
     """The preserved regions' snapshot first, in a session of its own, which the report keeps however the run ends:
     a recovery's restore checks against it. A restore reuses the run's snapshot, or a recovery's."""
-    keep = self.b['regions']['preserved']
-    if self.preserved is None:
-      esp_port(self.b['probe'])   # no bridge fails here, untouched; any session may leave the chip in its ROM loader
-      self.touched = True
-      self.preserved = preserved_md5(keep, self.tool.run(preserved_ops(keep), 'no-reset'))
-      self.snapshot = {'preserved': self.preserved, 'preservedRegions': {n: list(r) for n, r in keep.items()}}
+    esp_port(self.b['probe'])   # no bridge fails here, untouched; any session may leave the chip in its ROM loader
     self.touched = True
-    ev = esp_program(self.tool, self.b, files['segments'], self.dir, snapshot=self.preserved)
-    self.baseline = ev['preserved']
+    if self.preserved is None:
+      keep = self.b['regions']['preserved']
+      self.preserved = preserved_md5(keep, self.tool.run(preserved_ops(keep), 'no-reset'))
+    ev = esp_program(self.tool, self.b, files['segments'], self.dir, self.preserved)
     return {'writes': ev['writes'], 'readBack': True}
+
+  def report_fields(self):
+    keep = self.b['regions']['preserved']
+    return {'snapshot': self.preserved and {'preserved': self.preserved,
+                                            'preservedRegions': {n: list(r) for n, r in keep.items()}}}
 
   def usb_dfu(self, op):
     f = self.f
@@ -1600,10 +1603,7 @@ def run_board(args, board, facts, helper, workdir):
     row['detail'] = f'{bat.at}: {e}' if isinstance(e, StepFail) else f'{bat.at}: {type(e).__name__}: {e}'
     code = 1
   row['steps'] = bat.steps
-  if board['flasher'] == 'jlink':
-    row['jlinkRetried'] = bat.probe.retried   # the cleanup's retries land here too
-  else:
-    row['snapshot'] = bat.snapshot   # a recovery's restore checks the preserved regions against it
+  row.update(bat.report_fields())
   code = clean_up(row, code, bat, fh, board, helper, files)
   if row.get('commissioning'):
     row['reentryDecision'] = reentry_decision(row)
@@ -1705,7 +1705,7 @@ def main(argv=None):
       exclusion_configured(facts, board['uid'])
       check_esptool()
       try:
-        ev = esp_program(Esptool(board, run_dir, run_dir / 'hil.log'), board, files['segments'], run_dir)
+        ev = EspBattery(board, facts, run_dir).install(files)
       finally:
         result['survivors'] = stuck_children()
       result['results'].append({'board': board['name'], 'installed': fw, 'evidence': ev})
