@@ -16,14 +16,14 @@ APP, DATA = 0x00, 0x01
 SUBTYPE = {(APP, 'factory'): 0x00, (APP, 'ota_0'): 0x10, (APP, 'ota_1'): 0x11, (DATA, 'ota'): 0x00,
            (DATA, 'nvs'): 0x02, (DATA, 'fat'): 0x81}
 TYPE = {'app': APP, 'data': DATA}
-# the IDF build's own segments: flash_args' build-dir path -> the file the port's CMakeLists copies into _bin
+# the IDF build's own segments: flash_args' build-dir path -> the segment's name (its roster region)
 SEGMENT_PATHS = {'bootloader/bootloader.bin': 'bootloader.bin', 'partition_table/partition-table.bin': 'partition-table.bin',
                  'ota_data_initial.bin': 'ota_data_initial.bin', 'tinyuf2.bin': 'tinyuf2.bin'}
 SEGMENTS = tuple(SEGMENT_PATHS.values())
 NATIVE = {v: k for k, v in SEGMENT_PATHS.items()}
 APP_UF2 = f'_bin/apps/{HIL_APP}.uf2'   # the battery's app, copied through TinyUF2
 BLINKY_UF2 = '_bin/apps/blinky.uf2'   # what cleanup leaves running
-RECORD_FILES = ('_bin/flash_args', *(f'_bin/{s}' for s in SEGMENTS), APP_UF2, BLINKY_UF2, 'sdkconfig')
+RECORD_FILES = (APP_UF2, BLINKY_UF2, 'sdkconfig')   # besides the flash target's inputs, which admit_flash checks
 IMAGE_MAGIC = 0xE9
 
 

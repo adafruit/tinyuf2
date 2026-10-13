@@ -447,7 +447,7 @@ class Esp(Tmp):
   def test_a_bound_file_that_changed_is_refused(self):
     row = idf_build(self.tmp / 'b')
     (self.tmp / 'b' / 'sdkconfig').write_text('changed')
-    with self.assertRaisesRegex(ht.Refused, 'sdkconfig: hash differs'):
+    with self.assertRaisesRegex(ht.Refused, 'sdkconfig: missing, unreadable or changed'):
       self.verify(self.record(row))
     row = idf_build(self.tmp / 'c')
     (self.tmp / 'c' / 'tinyuf2.bin').write_bytes(b'changed')   # read by the flash target, not a _bin copy
@@ -570,7 +570,7 @@ class EspFlash(EspFake):
     self.assertEqual((docker[:2], start), (['docker', 'create'], ['docker', 'start', '-a', f'tinyuf2-hil-{S3}']))
     self.assertEqual(docker[docker.index('--name') + 1], f'tinyuf2-hil-{S3}')
     self.assertEqual((docker[docker.index('--device') + 1], f'ESPPORT={tty}' in docker), (tty, True))
-    self.assertTrue(docker[-1].endswith(f"cmake --build {self.tmp / 'b'} --target flash"))
+    self.assertEqual(docker[-5:], ['cmake', '--build', str(self.tmp / 'b'), '--target', 'flash'])
 
   def test_a_session_that_fails_to_connect_writes_nothing(self):
     before = self.flash.read_bytes()
@@ -1793,7 +1793,7 @@ class FakeRig:
 
   def __init__(self, bat):
     self.bat, self.scripts, self.present = bat, [], True
-    self.r0, self.mem, self.double_reset, self.flash = 5, {}, False, set()
+    self.r0, self.mem, self.double_reset = 5, {}, False
     self.hex, self.app_survives = None, False   # the install erases the app start (bench), so DFU follows it
 
   def probe(self, commands, judge=True):
@@ -1815,10 +1815,6 @@ class FakeRig:
       elif c.startswith('w4 '):
         _, a, v = c.split()
         self.mem[int(a, 16)] = int(v, 16)
-      elif c.startswith('loadbin '):
-        note = 'Skipped. Contents already match' if c in self.flash else '1 range affected (65536 bytes)'
-        self.flash.add(c)
-        out += f'J-Link>{c}\nJ-Link: Flash download: Bank 0 @ 0x60000000: {note}\nO.K.\n'
     return out
 
   def spawn(self, cmd, log, timeout, cwd=None):

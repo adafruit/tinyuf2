@@ -97,6 +97,8 @@ SMOKE = {'make': 'lpcxpresso55s69', 'cmake': 'feather_stm32f405_express', 'idf':
 FLASH = {'jlink': ('tinyuf2-jlink', ('tinyuf2.jlink', 'tinyuf2.hex')),
          'esptool': ('flash', ('flash_args', 'bootloader/bootloader.bin', 'partition_table/partition-table.bin',
                                'ota_data_initial.bin', 'tinyuf2.bin'))}
+# a roster flasher's args, whose one group is the device or chip its flash target must name
+FLASHER_ARGS = {'jlink': r'-device (\S+)', 'esptool': r'--chip (\w+)'}
 # configure variables that select a probe or port: a HIL record sets them from the roster, never from -D
 SELECTION = ('JLINK_OPTION', 'OPENOCD_SERIAL', 'OPENOCD_OPTION', 'ESPPORT')
 
@@ -648,15 +650,13 @@ def idf_docker(root, verb='run'):
   return cmd
 
 
-def ninja_in(root, backend, idf_mode, image):
+def ninja_in(backend, idf_mode, image, root, args):
   """Runs ninja on `root` with the ninja that built it: the host's, or the IDF image's (whose build log and
-  generator a host ninja would rewrite)."""
-  def call(args):
-    cmd = ['ninja', '-C', str(root), *args]
-    if backend == 'idf' and idf_mode == 'docker':
-      cmd = idf_docker(root) + [image, 'bash', '-c', '. $IDF_PATH/export.sh >/dev/null 2>&1 && ' + shlex.join(cmd)]
-    return subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT)
-  return call
+  generator a host ninja would rewrite). Callers bind the build's own backend, mode and image."""
+  cmd = ['ninja', '-C', str(root), *args]
+  if backend == 'idf' and idf_mode == 'docker':
+    cmd = idf_docker(root) + [image, *cmd]   # the image's entrypoint sources export.sh, then runs cmd
+  return subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT)
 
 
 def backend_of(port):
@@ -676,7 +676,7 @@ def roster_flasher(config, board):
     name, uid, fargs = (entry['flasher'][k] for k in ('name', 'uid', 'args'))
   except (OSError, ValueError, KeyError, TypeError) as e:
     raise Fail(f'cannot read {board} from {config}: {e}')
-  form = {'jlink': r'-device (\S+)', 'esptool': r'--chip (\S+)'}.get(name)
+  form = FLASHER_ARGS.get(name)
   if form is None:
     raise Fail(f'{board}: flasher {name!r} has no HIL flash target (jlink or esptool)')
   m = re.fullmatch(form, fargs)
@@ -688,10 +688,10 @@ def roster_flasher(config, board):
 
 def flash_binding(flasher, root, ninja):
   """The generated flash target's own command, checked token for token against the roster flasher: the probe,
-  device and image it names, not CMakeCache, which need not hold JLINK_DEVICE. `ninja` runs ninja in the build's
-  environment."""
+  device and image it names, not CMakeCache, which need not hold JLINK_DEVICE. `ninja(dir, args)` runs ninja in the
+  build's environment."""
   target, inputs = FLASH[flasher['name']]
-  r = ninja(['-t', 'commands', target])
+  r = ninja(root, ['-t', 'commands', target])
   tool = 'JLinkExe' if flasher['name'] == 'jlink' else 'run_serial_tool.cmake'
   cmds = [l for l in r.stdout.splitlines() if tool in l] if r.returncode == 0 else []
   ok = len(cmds) == 1
@@ -720,10 +720,10 @@ def flash_binding(flasher, root, ninja):
   return {'target': target, 'flasher': flasher, 'command': cmds[0], 'inputs': list(inputs)}
 
 
-def dry_run(ninja, target=None):
+def dry_run(ninja, root, target=None):
   """The commands `ninja -n -v` would run; whatever precedes ninja's own output (the IDF image's entrypoint
   banner) is skipped. None when ninja failed or its output is not ninja's."""
-  r = ninja(['-n', '-v'] + ([target] if target else []))
+  r = ninja(root, ['-n', '-v'] + ([target] if target else []))
   lines = r.stdout.splitlines()
   start = next((i for i, l in enumerate(lines) if l.startswith('ninja: Entering directory')), None)
   if r.returncode or start is None:
@@ -772,19 +772,17 @@ def idf_step_writes_no_input(cmd, root, chip):
   return True
 
 
-def flash_ready(root, flash, ninja_for):
-  """Before a HIL flash, under the build lock: the target still runs the recorded command, and a dry run shows it
-  would run nothing else that could write a flash input: no rebuild, relink or CMake re-run (ESP-IDF re-runs CMake
-  after any commit, through its git describe dependency). `ninja_for(dir)` runs ninja on dir in the build's
-  environment."""
-  if flash_binding(flash['flasher'], root, ninja_for(root))['command'] != flash['command']:
-    raise Fail(f'{root.name}: target {flash["target"]} no longer runs the recorded command; rebuild the record')
-  steps = dry_run(ninja_for(root), flash['target'])
+def flash_ready(root, flash, ninja):
+  """Before a HIL flash, under the build lock and with its inputs hash-checked: a dry run shows the target would run
+  the recorded command once and nothing else that could write a flash input: no rebuild, relink or CMake re-run
+  (ESP-IDF re-runs CMake after any commit, through its git describe dependency). `ninja(dir, args)` runs ninja in
+  the build's environment."""
+  steps = dry_run(ninja, root, flash['target'])
   extra = None
   if steps is not None:
     others = [c for c in steps if c != flash['command']]
     if flash['flasher']['name'] == 'esptool':
-      nested = dry_run(ninja_for(root / 'bootloader'))   # always: the outer build step runs whatever it needs
+      nested = dry_run(ninja, root / 'bootloader')   # always: the outer build step runs whatever it needs
       others += ['bootloader: ninja -n failed'] if nested is None else nested
       others = [c for c in others if not idf_step_writes_no_input(c, root, flash['flasher']['device'])]
     extra = others if steps.count(flash['command']) == 1 else others + ['no flash command']
@@ -861,11 +859,11 @@ def build_root(board, port, backend, root, rec, args, idf, flasher):
     rec['artifacts'] += list(IDF_CONFIG)
   if flasher:
     try:
-      rec['flash'] = flash_binding(flasher, root, ninja_in(root, backend, args.idf, idf.get('image')))
+      rec['flash'] = flash_binding(flasher, root, functools.partial(ninja_in, backend, args.idf, idf.get('image')))
     except (Fail, OSError) as e:
       rec.update(status='failed', firstError=str(e), log=str(log.relative_to(ROOT)))
       return rec
-    rec['flash'].update(defines=extra, lock=str(root.with_name(root.name + '.lock').relative_to(ROOT)))
+    rec['flash']['defines'] = extra
     rec['artifacts'] += [a for a in rec['flash']['inputs'] if a not in rec['artifacts']]
   if args.shared:
     rec['sha256'] = {a: hashlib.sha256((root / a).read_bytes()).hexdigest() for a in rec['artifacts']}

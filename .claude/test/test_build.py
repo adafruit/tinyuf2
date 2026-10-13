@@ -670,7 +670,7 @@ class HilRecord(unittest.TestCase):
     (root / 'tinyuf2.jlink').write_text(script or f'halt\nloadfile {root / "tinyuf2.hex"}\nr\ngo\nexit')
     line = (f'cd {root} && JLinkExe -device MIMXRT1011DAE5A {options} -if {interface} -JTAGConf -1,-1 -speed auto '
             f'-CommandFile {root / "tinyuf2.jlink"}')
-    return lambda args: subprocess.CompletedProcess(args, 0, f'arm-none-eabi-gcc ...\n{line}\n', '')
+    return lambda d, args: subprocess.CompletedProcess(args, 0, f'arm-none-eabi-gcc ...\n{line}\n', '')
 
   def idf_tree(self, root, chip='esp32s3', extra='', args_file='flash_args'):
     root.mkdir(parents=True, exist_ok=True)
@@ -681,7 +681,7 @@ class HilRecord(unittest.TestCase):
             f'-D "SERIAL_TOOL=python;;/opt/esp/idf/components/esptool_py/esptool/esptool.py;--chip;{chip}" '
             f'-D "SERIAL_TOOL_ARGS=--before=default_reset;--after=hard_reset;write_flash;@{args_file}" '
             f'-D WORKING_DIRECTORY={root} -P /opt/esp/idf/components/esptool_py/run_serial_tool.cmake')
-    return lambda args: subprocess.CompletedProcess(args, 0, line + '\n', '')
+    return lambda d, args: subprocess.CompletedProcess(args, 0, line + '\n', '')
 
   def test_the_roster_flasher_selects_the_probe_through_configure_defines(self):
     self.assertEqual(cb.roster_flasher(self.config, 'metro_m7_1011'),
@@ -726,15 +726,12 @@ class HilRecord(unittest.TestCase):
     command = cb.flash_binding(flasher, root, commands)['command']
     flash = {'target': cb.FLASH[flasher['name']][0], 'flasher': flasher, 'command': command}
 
-    def ninja_for(d):
-      def call(args):
-        if args[:2] == ['-t', 'commands']:
-          return commands(args)
-        out = [command if x == 'FLASH' else x for x in (steps if d == root else nested)]
-        return subprocess.CompletedProcess(args, code, 'entrypoint banner\n' + ("ninja: Entering directory `x'\n" if banner is True or banner == 'nested' and d == root else '') +
-                                           ''.join(f'[{i}/9] {x}\n' for i, x in enumerate(out, 1)), '')
-      return call
-    cb.flash_ready(root, flash, ninja_for)
+    def ninja(d, args):
+      self.assertEqual(args[:2], ['-n', '-v'])
+      out = [command if x == 'FLASH' else x for x in (steps if d == root else nested)]
+      return subprocess.CompletedProcess(args, code, 'entrypoint banner\n' + ("ninja: Entering directory `x'\n" if banner is True or banner == 'nested' and d == root else '') +
+                                         ''.join(f'[{i}/9] {x}\n' for i, x in enumerate(out, 1)), '')
+    cb.flash_ready(root, flash, ninja)
 
   def test_a_flash_target_is_ready_only_when_its_dry_run_shows_just_the_flasher(self):
     jlink = {'name': 'jlink', 'uid': '000801012283', 'device': 'MIMXRT1011DAE5A'}
@@ -743,13 +740,10 @@ class HilRecord(unittest.TestCase):
     rebuild = [f'/usr/bin/arm-none-eabi-gcc -c {ROOT}/src/main.c -o main.c.obj', ': && arm-none-eabi-gcc -o tinyuf2.elf', 'FLASH']
     for what, steps, kw in (('a rebuild', rebuild, {}), ('a CMake re-run', ['/usr/bin/cmake --regenerate-during-build -S.. -B.'], {}),
                             ('ninja fails', ['FLASH'], {'code': 1}), ('nothing', [], {}),
-                            ('no ninja banner', ['FLASH'], {'banner': False})):
+                            ('no ninja banner', ['FLASH'], {'banner': False}),
+                            ('another command', ['JLinkExe -USB 1'], {}), ('the flasher twice', ['FLASH', 'FLASH'], {})):
       with self.subTest(what), self.assertRaisesRegex(cb.Fail, 'would not run only its flasher'):
         self.ready(jlink, root, self.jlink_tree, steps, **kw)
-    with self.assertRaisesRegex(cb.Fail, 'no longer runs the recorded command'):
-      commands = self.jlink_tree(root)
-      flash = {'target': 'tinyuf2-jlink', 'flasher': jlink, 'command': 'JLinkExe -USB 1'}
-      cb.flash_ready(root, flash, lambda d: commands)
 
   def test_an_idf_flash_target_may_also_run_steps_that_write_no_flash_input(self):
     esp = {'name': 'esptool', 'uid': 'b1', 'device': 'esp32s3'}
@@ -835,13 +829,13 @@ class HilRecord(unittest.TestCase):
     with mock.patch.object(cb, 'BUILD_DIR', build_dir), mock.patch.object(cb, 'check_deps', lambda p: None), \
          mock.patch.object(cb, 'check_tools', lambda *a: None), mock.patch.object(cb, 'build_cmake', fake_cmake), \
          mock.patch.object(cb, 'expected_artifacts', lambda *a: []), \
-         mock.patch.object(cb, 'ninja_in', lambda root, *a: self.jlink_tree(root)):
+         mock.patch.object(cb, 'ninja_in', lambda backend, mode, image, root, args: self.jlink_tree(root)(root, args)):
       rec = cb.build_board('metro_m7_1011', 'cmake', args, {}, cb.roster_flasher(self.config, 'metro_m7_1011'))
     self.assertEqual(rec['status'], 'ok', rec)
     self.assertEqual(built, [['JLINK_OPTION=-USB 000801012283 -ExitOnError 1 -NoGui 1']])
     self.assertIn('tinyuf2.hex', rec['sha256'])
     self.assertIn('tinyuf2.jlink', rec['sha256'])
-    self.assertEqual(rec['flash']['lock'], str((build_dir / 'cmake-build-metro_m7_1011-cmake.lock').relative_to(ROOT)))
+    self.assertEqual(rec['flash']['defines'], ['JLINK_OPTION=-USB 000801012283 -ExitOnError 1 -NoGui 1'])
 
   def test_a_hil_record_takes_probe_selection_only_from_the_roster(self):
     for argv in (['--board', 'metro_m7_1011', '--shared', '--hil-config', self.config, '-D', 'JLINK_OPTION=-USB 1'],

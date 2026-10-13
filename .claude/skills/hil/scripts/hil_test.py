@@ -14,6 +14,7 @@ SKILL.md beside this script is the contract; this file is its mechanics.
 import argparse
 import contextlib
 import fcntl
+import functools
 import glob
 import hashlib
 import importlib.util
@@ -21,7 +22,6 @@ import json
 import os
 import re
 import select
-import shlex
 import shutil
 import signal
 import struct
@@ -44,10 +44,10 @@ import hil_esp as esp  # noqa: E402
 # 0x60000000 (IMXRT1010RM Table 3-1) holding the Metro M7 1011's W25Q64JV (Metro M7 RT1011 SD revA schematic), 8 MiB.
 FLASH_LIMITS = {'LPC55S69_M33_0': (0, 0x9D800), 'MIMXRT1062xxx6A': (0x60000000, 0x60800000),
                 'MIMXRT1011DAE5A': (0x60000000, 0x60800000)}
-FLASHER_ARGS = {'jlink': r'-device (\S+)', 'esptool': r'--chip (\w+)'}
 STEPS = {'jlink': ('install', 'dfu', 'copy', 'app-ran', 'reenter')}
 STEPS['esptool'] = STEPS['jlink'] + ('recopy',)
 REENTRY = {'jlink': ('retained-register',), 'esptool': ('dfu-detach',)}
+REENTRY_METHODS = sorted({m for v in REENTRY.values() for m in v})
 PROTECTED = {'hil_test.py', 'pool_check'}   # tinyusb hil_lock.PROTECTED_REASONS, checked at load
 HOLDER_ROLE = 'cleanup-holder'
 SCB_VTOR, SCB_AIRCR = 0xE000ED08, 0xE000ED0C
@@ -106,7 +106,7 @@ def load_board(config, name):
     raise Refused('set TINYUSB_DIR to the absolute path of the tinyusb checkout whose test/hil/helper/hil_lock.py '
                   'owns the board locks')
   fl, t = b.get('flasher') or {}, b.get('tinyuf2') or {}
-  m = re.fullmatch(FLASHER_ARGS.get(fl.get('name'), r'(?!)'), fl.get('args') or '')
+  m = re.fullmatch(cb.FLASHER_ARGS.get(fl.get('name'), r'(?!)'), fl.get('args') or '')
   if not isinstance(fl.get('uid'), str) or not m:
     raise Refused(f'{name}: flasher must be jlink with args exactly "-device NAME", or esptool with args exactly '
                   f'"--chip CHIP", with a string uid')
@@ -1136,7 +1136,7 @@ def verify_record(record_path, board, facts):
     if bad:
       raise Refused(f'build inputs are not clean: {bad} (commit, or rebuild from a clean checkout)')
   root = cb.ROOT / row['buildDir']
-  flash = flash_binding(record_path, rec, row, root, board)
+  flash = admit_flash(record_path, rec, row, root, board)
   if want == 'idf':
     files, fw = esp_record(record_path, rec, row, root, board, facts)
     return dict(files, flash=flash), fw
@@ -1159,7 +1159,7 @@ def verify_record(record_path, board, facts):
                  'defines': rec.get('defines', []), 'version': embedded_version(files['bin'])}
 
 
-def flash_binding(record_path, rec, row, root, board):
+def admit_flash(record_path, rec, row, root, board):
   """The record's flash target, bound by check_build --hil-config to this roster flasher, with every file it reads
   hash-checked; the install runs that target, under the build dir's lock."""
   fl = row.get('flash') or {}
@@ -1168,14 +1168,18 @@ def flash_binding(record_path, rec, row, root, board):
   if (fl.get('flasher'), fl.get('target'), fl.get('inputs')) != (want, target, list(inputs)):
     raise Refused(f'{record_path}: its flash target is not bound to this roster flasher {want} (rebuild it with '
                   f'check_build.py --board {board["name"]} ... --shared --hil-config <roster>)')
-  digests = {}
-  for rel in inputs:
-    digests[rel] = sha256(root / rel)
-    if digests[rel] is None or row.get('sha256', {}).get(rel) != digests[rel]:
-      raise Refused(f'{root / rel}: missing, unreadable or changed since the build record')
   idf = rec.get('idf') or {}
-  return {'root': root, 'binding': fl, 'sha256': digests, 'image': idf.get('image'),
-          'ninja': lambda d: cb.ninja_in(d, row['backend'], idf.get('mode'), idf.get('image'))}
+  return {'root': root, 'binding': fl, 'sha256': recorded(root, inputs, row), 'image': idf.get('image'),
+          'ninja': functools.partial(cb.ninja_in, row['backend'], idf.get('mode'), idf.get('image'))}
+
+
+def recorded(root, rels, row):
+  """Each file's sha256, which must be the build record's."""
+  digests = {rel: sha256(root / rel) for rel in rels}
+  for rel, digest in digests.items():
+    if digest is None or row.get('sha256', {}).get(rel) != digest:
+      raise Refused(f'{root / rel}: missing, unreadable or changed since the build record')
+  return digests
 
 
 def check_blinky(path, span, facts):
@@ -1197,17 +1201,12 @@ def check_blinky(path, span, facts):
 
 def esp_record(record_path, rec, row, root, board, facts):
   """An IDF record's segments, every file it binds hash-checked first."""
-  for rel in esp.RECORD_FILES:
-    digest = sha256(root / rel)
-    if digest is None:
-      raise Refused(f'{root / rel}: missing or unreadable; rebuild with --shared')
-    if row.get('sha256', {}).get(rel) != digest:
-      raise Refused(f'{root / rel}: hash differs from the build record')
+  recorded(root, esp.RECORD_FILES, row)
   try:
     segments = esp.admit(root, board, facts, board['regions'])
   except (esp.Refused, OSError, ValueError) as e:
     raise Refused(f'{record_path}: {e}')
-  app = root / '_bin' / 'tinyuf2.bin'
+  app = root / 'tinyuf2.bin'
   return {'segments': segments, **esp_app_chunks(root / esp.APP_UF2, facts, board),
           **check_blinky(root / esp.BLINKY_UF2, (0, board['app'][1] - board['app'][0]), facts)}, {'path': str(app), 'sha256': sha256(app), 'buildRecord': str(record_path),
                                   'defines': rec.get('defines', []), 'version': embedded_version(app)}
@@ -1537,8 +1536,7 @@ class EspBattery(Battery):
     CONTAINERS.append(name)
     code, out = spawn(cb.idf_docker(fl['root'], 'create') + [
       '--name', name, '--device', tty, '--group-add', str(os.stat(tty).st_gid), '-e', f'ESPPORT={tty}', fl['image'],
-      'bash', '-c', '. $IDF_PATH/export.sh >/dev/null 2>&1 && ' +
-      shlex.join(['cmake', '--build', str(fl['root']), '--target', fl['binding']['target']])], self.log, 60)
+      'cmake', '--build', str(fl['root']), '--target', fl['binding']['target']], self.log, 60)
     if code:
       raise StepFail(f'docker create {name} failed (exit {code})', {'tail': out.strip().splitlines()[-3:]})
     self.touched = True
@@ -1811,13 +1809,13 @@ def main(argv=None):
                  'JSON, under cmake-build/')
   r.add_argument('--fail-at', choices=(*STEPS['esptool'], 'cleanup'), help='acceptance only: fail this step, or the cleanup, '
                  'to exercise cleanup and its holder')
-  r.add_argument('--try-reentry', choices=sorted({m for v in REENTRY.values() for m in v}), help="commissioning only, while the roster's reentry is unset")
+  r.add_argument('--try-reentry', choices=REENTRY_METHODS, help="commissioning only, while the roster's reentry is unset")
   r.add_argument('config')
   i = sub.add_parser('install', help='program a bootloader under your own manual hold')
   i.add_argument('-b', '--board', required=True)
   i.add_argument('--build-record', required=True, help="the HIL build record whose TinyUF2 is installed")
   i.add_argument('--under-hold', required=True, metavar='REASON')
-  i.add_argument('--try-reentry', choices=sorted({m for v in REENTRY.values() for m in v}),
+  i.add_argument('--try-reentry', choices=REENTRY_METHODS,
                  help="commissioning only, while the roster's reentry is unset: DFU's fallback after the install")
   i.add_argument('config')
   s = sub.add_parser('restore', help="install the record's TinyUF2 and copy its blinky, under your hold or to "
@@ -1828,7 +1826,7 @@ def main(argv=None):
   g.add_argument('--under-hold', metavar='REASON')
   g.add_argument('--recover-holder', type=int, metavar='PID')
   s.add_argument('--report', help="the failed run's hil_report.json (with --recover-holder)")
-  s.add_argument('--try-reentry', choices=sorted({m for v in REENTRY.values() for m in v}),
+  s.add_argument('--try-reentry', choices=REENTRY_METHODS,
                  help="commissioning only, under your hold, while the roster's reentry is unset")
   s.add_argument('config')
   fr = sub.add_parser('fat-read')
