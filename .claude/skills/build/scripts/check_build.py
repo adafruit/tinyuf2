@@ -99,6 +99,7 @@ FLASH = {'jlink': ('tinyuf2-jlink', ('tinyuf2.jlink', 'tinyuf2.hex')),
                                'ota_data_initial.bin', 'tinyuf2.bin'))}
 # a roster flasher's args, whose one group is the device or chip its flash target must name
 FLASHER_ARGS = {'jlink': r'-device (\S+)', 'esptool': r'--chip (\w+)'}
+NINJA_STEP = re.compile(r'\[\d+/\d+\] ')   # ninja's progress prefix
 # configure variables that select a probe or port: a HIL record sets them from the roster, never from -D
 SELECTION = ('JLINK_OPTION', 'OPENOCD_SERIAL', 'OPENOCD_OPTION', 'ESPPORT')
 
@@ -538,11 +539,18 @@ def manifest(sel, info, hil_config=None):
 
 def first_error(log):
   lines = log.splitlines()
-  # a compiler or linker diagnostic names the cause; ninja's FAILED line only the object
-  for pattern in (r':\d+(:\d+)?: (fatal )?error:|undefined reference|region .* overflowed|multiple definition',
+  # a compiler, linker or CMake diagnostic names the cause; ninja's FAILED line only the object
+  for pattern in (r':\d+(:\d+)?: (fatal )?error:|undefined reference|region .* overflowed|multiple definition|'
+                  r'^CMake Error\b',
                   r'\berror\b|Error \d|FAILED|No rule to make|not found'):
-    for line in lines:
+    for i, line in enumerate(lines):
+      if NINJA_STEP.match(line):   # e.g. "Building ... error.c.obj"
+        continue
       if re.search(pattern, line, re.I) and 'warning' not in line:
+        if re.match(r'CMake Error\b.*:$', line):   # its message is on the next indented line
+          nxt = next((l for l in lines[i + 1:] if l.strip()), '')
+          if nxt[:1].isspace():
+            line = f'{line} {nxt.strip()}'
         return line.strip()[:400]
   tail = [l for l in lines if l.strip()]
   return tail[-1].strip()[:400] if tail else ''
@@ -734,7 +742,7 @@ def dry_run(ninja, root, target=None):
   if r.returncode or start is None:
     return None
   steps = [l for l in lines[start + 1:] if l.strip() and l != 'ninja: no work to do.']
-  return None if any(not re.match(r'\[\d+/\d+\] ', l) for l in steps) else [l.split('] ', 1)[1] for l in steps]
+  return None if any(not NINJA_STEP.match(l) for l in steps) else [l.split('] ', 1)[1] for l in steps]
 
 
 def idf_step_writes_no_input(cmd, root, chip):

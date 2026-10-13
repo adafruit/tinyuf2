@@ -946,6 +946,40 @@ class FirstError(unittest.TestCase):
     log = 'FAILED: CMakeFiles/tinyuf2.dir/src/main.c.obj\n/x/src/main.c:12:3: error: unknown type name\n'
     self.assertEqual(cb.first_error(log), '/x/src/main.c:12:3: error: unknown type name')
 
+  def test_cmake_error_is_reported_with_its_message(self):
+    log = ('[736/1124] Building C object esp-idf/mbedtls/mbedtls/library/CMakeFiles/mbedx509.dir/error.c.obj\n'
+           'FAILED: bootloader-prefix/src/bootloader-stamp/bootloader-configure\n'
+           'CMake Error at /opt/esp/idf/tools/cmake/build.cmake:380 (message):\n'
+           '\n'
+           "  Failed to resolve component 'usb' required by component 'main'\n"
+           'Call Stack (most recent call first):\n')
+    self.assertEqual(cb.first_error(log), 'CMake Error at /opt/esp/idf/tools/cmake/build.cmake:380 (message): '
+                                          "Failed to resolve component 'usb' required by component 'main'")
+
+  def test_cmake_error_with_its_message_on_the_line(self):
+    log = 'CMake Error: The source directory "/x" does not exist.\n  next\n'
+    self.assertEqual(cb.first_error(log), 'CMake Error: The source directory "/x" does not exist.')
+
+  def test_cmake_error_in_form_takes_its_message(self):
+    log = 'CMake Error in main/CMakeLists.txt:\n  Target "x" links to itself.\n'
+    self.assertEqual(cb.first_error(log), 'CMake Error in main/CMakeLists.txt: Target "x" links to itself.')
+
+  def test_cmake_error_header_takes_no_indented_line_after_a_progress_line(self):
+    log = 'CMake Error at CMakeLists.txt:3 (message):\n[2/3] Running another command\n  unrelated output\n'
+    self.assertEqual(cb.first_error(log), 'CMake Error at CMakeLists.txt:3 (message):')
+
+  def test_cmake_error_header_takes_no_unindented_line(self):
+    log = 'CMake Error at CMakeLists.txt:3 (message):\nninja: build stopped: subcommand failed.\n'
+    self.assertEqual(cb.first_error(log), 'CMake Error at CMakeLists.txt:3 (message):')
+
+  def test_cmake_error_with_continuation_is_capped(self):
+    log = 'CMake Error at CMakeLists.txt:3 (message):\n  ' + 'x' * 500 + '\n'
+    self.assertEqual(len(cb.first_error(log)), 400)
+
+  def test_fallback_skips_progress_lines(self):
+    log = '[5/9] Building C object x/error.c.obj\nninja: error: loading build.ninja\n'
+    self.assertEqual(cb.first_error(log), 'ninja: error: loading build.ninja')
+
 
 if __name__ == '__main__':
   unittest.main()
