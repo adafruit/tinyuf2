@@ -110,8 +110,10 @@ class Selection(unittest.TestCase):
 
   def test_app_selects_the_boards_that_build_it(self):
     self.assertEqual(classify('ports/mimxrt10xx/apps/factory_test/main.c')[2], [('metro_m7_1011', 'make')])
+    # dfu_runtime, built for every board, includes it too: the port's representatives join the factory tests' boards
     self.assertEqual(classify('ports/mimxrt10xx/apps/app.mk')[2],
-                     [('metro_m7_1011', 'make'), ('metro_m7_1011_sd', 'make')])
+                     [('imxrt1064_evk', 'make'), ('imxrt1170_evk', 'make'), ('metro_m7_1011', 'make'),
+                      ('metro_m7_1011_sd', 'make')])
 
   def test_app_nothing_builds_is_uncovered(self):
     self.assertEqual(classify('ports/lpc55/apps/erase_firmware/Makefile')[:2], ('port-app', 'gap'))

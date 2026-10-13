@@ -43,6 +43,7 @@ add_custom_command(TARGET tinyuf2 POST_BUILD
 #------------------------------------
 add_subdirectory(${TOP}/apps/blinky ${CMAKE_BINARY_DIR}/apps/blinky)
 add_subdirectory(${TOP}/apps/erase_firmware ${CMAKE_BINARY_DIR}/apps/erase_firmware)
+add_subdirectory(apps/dfu_runtime)
 
 if (BOARD STREQUAL metro_m7_1011)
   add_subdirectory(apps/esp32programmer)

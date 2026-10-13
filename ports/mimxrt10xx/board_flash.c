@@ -160,9 +160,7 @@ void board_flash_init(void) {
 }
 
 uint32_t board_flash_size(void) {
-  // TODO currently limit at 8MB since the CURRENT.UF2 can occupies all 32MB virtual disk
-  const uint32_t max_size = 8 * 1024 * 1024;
-  return (BOARD_FLASH_SIZE < max_size) ? BOARD_FLASH_SIZE : max_size;
+  return BOARD_FLASH_UF2_SIZE;
 }
 
 void board_flash_read(uint32_t addr, void *buffer, uint32_t len) {
