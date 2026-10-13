@@ -4,8 +4,8 @@ see it survive: connect into download mode, run the ops in order, then reset or 
 
   esp_session.py --port DEV --chip CHIP --baud N --after hard-reset|no-reset OPS.json
 
-OPS.json is a list of {"op": "security" | "flash-size"}, {"op": "write", "addr", "file"},
-{"op": "read", "addr", "size", "file"}, {"op": "md5", "addr", "size"}.
+OPS.json is a list of {"op": "write", "addr", "file"}, {"op": "read", "addr", "size", "file"},
+{"op": "md5", "addr", "size"}.
 The last stdout line is JSON: {"ok": true, "results": [...]} or {"ok": false, "error", "results"}.
 """
 import argparse
@@ -18,12 +18,6 @@ sys.dont_write_bytecode = True
 def run(esp, op):
   from esptool import cmds
   kind = op['op']
-  if kind == 'security':
-    info = esp.get_security_info()
-    return {'flags': info['flags'], 'parsed': info['parsed_flags'], 'flashCryptCnt': info['flash_crypt_cnt'],
-            'chipId': info['chip_id'], 'apiVersion': info['api_version']}
-  if kind == 'flash-size':
-    return {'flashSize': cmds.detect_flash_size(esp)}
   if kind == 'write':
     # 'keep' leaves every image header byte as built, so a read-back compares the file itself
     with open(op['file'], 'rb') as f:

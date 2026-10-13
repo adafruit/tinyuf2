@@ -44,12 +44,12 @@ import hil_esp as esp  # noqa: E402
 FLASH_LIMITS = {'LPC55S69_M33_0': (0, 0x9D800), 'MIMXRT1062xxx6A': (0x60000000, 0x60800000),
                 'MIMXRT1011DAE5A': (0x60000000, 0x60800000)}
 FLASHER_ARGS = {'jlink': r'-device (\S+)', 'esptool': r'--chip (\w+)'}
-STEPS = {'jlink': ('identity', 'install', 'dfu', 'copy', 'app-ran', 'reenter')}
+STEPS = {'jlink': ('install', 'dfu', 'copy', 'app-ran', 'reenter')}
 STEPS['esptool'] = STEPS['jlink'] + ('recopy',)
 REENTRY = {'jlink': ('retained-register',), 'esptool': ('dfu-detach',)}
 PROTECTED = {'hil_test.py', 'pool_check'}   # tinyusb hil_lock.PROTECTED_REASONS, checked at load
 HOLDER_ROLE = 'cleanup-holder'
-SCB_VTOR, SCB_AIRCR, SCB_CPUID, DHCSR = 0xE000ED08, 0xE000ED0C, 0xE000ED00, 0xE000EDF0
+SCB_VTOR, SCB_AIRCR = 0xE000ED08, 0xE000ED0C
 AIRCR_SYSRESETREQ = 0x05FA0004
 UF2_MAGIC = (0x0A324655, 0x9E5D5157, 0x0AB16F30)
 UF2_FLAG_FAMILY = 0x2000
@@ -484,6 +484,14 @@ def died_at_probe_connect(code, out, probe):
     'Connecting to target' not in out
 
 
+def stopped_before_target(code, out, probe):
+  """A session recognised as ending before any target connect, so it changed nothing: no probe with the serial
+  (bench: "Connecting to J-Link ...FAILED", then nothing more), or the crash at the probe connect. Any other
+  failure, an empty transcript included, may have reached the target."""
+  no_probe = re.search(r'^Connecting to J-Link \.\.\.FAILED', out, re.M) and 'Connecting to target' not in out
+  return bool(no_probe) or died_at_probe_connect(code, out, probe)
+
+
 class Probe:
   def __init__(self, board, workdir, log):
     self.b, self.dir, self.log = board, workdir, log
@@ -507,7 +515,8 @@ class Probe:
     # a crash fails even a reset session (judge=False): its commands may not have run
     if code < 0 or judge and (code or re.search(r'Verify failed|Could not|Cannot connect|ERROR|ResetTarget failed|'
                                                 r'Failed to halt|CPU is not halted', judged)):
-      raise StepFail(f'JLinkExe failed (exit {code})', {'tail': out.strip().splitlines()[-5:]})
+      raise StepFail(f'JLinkExe failed (exit {code})', {'tail': out.strip().splitlines()[-5:],
+                                                        'beforeTarget': stopped_before_target(code, out, self.b['probe'])})
     return out
 
   def mem32(self, addrs):
@@ -578,26 +587,10 @@ def check_preserved(before, after, by):
     raise StepFail(f'a preserved region changed by the end of the {by}', {'before': before, 'after': after})
 
 
-def check_esp_chip(facts, results):
-  """No security state the battery could not undo, and flash for the candidate's layout. The roster's bridge
-  is wired to one board only, so the chip behind it is not identified again."""
-  got = {r['op']: r for r in results}
-  sec, size = got['security'], got['flash-size']['flashSize']
-  ev = {'securityFlags': hex(sec['flags']), 'flashCryptCnt': sec['flashCryptCnt'], 'chipId': sec['chipId'],
-        'flashSize': size}
-  on = [k for k in ('SECURE_BOOT_EN', 'SECURE_DOWNLOAD_ENABLE') if sec['parsed'].get(k)]
-  if on or bin(sec['flashCryptCnt']).count('1') % 2:
-    raise StepFail(f'security enabled ({on or "flash encryption"}); the battery never runs on a secured chip', ev)
-  m = re.fullmatch(r'(\d+)MB', size or '')
-  if not m or int(m.group(1)) * 1024 * 1024 < facts['flashSize']:
-    raise StepFail(f'flash {size} is smaller than the candidate\'s {facts["flashSize"]:#x}', ev)
-  return ev
-
-
 def esp_program(esp, board, segments, workdir, snapshot=None):
   """Write every segment and read each back byte for byte in one connection, then one reset. The preserved
-  regions' MD5s after the writes must equal `snapshot` (the battery's identity) or, without one, MD5s taken
-  in the same connection before the writes (a manual install)."""
+  regions' MD5s after the writes must equal `snapshot` (the battery's, taken before install) or, without one,
+  MD5s taken in the same connection before the writes (a manual install)."""
   reads = [(off, path, workdir / f'readback-{off:x}.bin') for off, path in segments]
   keep = board['regions']['preserved']
   ops = ([] if snapshot else preserved_ops(keep)) + \
@@ -619,20 +612,11 @@ def write_span(what, addr, length, block=0x1000):
   return {'what': what, 'span': [hex(addr), hex(addr + length)], 'blocks': [hex(lo), hex(hi)]}
 
 
-def esp_install(board, facts, segments, workdir):
-  """The chip's security and flash size first, so nothing is written to a chip the battery cannot use, then
-  the segments."""
-  tool = Esptool(board, workdir, workdir / 'hil.log')
-  ev = check_esp_chip(facts, tool.run([{'op': 'security'}, {'op': 'flash-size'}], 'no-reset'))
-  ev.update(esp_program(tool, board, segments, workdir))
-  return ev
-
-
 def report_snapshot(row, keep):
-  """The preserved-region MD5s a failed esptool run took at identity, from its report row, over the regions
-  `keep` this checkout preserves. A touched board always has them (identity precedes install), so a touched row
-  without them is refused, never recovered blind."""
-  ev = next((x['evidence'] for x in row.get('steps', []) if x.get('step') == 'identity' and x.get('pass')), {})
+  """The preserved-region MD5s a failed esptool run took before its install wrote, from its report row, over the
+  regions `keep` this checkout preserves. A board whose flash was written always has them (the snapshot precedes
+  the writes), so a touched row without them is refused, never recovered blind."""
+  ev = row.get('snapshot') or {}
   regions, md5 = ev.get('preservedRegions'), ev.get('preserved')
   if regions is None and md5 is None and (row.get('cleanup') or {}).get('state') == 'untouched':
     return None
@@ -1174,10 +1158,6 @@ class Battery:
       raise
     self.steps.append({'step': name, 'pass': True, 'evidence': ev, 'detail': ''})
 
-  def identity(self):
-    v = self.probe.mem32([SCB_CPUID, DHCSR])
-    return {'cpuid': f'{v[SCB_CPUID]:#010x}', 'dhcsr': f'{v[DHCSR]:#010x}'}
-
   def program(self, bin_path):
     """One image from the install base: 0xFF up to binBase, the bootloader BIN, 0xFF up to appStart, then a zero
     page, written by a single loadbin and read back, so no second write lands in the bootloader's erase block;
@@ -1190,8 +1170,15 @@ class Battery:
     image = self.dir / 'program.bin'
     image.write_bytes(b'\xff' * (bin_base - base) + data + b'\xff' * (app_start - bin_base - len(data)) +
                       bytes(self.b['page']))
-    self.touched = True
-    self.probe.run(['h', f'loadbin {image},{base:#x}', f'verifybin {image},{base:#x}', 'r', 'g'])
+    # touched before the session, so an interruption mid-write counts; only a session recognised as ending before
+    # the target connect leaves the board as it was
+    was, self.touched = self.touched, True
+    try:
+      self.probe.run(['h', f'loadbin {image},{base:#x}', f'verifybin {image},{base:#x}', 'r', 'g'])
+    except StepFail as e:
+      if e.evidence.get('beforeTarget'):
+        self.touched = was
+      raise
 
   def dfu(self, version):
     f = self.f
@@ -1249,7 +1236,6 @@ class Battery:
         raise Refused('generated UF2 has the wrong family')
       payload.update({bl['addr'] + i: x for i, x in enumerate(bl['data'])})
     check_ranges(payload, [self.b['app']], FLASH_LIMITS[self.b['device']], 'fixture UF2')
-    self.step('identity', self.identity)
     self.step('install', lambda: self.install(files))
     # cleared once the bootloader has run board_init (the register's clock), so a magic a failed reenter left
     # cannot send the copied app back to DFU
@@ -1395,29 +1381,26 @@ class EspBattery(Battery):
   image; the app reports the nonce in its DFU runtime interface string and returns to DFU on DFU_DETACH."""
   def __init__(self, board, facts, workdir, fail_at=None, commissioning=False):
     super().__init__(board, facts, workdir, fail_at, commissioning)
-    self.tool, self.preserved = Esptool(board, workdir, self.log), None
+    self.tool, self.preserved, self.snapshot = Esptool(board, workdir, self.log), None, None
     # TinyUF2 takes espressif UF2 addresses as ota_0 offsets and reports ota_0 as its flash
     self.app_start, self.dfu_flash = 0, board['app'][1] - board['app'][0]
     self.dfu_claim = 'DFU observed'
 
-  def identity(self):
-    keep = self.b['regions']['preserved']
-    # reset after: a run that stops before install leaves the board as it found it, not in the ROM loader
-    res = self.tool.run([{'op': 'security'}, {'op': 'flash-size'}] + preserved_ops(keep), 'hard-reset')
-    ev = check_esp_chip(self.f, res)
-    # in the report too: a recovery's restore checks the preserved regions against it
-    ev.update(preserved=preserved_md5(keep, res), preservedRegions={n: list(r) for n, r in keep.items()})
-    self.preserved = ev['preserved']
-    return ev
-
   def after_copy(self):
-    """The preserved regions checked again once blinky is copied, against the install's baseline: the identity
-    snapshot or, with none, MD5s taken before the writes."""
+    """The preserved regions checked again once blinky is copied, against the install's baseline."""
     keep = self.b['regions']['preserved']
     check_preserved(self.baseline, preserved_md5(keep, self.tool.run(preserved_ops(keep), 'hard-reset')), 'restore')
-    return {'preserved': 'unchanged since identity' if self.preserved else 'unchanged since before the install'}
+    return {'preserved': 'unchanged since the snapshot before the install'}
 
   def install(self, files):
+    """The preserved regions' snapshot first, in a session of its own, which the report keeps however the run ends:
+    a recovery's restore checks against it. A restore reuses the run's snapshot, or a recovery's."""
+    keep = self.b['regions']['preserved']
+    if self.preserved is None:
+      esp_port(self.b['probe'])   # no bridge fails here, untouched; any session may leave the chip in its ROM loader
+      self.touched = True
+      self.preserved = preserved_md5(keep, self.tool.run(preserved_ops(keep), 'no-reset'))
+      self.snapshot = {'preserved': self.preserved, 'preservedRegions': {n: list(r) for n, r in keep.items()}}
     self.touched = True
     ev = esp_program(self.tool, self.b, files['segments'], self.dir, snapshot=self.preserved)
     self.baseline = ev['preserved']
@@ -1481,7 +1464,6 @@ class EspBattery(Battery):
 
   def run(self, files, version):
     self.chunks, self.nonce_off = files['appChunks'], files['nonceOffset']
-    self.step('identity', self.identity)
     self.step('install', lambda: self.install(files))
     self.step('dfu', lambda: self.dfu(version))
     self.step('copy', lambda: self.copy_app('copy'))
@@ -1620,6 +1602,8 @@ def run_board(args, board, facts, helper, workdir):
   row['steps'] = bat.steps
   if board['flasher'] == 'jlink':
     row['jlinkRetried'] = bat.probe.retried   # the cleanup's retries land here too
+  else:
+    row['snapshot'] = bat.snapshot   # a recovery's restore checks the preserved regions against it
   code = clean_up(row, code, bat, fh, board, helper, files)
   if row.get('commissioning'):
     row['reentryDecision'] = reentry_decision(row)
@@ -1645,6 +1629,8 @@ def clean_up(row, code, bat, fh, board, helper, files):
       if bat.fail_at == 'cleanup':
         raise StepFail('--fail-at cleanup: injected cleanup failure (acceptance only)')
       row['cleanup'] = dict(bat.restore(files, row['firmware']['version']), heldAfter=False)
+    else:
+      row['cleanup'] = {'pass': True, 'state': 'untouched', 'evidence': {}, 'heldAfter': False}
   except BaseException as e:
     stuck += [x for x in stuck_children() if x not in stuck]
     row['cleanup'] = {'pass': False, 'state': 'unknown' if bat.touched else 'untouched',
@@ -1719,7 +1705,7 @@ def main(argv=None):
       exclusion_configured(facts, board['uid'])
       check_esptool()
       try:
-        ev = esp_install(board, facts, files['segments'], run_dir)
+        ev = esp_program(Esptool(board, run_dir, run_dir / 'hil.log'), board, files['segments'], run_dir)
       finally:
         result['survivors'] = stuck_children()
       result['results'].append({'board': board['name'], 'installed': fw, 'evidence': ev})

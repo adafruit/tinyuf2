@@ -443,12 +443,7 @@ FAKE_ESP = textwrap.dedent('''
   out = []
   for op in ops:
     k, r = op['op'], {'op': op['op']}
-    if k == 'security':
-      flags = int(os.environ.get('FAKE_ESP_FLAGS', '0'))
-      r.update(flags=flags, parsed={'SECURE_BOOT_EN': bool(flags & 1), 'SECURE_DOWNLOAD_ENABLE': bool(flags & 4)},
-               flashCryptCnt=int(os.environ.get('FAKE_ESP_CRYPT', '0')), chipId=9, apiVersion=0)
-    elif k == 'flash-size': r['flashSize'] = os.environ.get('FAKE_ESP_SIZE', '8MB')
-    elif k == 'write':
+    if k == 'write':
       blob = open(op['file'], 'rb').read()
       if os.environ.get('FAKE_ESP_CORRUPT') == hex(op['addr']): blob = blob[:-1] + bytes([blob[-1] ^ 0xff])
       data[op['addr']:op['addr'] + len(blob)] = blob
@@ -489,40 +484,37 @@ class EspFake(Tmp):
 class EspFlash(EspFake):
   """The esptool install."""
 
+  def install(self):
+    return ht.esp_program(ht.Esptool(self.board, self.work, self.work / 'hil.log'), self.board, self.segments, self.work)
+
   def test_install_writes_the_segments_reads_them_back_and_keeps_the_preserved_regions(self):
     before = self.flash.read_bytes()
-    ev = ht.esp_install(self.board, self.facts, self.segments, self.work)
+    ev = self.install()
     img = self.flash.read_bytes()
     for off, path in self.segments:
       self.assertEqual(img[off:off + path.stat().st_size], path.read_bytes())
     for lo, hi in self.board['regions']['preserved'].values():
       self.assertEqual(img[lo:hi], before[lo:hi])
-    self.assertEqual(ev['flashSize'], '8MB')
     self.assertEqual(set(ev['preserved']), {'nvs', 'ota_1', 'ffat'})
-    ident, prog = self.sessions()
-    self.assertEqual(ident['ops'], ['security', 'flash-size'])
+    prog, = self.sessions()
     self.assertEqual(prog['ops'], ['md5'] * 3 + ['write'] * 4 + ['read'] * 4 + ['md5'] * 3)
     self.assertEqual(prog['args'][-1], 'hard-reset')
     self.assertIn('--chip', prog['args'])
 
-  def test_identity_refusals_write_nothing(self):
-    cases = {'secure boot': ({'FAKE_ESP_FLAGS': '1'}, 'security enabled'),
-             'flash encryption': ({'FAKE_ESP_CRYPT': '1'}, 'security enabled'),
-             'small flash': ({'FAKE_ESP_SIZE': '4MB'}, 'smaller than'),
-             'a failed session': ({'FAKE_ESP_FAIL': 'No serial data received.'}, 'No serial data')}
+  def test_a_session_that_fails_to_connect_writes_nothing(self):
     before = self.flash.read_bytes()
-    for what, (env, err) in cases.items():
-      with self.subTest(what), mock.patch.dict(os.environ, env), self.assertRaisesRegex(ht.StepFail, err):
-        ht.esp_install(self.board, self.facts, self.segments, self.work)
-      self.assertEqual(self.flash.read_bytes(), before)
+    with mock.patch.dict(os.environ, {'FAKE_ESP_FAIL': 'No serial data received.'}), \
+         self.assertRaisesRegex(ht.StepFail, 'No serial data'):
+      self.install()
+    self.assertEqual(self.flash.read_bytes(), before)
 
   def test_a_bad_read_back_or_a_touched_preserved_region_fails_the_install(self):
     for env, err in (({'FAKE_ESP_CORRUPT': '0x410000'}, 'tinyuf2.bin does not read back as written'),
                      ({'FAKE_ESP_SPILL': '1'}, 'preserved region changed by the end of the install')):
       with self.subTest(err), mock.patch.dict(os.environ, env), self.assertRaisesRegex(ht.StepFail, err):
-        ht.esp_install(self.board, self.facts, self.segments, self.work)
+        self.install()
 
-  def test_a_battery_install_compares_the_preserved_regions_with_its_identity_snapshot(self):
+  def test_a_battery_install_compares_the_preserved_regions_with_its_snapshot(self):
     tool, keep = ht.Esptool(self.board, self.work, self.work / 'hil.log'), self.board['regions']['preserved']
     snap = ht.preserved_md5(keep, tool.run(ht.preserved_ops(keep), 'no-reset'))
     ev = ht.esp_program(tool, self.board, self.segments, self.work, snapshot=snap)
@@ -533,11 +525,10 @@ class EspFlash(EspFake):
     with self.assertRaisesRegex(ht.StepFail, 'preserved region changed by the end of the install'):
       ht.esp_program(tool, self.board, self.segments, self.work, snapshot=dict(snap, nvs='x'))
 
-  def test_the_identity_snapshot_round_trips_through_the_report(self):
+  def test_the_install_snapshot_round_trips_through_the_report(self):
     keep = self.board['regions']['preserved']
     md5 = ht.preserved_md5(keep, ht.Esptool(self.board, self.work, self.work / 'hil.log').run(ht.preserved_ops(keep), 'no-reset'))
-    row = {'steps': [{'step': 'identity', 'pass': True,
-                      'evidence': {'preserved': md5, 'preservedRegions': {n: list(r) for n, r in keep.items()}}}],
+    row = {'snapshot': {'preserved': md5, 'preservedRegions': {n: list(r) for n, r in keep.items()}},
            'cleanup': {'state': 'unknown'}}
     self.assertEqual(ht.report_snapshot(json.loads(json.dumps(row)), keep), md5)
     with self.assertRaisesRegex(ht.Refused, 'this checkout preserves'):
@@ -551,14 +542,14 @@ class EspFlash(EspFake):
              'upper-case md5': (good[0], {'nvs': 'AB' * 16}), 'names differ': (good[0], {'ffat': 'ab' * 16}),
              'past 4 GiB': ({'nvs': [0x9000, 1 << 32]}, good[1])}
     for what, (regions, md5) in cases.items():
-      row = {'steps': [{'step': 'identity', 'pass': True, 'evidence': {'preserved': md5, 'preservedRegions': regions}}],
+      row = {'snapshot': {'preserved': md5, 'preservedRegions': regions},
              'cleanup': {'state': 'unknown'}}
       with self.subTest(what), self.assertRaisesRegex(ht.Refused, 'malformed'):
         ht.report_snapshot(json.loads(json.dumps(row)), good[0])
 
   def test_a_touched_run_without_a_snapshot_is_not_recovered(self):
     for state, want in (('unknown', ht.Refused), ('untouched', None)):
-      row = {'steps': [{'step': 'identity', 'pass': False, 'evidence': {}}], 'cleanup': {'state': state}}
+      row = {'snapshot': None, 'cleanup': {'state': state}}
       with self.subTest(state):
         if want:
           with self.assertRaisesRegex(ht.Refused, 'no preserved-region snapshot'):
@@ -616,8 +607,6 @@ STUB_ESPTOOL = {
     class Esp:
       CHIP_NAME = os.environ.get('STUB_CHIP', 'ESP32-S3')
       _port = Port()
-      def get_security_info(self):
-        return {'flags': 0, 'parsed_flags': {}, 'flash_crypt_cnt': 0, 'chip_id': 9, 'api_version': 0}
       def change_baud(self, b): log('baud', b)
       def read_flash(self, addr, size):
         if os.environ.get('STUB_FAIL_READ'): raise IOError('timed out')
@@ -627,7 +616,6 @@ STUB_ESPTOOL = {
       log('connect', port, connect_mode); return Esp()
     def run_stub(esp): log('stub'); return esp
     def attach_flash(esp): log('attach')
-    def detect_flash_size(esp): return '8MB'
     def write_flash(esp, addr_data, flash_freq, flash_mode, flash_size):
       (addr, f), = addr_data
       log('write', addr, len(f.read()), flash_freq, flash_mode, flash_size)
@@ -720,9 +708,33 @@ class EspBatteryRun(EspFake):
     self.assertEqual(ev['copy']['writes'][1], {'what': 'nonce block', 'span': ['0x1fff00', '0x200000'],
                                                'blocks': ['0x1f0000', '0x200000']})
     self.assertEqual(ev['copy']['writes'][0]['blocks'][0], '0x0')
-    self.assertEqual(set(ev['identity']['preserved']), {'nvs', 'ota_1', 'ffat'})
+    self.assertEqual(set(bat.snapshot['preserved']), {'nvs', 'ota_1', 'ffat'})
     self.assertTrue(bat.touched)
-    self.assertEqual(self.sessions()[0]['args'][-1], 'hard-reset')   # identity leaves an untouched board running
+    snap, prog = self.sessions()[:2]
+    self.assertEqual((snap['ops'], snap['args'][-1]), (['md5'] * 3, 'no-reset'))
+    self.assertEqual(prog['ops'], ['write'] * 4 + ['read'] * 4 + ['md5'] * 3)
+
+  def test_a_failed_or_interrupted_install_keeps_its_snapshot_for_recovery(self):
+    def interrupt(*a, **k):
+      raise ht.Interrupted('SIGTERM')
+    for what, ctx, err in (('read-back', mock.patch.dict(os.environ, {'FAKE_ESP_CORRUPT': '0x410000'}), ht.StepFail),
+                           ('interrupted', mock.patch.object(ht, 'esp_program', interrupt), ht.Interrupted)):
+      bat, rig, files = self.battery()
+      with self.subTest(what), ctx, self.assertRaises(err):
+        bat.run(files, 'v1')
+      row = {'snapshot': bat.snapshot, 'cleanup': {'state': 'unknown'}}
+      self.assertTrue(bat.touched)
+      self.assertEqual(ht.report_snapshot(json.loads(json.dumps(row)), self.board['regions']['preserved']), bat.preserved)
+
+  def test_no_bridge_is_untouched_but_a_failed_snapshot_session_is_not(self):
+    def no_bridge(uid):
+      raise ht.StepFail(f'0 serial ports for bridge {uid}: []')
+    for what, patch, touched in (('no bridge', mock.patch.object(ht, 'esp_port', no_bridge), False),
+                                 ('session failed', mock.patch.dict(os.environ, {'FAKE_ESP_FAIL': 'No serial data received.'}), True)):
+      bat, rig, files = self.battery()
+      with self.subTest(what), patch, self.assertRaises(ht.StepFail):
+        bat.run(files, 'v1')
+      self.assertEqual((bat.touched, bat.snapshot), (touched, None))
 
   def test_an_app_on_another_port_keeps_the_paths_out_of_the_detail(self):
     bat, rig, files = self.battery()
@@ -760,12 +772,12 @@ class EspBatteryRun(EspFake):
       bat.run(files, 'v1')
     self.assertEqual(bat.steps[-1]['evidence']['failedAt'], 'readback')
 
-  def test_cleanup_reinstalls_against_the_identity_snapshot_and_leaves_dfu_after_blinky(self):
+  def test_cleanup_reinstalls_against_the_run_snapshot_and_leaves_dfu_after_blinky(self):
     bat, rig, files = self.battery()
     bat.run(files, 'v1')
     out = bat.restore(files, 'v1')
     self.assertEqual((out['state'], out['evidence']['preserved'], out['evidence']['copy']),
-                     ('blinky copied', 'unchanged since identity', {'blocks': 2}))
+                     ('blinky copied', 'unchanged since the snapshot before the install', {'blocks': 2}))
     self.assertEqual([(b['addr'], b['data'][:1]) for b in rig.copied[-1]], [(0, b'\xb0'), (0x100, b'\xb1')])
     install, check = self.sessions()[-2:]
     self.assertEqual(install['ops'], ['write'] * 4 + ['read'] * 4 + ['md5'] * 3)
@@ -786,8 +798,9 @@ class EspBatteryRun(EspFake):
   def test_a_restore_without_a_run_checks_the_preserved_regions_across_its_install(self):
     bat, rig, files = self.battery()
     out = bat.restore(files, 'v1')
-    self.assertEqual(out['evidence']['preserved'], 'unchanged since before the install')
-    self.assertEqual(self.sessions()[-2]['ops'], ['md5'] * 3 + ['write'] * 4 + ['read'] * 4 + ['md5'] * 3)
+    self.assertEqual(out['evidence']['preserved'], 'unchanged since the snapshot before the install')
+    self.assertEqual([x['ops'] for x in self.sessions()],
+                     [['md5'] * 3, ['write'] * 4 + ['read'] * 4 + ['md5'] * 3, ['md5'] * 3])
 
   def test_a_restore_fails_when_dfu_comes_back_after_blinky(self):
     bat, rig, files = self.battery()
@@ -851,13 +864,12 @@ class EspSession(Tmp):
   def test_ops_run_in_order_in_one_connection_then_one_reset(self):
     blob = self.tmp / 'seg.bin'
     blob.write_bytes(b'\xe9' * 100)
-    code, out, calls = self.session([{'op': 'security'}, {'op': 'flash-size'},
-                                     {'op': 'write', 'addr': 0x8000, 'file': str(blob)},
+    code, out, calls = self.session([{'op': 'write', 'addr': 0x8000, 'file': str(blob)},
                                      {'op': 'read', 'addr': 0x10, 'size': 4, 'file': str(self.tmp / 'r.bin')},
                                      {'op': 'md5', 'addr': 0x9000, 'size': 0x5000}])
     self.assertEqual(code, 0, out)
-    self.assertEqual([r['op'] for r in out['results']], ['security', 'flash-size', 'write', 'read', 'md5'])
-    self.assertEqual((out['results'][1]['flashSize'], out['results'][4]['md5']), ('8MB', 'md5-9000-5000'))
+    self.assertEqual([r['op'] for r in out['results']], ['write', 'read', 'md5'])
+    self.assertEqual(out['results'][2]['md5'], 'md5-9000-5000')
     self.assertEqual((self.tmp / 'r.bin').read_bytes(), b'\x10' * 4)
     self.assertEqual([c[0] for c in calls], ['connect', 'stub', 'baud', 'attach', 'write', 'reset', 'close'])
     self.assertEqual(calls[0][2], 'default-reset')
@@ -865,17 +877,17 @@ class EspSession(Tmp):
     self.assertEqual(calls[-2], ['reset', 'hard-reset'])
 
   def test_no_reset_leaves_the_chip_alone(self):
-    code, out, calls = self.session([{'op': 'flash-size'}], after='no-reset')
+    code, out, calls = self.session([{'op': 'md5', 'addr': 0, 'size': 0x1000}], after='no-reset')
     self.assertEqual(code, 0)
     self.assertNotIn('reset', [c[0] for c in calls])
 
   def test_another_chip_and_a_failing_op_are_reported_and_the_port_closed(self):
-    code, out, calls = self.session([{'op': 'flash-size'}], STUB_CHIP='ESP32-S2')
+    code, out, calls = self.session([{'op': 'md5', 'addr': 0, 'size': 0x1000}], STUB_CHIP='ESP32-S2')
     self.assertEqual(code, 1)
     self.assertIn('not an esp32s3', out['error'])
-    code, out, calls = self.session([{'op': 'flash-size'}, {'op': 'read', 'addr': 0, 'size': 1, 'file': str(self.tmp / 'x')}],
+    code, out, calls = self.session([{'op': 'md5', 'addr': 0, 'size': 0x1000}, {'op': 'read', 'addr': 0, 'size': 1, 'file': str(self.tmp / 'x')}],
                                     STUB_FAIL_READ='1')
-    self.assertEqual((code, [r['op'] for r in out['results']]), (1, ['flash-size']))
+    self.assertEqual((code, [r['op'] for r in out['results']]), (1, ['md5']))
     self.assertIn('timed out', out['error'])
     self.assertEqual(calls[-1], ['close'])
     self.assertNotIn('reset', [c[0] for c in calls])
@@ -1427,7 +1439,8 @@ class RunBoard(Tmp):
     def fail(bat, files, version):
       raise ht.StepFail('probe not found')
     row, code, cleaned = self.run_board(fail)
-    self.assertEqual((code, cleaned, row['cleanup']), (1, [], None))
+    self.assertEqual((code, cleaned, row['cleanup']), (1, [], {'pass': True, 'state': 'untouched', 'evidence': {},
+                                                               'heldAfter': False}))
 
   def test_any_failed_cleanup_hands_the_lock_to_a_holder_and_is_exit_4(self):
     def fail(bat, files, version):
@@ -1516,7 +1529,7 @@ class RunBoard(Tmp):
 
   def test_a_survivor_on_an_untouched_board_still_keeps_it_held(self):
     def fail(bat, files, version):
-      raise ht.StepFail('identity: probe hung')
+      raise ht.StepFail('install: probe hung')
     with mock.patch.object(ht, 'stuck_children', lambda: [{'pid': 99, 'start': 7, 'cmd': ['JLinkExe']}]), \
          mock.patch.object(ht, 'hand_off', lambda fh, b, d, s: (fh.close(), {'pid': 1})[1]):
       row, code, cleaned = self.run_board(fail)
@@ -1572,7 +1585,7 @@ class RunBoard(Tmp):
 
   def test_fail_at_injects_a_criterion_failure(self):
     bat = ht.Battery(self.board, self.facts, self.tmp, 'dfu')
-    bat.step('identity', lambda: {})
+    bat.step('install', lambda: {})
     with self.assertRaisesRegex(ht.StepFail, 'injected'):
       bat.step('dfu', lambda: {})
 
@@ -1659,9 +1672,9 @@ class BatteryRun(Tmp):
     bat.run({'bin': self.tmp / 'c.bin'}, 'v1')
     self.assertEqual([x['step'] for x in bat.steps if x['pass']], list(ht.STEPS['jlink']))
     image = self.tmp / 'program.bin'
-    self.assertEqual(rig.scripts[1], ['h', f'loadbin {image},0x0', f'verifybin {image},0x0', 'r', 'g'])
-    self.assertEqual(rig.scripts[2][:2], ['h', f'w4 {bat.f["dblTapReg"]:08X} 00000000'])   # cleared in dfu
-    self.assertIn(f'sleep {2 * bat.f["dblTapDelayMs"] + 200}', rig.scripts[3])
+    self.assertEqual(rig.scripts[0], ['h', f'loadbin {image},0x0', f'verifybin {image},0x0', 'r', 'g'])
+    self.assertEqual(rig.scripts[1][:2], ['h', f'w4 {bat.f["dblTapReg"]:08X} 00000000'])   # cleared in dfu
+    self.assertIn(f'sleep {2 * bat.f["dblTapDelayMs"] + 200}', rig.scripts[2])
     for script in rig.scripts:
       if 'g' in script:
         self.assertEqual(script[0], 'h', script)
@@ -1776,6 +1789,22 @@ class BatteryRun(Tmp):
     bat.program(fw)
     self.assertEqual((self.tmp / 'program.bin').read_bytes(), fw.read_bytes() + bytes(512))
 
+  def test_an_install_session_that_never_reached_the_target_leaves_the_board_untouched(self):
+    bat, _ = self.battery()
+    bat.probe = ht.Probe(bat.b, self.tmp, self.tmp / 'hil.log')
+    bat.f.update(binBase=0, appStart=0x10000)
+    fw = bootloader_bin(self.tmp / 'fw.bin', size=0x5000)
+    missing = 'J-Link>h\nJ-Link connection not established yet but required for command.\nConnecting to J-Link ...FAILED\n'
+    reached = 'Connecting to J-Link ...O.K.\nConnecting to target via SWD\nCannot connect to target.\n'
+    cases = (((1, missing), False, False), ((1, reached), False, True), ((1, missing), True, True),
+             ((-11, ''), False, True))                                         # a crash with no transcript: unknown
+    for result, before, after in cases:
+      bat.touched = before
+      with self.subTest(result=result, before=before), mock.patch.object(ht, 'spawn', lambda *a, r=result, **k: r), \
+           self.assertRaisesRegex(ht.StepFail, 'JLinkExe failed'):
+        bat.program(fw)
+      self.assertEqual(bat.touched, after)
+
   def test_a_bin_past_the_app_start_is_refused_before_any_probe_session(self):
     bat, rig = self.battery()
     fw = bootloader_bin(self.tmp / 'fw.bin', size=0x10001)
@@ -1798,7 +1827,7 @@ class BatteryRun(Tmp):
     bat.run({'bin': self.tmp / 'c.bin'}, 'v1')
     ev = [x for x in bat.steps if x['step'] == 'dfu'][0]['evidence']
     self.assertEqual(ev['dblTapReg'], '0x0')
-    self.assertEqual(rig.scripts[2:4], ['dfu observed', ['h', f'w4 {reg:08X} 00000000', f'mem32 {reg:08X} 1', 'g']])
+    self.assertEqual(rig.scripts[1:3], ['dfu observed', ['h', f'w4 {reg:08X} 00000000', f'mem32 {reg:08X} 1', 'g']])
 
   def test_a_double_tap_clear_that_does_not_read_back_fails_dfu(self):
     bat, rig = self.battery()
@@ -1980,9 +2009,8 @@ class Main(Tmp):
     report = self.tmp / 'failed.json'
     for what, regions, want in (('the same layout', keep, 0), ('another layout', {'nvs': (0x9000, 0xe000)}, 2)):
       report.write_text(json.dumps({'results': [{'board': S3, 'cleanup': {'holder': {'pid': p.pid}, 'state': 'unknown'},
-                                                 'steps': [{'step': 'identity', 'pass': True, 'evidence': {
-                                                   'preserved': {n: md5[n] for n in regions},
-                                                   'preservedRegions': {n: list(r) for n, r in regions.items()}}}]}]}))
+                                                 'snapshot': {'preserved': {n: md5[n] for n in regions},
+                                                              'preservedRegions': {n: list(r) for n, r in regions.items()}}}]}))
       seen = []
       with self.subTest(what), contextlib.redirect_stdout(io.StringIO()), mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / str(want)), \
            mock.patch.object(ht, 'load_helper', lambda p: mock.Mock()), \
