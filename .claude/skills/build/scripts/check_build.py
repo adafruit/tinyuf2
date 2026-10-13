@@ -770,7 +770,10 @@ def idf_step_writes_no_input(cmd, root, chip):
         argv[1:3] in (['-E', 'make_directory'], ['-E', 'touch']) and len(argv) == 4 and writes(argv[3]) or
         argv[1:3] == ['-E', 'copy'] and len(argv) == 5 and writes(argv[4], '_bin')) or \
       re.fullmatch(py + r' \S*/partition_table/check_sizes\.py --offset', head) and (
-        tail[1:] == ['partition', '--type', 'app', str(root / 'partition_table/partition-table.bin'), str(root / 'tinyuf2.bin')] or
+        tail[1:] in (
+          ['partition', '--type', 'app', str(root / 'partition_table/partition-table.bin'), str(root / 'tinyuf2.bin')],
+          ['partition', '--type', 'app', '--subtype', 'factory', str(root / 'partition_table/partition-table.bin'),
+           str(root / 'tinyuf2.bin')]) or
         len(tail) == 4 and tail[1] == 'bootloader' and re.fullmatch(r'0x[0-9a-f]+', tail[2]) and
         tail[3] == str(root / 'bootloader/bootloader.bin')) or \
       re.fullmatch(py + r' \S*/lib/uf2/utils/uf2conv\.py --carray', head) and \
