@@ -89,7 +89,7 @@ HELPER = Path('test/hil/helper/hil_lock.py')   # under TINYUSB_DIR
 
 
 # lpc55 has no cmake build, so the runner reads no facts for it; most tests keep its layout as synthetic facts
-LPC_FACTS = {'flashBase': 0, 'appStart': 0x10000, 'flashSize': 0x98000, 'vid': 0x1fc9, 'pid': 0x0094,
+LPC_FACTS = {'flashBase': 0, 'binBase': 0, 'appStart': 0x10000, 'flashSize': 0x98000, 'vid': 0x1fc9, 'pid': 0x0094,
              'boardId': 'LPC55S69-Xpresso-revA', 'family': 0x2abc77ec, 'vectors': 76, 'ram': 0x20000000,
              'dblTapDelayMs': 500, 'dblTapReg': 0x4002C05C, 'dblTapMagic': 0xF01669EF}
 real_source_facts = ht.source_facts
@@ -250,6 +250,13 @@ class SourceFacts(unittest.TestCase):
                      (0x60000000, 0x6000C000, 0x800000, 0x239a, 0x0083, 'MIMXRT1060-EVK-revA'))
     self.assertEqual((f['dblTapReg'], f['ram'], f['vectors']), (0x400D410C, 0x20000000, 174))   # SNVS LPGPR[3]
     self.assertEqual(f['family'], 0x4fb2d5bd)
+
+  def test_rt1011_facts_put_the_bin_at_the_fcb(self):
+    f = ht.source_facts({'port': 'mimxrt10xx', 'name': 'metro_m7_1011'})
+    self.assertEqual((f['flashBase'], f['binBase'], f['appStart'], f['flashSize'], f['pid'], f['boardId']),
+                     (0x60000000, 0x60000400, 0x6000C000, 0x800000, 0x00e1, 'MIMXRT1011-Metro-revA'))
+    self.assertEqual((f['dblTapReg'], f['ram']), (0x400D410C, 0x20000000))
+    self.assertEqual(ht.source_facts(RT)['binBase'], 0x60000000)
 
   def test_a_cmake_value_is_one_plain_set(self):
     t = tempfile.TemporaryDirectory()
@@ -1758,24 +1765,34 @@ class BatteryRun(Tmp):
   def test_one_image_carries_the_bootloader_ff_padding_and_a_zero_page(self):
     bat, rig = self.battery()
     fw = bootloader_bin(self.tmp / 'fw.bin', size=0x5000)
-    bat.program(fw, 0, 0x10000)
+    bat.program(fw, 0, 0, 0x10000)
     image = (self.tmp / 'program.bin').read_bytes()
     self.assertEqual(image, fw.read_bytes() + b'\xff' * 0xb000 + bytes(512))
     self.assertEqual(rig.scripts, [['h', f'loadbin {self.tmp / "program.bin"},0x0',
                                     f'verifybin {self.tmp / "program.bin"},0x0', 'r', 'g']])
     self.assertEqual(bat.installed, (fw, 0))   # app-invalidate re-verifies the BIN, not the image
 
+  def test_a_bin_that_starts_past_the_flash_base_is_padded_in_front(self):
+    bat, rig = self.battery()
+    fw = bootloader_bin(self.tmp / 'fw.bin', size=0x5000)
+    bat.program(fw, 0, 0x400, 0x10000)
+    image = (self.tmp / 'program.bin').read_bytes()
+    self.assertEqual(image, b'\xff' * 0x400 + fw.read_bytes() + b'\xff' * 0xac00 + bytes(512))
+    self.assertEqual(bat.installed, (fw, 0x400))
+    with self.assertRaisesRegex(ht.StepFail, 'overlaps the app start'):
+      bat.program(bootloader_bin(self.tmp / 'big.bin', size=0xFC01), 0, 0x400, 0x10000)
+
   def test_a_bin_that_fills_the_install_span_exactly_has_no_padding(self):
     bat, _ = self.battery()
     fw = bootloader_bin(self.tmp / 'fw.bin', size=0x10000)
-    bat.program(fw, 0, 0x10000)
+    bat.program(fw, 0, 0, 0x10000)
     self.assertEqual((self.tmp / 'program.bin').read_bytes(), fw.read_bytes() + bytes(512))
 
   def test_a_bin_past_the_app_start_is_refused_before_any_probe_session(self):
     bat, rig = self.battery()
     fw = bootloader_bin(self.tmp / 'fw.bin', size=0x10001)
     with self.assertRaisesRegex(ht.StepFail, 'overlaps the app start'):
-      bat.program(fw, 0, 0x10000)
+      bat.program(fw, 0, 0, 0x10000)
     self.assertEqual((rig.scripts, bat.touched), ([], False))
 
   def test_cleanup_zeroes_the_device_flash_floor_and_reverifies_it_from_a_new_session(self):
@@ -1786,6 +1803,20 @@ class BatteryRun(Tmp):
     self.assertEqual(rig.scripts, [['h', f'loadbin {zero}', f'verifybin {zero}', 'r', 'g'],
                                    ['h', f'loadbin {zero}', f'verifybin {zero}', 'g']])
     self.assertEqual((out['state'], out['evidence']), ('bootloader invalidated', {'zeroPage': '0x60000000', 'verified': True}))
+
+  def test_invalidate_without_a_battery_or_candidate_facts_reaches_the_probe(self):
+    bat, rig = self.battery()
+    with mock.patch.object(ht.Probe, 'run', lambda probe, commands, judge=True: rig.probe(commands, judge)):
+      out = ht.invalidate(dict(bat.b, device='MIMXRT1062xxx6A'), None, self.tmp)
+    self.assertEqual((out['state'], out['evidence']['zeroPage']), ('bootloader invalidated', '0x60000000'))
+
+  def test_cleanup_zeroes_the_fcb_on_rt1011_and_refuses_a_device_without_a_boot_header(self):
+    bat, rig = self.battery()
+    out = ht.invalidate(dict(bat.b, device='MIMXRT1011DAE5A'), bat.f, self.tmp, bat)
+    self.assertEqual(rig.scripts[0][1], f'loadbin {bat.zero},0x60000400')   # IMXRT1010RM Table 9-8
+    self.assertEqual(out['evidence']['zeroPage'], '0x60000400')
+    with self.assertRaisesRegex(ht.Refused, 'no boot header address'):
+      ht.invalidate(dict(bat.b, device='LPC55S69_M33_0'), bat.f, self.tmp, bat)
 
   def test_cleanup_fails_when_the_new_session_has_to_write_the_zero_page_again(self):
     bat, rig = self.battery()
@@ -1846,6 +1877,17 @@ class BatteryRun(Tmp):
       with self.subTest(out[-40:]), mock.patch.object(ht, 'spawn', lambda *a, o=out, **k: (0, o)), \
            self.assertRaisesRegex(ht.StepFail, 'JLinkExe failed'):
         probe.run(['r', 'g'])
+
+  def test_the_rt1011_note_is_benign_but_an_invalid_flash_header_fails(self):
+    note = 'J-Link>r\nResetTarget() start\nCould not find valid reset vector.\nTarget halted on flash header read.\nJ-Link>g\n'
+    metro = ht.Probe({'probe': '1', 'device': 'MIMXRT1011DAE5A', 'if': 'SWD', 'speed': '4000'}, self.tmp, None)
+    with mock.patch.object(ht, 'spawn', lambda *a, **k: (0, note)):
+      metro.run(['r', 'g'])
+    bad = 'J-Link>r\nResetTarget() start\nInvalid flash header detected.\nTarget halted on flash header read.\nJ-Link>g\n'
+    for out in (bad, note + bad):
+      with self.subTest(out[-60:]), mock.patch.object(ht, 'spawn', lambda *a, o=out, **k: (0, o)), \
+           self.assertRaisesRegex(ht.StepFail, 'JLinkExe failed'):
+        metro.run(['r', 'g'])
 
   def test_only_the_probe_connect_crash_is_retried_once_and_any_crash_fails(self):
     probe = ht.Probe({'probe': '000726129165', 'device': 'd', 'if': 'SWD', 'speed': '4000'}, self.tmp, self.tmp / 'hil.log')
@@ -1938,10 +1980,10 @@ class Main(Tmp):
          mock.patch.object(ht, 'load_helper', lambda p: None), mock.patch.object(ht, 'manual_holder', lambda *a: None), \
          mock.patch.object(ht, 'exclusion_configured', lambda *a: None), \
          mock.patch.object(ht, 'check_jlink', lambda: None), \
-         mock.patch.object(ht.Battery, 'program', lambda bat, b, base, a: programmed.append((b, base, a))):
+         mock.patch.object(ht.Battery, 'program', lambda bat, b, base, at, a: programmed.append((b, base, at, a))):
       code = ht.main(['install', '-b', BOARD, '--firmware', str(fw), '--sha256', ht.sha256(fw),
                       '--under-hold', 'debug 7', str(cfg)])
-    self.assertEqual((code, programmed), (0, [(str(fw), 0, 0x10000)]))
+    self.assertEqual((code, programmed), (0, [(str(fw), 0, 0, 0x10000)]))
 
   def test_invalidate_needs_no_candidate_source(self):
     cfg = roster(self.tmp, tinyuf2={'reentry': None})
@@ -1975,6 +2017,10 @@ class Main(Tmp):
     holder.write_text('import time; time.sleep(30)')
     p = subprocess.Popen([sys.executable, str(holder)])
     self.addCleanup(lambda: (p.kill(), p.wait()))
+    # recovery reads the holder's cmdline, which names hil_test.py only once the child has exec'd
+    end = time.monotonic() + 10
+    while b'hil_test.py' not in Path(f'/proc/{p.pid}/cmdline').read_bytes() and time.monotonic() < end:
+      time.sleep(0.01)
     regions = {'nvs': [0x9000, 0xe000]}
     report = self.tmp / 'failed.json'
     report.write_text(json.dumps({'results': [{'board': S3, 'cleanup': {'holder': {'pid': p.pid}, 'state': 'unknown'},

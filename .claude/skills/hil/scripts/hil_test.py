@@ -38,8 +38,14 @@ import hil_esp as esp  # noqa: E402
 # [floor, ceiling) the runner ever programs, per J-Link device, independent of roster and source:
 # LPC55S69 PFR starts at 0x9DE00 and a bad CMPA write can lock the part (UM11126 Table 173, Table 1064);
 # 0x9D800-0x9DDFF is reserved and undocumented. MIMXRT1062: FlexSPI XIP at 0x60000000 (IMXRT1060RM
-# Table 3-1) holding the EVK's 8 MiB IS25WP064A (EVK hardware user's guide 2.7).
-FLASH_LIMITS = {'LPC55S69_M33_0': (0, 0x9D800), 'MIMXRT1062xxx6A': (0x60000000, 0x60800000)}
+# Table 3-1) holding the EVK's 8 MiB IS25WP064A (EVK hardware user's guide 2.7). MIMXRT1011: FlexSPI XIP at
+# 0x60000000 (IMXRT1010RM Table 3-1) holding the Metro M7 1011's W25Q64JV (Metro M7 RT1011 SD revA schematic), 8 MiB.
+FLASH_LIMITS = {'LPC55S69_M33_0': (0, 0x9D800), 'MIMXRT1062xxx6A': (0x60000000, 0x60800000),
+                'MIMXRT1011DAE5A': (0x60000000, 0x60800000)}
+# Where each device's ROM reads the FlexSPI configuration block; cleanup zeroes a page there, so the ROM finds no
+# boot image. MIMXRT1011: 0x400 into flash (IMXRT1010RM Table 9-8). MIMXRT1062: the flash base (its build's
+# FLASH_FCFB_ADDR; bench: zeroing it drops the EVK to the serial downloader).
+BOOT_HEADER = {'MIMXRT1062xxx6A': 0x60000000, 'MIMXRT1011DAE5A': 0x60000400}
 FLASHER_ARGS = {'jlink': r'-device (\S+)', 'esptool': r'--chip (\w+)'}
 STEPS = {'jlink': ('identity', 'install', 'dfu', 'copy', 'app-ran', 'reenter')}
 STEPS['esptool'] = STEPS['jlink'] + ('recopy',)
@@ -62,8 +68,10 @@ ZERO_PAGE = 512   # bytes zeroed at the app start so its reset vector reads 0
 ESP_SECTOR = 0x1000   # erased at the bootloader offset: the 2nd-stage image header, so the ROM finds no bootloader
 UDEV_RULES = ('/etc/udev/rules.d', '/run/udev/rules.d')
 # J-Link notes that are not failures, per device, each with the line that shows the operation completed
-# (bench: every MIMXRT1062 reset with an invalid app vector, then the reset halts as usual)
-BENIGN = {'MIMXRT1062xxx6A': r'(?m)^Could not find valid reset vector\.\nTarget halted on flash header read\.$'}
+# (bench: every MIMXRT1062 reset with an invalid app vector, then the reset halts as usual; every MIMXRT1011 reset
+# of a TinyUF2 image, which then boots, while a misplaced image prints "Invalid flash header detected." instead)
+_RESET_VECTOR_NOTE = r'(?m)^Could not find valid reset vector\.\nTarget halted on flash header read\.$'
+BENIGN = {'MIMXRT1062xxx6A': _RESET_VECTOR_NOTE, 'MIMXRT1011DAE5A': _RESET_VECTOR_NOTE}
 
 
 class Refused(Exception):
@@ -173,19 +181,25 @@ def cmake_var(path, name):
 
 
 def port_sources(port, bdir):
-  """(CMSIS device header, the SDK's flash linker script, FLASH_BASE) of a port the HIL supports, read from
-  the CMake files the HIL's build uses."""
+  """(CMSIS device header, the SDK's flash linker script, FLASH_BASE, where the BIN starts in flash) of a port
+  the HIL supports, read from the CMake files the HIL's build uses."""
   if not (ROOT / f'ports/{port}/CMakeLists.txt').is_file():
     raise Refused(f'ports/{port} has no cmake build, which is what the HIL builds')
   if port != 'mimxrt10xx':
     raise Refused(f'ports/{port}: the HIL runner has no source facts for this port')
   sdk = cmake_var(f'ports/{port}/family.cmake', 'SDK_DIR')
   mcu = cmake_var(f'{bdir}/board.cmake', 'MCU_VARIANT')
-  ld = f'ports/{port}/linker/{mcu}_ram.ld'   # where family.cmake takes FLASH_BASE from
-  m = re.search(r'^\s*_flash_base\s*=\s*(0x[0-9a-fA-F]+)\s*;', (ROOT / ld).read_text(), re.M)
-  if not m:
-    raise Refused(f'{ld}: no _flash_base')
-  return f'{sdk}/devices/{mcu}/{mcu}.h', f'{sdk}/devices/{mcu}/gcc/{mcu}xxxxx_flexspi_nor.ld', int(m.group(1), 16)
+  ld = f'ports/{port}/linker/{mcu}_ram.ld'   # where family.cmake takes FLASH_BASE and FCFB_ORIGIN from
+  vals = {}
+  for name in ('_flash_base', '_fcfb_origin'):
+    m = re.search(rf'^\s*{name}\s*=\s*(0x[0-9a-fA-F]+)\s*;', (ROOT / ld).read_text(), re.M)
+    if not m:
+      raise Refused(f'{ld}: no {name}')
+    vals[name] = int(m.group(1), 16)
+  flash_base = vals['_flash_base']
+  # family.cmake FLASH_FCFB_ADDR: the BIN starts at the FCB, 0x400 into flash on RT1010 (IMXRT1010RM Table 9-8)
+  bin_base = flash_base + (vals['_fcfb_origin'] & 0xFFF)
+  return f'{sdk}/devices/{mcu}/{mcu}.h', f'{sdk}/devices/{mcu}/gcc/{mcu}xxxxx_flexspi_nor.ld', flash_base, bin_base
 
 
 def source_facts(board):
@@ -196,11 +210,12 @@ def source_facts(board):
     raise Refused(f'{bdir} does not exist')
   if board.get('flasher') == 'esptool':
     return esp_source_facts(board, bdir)
-  header, ld, flash_base = port_sources(port, bdir)
+  header, ld, flash_base, bin_base = port_sources(port, bdir)
   if re.search(r'^\s*#\s*define\s+BOARD_FLASH_APP_START\b', (ROOT / f'{bdir}/board.h').read_text(), re.M):
     raise Refused(f'{bdir}/board.h overrides BOARD_FLASH_APP_START; the runner reads the port default only')
   facts = {
     'flashBase': flash_base,
+    'binBase': bin_base,
     'appStart': flash_addr(define(f'ports/{port}/boards.h', 'BOARD_FLASH_APP_START'), flash_base,
                            'BOARD_FLASH_APP_START'),
     'flashSize': product(define(f'{bdir}/board.h', 'BOARD_FLASH_SIZE'), 'BOARD_FLASH_SIZE'),
@@ -493,7 +508,7 @@ class Probe:
       code, out = spawn(cmd, self.log, PROBE_TIMEOUT)
     judged = re.sub(BENIGN[self.b['device']], '', out) if self.b['device'] in BENIGN else out
     # a crash fails even a reset session (judge=False): its commands may not have run
-    if code < 0 or judge and (code or re.search(r'Verify failed|Could not|Cannot connect|ERROR|ResetTarget failed|'
+    if code < 0 or judge and (code or re.search(r'Verify failed|Could not|Cannot connect|ERROR|ResetTarget failed|Invalid flash header|'
                                                 r'Failed to halt|CPU is not halted', judged)):
       raise StepFail(f'JLinkExe failed (exit {code})', {'tail': out.strip().splitlines()[-5:]})
     return out
@@ -1128,13 +1143,13 @@ def sha256(p):
 
 
 def check_bootloader_bin(bin_path, board, facts, what):
-  """Every span a bootloader install writes: the BIN from the install start inside `install` and the zero
-  page at the start of `app` inside it, both within the device's flash limits; and the BIN is this
+  """Every span a bootloader install writes: the BIN from its flash address (`binBase`) inside `install` and
+  the zero page at the start of `app` inside it, both within the device's flash limits; and the BIN is this
   board's (its UF2_BOARD_ID)."""
-  install, app = board['install'], board['app']
+  install, app, start = board['install'], board['app'], facts['binBase']
   size = Path(bin_path).stat().st_size
   limits = FLASH_LIMITS[board['device']]
-  check_ranges({install[0]: 0, install[0] + size - 1: 0}, [install], limits, what)
+  check_ranges({start: 0, start + size - 1: 0}, [install], limits, what)
   check_ranges({app[0]: 0, app[0] + board['page'] - 1: 0}, [app], limits, f'{what} zero page')
   if facts['boardId'].encode() not in Path(bin_path).read_bytes():
     raise Refused(f'{what}: {bin_path} does not carry board id {facts["boardId"]!r}; not this board\'s bootloader')
@@ -1148,8 +1163,9 @@ class Battery:
     self.steps, self.usb_path, self.touched, self.at = [], None, False, 'setup'
     self.zero = workdir / 'zero.bin'
     self.zero.write_bytes(b'\0' * board['page'])
-    # where CURRENT.UF2 starts and the flash size INFO_UF2.TXT reports
-    self.app_start, self.dfu_flash = facts.get('appStart'), facts['flashSize']
+    # where CURRENT.UF2 starts and the flash size INFO_UF2.TXT reports; invalidate and recovery run without facts
+    if facts is not None:
+      self.app_start, self.dfu_flash = facts.get('appStart'), facts['flashSize']
     self.dfu_claim = 'app rejected (reset vector 0); DFU observed'
 
   def step(self, name, fn):
@@ -1168,18 +1184,19 @@ class Battery:
     v = self.probe.mem32([SCB_CPUID, DHCSR])
     return {'cpuid': f'{v[SCB_CPUID]:#010x}', 'dhcsr': f'{v[DHCSR]:#010x}'}
 
-  def program(self, bin_path, base, app_start):
-    """One image from `base`: the bootloader BIN, 0xFF up to app_start, then a zero page, written by a single
-    loadbin and read back, so no second write lands in the bootloader's erase block; the zeroed reset vector
-    makes the app invalid by construction, so the next boot stays in DFU. No range erase is ever issued.
-    Callers have range-checked both spans (check_bootloader_bin)."""
+  def program(self, bin_path, base, bin_base, app_start):
+    """One image from `base`: 0xFF up to `bin_base`, the bootloader BIN, 0xFF up to app_start, then a zero
+    page, written by a single loadbin and read back, so no second write lands in the bootloader's erase block;
+    the zeroed reset vector makes the app invalid by construction, so the next boot stays in DFU. No range
+    erase is ever issued. Callers have range-checked both spans (check_bootloader_bin)."""
     data = Path(bin_path).read_bytes()
-    if base + len(data) > app_start:
-      raise StepFail(f'{bin_path} [{base:#x}, {base + len(data):#x}) overlaps the app start {app_start:#x}')
+    if bin_base + len(data) > app_start:
+      raise StepFail(f'{bin_path} [{bin_base:#x}, {bin_base + len(data):#x}) overlaps the app start {app_start:#x}')
     image = self.dir / 'program.bin'
-    image.write_bytes(data + b'\xff' * (app_start - base - len(data)) + bytes(self.b['page']))
+    image.write_bytes(b'\xff' * (bin_base - base) + data + b'\xff' * (app_start - bin_base - len(data)) +
+                      bytes(self.b['page']))
     self.touched = True
-    self.installed = (bin_path, base)
+    self.installed = (bin_path, bin_base)
     self.probe.run(['h', f'loadbin {image},{base:#x}', f'verifybin {image},{base:#x}', 'r', 'g'])
 
   def dfu(self, version):
@@ -1239,7 +1256,7 @@ class Battery:
       payload.update({bl['addr'] + i: x for i, x in enumerate(bl['data'])})
     check_ranges(payload, [self.b['app']], FLASH_LIMITS[self.b['device']], 'fixture UF2')
     self.step('identity', self.identity)
-    self.step('install', lambda: self.program(files['bin'], self.b['install'][0], f['appStart']) or
+    self.step('install', lambda: self.program(files['bin'], self.b['install'][0], f['binBase'], f['appStart']) or
               {'zeroPage': f'{f["appStart"]:#x}', 'verified': True})
     # cleared once the bootloader has run board_init (the register's clock), so a magic a failed reenter left
     # cannot send the copied app back to DFU
@@ -1471,13 +1488,15 @@ class EspBattery(Battery):
 
 
 def invalidate(board, facts, workdir, battery=None, snapshot=None):
-  """The board left unbootable: a zero page at the device's flash floor (FLASH_LIMITS, never the candidate's
+  """The board left unbootable: a zero page at the device's boot header (BOOT_HEADER, never the candidate's
   layout) written and read back, the target reset, then the zero page verified again from a new session."""
   if board['flasher'] == 'esptool':
     if battery:
       return esp_invalidate(board, battery.tool, battery.preserved)
     return esp_invalidate(board, Esptool(board, workdir, workdir / 'hil.log'), snapshot)
-  base = FLASH_LIMITS[board['device']][0]
+  if board['device'] not in BOOT_HEADER:
+    raise Refused(f'{board["name"]}: no boot header address known for J-Link device {board["device"]}')
+  base = BOOT_HEADER[board['device']]
   bat = battery or Battery(board, facts, workdir)
   load, verify = f'loadbin {bat.zero},{base:#x}', f'verifybin {bat.zero},{base:#x}'
   bat.probe.run(['h', load, verify, 'r', 'g'])
@@ -1576,7 +1595,7 @@ def run_board(args, board, facts, helper, workdir):
   if board['flasher'] == 'jlink':
     data = parse_hex(files['hex'])
     check_ranges(data, [board['install']], FLASH_LIMITS[board['device']], files['hex'])
-    if not hex_matches_bin(data, files['bin'], board['install'][0]):
+    if not hex_matches_bin(data, files['bin'], facts['binBase']):
       raise Refused(f'{files["hex"]} and {files["bin"]} do not hold the same bytes')
     check_bootloader_bin(files['bin'], board, facts, 'candidate')
   exclusion_configured(facts, board['uid'])
@@ -1693,7 +1712,7 @@ def main(argv=None):
   try:
     run_dir.mkdir(parents=True)
     board = load_board(args.config, args.board)
-    facts = None   # invalidate, recovery included, writes only at the device's flash floor: no candidate source
+    facts = None   # invalidate, recovery included, writes only at the device's boot header: no candidate source
     if args.cmd != 'invalidate':
       facts = source_facts(board)
       apply_layout(board, facts)
@@ -1725,7 +1744,7 @@ def main(argv=None):
       exclusion_configured(facts, board['uid'])
       check_jlink()
       try:
-        Battery(board, facts, run_dir).program(args.firmware, board['install'][0], facts['appStart'])
+        Battery(board, facts, run_dir).program(args.firmware, board['install'][0], facts['binBase'], facts['appStart'])
       finally:
         result['survivors'] = stuck_children()
       result['results'].append({'board': board['name'], 'installed': {'path': args.firmware, 'sha256': args.sha256}})
