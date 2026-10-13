@@ -62,7 +62,7 @@ ESP_SESSION = Path(__file__).resolve().parent / 'esp_session.py'
 USB_DFU = Path(__file__).resolve().parent / 'usb_dfu.py'
 NONCE_MAGIC, NONCE_BLOCK = b'TUF2NONC', 256   # apps/dfu_runtime/src/dfu_runtime.h
 JLINK_IF, JLINK_SPEED = 'SWD', '4000'
-CMAKE_RECORD_FILES = {'tinyuf2.bin': 'bin', 'blinky.uf2': 'blinky'}
+CMAKE_RECORD_FILES = ('_bin/tinyuf2.bin', '_bin/apps/blinky.uf2')   # besides the flash target's inputs
 JLINK_ERRORS = r'Verify failed|Could not|Cannot connect|ERROR|ResetTarget failed|Failed to halt|CPU is not halted'
 UDEV_RULES = ('/etc/udev/rules.d', '/run/udev/rules.d')
 # J-Link notes that are not failures, per device, each with the line that shows the operation completed
@@ -665,15 +665,14 @@ def check_preserved(before, after, by):
     raise StepFail(f'a preserved region changed by the end of the {by}', {'before': before, 'after': after})
 
 
-def esp_verify(esp, board, segments, workdir, snapshot):
+def esp_verify(tool, board, segments, workdir, snapshot):
   """After the flash target: every segment read back byte for byte in one connection of the runner's, then one
   reset. The preserved regions' MD5s must equal `snapshot`, taken before the install."""
   reads = [(off, path, workdir / f'readback-{off:x}.bin') for off, path in segments]
   keep = board['regions']['preserved']
   ops = [{'op': 'read', 'addr': off, 'size': path.stat().st_size, 'file': str(rb)} for off, path, rb in reads] + \
         preserved_ops(keep)
-  md5s = [r for r in esp.run(ops, 'hard-reset') if r['op'] == 'md5']
-  after = preserved_md5(keep, md5s[-len(keep):])
+  after = preserved_md5(keep, tool.run(ops, 'hard-reset'))
   check_preserved(snapshot, after, 'install')
   for off, path, rb in reads:
     if rb.read_bytes() != path.read_bytes():
@@ -758,10 +757,12 @@ def wait_for(fn, timeout, what, fail=None):
 
 def stays_away(fn, seconds, what, ev):
   end = time.monotonic() + seconds
-  while time.monotonic() < end:
+  while True:
     if fn():
       raise StepFail(what, ev)
-    time.sleep(0.2)
+    if time.monotonic() >= end:   # sampled once more after the last sleep: the window's end is checked too
+      return
+    time.sleep(min(0.2, max(0.0, end - time.monotonic())))
 
 
 def exclusion_configured(facts, serial):
@@ -1027,11 +1028,20 @@ def tty_users(dev):
     if not d.name.isdigit() or int(d.name) == os.getpid():
       continue
     try:
-      if any(os.path.realpath(fd) == dev for fd in (d / 'fd').iterdir()):
-        users.append(int(d.name))
+      fds = list((d / 'fd').iterdir())
     except OSError:
       continue
+    if any(readlink(fd) == dev for fd in fds):
+      users.append(int(d.name))
   return users
+
+
+def readlink(fd):
+  """A /proc fd's target, or None once it has closed: one closing fd must not hide the process's others."""
+  try:
+    return os.readlink(fd)
+  except OSError:
+    return None
 
 
 def holder_record(fh, board, detail, survivors):
@@ -1138,24 +1148,13 @@ def verify_record(record_path, board, facts):
   root = cb.ROOT / row['buildDir']
   flash = admit_flash(record_path, rec, row, root, board)
   if want == 'idf':
-    files, fw = esp_record(record_path, rec, row, root, board, facts)
-    return dict(files, flash=flash), fw
-  files, digests = {}, {}
-  for p in cb.expected_artifacts(board['port'], board['name'], 'cmake', root):
-    kind = CMAKE_RECORD_FILES.get(p.name)
-    if kind is None:
-      continue
-    digests[kind] = sha256(p)
-    if digests[kind] is None:
-      raise Refused(f'{p}: missing or unreadable; rebuild with --shared')
-    if row.get('sha256', {}).get(str(p.relative_to(root))) != digests[kind]:
-      raise Refused(f'{p}: hash differs from the build record')
-    files[kind] = p
-  missing = set(CMAKE_RECORD_FILES.values()) - files.keys()
-  if missing:
-    raise Refused(f'{record_path}: the build of {board["name"]} names no {" or ".join(sorted(missing))}')
-  files.update(check_blinky(files.pop('blinky'), board['app'], facts), flash=flash, hex=root / 'tinyuf2.hex')
-  return files, {'path': str(files['bin']), 'sha256': digests['bin'], 'buildRecord': str(record_path),
+    files = esp_record(record_path, row, root, board, facts)
+  else:
+    recorded(root, CMAKE_RECORD_FILES, row)
+    files = dict(check_blinky(root / CMAKE_RECORD_FILES[1], board['app'], facts), bin=root / CMAKE_RECORD_FILES[0],
+                 hex=root / 'tinyuf2.hex')
+  files['flash'] = flash
+  return files, {'path': str(files['bin']), 'sha256': sha256(files['bin']), 'buildRecord': str(record_path),
                  'defines': rec.get('defines', []), 'version': embedded_version(files['bin'])}
 
 
@@ -1199,17 +1198,15 @@ def check_blinky(path, span, facts):
   return {'blinky': Path(path), 'blinkyBlocks': len(blocks)}
 
 
-def esp_record(record_path, rec, row, root, board, facts):
+def esp_record(record_path, row, root, board, facts):
   """An IDF record's segments, every file it binds hash-checked first."""
   recorded(root, esp.RECORD_FILES, row)
   try:
     segments = esp.admit(root, board, facts, board['regions'])
   except (esp.Refused, OSError, ValueError) as e:
     raise Refused(f'{record_path}: {e}')
-  app = root / 'tinyuf2.bin'
-  return {'segments': segments, **esp_app_chunks(root / esp.APP_UF2, facts, board),
-          **check_blinky(root / esp.BLINKY_UF2, (0, board['app'][1] - board['app'][0]), facts)}, {'path': str(app), 'sha256': sha256(app), 'buildRecord': str(record_path),
-                                  'defines': rec.get('defines', []), 'version': embedded_version(app)}
+  return {'segments': segments, 'bin': root / 'tinyuf2.bin', **esp_app_chunks(root / esp.APP_UF2, facts, board),
+          **check_blinky(root / esp.BLINKY_UF2, (0, board['app'][1] - board['app'][0]), facts)}
 
 
 def sha256(p):
@@ -1380,9 +1377,8 @@ class Battery:
       window = 2 * f['dblTapDelayMs'] / 1000 + 0.5
       time.sleep(window)
       ev = dict(self.observe_app(app_bin), waitedS=window)
-      time.sleep(QUIET_TIME)
-      if usb_device(f['vid'], f['pid'], self.b['uid']):
-        raise StepFail('the DFU device came back while the app should run', ev)
+      stays_away(lambda: usb_device(f['vid'], f['pid'], self.b['uid']), QUIET_TIME,
+                 'the DFU device came back while the app should run', ev)
       return ev
     self.step('app-ran', app_ran)
 
@@ -1581,9 +1577,8 @@ class EspBattery(Battery):
     ev['string'] = self.usb_dfu('string')['string']
     if ev['string'] != f'HIL {self.nonce.hex()}':
       raise StepFail('the app does not report this copy\'s nonce', ev)
-    time.sleep(QUIET_TIME)
-    if usb_device(f['vid'], f['pid'], self.b['uid']):
-      raise StepFail('the DFU device came back while the app should run', ev)
+    stays_away(lambda: usb_device(f['vid'], f['pid'], self.b['uid']), QUIET_TIME,
+               'the DFU device came back while the app should run', ev)
     if self.app() != path:
       raise StepFail('the app left the bus', ev)
     return ev

@@ -634,9 +634,10 @@ def build_cmake(port, board, root, defines, log, verbose):
 def build_idf(board, root, defines, log, verbose, idf_mode, image):
   idf = ['idf.py', '-C', 'ports/espressif', '-B', str(root), f'-DBOARD={board}',
          f'-DARTIFACT_PATH={root / "_bin"}', *[f'-D{d}' for d in defines], 'build']
+  fixture = ['cmake', '--build', str(root), '--target', HIL_APP]   # out of ALL, so CI's releases never carry it
   if idf_mode == 'local':
-    return not run(idf, log, verbose), []
-  inner = "git config --global --add safe.directory '*' && " + shlex.join(idf)
+    return not (run(idf, log, verbose) or run(fixture, log, verbose)), []
+  inner = "git config --global --add safe.directory '*' && " + shlex.join(idf) + ' && ' + shlex.join(fixture)
   return not run(idf_docker(root) + [image, 'bash', '-c', inner], log, verbose), []
 
 

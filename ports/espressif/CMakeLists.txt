@@ -110,14 +110,14 @@ externalproject_add(blinky
   BUILD_ALWAYS 1
   )
 
+# the HIL battery's fixture: out of ALL, so no release carries it; build it with --target dfu_runtime
 externalproject_add(dfu_runtime
   SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/apps/dfu_runtime
   BINARY_DIR ${CMAKE_BINARY_DIR}/apps/dfu_runtime
-  # Modifying the list separator for the arguments, as such, we won't need to manually
-  # replace the new separator by the default ';' in the subproject
   CMAKE_ARGS -DBOARD=${BOARD} -DARTIFACT_PATH=${ARTIFACT_PATH}
   INSTALL_COMMAND ""
   BUILD_ALWAYS 1
+  EXCLUDE_FROM_ALL 1
   )
 
 # erase firmware need to use reset reason, not implemented yet

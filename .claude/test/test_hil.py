@@ -474,12 +474,7 @@ FAKE_ESP = textwrap.dedent('''
   out = []
   for op in ops:
     k, r = op['op'], {'op': op['op']}
-    if k == 'write':
-      blob = open(op['file'], 'rb').read()
-      if os.environ.get('FAKE_ESP_CORRUPT') == hex(op['addr']): blob = blob[:-1] + bytes([blob[-1] ^ 0xff])
-      data[op['addr']:op['addr'] + len(blob)] = blob
-      if os.environ.get('FAKE_ESP_SPILL') and op['addr'] == 0: data[0x9000] ^= 0xff
-    elif k == 'read': open(op['file'], 'wb').write(bytes(data[op['addr']:op['addr'] + op['size']]))
+    if k == 'read': open(op['file'], 'wb').write(bytes(data[op['addr']:op['addr'] + op['size']]))
     elif k == 'md5': r['md5'] = hashlib.md5(bytes(data[op['addr']:op['addr'] + op['size']])).hexdigest()
     out.append(r)
   open(img, 'wb').write(data)
@@ -524,8 +519,8 @@ class EspFake(Tmp):
     return (0, 'c0ffee\n') if cmd[1] == 'create' else self.target(cmd)
 
   def target(self, cmd):
-    """ESP-IDF's flash target in its container: every segment written, with FAKE_ESP_CORRUPT and FAKE_ESP_SPILL as
-    the fake session's writes had them, and the transcript's shape from the bench."""
+    """ESP-IDF's flash target in its container: every segment written, FAKE_ESP_CORRUPT corrupting the segment at
+    that offset and FAKE_ESP_SPILL a preserved byte, and the transcript's shape from the bench."""
     img, out = bytearray(self.flash.read_bytes()), ''
     for off, path in self.segments:
       blob = path.read_bytes()
@@ -679,6 +674,20 @@ class EspFlash(EspFake):
     self.addCleanup(lambda: (p.kill(), p.wait()))
     ht.wait_for(lambda: p.pid in ht.tty_users(str(dev)), 5, 'the holder')
 
+  def test_a_closing_fd_does_not_hide_the_process_others(self):
+    dev = self.tmp / 'tty'
+    dev.write_text('')
+    p = subprocess.Popen([sys.executable, '-c', f'f = open({str(dev)!r}); import time; time.sleep(30)'])
+    self.addCleanup(lambda: (p.kill(), p.wait()))
+    readlink = os.readlink
+
+    def closing(fd):   # stdin closes under the scan
+      if str(fd) == f'/proc/{p.pid}/fd/0':
+        raise FileNotFoundError(fd)
+      return readlink(fd)
+    with mock.patch.object(ht.os, 'readlink', closing):
+      ht.wait_for(lambda: p.pid in ht.tty_users(str(dev)), 5, 'the holder')
+
   def main(self, *argv):
     out = io.StringIO()
     with mock.patch.object(ht, 'load_helper', lambda path: mock.Mock()), mock.patch.object(ht, 'manual_holder', mock.Mock()), \
@@ -722,9 +731,6 @@ STUB_ESPTOOL = {
       log('connect', port, connect_mode); return Esp()
     def run_stub(esp): log('stub'); return esp
     def attach_flash(esp): log('attach')
-    def write_flash(esp, addr_data, flash_freq, flash_mode, flash_size):
-      (addr, f), = addr_data
-      log('write', addr, len(f.read()), flash_freq, flash_mode, flash_size)
     def reset_chip(esp, mode): log('reset', mode)
   '''),
 }
@@ -947,7 +953,7 @@ class EspBatteryRun(EspFake):
 
 class EspSession(Tmp):
   """esp_session.py itself, over stub esptool and pyserial packages: its dispatch, arguments, guard and reset
-  order. The write and erase paths are only proven on the rig."""
+  order."""
 
   def setUp(self):
     super().setUp()
@@ -968,19 +974,20 @@ class EspSession(Tmp):
     return r.returncode, json.loads(r.stdout.strip().splitlines()[-1]), calls
 
   def test_ops_run_in_order_in_one_connection_then_one_reset(self):
-    blob = self.tmp / 'seg.bin'
-    blob.write_bytes(b'\xe9' * 100)
-    code, out, calls = self.session([{'op': 'write', 'addr': 0x8000, 'file': str(blob)},
-                                     {'op': 'read', 'addr': 0x10, 'size': 4, 'file': str(self.tmp / 'r.bin')},
+    code, out, calls = self.session([{'op': 'read', 'addr': 0x10, 'size': 4, 'file': str(self.tmp / 'r.bin')},
                                      {'op': 'md5', 'addr': 0x9000, 'size': 0x5000}])
     self.assertEqual(code, 0, out)
-    self.assertEqual([r['op'] for r in out['results']], ['write', 'read', 'md5'])
-    self.assertEqual(out['results'][2]['md5'], 'md5-9000-5000')
+    self.assertEqual([r['op'] for r in out['results']], ['read', 'md5'])
+    self.assertEqual(out['results'][1]['md5'], 'md5-9000-5000')
     self.assertEqual((self.tmp / 'r.bin').read_bytes(), b'\x10' * 4)
-    self.assertEqual([c[0] for c in calls], ['connect', 'stub', 'baud', 'attach', 'write', 'reset', 'close'])
+    self.assertEqual([c[0] for c in calls], ['connect', 'stub', 'baud', 'attach', 'reset', 'close'])
     self.assertEqual(calls[0][2], 'default-reset')
-    self.assertEqual(calls[4], ['write', 0x8000, 100, 'keep', 'keep', 'keep'])
     self.assertEqual(calls[-2], ['reset', 'hard-reset'])
+
+  def test_a_write_is_refused(self):
+    code, out, calls = self.session([{'op': 'write', 'addr': 0x8000, 'file': str(self.tmp / 'seg.bin')}])
+    self.assertEqual((code, out['ok']), (1, False))
+    self.assertIn("unknown op 'write'", out['error'])
 
   def test_no_reset_leaves_the_chip_alone(self):
     code, out, calls = self.session([{'op': 'md5', 'addr': 0, 'size': 0x1000}], after='no-reset')
@@ -2138,6 +2145,17 @@ class BatteryRun(Tmp):
     probe = ht.Probe({'probe': '1', 'device': 'd', 'if': 'SWD', 'speed': '4000'}, self.tmp, None)
     with mock.patch.object(ht, 'spawn', lambda *a, **k: (0, out)), self.assertRaisesRegex(ht.StepFail, 'JLinkExe failed'):
       probe.run(['r', 'g'])
+
+
+class StaysAway(unittest.TestCase):
+  def test_the_window_end_is_sampled_after_the_last_sleep(self):
+    clock = [0.0]
+    sleep = lambda t: clock.__setitem__(0, clock[0] + t)   # noqa: E731
+    with mock.patch.object(ht.time, 'monotonic', lambda: clock[0]), mock.patch.object(ht.time, 'sleep', sleep):
+      with self.assertRaisesRegex(ht.StepFail, 'came back'):   # back at 0.9 s, inside a 1 s window
+        ht.stays_away(lambda: clock[0] >= 0.9, 1.0, 'came back', {})
+      clock[0] = 0.0
+      ht.stays_away(lambda: clock[0] > 1.0, 1.0, 'came back', {})   # back only after the window
 
 
 class AppRan(Tmp):

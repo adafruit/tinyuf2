@@ -197,9 +197,6 @@ void board_dfu_init(void);
 // DFU is complete, should reset or jump to application mode and not return
 void board_dfu_complete(void);
 
-// Reboot into TinyUF2 DFU mode, no return. Implemented for applications, not called by the bootloader
-void board_reboot_to_bootloader(void);
-
 // Fill Serial Number and return its length (limit to 16 bytes)
 uint8_t board_usb_get_serial(uint8_t serial_id[16]);
 
