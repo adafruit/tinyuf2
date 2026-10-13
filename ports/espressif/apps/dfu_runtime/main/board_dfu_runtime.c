@@ -72,7 +72,7 @@ void board_usb_init(void) {
   // same PHY setup as TinyUF2's boards.c board_dfu_init()
   usb_phy_config_t const phy_conf = {
     .controller = USB_PHY_CTRL_OTG,
-#if CONFIG_IDF_TARGET_ESP32P4
+#if BOARD_TUD_RHPORT == 1
     .target = USB_PHY_TARGET_UTMI, // OTG HS
 #else
     .target = USB_PHY_TARGET_INT,

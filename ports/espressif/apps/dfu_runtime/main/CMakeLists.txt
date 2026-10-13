@@ -23,8 +23,3 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
   CFG_TUSB_MCU=OPT_MCU_${target_upper}
   CFG_TUSB_OS=OPT_OS_FREERTOS
   CFG_TUSB_OS_INC_PATH=freertos/)
-
-if(target STREQUAL "esp32p4")
-  # OTG HS, as TinyUF2's ports/espressif tusb_config.h
-  target_compile_definitions(${COMPONENT_LIB} PRIVATE BOARD_TUD_RHPORT=1)
-endif()

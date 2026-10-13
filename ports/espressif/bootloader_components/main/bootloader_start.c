@@ -219,7 +219,7 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
           #endif
 
           if (boot_index != FACTORY_INDEX) {
-            #if SOC_USB_SERIAL_JTAG_SUPPORTED && !CONFIG_IDF_TARGET_ESP32P4
+            #if CONFIG_IDF_TARGET_ESP32S3
             // startup with USB JTAG, while delaying here, USB JTAG will be enumerated which can cause confusion when
             // switching to OTG in application. Switch to OTG PHY here to avoid this.
             uint32_t const rtc_cntl_usb_conf = READ_PERI_REG(RTC_CNTL_USB_CONF_REG);
@@ -249,7 +249,7 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
               board_led_off();
             }
 
-            #if SOC_USB_SERIAL_JTAG_SUPPORTED && !CONFIG_IDF_TARGET_ESP32P4
+            #if CONFIG_IDF_TARGET_ESP32S3
             WRITE_PERI_REG(RTC_CNTL_USB_CONF_REG, rtc_cntl_usb_conf);
             #endif
           }

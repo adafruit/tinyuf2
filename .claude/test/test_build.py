@@ -824,13 +824,14 @@ class HilRecord(unittest.TestCase):
     with self.assertRaisesRegex(cb.Fail, 'bootloader: ninja -n failed'):
       self.ready(esp, root, self.idf_tree, fresh, [boot_size], banner='nested')
 
-  def test_an_idf_bootloader_size_check_is_read_only_at_the_chip_bootloader_offset(self):
+  def test_an_idf_bootloader_size_check_is_read_only_at_any_offset(self):
     root = self.tmp / 'p4'
     sizes = '/opt/esp/python_env/idf6.1_py3.12_env/bin/python /opt/esp/idf/components/partition_table/check_sizes.py --offset 0x8000'
-    boot_size = lambda off: f'cd {root}/bootloader && {sizes} bootloader {off} {root}/bootloader/bootloader.bin'
+    boot_size = lambda arg: f'cd {root}/bootloader && {sizes} bootloader {arg} {root}/bootloader/bootloader.bin'
     self.assertTrue(cb.idf_step_writes_no_input(boot_size('0x2000'), root, 'esp32p4'))
-    self.assertFalse(cb.idf_step_writes_no_input(boot_size('0x0'), root, 'esp32p4'))
-    self.assertFalse(cb.idf_step_writes_no_input(boot_size('0x2000'), root, 'esp32s3'))
+    for arg in ('2000', '0x2000 x', '0x20g0'):
+      with self.subTest(arg):
+        self.assertFalse(cb.idf_step_writes_no_input(boot_size(arg), root, 'esp32p4'))
 
   def test_a_hil_record_pins_the_target_inputs_and_holds_the_build_lock(self):
     args = mock.Mock(shared=True, define=[], verbose=False, idf='docker')

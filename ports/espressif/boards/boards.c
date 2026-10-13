@@ -29,9 +29,6 @@
 #include "hal/gpio_ll.h"
 
 #include "esp_private/usb_phy.h"
-#if !CONFIG_IDF_TARGET_ESP32P4
-#include "soc/usb_pins.h"
-#endif
 
 #include "soc/usb_periph.h"
 #include "esp_private/periph_ctrl.h"
@@ -280,7 +277,7 @@ void board_dfu_init(void) {
   // Configure USB PHY
   usb_phy_config_t phy_conf = {
     .controller = USB_PHY_CTRL_OTG,
-#if CONFIG_IDF_TARGET_ESP32P4
+#if BOARD_TUD_RHPORT == 1
     .target = USB_PHY_TARGET_UTMI, // OTG HS
 #else
     .target = USB_PHY_TARGET_INT,
@@ -374,6 +371,7 @@ void board_timer_stop(void) {
 
 #if CONFIG_IDF_TARGET_ESP32S3
 #include "hal/usb_serial_jtag_ll.h"
+#include "soc/usb_pins.h"
 
 static void hw_cdc_reset_handler(void *arg) {
   portBASE_TYPE xTaskWoken = 0;

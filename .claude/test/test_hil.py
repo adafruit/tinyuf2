@@ -359,12 +359,13 @@ def idf_build(root, parts=S3_PARTS, flash_args=None, sdk=None, board=S3, device=
                     'inputs': list(ht.cb.FLASH['esptool'][1])}}
 
 
-class Esp(Tmp):
-  """The S3 DevKitC entry: esptool by the CP2102N's serial, facts from the IDF port's own files."""
+class EspCase(Tmp):
+  """An esptool roster entry (`roster` overrides to s3_roster, board `name`) with its IDF record checks."""
+  name, roster = S3, {}
 
   def setUp(self):
     super().setUp()
-    self.board = self.load(s3_roster(self.tmp), S3)
+    self.board = self.load(s3_roster(self.tmp, **self.roster), self.name)
     self.facts = ht.source_facts(self.board)
     self.now = {'head': 'h', 'submodules': {}, 'deps': {}, 'dirty': False}
 
@@ -378,6 +379,10 @@ class Esp(Tmp):
     with mock.patch.object(ht.cb, 'identity', lambda ports: self.now), \
          mock.patch.object(ht.cb, 'ci_idf_version', lambda: 'v6.1'):
       return ht.verify_record(rec, self.board, self.facts, self.tmp / 'run')
+
+
+class Esp(EspCase):
+  """The S3 DevKitC entry: esptool by the CP2102N's serial, facts from the IDF port's own files."""
 
   def test_the_facts_come_from_the_idf_port(self):
     f = self.facts
@@ -485,18 +490,14 @@ P4_SDK = ('CONFIG_IDF_TARGET="esp32p4"\nCONFIG_ESPTOOLPY_FLASHMODE="dio"\nCONFIG
           'CONFIG_PARTITION_TABLE_OFFSET=0x8000\n')
 
 
-class EspP4(Esp):
+class EspP4(EspCase):
   """The P4 Function EV entry: its 2nd-stage bootloader sits at 0x2000, below the partition table."""
-
-  def setUp(self):
-    Tmp.setUp(self)
-    self.board = self.load(s3_roster(self.tmp, name=P4, uid='30EDA0E0C902',
-                                     flasher={'name': 'esptool', 'uid': 'cp2102n', 'args': '--chip esp32p4'}), P4)
-    self.facts = ht.source_facts(self.board)
-    self.now = {'head': 'h', 'submodules': {}, 'deps': {}, 'dirty': False}
+  name = P4
+  roster = {'name': P4, 'uid': '30EDA0E0C902', 'flasher': {'name': 'esptool', 'uid': 'cp2102n', 'args': '--chip esp32p4'}}
 
   def build(self, root, flash_args=P4_FLASH_ARGS):
-    return idf_build(root, P4_PARTS, flash_args, P4_SDK, P4, 'esp32p4', 'ESP32P4-FunctionEV-v1.4', 0x3d308e94)
+    return idf_build(root, P4_PARTS, flash_args, P4_SDK, board=P4, device='esp32p4', board_id='ESP32P4-FunctionEV-v1.4',
+                     family=0x3d308e94)
 
   def test_the_facts_come_from_the_idf_port(self):
     f = self.facts
@@ -522,9 +523,6 @@ class EspP4(Esp):
     row = self.build(self.tmp / 'b', P4_FLASH_ARGS.replace('0x2000 bootloader', '0x0 bootloader'))
     with self.assertRaisesRegex(ht.Refused, 'bootloader.bin .* is not at the start of its region \\[0x2000,0x8000\\)'):
       self.verify(self.record(row))
-
-  test_layout_refusals = test_roster_refusals = test_idf_record_refusals = None
-  test_a_bound_file_that_changed_is_refused = test_a_record_not_bound_to_the_roster_flasher_is_refused = None
 
 
 FAKE_ESP = textwrap.dedent('''

@@ -53,11 +53,7 @@
 #define CFG_TUD_ENABLED          1
 
 #ifndef BOARD_TUD_RHPORT
-  #if CONFIG_IDF_TARGET_ESP32P4
-    #define BOARD_TUD_RHPORT     1 // OTG HS
-  #else
-    #define BOARD_TUD_RHPORT     0
-  #endif
+#define BOARD_TUD_RHPORT         0
 #endif
 
 // can be defined by compiler in DEBUG build
