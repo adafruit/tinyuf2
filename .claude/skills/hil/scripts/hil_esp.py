@@ -22,7 +22,8 @@ SEGMENT_PATHS = {'bootloader/bootloader.bin': 'bootloader.bin', 'partition_table
                  'ota_data_initial.bin': 'ota_data_initial.bin', 'tinyuf2.bin': 'tinyuf2.bin'}
 SEGMENTS = tuple(SEGMENT_PATHS.values())
 APP_UF2 = f'_bin/apps/{HIL_APP}.uf2'   # the battery's app, copied through TinyUF2
-RECORD_FILES = ('_bin/flash_args', *(f'_bin/{s}' for s in SEGMENTS), APP_UF2, 'sdkconfig')
+BLINKY_UF2 = '_bin/apps/blinky.uf2'   # what cleanup leaves running
+RECORD_FILES = ('_bin/flash_args', *(f'_bin/{s}' for s in SEGMENTS), APP_UF2, BLINKY_UF2, 'sdkconfig')
 IMAGE_MAGIC = 0xE9
 
 
