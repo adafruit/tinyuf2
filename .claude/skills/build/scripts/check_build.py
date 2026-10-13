@@ -489,10 +489,11 @@ def hil_selection(sel, config):
       own = sorted(b for b in esptool if port_of(b) in ports)
       if app != HIL_APP:
         uncovered[r['path']] = f'the battery runs the bootloader and {HIL_APP} on esptool boards, never {r["path"]}'
-      elif own:
-        boards.update(own)
-      else:
-        uncovered[r['path']] = f'no {config} esptool board runs {HIL_APP}'
+        continue
+      boards.update(own)
+      # a port that builds the app but has no esptool roster board: its battery never runs it
+      for p in sorted(ports - {port_of(b) for b in own}):
+        uncovered[f'{r["path"]} on {p}'] = f'no {config} esptool board of {p} runs {HIL_APP}'
     elif r['rule'] == 'board':
       (b, _), = r['boards']
       if b in roster:

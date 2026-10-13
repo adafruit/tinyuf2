@@ -323,15 +323,24 @@ class HilSelection(unittest.TestCase):
   def test_the_battery_app_selects_the_esptool_roster_boards_and_other_apps_none(self):
     self.roster.write_text(json.dumps({'boards': [{'name': 'imxrt1060_evk', 'flasher': {'name': 'jlink'}},
                                                   {'name': 'espressif_esp32s3_devkitc_1', 'flasher': {'name': 'esptool'}}]}))
-    for path in ('apps/dfu_runtime/src/nonce.c', 'ports/espressif/apps/dfu_runtime/main/board_dfu_runtime.c'):
-      with self.subTest(path):
-        h = self.hil(path)
-        self.assertEqual((h['boards'], h['uncovered']), (['espressif_esp32s3_devkitc_1'], []))
+    rt_gap = {'target': 'apps/dfu_runtime/src/nonce.c on mimxrt10xx',
+              'reason': f'no {self.config} esptool board of mimxrt10xx runs dfu_runtime'}
+    h = self.hil('apps/dfu_runtime/src/nonce.c')   # espressif and mimxrt10xx build it; only the S3 runs it
+    self.assertEqual((h['boards'], h['uncovered']), (['espressif_esp32s3_devkitc_1'], [rt_gap]))
+    h = self.hil('apps/dfu_runtime/src/nonce.c', 'src/main.c')   # the whole roster's battery still never runs it on RT
+    self.assertEqual(h['boards'], ['espressif_esp32s3_devkitc_1', 'imxrt1060_evk'])
+    self.assertIn(rt_gap, h['uncovered'])
+    h = self.hil('ports/espressif/apps/dfu_runtime/main/board_dfu_runtime.c')
+    self.assertEqual((h['boards'], h['uncovered']), (['espressif_esp32s3_devkitc_1'], []))
+    h = self.hil('ports/mimxrt10xx/apps/dfu_runtime/board_dfu_runtime.c')
+    self.assertEqual((h['boards'], [u['reason'] for u in h['uncovered']]),
+                     ([], [f'no {self.config} esptool board of mimxrt10xx runs dfu_runtime']))
     h = self.hil('apps/blinky/src/blinky.c', 'ports/espressif/apps/blinky/main/CMakeLists.txt')
     self.assertEqual((h['boards'], len(h['uncovered'])), ([], 2))
     self.roster.write_text(json.dumps({'boards': [{'name': 'imxrt1060_evk', 'flasher': {'name': 'jlink'}}]}))
     h = self.hil('apps/dfu_runtime/src/nonce.c')
-    self.assertEqual((h['boards'], [u['reason'] for u in h['uncovered']]), ([], [f'no {self.config} esptool board runs dfu_runtime']))
+    self.assertEqual((h['boards'], sorted(u['target'] for u in h['uncovered'])),
+                     ([], ['apps/dfu_runtime/src/nonce.c on espressif', 'apps/dfu_runtime/src/nonce.c on mimxrt10xx']))
 
   def test_the_hil_follows_its_cmake_build_not_cis_make(self):
     self.roster.write_text(json.dumps({'boards': [{'name': 'imxrt1060_evk'}]}))
