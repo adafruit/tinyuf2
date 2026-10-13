@@ -13,6 +13,7 @@ static const char *TAG = "led_strip";
 esp_err_t led_strip_set_pixel(led_strip_handle_t strip, uint32_t index, uint32_t red, uint32_t green, uint32_t blue)
 {
     ESP_RETURN_ON_FALSE(strip, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
+    ESP_RETURN_ON_FALSE(strip->set_pixel, ESP_ERR_NOT_SUPPORTED, TAG, "set_pixel is not supported by this backend");
     return strip->set_pixel(strip, index, red, green, blue);
 }
 
@@ -25,7 +26,60 @@ esp_err_t led_strip_set_pixel_hsv(led_strip_handle_t strip, uint32_t index, uint
     uint32_t blue = 0;
 
     uint32_t rgb_max = value;
-    uint32_t rgb_min = rgb_max * (255 - saturation) / 255.0f;
+    uint32_t rgb_min = rgb_max * (255 - saturation) / 255;
+
+    uint32_t i = hue / 60;
+    uint32_t diff = hue % 60;
+
+    // RGB adjustment amount by hue
+    uint32_t rgb_adj = (rgb_max - rgb_min) * diff / 60;
+
+    switch (i) {
+    case 0:
+        red = rgb_max;
+        green = rgb_min + rgb_adj;
+        blue = rgb_min;
+        break;
+    case 1:
+        red = rgb_max - rgb_adj;
+        green = rgb_max;
+        blue = rgb_min;
+        break;
+    case 2:
+        red = rgb_min;
+        green = rgb_max;
+        blue = rgb_min + rgb_adj;
+        break;
+    case 3:
+        red = rgb_min;
+        green = rgb_max - rgb_adj;
+        blue = rgb_max;
+        break;
+    case 4:
+        red = rgb_min + rgb_adj;
+        green = rgb_min;
+        blue = rgb_max;
+        break;
+    default:
+        red = rgb_max;
+        green = rgb_min;
+        blue = rgb_max - rgb_adj;
+        break;
+    }
+
+    return strip->set_pixel(strip, index, red, green, blue);
+}
+
+esp_err_t led_strip_set_pixel_hsv_16(led_strip_handle_t strip, uint32_t index, uint16_t hue, uint16_t saturation, uint16_t value)
+{
+    ESP_RETURN_ON_FALSE(strip, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
+
+    uint32_t red = 0;
+    uint32_t green = 0;
+    uint32_t blue = 0;
+
+    uint32_t rgb_max = value;
+    uint32_t rgb_min = rgb_max * (65535 - saturation) / 65535;
 
     uint32_t i = hue / 60;
     uint32_t diff = hue % 60;
@@ -72,23 +126,48 @@ esp_err_t led_strip_set_pixel_hsv(led_strip_handle_t strip, uint32_t index, uint
 esp_err_t led_strip_set_pixel_rgbw(led_strip_handle_t strip, uint32_t index, uint32_t red, uint32_t green, uint32_t blue, uint32_t white)
 {
     ESP_RETURN_ON_FALSE(strip, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
+    ESP_RETURN_ON_FALSE(strip->set_pixel_rgbw, ESP_ERR_NOT_SUPPORTED, TAG, "set_pixel_rgbw is not supported by this backend");
     return strip->set_pixel_rgbw(strip, index, red, green, blue, white);
 }
 
 esp_err_t led_strip_refresh(led_strip_handle_t strip)
 {
     ESP_RETURN_ON_FALSE(strip, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
+    ESP_RETURN_ON_FALSE(strip->refresh, ESP_ERR_NOT_SUPPORTED, TAG, "refresh is not supported by this backend");
     return strip->refresh(strip);
+}
+
+esp_err_t led_strip_refresh_async(led_strip_handle_t strip)
+{
+    ESP_RETURN_ON_FALSE(strip, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
+    ESP_RETURN_ON_FALSE(strip->refresh_async, ESP_ERR_NOT_SUPPORTED, TAG, "async refresh is not supported by this backend");
+    return strip->refresh_async(strip);
+}
+
+esp_err_t led_strip_refresh_async_done(led_strip_handle_t strip)
+{
+    ESP_RETURN_ON_FALSE(strip, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
+    ESP_RETURN_ON_FALSE(strip->refresh_async_done, ESP_ERR_NOT_SUPPORTED, TAG, "async refresh is not supported by this backend");
+    return strip->refresh_async_done(strip);
 }
 
 esp_err_t led_strip_clear(led_strip_handle_t strip)
 {
     ESP_RETURN_ON_FALSE(strip, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
+    ESP_RETURN_ON_FALSE(strip->clear, ESP_ERR_NOT_SUPPORTED, TAG, "clear is not supported by this backend");
     return strip->clear(strip);
 }
 
 esp_err_t led_strip_del(led_strip_handle_t strip)
 {
     ESP_RETURN_ON_FALSE(strip, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
+    ESP_RETURN_ON_FALSE(strip->del, ESP_ERR_NOT_SUPPORTED, TAG, "del is not supported by this backend");
     return strip->del(strip);
+}
+
+esp_err_t led_strip_switch_gpio(led_strip_handle_t strip, gpio_num_t new_gpio_num, bool invert_output)
+{
+    ESP_RETURN_ON_FALSE(strip, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
+    ESP_RETURN_ON_FALSE(strip->switch_gpio, ESP_ERR_NOT_SUPPORTED, TAG, "switch_gpio is not supported by this backend");
+    return strip->switch_gpio(strip, new_gpio_num, invert_output);
 }

@@ -1,13 +1,39 @@
 /*
- * SPDX-FileCopyrightText: 2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "sdkconfig.h"
+#include "esp_idf_version.h"
 #include "esp_check.h"
+#include "esp_attr.h"
 #include "led_strip_rmt_encoder.h"
 
 static const char *TAG = "led_rmt_encoder";
+
+/** RMT symbol duration is a 15-bit field. */
+#define LED_STRIP_RMT_DURATION_MAX 32767
+
+static uint32_t led_strip_time_to_ticks(uint32_t time, uint32_t resolution_hz, uint64_t divisor)
+{
+    // Round up to avoid shortening timings that have a datasheet minimum.
+    uint64_t duration = (uint64_t)time * resolution_hz;
+    return (uint32_t)(duration / divisor + (duration % divisor != 0));
+}
+
+static bool led_strip_rmt_duration_in_range(uint32_t ticks)
+{
+    return ticks >= 1 && ticks <= LED_STRIP_RMT_DURATION_MAX;
+}
+
+#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 5, 0)
+#if CONFIG_RMT_ISR_IRAM_SAFE
+#define RMT_ENCODER_FUNC_ATTR IRAM_ATTR
+#else
+#define RMT_ENCODER_FUNC_ATTR
+#endif // CONFIG_RMT_ISR_IRAM_SAFE
+#endif // ESP_IDF_VERSION
 
 typedef struct {
     rmt_encoder_t base;
@@ -17,6 +43,7 @@ typedef struct {
     rmt_symbol_word_t reset_code;
 } rmt_led_strip_encoder_t;
 
+RMT_ENCODER_FUNC_ATTR
 static size_t rmt_encode_led_strip(rmt_encoder_t *encoder, rmt_channel_handle_t channel, const void *primary_data, size_t data_size, rmt_encode_state_t *ret_state)
 {
     rmt_led_strip_encoder_t *led_encoder = __containerof(encoder, rmt_led_strip_encoder_t, base);
@@ -62,6 +89,7 @@ static esp_err_t rmt_del_led_strip_encoder(rmt_encoder_t *encoder)
     return ESP_OK;
 }
 
+RMT_ENCODER_FUNC_ATTR
 static esp_err_t rmt_led_strip_encoder_reset(rmt_encoder_t *encoder)
 {
     rmt_led_strip_encoder_t *led_encoder = __containerof(encoder, rmt_led_strip_encoder_t, base);
@@ -76,54 +104,41 @@ esp_err_t rmt_new_led_strip_encoder(const led_strip_encoder_config_t *config, rm
     esp_err_t ret = ESP_OK;
     rmt_led_strip_encoder_t *led_encoder = NULL;
     ESP_GOTO_ON_FALSE(config && ret_encoder, ESP_ERR_INVALID_ARG, err, TAG, "invalid argument");
-    ESP_GOTO_ON_FALSE(config->led_model < LED_MODEL_INVALID, ESP_ERR_INVALID_ARG, err, TAG, "invalid led model");
     led_encoder = calloc(1, sizeof(rmt_led_strip_encoder_t));
     ESP_GOTO_ON_FALSE(led_encoder, ESP_ERR_NO_MEM, err, TAG, "no mem for led strip encoder");
     led_encoder->base.encode = rmt_encode_led_strip;
     led_encoder->base.del = rmt_del_led_strip_encoder;
     led_encoder->base.reset = rmt_led_strip_encoder_reset;
-    rmt_bytes_encoder_config_t bytes_encoder_config;
-    if (config->led_model == LED_MODEL_SK6812) {
-        bytes_encoder_config = (rmt_bytes_encoder_config_t) {
-            .bit0 = {
-                .level0 = 1,
-                .duration0 = 0.3 * config->resolution / 1000000, // T0H=0.3us
-                .level1 = 0,
-                .duration1 = 0.9 * config->resolution / 1000000, // T0L=0.9us
-            },
-            .bit1 = {
-                .level0 = 1,
-                .duration0 = 0.6 * config->resolution / 1000000, // T1H=0.6us
-                .level1 = 0,
-                .duration1 = 0.6 * config->resolution / 1000000, // T1L=0.6us
-            },
-            .flags.msb_first = 1 // SK6812 transfer bit order: G7...G0R7...R0B7...B0(W7...W0)
-        };
-    } else if (config->led_model == LED_MODEL_WS2812) {
-        // different led strip might have its own timing requirements, following parameter is for WS2812
-        bytes_encoder_config = (rmt_bytes_encoder_config_t) {
-            .bit0 = {
-                .level0 = 1,
-                .duration0 = 0.3 * config->resolution / 1000000, // T0H=0.3us
-                .level1 = 0,
-                .duration1 = 0.9 * config->resolution / 1000000, // T0L=0.9us
-            },
-            .bit1 = {
-                .level0 = 1,
-                .duration0 = 0.9 * config->resolution / 1000000, // T1H=0.9us
-                .level1 = 0,
-                .duration1 = 0.3 * config->resolution / 1000000, // T1L=0.3us
-            },
-            .flags.msb_first = 1 // WS2812 transfer bit order: G7...G0R7...R0B7...B0
-        };
-    } else {
-        assert(false);
-    }
+    // Each duration is stored in a 15-bit RMT field, so reject values that become 0 or overflow.
+    uint32_t t0h_ticks = led_strip_time_to_ticks(config->timings.t0h_ns, config->resolution, 1000000000);
+    uint32_t t0l_ticks = led_strip_time_to_ticks(config->timings.t0l_ns, config->resolution, 1000000000);
+    uint32_t t1h_ticks = led_strip_time_to_ticks(config->timings.t1h_ns, config->resolution, 1000000000);
+    uint32_t t1l_ticks = led_strip_time_to_ticks(config->timings.t1l_ns, config->resolution, 1000000000);
+    uint32_t reset_half_ticks = led_strip_time_to_ticks(config->timings.reset_us, config->resolution, 1000000 * 2);
+    ESP_GOTO_ON_FALSE(led_strip_rmt_duration_in_range(t0h_ticks) && led_strip_rmt_duration_in_range(t0l_ticks) &&
+                      led_strip_rmt_duration_in_range(t1h_ticks) && led_strip_rmt_duration_in_range(t1l_ticks) &&
+                      led_strip_rmt_duration_in_range(reset_half_ticks),
+                      ESP_ERR_INVALID_ARG, err, TAG, "timing is outside RMT duration range (1-%d ticks)", LED_STRIP_RMT_DURATION_MAX);
+    rmt_bytes_encoder_config_t bytes_encoder_config = {
+        .bit0 = {
+            .level0 = 1,
+            .duration0 = t0h_ticks,
+            .level1 = 0,
+            .duration1 = t0l_ticks,
+        },
+        .bit1 = {
+            .level0 = 1,
+            .duration0 = t1h_ticks,
+            .level1 = 0,
+            .duration1 = t1l_ticks,
+        },
+        .flags.msb_first = 1
+    };
+    uint32_t reset_ticks = reset_half_ticks;
     ESP_GOTO_ON_ERROR(rmt_new_bytes_encoder(&bytes_encoder_config, &led_encoder->bytes_encoder), err, TAG, "create bytes encoder failed");
     rmt_copy_encoder_config_t copy_encoder_config = {};
     ESP_GOTO_ON_ERROR(rmt_new_copy_encoder(&copy_encoder_config, &led_encoder->copy_encoder), err, TAG, "create copy encoder failed");
 
-    uint32_t reset_ticks = config->resolution / 1000000 * 50 / 2; // reset code duration defaults to 50us
     led_encoder->reset_code = (rmt_symbol_word_t) {
         .level0 = 0,
         .duration0 = reset_ticks,
