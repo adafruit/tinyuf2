@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / 'apps' / 'dfu_runtime' / 'src'
-spec = importlib.util.spec_from_file_location('hil_test', ROOT / '.claude' / 'skills' / 'hil' / 'scripts' / 'hil_test.py')
+spec = importlib.util.spec_from_file_location('hil_test', ROOT / '.claude' / 'skills' / 'hil-contract' / 'scripts' / 'hil_test.py')
 ht = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ht)
 STRING_SIZE = len('HIL ') + 1 + 2 * 16
