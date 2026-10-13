@@ -337,7 +337,7 @@ def idf_build(root, parts=S3_PARTS, flash_args=None, sdk=None):
   files = {'_bin/bootloader.bin': b'\xe9' + b'\0' * 0x5000,
            '_bin/tinyuf2.bin': b'\xe9' + b'TinyUF2 Bootloader 1.0\r\nBoard-ID: ESP32S3-DevKitC-v1.0\r\n' + b'\0' * 0x100,
            '_bin/partition-table.bin': partition_table(parts), '_bin/ota_data_initial.bin': b'\xff' * 0x2000,
-           '_bin/flash_args': flash_args or ('--flash_mode dio --flash_freq 80m --flash_size 8MB\n0x0 bootloader/bootloader.bin\n'
+           '_bin/flash_args': flash_args or ('--flash-mode dio --flash-freq 80m --flash-size 8MB\n0x0 bootloader/bootloader.bin\n'
                                              '0x410000 tinyuf2.bin\n0x8000 partition_table/partition-table.bin\n'
                                              '0xe000 ota_data_initial.bin\n'),
            'sdkconfig': sdk or ('CONFIG_IDF_TARGET="esp32s3"\nCONFIG_ESPTOOLPY_FLASHMODE="dio"\nCONFIG_ESPTOOLPY_FLASHFREQ="80m"\n'
@@ -369,12 +369,12 @@ class Esp(Tmp):
   def record(self, row, idf=None):
     rec = self.tmp / 'rec.json'
     rec.write_text(json.dumps({'pass': True, 'input': self.now, 'boards': [row],
-                               'idf': idf or {'mode': 'docker', 'image': 'espressif/idf:v5.3.2'}}))
+                               'idf': idf or {'mode': 'docker', 'image': 'espressif/idf:v6.1'}}))
     return rec
 
   def verify(self, rec):
     with mock.patch.object(ht.cb, 'identity', lambda ports: self.now), \
-         mock.patch.object(ht.cb, 'ci_idf_version', lambda: 'v5.3.2'):
+         mock.patch.object(ht.cb, 'ci_idf_version', lambda: 'v6.1'):
       return ht.verify_record(rec, self.board, self.facts, self.tmp / 'run')
 
   def test_the_facts_come_from_the_idf_port(self):
@@ -424,10 +424,10 @@ class Esp(Tmp):
       self.assertEqual(ht.sha256(p), row['sha256'][rel])
 
   def test_idf_record_refusals(self):
-    fa = ('--flash_mode dio --flash_freq 80m --flash_size 8MB\n0x0 bootloader/bootloader.bin\n0x410000 tinyuf2.bin\n'
+    fa = ('--flash-mode dio --flash-freq 80m --flash-size 8MB\n0x0 bootloader/bootloader.bin\n0x410000 tinyuf2.bin\n'
           '0x8000 partition_table/partition-table.bin\n')
     cases = {
-      'a local IDF': ({}, {'mode': 'local', 'image': 'espressif/idf:v5.3.2'}, 'CI\'s espressif/idf:v5.3.2 only'),
+      'a local IDF': ({}, {'mode': 'local', 'image': 'espressif/idf:v6.1'}, 'CI\'s espressif/idf:v6.1 only'),
       'another image': ({}, {'mode': 'docker', 'image': 'espressif/idf:v5.4'}, 'only'),
       'a cmake build': ({'backend': 'cmake'}, None, 'idf builds only'),
       'a segment moved': ({'flash_args': fa.replace('0x410000', '0x400000') + '0xe000 ota_data_initial.bin\n'}, None,
@@ -546,7 +546,7 @@ class EspFake(Tmp):
   def files(self):
     root = self.tmp / 'b'
     return {'segments': self.segments,
-            'flash': {'root': root, 'binding': {'target': 'flash'}, 'image': 'espressif/idf:v5.3.2', 'ninja': None,
+            'flash': {'root': root, 'binding': {'target': 'flash'}, 'image': 'espressif/idf:v6.1', 'ninja': None,
                       'sha256': {rel: ht.sha256(root / rel) for rel in ht.cb.FLASH['esptool'][1]}}}
 
 
@@ -575,6 +575,7 @@ class EspFlash(EspFake):
     self.assertEqual((docker[:2], start), (['docker', 'create'], ['docker', 'start', '-a', f'tinyuf2-hil-{S3}']))
     self.assertEqual(docker[docker.index('--name') + 1], f'tinyuf2-hil-{S3}')
     self.assertEqual((docker[docker.index('--device') + 1], f'ESPPORT={tty}' in docker), (tty, True))
+    self.assertIn('IDF_FLASH_FULL=1', docker)   # every segment written, as judge_esp_target requires
     self.assertEqual(docker[-5:], ['cmake', '--build', str(self.tmp / 'b'), '--target', 'flash'])
 
   def test_a_session_that_fails_to_connect_writes_nothing(self):
@@ -616,13 +617,13 @@ class EspFlash(EspFake):
     now = {'head': 'h', 'submodules': {}, 'deps': {}, 'dirty': False}
     rec = self.tmp / 'rec.json'
     rec.write_text(json.dumps({'pass': True, 'input': now, 'boards': [self.row],
-                               'idf': {'mode': 'docker', 'image': 'espressif/idf:v5.3.2'}}))
-    with mock.patch.object(ht.cb, 'identity', lambda ports: now), mock.patch.object(ht.cb, 'ci_idf_version', lambda: 'v5.3.2'):
+                               'idf': {'mode': 'docker', 'image': 'espressif/idf:v6.1'}}))
+    with mock.patch.object(ht.cb, 'identity', lambda ports: now), mock.patch.object(ht.cb, 'ci_idf_version', lambda: 'v6.1'):
       files, _ = ht.verify_record(rec, self.board, self.facts, self.work)
     self.bat = ht.EspBattery(self.board, self.facts, self.work)
     self.assertTrue(self.bat.install(files)['readBack'])
     self.assertEqual(self.targets[0][self.targets[0].index('--device') - 1], f'tinyuf2-hil-{S3}')
-    self.assertIn('espressif/idf:v5.3.2', self.targets[0])
+    self.assertIn('espressif/idf:v6.1', self.targets[0])
 
   def test_an_interrupted_create_leaves_the_name_for_cleanup_and_the_board_untouched(self):
     def interrupted(cmd):

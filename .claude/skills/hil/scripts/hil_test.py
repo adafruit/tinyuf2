@@ -253,8 +253,8 @@ def esp_source_facts(board, bdir):
                detectionDelayMs=int(delay.group(1)) if delay else
                num(define('ports/espressif/bootloader_components/main/bootloader_start.c', 'UF2_DETECTION_DELAY_MS'),
                    'UF2_DETECTION_DELAY_MS'),
-               appVid=num(define(f'apps/{cb.HIL_APP}/src/usb_descriptors.c', 'USB_VID'), 'USB_VID'),
-               appPid=num(define(f'apps/{cb.HIL_APP}/src/usb_descriptors.c', 'USB_PID'), 'USB_PID'),
+               appVid=num(define(f'apps/{cb.HIL_APP}/src/usb_descriptors.c', 'APP_USB_VID'), 'APP_USB_VID'),
+               appPid=num(define(f'apps/{cb.HIL_APP}/src/usb_descriptors.c', 'APP_USB_PID'), 'APP_USB_PID'),
                family=int(cmake_var('ports/espressif/family.cmake', f'UF2_FAMILY_ID_{board["device"]}'), 16),
                flashCache=product(define('ports/espressif/boards/board_flash.c', 'FLASH_CACHE_SIZE'), 'FLASH_CACHE_SIZE'))
   return facts
@@ -563,7 +563,7 @@ def judge_jlink_target(code, out, board, hex_path):
 
 def judge_esp_target(code, out, segments):
   """ESP-IDF's flash target, through CMake and Ninja in CI's image: esptool's write of every segment at its offset,
-  each hash-verified, then the hard reset (bench transcript, esptool v4.8.1 in espressif/idf:v5.3.2)."""
+  each hash-verified, then the hard reset (bench transcript, esptool v5.3.1 in espressif/idf:v6.1)."""
   wrote = sorted(int(a, 16) for a in re.findall(r'^Wrote \d+ bytes \(\d+ compressed\) at 0x([0-9a-f]{8}) in ', out, re.M))
   if code or wrote != sorted(off for off, _ in segments) or out.count('Hash of data verified.') != len(segments) or \
      'Hard resetting via RTS pin' not in out:
@@ -1551,10 +1551,12 @@ class EspBattery(Battery):
       raise StepFail(f'container {name} from an earlier flash still exists: check what it runs, then docker rm -f {name}')
     fl = files['flash']
     # created, not run: the container exists, and its name is tracked, before anything can start it; cleanup
-    # removes it by name however the run ends
+    # removes it by name however the run ends. IDF_FLASH_FULL: v6's fast reflash skips segments already in
+    # flash, and judge_esp_target needs every segment written and verified
     CONTAINERS.append(name)
     code, out = spawn(cb.idf_docker(fl['root'], 'create') + [
-      '--name', name, '--device', tty, '--group-add', str(os.stat(tty).st_gid), '-e', f'ESPPORT={tty}', fl['image'],
+      '--name', name, '--device', tty, '--group-add', str(os.stat(tty).st_gid), '-e', f'ESPPORT={tty}',
+      '-e', 'IDF_FLASH_FULL=1', fl['image'],
       'cmake', '--build', str(fl['root']), '--target', fl['binding']['target']], self.log, 60)
     if code:
       raise StepFail(f'docker create {name} failed (exit {code})', {'tail': out.strip().splitlines()[-3:]})

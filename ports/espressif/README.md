@@ -2,7 +2,7 @@
 
 The project is composed of customizing the 2nd stage bootloader from IDF and UF2 factory application as 3rd stage bootloader.
 
-**Note**: IDF is actively developed and change very often, TinyUF2 is developed and tested with IDF v5.3.2. Should you have a problem please try to change your IDF version.
+**Note**: IDF is actively developed and change very often, TinyUF2 is developed and tested with IDF v6.1. Should you have a problem please try to change your IDF version.
 
 ## Supported Boards
 

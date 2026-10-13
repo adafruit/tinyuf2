@@ -33,6 +33,7 @@
 
 #include "soc/usb_periph.h"
 #include "esp_private/periph_ctrl.h"
+#include "hal/usb_wrap_ll.h"
 
 #include "esp_partition.h"
 #include "esp_ota_ops.h"
@@ -367,8 +368,10 @@ static void hw_cdc_reset_handler(void *arg) {
 
 static void usb_switch_to_cdc_jtag(void) {
   // Disable USB-OTG
-  periph_module_reset(PERIPH_USB_MODULE);
-  periph_module_disable(PERIPH_USB_MODULE);
+  PERIPH_RCC_ATOMIC() {
+    usb_wrap_ll_reset_register();
+    usb_wrap_ll_enable_bus_clock(false);
+  }
 
   // Switch to hardware CDC+JTAG
   CLEAR_PERI_REG_MASK(RTC_CNTL_USB_CONF_REG,
@@ -428,8 +431,10 @@ static void usb_switch_to_cdc_jtag(void) {
 static void IRAM_ATTR usb_persist_shutdown_handler(void) {
   // USB CDC Download: RESTART_BOOTLOADER
 #if CONFIG_IDF_TARGET_ESP32S2
-  periph_module_reset(PERIPH_USB_MODULE);
-  periph_module_enable(PERIPH_USB_MODULE);
+  PERIPH_RCC_ATOMIC() {
+    usb_wrap_ll_reset_register();
+    usb_wrap_ll_enable_bus_clock(true);
+  }
 #endif
 
   REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);

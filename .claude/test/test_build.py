@@ -618,12 +618,12 @@ class BuildBoard(unittest.TestCase):
     inspect = mock.Mock(return_value=mock.Mock(returncode=0))
     with mock.patch.object(cb, 'run', run), mock.patch.object(cb.subprocess, 'run', inspect), \
          mock.patch.object(cb, 'git', lambda *a: str(self.build_dir)):
-      rec = cb.build_board('espressif_esp32s3_devkitc_1', 'idf', self.args, {'image': 'espressif/idf:v5.3.2'})
+      rec = cb.build_board('espressif_esp32s3_devkitc_1', 'idf', self.args, {'image': 'espressif/idf:v6.1'})
       self.assertEqual(rec['status'], 'ok', rec)
       self.assertLessEqual({'sdkconfig', '_bin/flash_args', '_bin/ota_data_initial.bin', '_bin/apps/dfu_runtime.uf2'},
                            set(rec['sha256']))
       made.remove('sdkconfig')
-      rec = cb.build_board('espressif_esp32s3_devkitc_1', 'idf', self.args, {'image': 'espressif/idf:v5.3.2'})
+      rec = cb.build_board('espressif_esp32s3_devkitc_1', 'idf', self.args, {'image': 'espressif/idf:v6.1'})
     self.assertEqual(rec['status'], 'failed')
     self.assertIn('sdkconfig', rec['firstError'])
 
@@ -674,12 +674,13 @@ class HilRecord(unittest.TestCase):
 
   def idf_tree(self, root, chip='esp32s3', extra='', args_file='flash_args'):
     root.mkdir(parents=True, exist_ok=True)
-    (root / 'flash_args').write_text('--flash_mode dio --flash_freq 80m --flash_size 8MB\n0x0 bootloader/bootloader.bin\n'
+    (root / 'flash_args').write_text('--flash-mode dio --flash-freq 80m --flash-size 8MB\n0x0 bootloader/bootloader.bin\n'
                                      '0x410000 tinyuf2.bin\n0x8000 partition_table/partition-table.bin\n'
                                      f'0xe000 ota_data_initial.bin\n{extra}')
     line = (f'cd /opt/esp/idf/components/esptool_py && cmake -D IDF_PATH=/opt/esp/idf '
-            f'-D "SERIAL_TOOL=python;;/opt/esp/idf/components/esptool_py/esptool/esptool.py;--chip;{chip}" '
-            f'-D "SERIAL_TOOL_ARGS=--before=default_reset;--after=hard_reset;write_flash;@{args_file}" '
+            f'-D "SERIAL_TOOL=/opt/esp/python_env/idf6.1_py3.12_env/bin/python;-m;esptool;--chip;{chip}" '
+            f'-D "SERIAL_TOOL_ARGS=--before=default-reset;--after=hard-reset;write-flash;@{args_file}" '
+            f'-D SERIAL_TOOL_IS_WRITE_FLASH=1 -D SERIAL_TOOL_FLASH_ARGS_FILE={args_file} '
             f'-D WORKING_DIRECTORY={root} -P /opt/esp/idf/components/esptool_py/run_serial_tool.cmake')
     return lambda d, args: subprocess.CompletedProcess(args, 0, line + '\n', '')
 
@@ -904,11 +905,11 @@ class BackendCommands(unittest.TestCase):
   def test_idf_runs_ci_image_with_the_git_common_dir_mounted(self):
     with self.capture([1]), mock.patch.object(cb, 'git', lambda *a: '/srv/repo/.git\n'):
       ok, _ = cb.build_idf('espressif_esp32s3_devkitm_1', self.root, ['LOG=2'], Path('log'), False, 'docker',
-                           'espressif/idf:v5.3.2')
+                           'espressif/idf:v6.1')
     self.assertFalse(ok)
     [cmd] = self.calls
     self.assertEqual(cmd[:2], ['docker', 'run'])
-    self.assertIn('espressif/idf:v5.3.2', cmd)
+    self.assertIn('espressif/idf:v6.1', cmd)
     mounts = {cmd[i + 1] for i, c in enumerate(cmd) if c == '-v'}
     self.assertLessEqual({f'{cb.ROOT}:{cb.ROOT}', '/srv/repo/.git:/srv/repo/.git'}, mounts)
     inner = cmd[-1]
