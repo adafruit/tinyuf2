@@ -48,7 +48,12 @@
 #endif
 
 #ifndef CFG_TUSB_MEM_ALIGN
+#if CFG_TUSB_MCU == OPT_MCU_MIMXRT1XXX
+// Cortex-M7 D-cache is enabled by board_init(): USB buffers need 32-byte (cache line) alignment
+#define CFG_TUSB_MEM_ALIGN        __attribute__ ((aligned(32)))
+#else
 #define CFG_TUSB_MEM_ALIGN        __attribute__ ((aligned(4)))
+#endif
 #endif
 
 #ifndef CFG_TUD_ENDPOINT0_SIZE
