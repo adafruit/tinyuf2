@@ -45,7 +45,7 @@ int main(void) {
   }
   board_timer_start(1);
 
-  board_dfu_init();
+  board_usb_init();
   tud_init(BOARD_TUD_RHPORT);
 
   while (1) {

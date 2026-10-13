@@ -22,6 +22,7 @@
  * THE SOFTWARE.
  */
 
+
 #include "board_api.h"
 #include "tusb.h"
 
@@ -70,6 +71,35 @@ uint8_t const* tud_descriptor_configuration_cb(uint8_t index) {
   (void) index;
   return desc_configuration;
 }
+
+#if TUD_OPT_HIGH_SPEED
+// a high-speed device must answer both requests (USB 2.0 9.2.6.6, 9.4.3); DFU runtime has no endpoints, so the
+// other speed's configuration is this one
+tusb_desc_device_qualifier_t const desc_device_qualifier = {
+  .bLength            = sizeof(tusb_desc_device_qualifier_t),
+  .bDescriptorType    = TUSB_DESC_DEVICE_QUALIFIER,
+  .bcdUSB             = 0x0200,
+  .bDeviceClass       = 0x00,
+  .bDeviceSubClass    = 0x00,
+  .bDeviceProtocol    = 0x00,
+  .bMaxPacketSize0    = CFG_TUD_ENDPOINT0_SIZE,
+  .bNumConfigurations = 0x01,
+  .bReserved          = 0x00
+};
+
+uint8_t const* tud_descriptor_device_qualifier_cb(void) {
+  return (uint8_t const*) &desc_device_qualifier;
+}
+
+static uint8_t desc_other_speed_config[CONFIG_TOTAL_LEN];
+
+uint8_t const* tud_descriptor_other_speed_configuration_cb(uint8_t index) {
+  (void) index;
+  memcpy(desc_other_speed_config, desc_configuration, CONFIG_TOTAL_LEN);
+  desc_other_speed_config[1] = TUSB_DESC_OTHER_SPEED_CONFIG;
+  return desc_other_speed_config;
+}
+#endif
 
 enum {
   STRID_LANGID = 0,

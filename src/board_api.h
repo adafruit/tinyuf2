@@ -188,7 +188,7 @@ bool board_app_valid2(void) __attribute__ ((weak));
 // Jump to Application, no return
 void board_app_jump(void);
 
-// Init USB hardware (not used for now)
+// Init USB hardware
 void board_usb_init(void);
 
 // Init DFU process, mostly for starting USB
@@ -196,6 +196,9 @@ void board_dfu_init(void);
 
 // DFU is complete, should reset or jump to application mode and not return
 void board_dfu_complete(void);
+
+// Reboot into TinyUF2 DFU mode, no return. For applications (apps/dfu_runtime); not called by the bootloader
+void board_reboot_to_bootloader(void);
 
 // Fill Serial Number and return its length (limit to 16 bytes)
 uint8_t board_usb_get_serial(uint8_t serial_id[16]);

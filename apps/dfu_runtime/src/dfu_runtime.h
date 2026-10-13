@@ -36,9 +36,6 @@
 #define NONCE_MAX_LEN         16
 #define NONCE_STRING_SIZE     (sizeof("HIL ") + 2 * NONCE_MAX_LEN)
 
-// Reboot into TinyUF2 DFU mode, no return
-void board_reboot_to_bootloader(void);
-
 // Read the nonce block from where the port keeps it; false when it cannot be read
 bool board_nonce_block_read(uint8_t block[NONCE_BLOCK_SIZE]);
 

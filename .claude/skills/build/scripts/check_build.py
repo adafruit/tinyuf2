@@ -486,13 +486,16 @@ def hil_selection(sel, config):
     elif r['rule'] in ('app', 'port-app'):
       app = parts[1] if r['rule'] == 'app' else parts[3] if len(parts) > 3 else None
       ports = {port_of(b) for b, _ in r['boards']} if r['rule'] == 'app' else {parts[1]}
-      own = sorted(b for b in esptool if port_of(b) in ports)
       if app != HIL_APP:
         uncovered[r['path']] = f'the battery runs the bootloader and {HIL_APP} on esptool boards, never {r["path"]}'
-      elif own:
-        boards.update(own)
-      else:
-        uncovered[r['path']] = f'no {config} esptool board runs {HIL_APP}'
+        continue
+      # a port that builds the app but has no esptool roster board: its battery never runs it
+      for p in sorted(ports):
+        own = [b for b in esptool if port_of(b) == p]
+        if own:
+          boards.update(own)
+        else:
+          uncovered[f'{r["path"]} on {p}'] = f'no {config} esptool board of {p} runs {HIL_APP}'
     elif r['rule'] == 'board':
       (b, _), = r['boards']
       if b in roster:
@@ -634,10 +637,9 @@ def build_cmake(port, board, root, defines, log, verbose):
 def build_idf(board, root, defines, log, verbose, idf_mode, image):
   idf = ['idf.py', '-C', 'ports/espressif', '-B', str(root), f'-DBOARD={board}',
          f'-DARTIFACT_PATH={root / "_bin"}', *[f'-D{d}' for d in defines], 'build']
-  fixture = ['cmake', '--build', str(root), '--target', HIL_APP]   # out of ALL, so CI's releases never carry it
   if idf_mode == 'local':
-    return not (run(idf, log, verbose) or run(fixture, log, verbose)), []
-  inner = "git config --global --add safe.directory '*' && " + shlex.join(idf) + ' && ' + shlex.join(fixture)
+    return not run(idf, log, verbose), []
+  inner = "git config --global --add safe.directory '*' && " + shlex.join(idf)
   return not run(idf_docker(root) + [image, 'bash', '-c', inner], log, verbose), []
 
 

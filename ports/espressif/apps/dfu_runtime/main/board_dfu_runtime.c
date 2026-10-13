@@ -66,7 +66,7 @@ void board_timer_stop(void) {
   esp_timer_stop(timer_hdl);
 }
 
-void board_dfu_init(void) {
+void board_usb_init(void) {
   // same PHY setup as TinyUF2's boards.c board_dfu_init()
   usb_phy_config_t const phy_conf = {
     .controller = USB_PHY_CTRL_OTG,
