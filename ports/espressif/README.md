@@ -29,10 +29,10 @@ idf.py -DBOARD=adafruit_feather_esp32s2 flash
 or you could also use pre-built binaries from [release page](https://github.com/adafruit/tinyuf2/releases). Extract and run following esptool commands
 
 ```
-esptool.py --chip esp32s2 -p /dev/ttyUSB0  -b 460800 --before=default_reset --after=hard_reset write_flash --flash_mode dio --flash_freq 80m --flash_size 4MB 0x8000 partition-table.bin 0xe000 ota_data_initial.bin 0x1000 bootloader.bin 0x2d0000 tinyuf2.bin
+esptool --chip esp32s2 -p /dev/ttyUSB0 -b 460800 --before default-reset --after hard-reset write-flash --flash-mode dio --flash-freq 80m --flash-size 4MB 0x8000 partition-table.bin 0xe000 ota_data_initial.bin 0x1000 bootloader.bin 0x2d0000 tinyuf2.bin
 ```
 
-Note: you may need to change the `flash_size` and offset of `tinyuf2.bin` if your board is not 4MB.
+Note: you may need to change the `--flash-size` and offset of `tinyuf2.bin` if your board is not 4MB.
 
 ## Usage
 

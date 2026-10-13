@@ -38,7 +38,7 @@ project(tinyuf2)
 file(WRITE ${CMAKE_BINARY_DIR}/tinyuf2.postbuild.sh
   "#!/bin/bash\n"
   "echo \"Creating combined.bin\"\n"
-  "esptool.py --chip ${IDF_TARGET} merge_bin --output combined.bin $(tr '\\n' ' ' < ${CMAKE_BINARY_DIR}/flash_args)\n"
+  "esptool --chip ${IDF_TARGET} merge-bin --output combined.bin $(tr '\\n' ' ' < ${CMAKE_BINARY_DIR}/flash_args)\n"
 )
 
 # check if board is 4MB flash and create combined-ota.bin
@@ -48,7 +48,7 @@ if(NOT MATCH_INDEX EQUAL -1)
   file(APPEND ${CMAKE_BINARY_DIR}/tinyuf2.postbuild.sh
     "echo \"Creating combined-ota.bin\"\n"
     "gen_esp32part.py ${CMAKE_CURRENT_LIST_DIR}/partitions-4MB.csv ${CMAKE_BINARY_DIR}/partition_table/partitions-table-ota.bin\n"
-    "esptool.py --chip ${IDF_TARGET} merge_bin --output combined-ota.bin $(tr '\\n' ' ' < ${CMAKE_BINARY_DIR}/flash_args | sed 's/partition-table.bin/partitions-table-ota.bin/g')\n"
+    "esptool --chip ${IDF_TARGET} merge-bin --output combined-ota.bin $(tr '\\n' ' ' < ${CMAKE_BINARY_DIR}/flash_args | sed 's/partition-table.bin/partitions-table-ota.bin/g')\n"
     "cp ${CMAKE_BINARY_DIR}/partition_table/partitions-table-ota.bin ${ARTIFACT_PATH}/partitions-table-ota.bin\n"
     "cp combined-ota.bin ${ARTIFACT_PATH}/combined-ota.bin\n"
     )
@@ -76,7 +76,7 @@ add_custom_command(TARGET app POST_BUILD
 add_custom_target(combined-flash
   DEPENDS tinyuf2.elf
   COMMAND ${CMAKE_COMMAND} -E echo "Flashing combined.bin"
-  COMMAND esptool.py --chip ${IDF_TARGET} write_flash 0x0 combined.bin
+  COMMAND esptool --chip ${IDF_TARGET} write-flash 0x0 combined.bin
   VERBATIM
   )
 
