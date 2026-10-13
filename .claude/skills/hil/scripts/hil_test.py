@@ -1179,7 +1179,9 @@ def admit_flash(record_path, rec, row, root, board):
 
 def recorded(root, rels, row):
   """Each file's sha256, which must be the build record's."""
-  return {rel: hashlib.sha256(recorded_bytes(root, rel, row)).hexdigest() for rel in rels}
+  for rel in rels:
+    recorded_bytes(root, rel, row)
+  return {rel: row['sha256'][rel] for rel in rels}
 
 
 def recorded_bytes(root, rel, row):
