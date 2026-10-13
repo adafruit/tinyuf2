@@ -5,7 +5,6 @@ import hashlib
 import io
 import re
 import struct
-from pathlib import Path
 
 from check_build import HIL_APP
 

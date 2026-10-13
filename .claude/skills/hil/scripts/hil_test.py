@@ -61,6 +61,7 @@ ESP_SESSION = Path(__file__).resolve().parent / 'esp_session.py'
 USB_DFU = Path(__file__).resolve().parent / 'usb_dfu.py'
 NONCE_MAGIC, NONCE_BLOCK = b'TUF2NONC', 256   # apps/dfu_runtime/src/dfu_runtime.h
 JLINK_IF, JLINK_SPEED = 'SWD', '4000'
+CMAKE_RECORD_FILES = {'tinyuf2.bin': 'bin', 'tinyuf2.hex': 'hex', 'blinky.uf2': 'blinky'}
 ZERO_PAGE = 512   # bytes zeroed at the app start so its reset vector reads 0
 UDEV_RULES = ('/etc/udev/rules.d', '/run/udev/rules.d')
 # J-Link notes that are not failures, per device, each with the line that shows the operation completed
@@ -572,6 +573,11 @@ def preserved_md5(regions, results):
   return dict(zip(regions, md5))
 
 
+def check_preserved(before, after, by):
+  if before != after:
+    raise StepFail(f'a preserved region changed by the end of the {by}', {'before': before, 'after': after})
+
+
 def check_esp_chip(facts, results):
   """No security state the battery could not undo, and flash for the candidate's layout. The roster's bridge
   is wired to one board only, so the chip behind it is not identified again."""
@@ -590,7 +596,7 @@ def check_esp_chip(facts, results):
 
 def esp_program(esp, board, segments, workdir, snapshot=None):
   """Write every segment and read each back byte for byte in one connection, then one reset. The preserved
-  regions' MD5s after the writes must equal `snapshot`'s (the battery's identity) or, without one, MD5s taken
+  regions' MD5s after the writes must equal `snapshot` (the battery's identity) or, without one, MD5s taken
   in the same connection before the writes (a manual install)."""
   reads = [(off, path, workdir / f'readback-{off:x}.bin') for off, path in segments]
   keep = board['regions']['preserved']
@@ -599,10 +605,8 @@ def esp_program(esp, board, segments, workdir, snapshot=None):
         [{'op': 'read', 'addr': off, 'size': path.stat().st_size, 'file': str(rb)} for off, path, rb in reads] + \
         preserved_ops(keep)
   md5s = [r for r in esp.run(ops, 'hard-reset') if r['op'] == 'md5']
-  before = snapshot['md5'] if snapshot else preserved_md5(keep, md5s[:len(keep)])
   after = preserved_md5(keep, md5s[-len(keep):])
-  if before != after:
-    raise StepFail('a preserved region changed by the end of the install', {'before': before, 'after': after})
+  check_preserved(snapshot or preserved_md5(keep, md5s[:len(keep)]), after, 'install')
   for off, path, rb in reads:
     if rb.read_bytes() != path.read_bytes():
       raise StepFail(f'{path.name} does not read back as written', {'addr': hex(off)})
@@ -624,9 +628,10 @@ def esp_install(board, facts, segments, workdir):
   return ev
 
 
-def report_snapshot(row):
-  """The preserved-region snapshot a failed esptool run took at identity, from its report row. A touched board
-  always has one (identity precedes install), so a touched row without one is refused, never recovered blind."""
+def report_snapshot(row, keep):
+  """The preserved-region MD5s a failed esptool run took at identity, from its report row, over the regions
+  `keep` this checkout preserves. A touched board always has them (identity precedes install), so a touched row
+  without them is refused, never recovered blind."""
   ev = next((x['evidence'] for x in row.get('steps', []) if x.get('step') == 'identity' and x.get('pass')), {})
   regions, md5 = ev.get('preservedRegions'), ev.get('preserved')
   if regions is None and md5 is None and (row.get('cleanup') or {}).get('state') == 'untouched':
@@ -638,7 +643,9 @@ def report_snapshot(row):
     isinstance(md5[n], str) and re.fullmatch(r'[0-9a-f]{32}', md5[n]) for n, r in regions.items())
   if not ok:
     raise Refused(f'the failed run\'s preserved-region snapshot is malformed: {regions} {md5}')
-  return {'regions': {n: tuple(r) for n, r in regions.items()}, 'md5': md5}
+  if {n: tuple(r) for n, r in regions.items()} != keep:
+    raise Refused(f'the failed run preserved {regions}; this checkout preserves {keep}')
+  return md5
 
 
 def after(out, command):
@@ -688,6 +695,14 @@ def wait_for(fn, timeout, what):
       return v
     time.sleep(0.2)
   raise StepFail(f'{what} not seen within {timeout}s')
+
+
+def stays_away(fn, seconds, what, ev):
+  end = time.monotonic() + seconds
+  while time.monotonic() < end:
+    if fn():
+      raise StepFail(what, ev)
+    time.sleep(0.2)
 
 
 def exclusion_configured(facts, serial):
@@ -1065,8 +1080,8 @@ def verify_record(record_path, board, facts):
     return esp_record(record_path, rec, row, root, board, facts)
   files, digests = {}, {}
   for p in cb.expected_artifacts(board['port'], board['name'], 'cmake', root):
-    kind = p.suffix[1:] if p.name != 'blinky.uf2' else 'blinky'
-    if kind not in ('hex', 'bin', 'blinky'):
+    kind = CMAKE_RECORD_FILES.get(p.name)
+    if kind is None:
       continue
     digests[kind] = sha256(p)
     if digests[kind] is None:
@@ -1074,9 +1089,9 @@ def verify_record(record_path, board, facts):
     if row.get('sha256', {}).get(str(p.relative_to(root))) != digests[kind]:
       raise Refused(f'{p}: hash differs from the build record')
     files[kind] = p
-  if files.keys() != {'hex', 'bin', 'blinky'}:
-    raise Refused(f'{record_path}: the build of {board["name"]} names no '
-                  f'{" or ".join(sorted({"hex", "bin", "blinky"} - files.keys()))}')
+  missing = set(CMAKE_RECORD_FILES.values()) - files.keys()
+  if missing:
+    raise Refused(f'{record_path}: the build of {board["name"]} names no {" or ".join(sorted(missing))}')
   files.update(check_blinky(files.pop('blinky'), board['app'], facts))
   return files, {'path': str(files['bin']), 'sha256': digests['bin'], 'buildRecord': str(record_path),
                  'defines': rec.get('defines', []), 'version': embedded_version(files['bin'])}
@@ -1163,11 +1178,12 @@ class Battery:
     v = self.probe.mem32([SCB_CPUID, DHCSR])
     return {'cpuid': f'{v[SCB_CPUID]:#010x}', 'dhcsr': f'{v[DHCSR]:#010x}'}
 
-  def program(self, bin_path, base, bin_base, app_start):
-    """One image from `base`: 0xFF up to `bin_base`, the bootloader BIN, 0xFF up to app_start, then a zero
+  def program(self, bin_path):
+    """One image from the install base: 0xFF up to binBase, the bootloader BIN, 0xFF up to appStart, then a zero
     page, written by a single loadbin and read back, so no second write lands in the bootloader's erase block;
     the zeroed reset vector makes the app invalid by construction, so the next boot stays in DFU. No range
     erase is ever issued. Callers have range-checked both spans (check_bootloader_bin)."""
+    base, bin_base, app_start = self.b['install'][0], self.f['binBase'], self.f['appStart']
     data = Path(bin_path).read_bytes()
     if bin_base + len(data) > app_start:
       raise StepFail(f'{bin_path} [{bin_base:#x}, {bin_base + len(data):#x}) overlaps the app start {app_start:#x}')
@@ -1234,8 +1250,7 @@ class Battery:
       payload.update({bl['addr'] + i: x for i, x in enumerate(bl['data'])})
     check_ranges(payload, [self.b['app']], FLASH_LIMITS[self.b['device']], 'fixture UF2')
     self.step('identity', self.identity)
-    self.step('install', lambda: self.program(files['bin'], self.b['install'][0], f['binBase'], f['appStart']) or
-              {'zeroPage': f'{f["appStart"]:#x}', 'verified': True})
+    self.step('install', lambda: self.install(files))
     # cleared once the bootloader has run board_init (the register's clock), so a magic a failed reenter left
     # cannot send the copied app back to DFU
     self.step('dfu', lambda: dict(self.dfu(version), dblTapReg=self.probe.write32(f['dblTapReg'], 0)))
@@ -1291,20 +1306,16 @@ class Battery:
   def restore(self, files, version):
     """Cleanup: the record's TinyUF2 installed again and its blinky copied through the drive; the board must
     leave DFU and stay out of it."""
-    ev = self.reinstall(files)
-    ev['dfu'] = self.dfu(version)['usb']
-    ev['copy'] = self.copy(files['blinky'], files['blinkyBlocks'])
+    self.install(files)
+    ev = {'dfu': self.dfu(version)['usb'], 'copy': self.copy(files['blinky'], files['blinkyBlocks'])}
     ev.update(self.after_copy())
-    end = time.monotonic() + QUIET_TIME
-    while time.monotonic() < end:
-      if usb_device(self.f['vid'], self.f['pid'], self.b['uid']):
-        raise StepFail('the DFU device came back after the blinky copy', ev)
-      time.sleep(0.2)
+    stays_away(lambda: usb_device(self.f['vid'], self.f['pid'], self.b['uid']), QUIET_TIME,
+               'the DFU device came back after the blinky copy', ev)
     return {'pass': True, 'state': 'blinky copied', 'evidence': ev}
 
-  def reinstall(self, files):
-    self.program(files['bin'], self.b['install'][0], self.f['binBase'], self.f['appStart'])
-    return {}
+  def install(self, files):
+    self.program(files['bin'])
+    return {'zeroPage': f'{self.f["appStart"]:#x}', 'verified': True}
 
   def after_copy(self):
     return {}
@@ -1341,11 +1352,8 @@ class Battery:
     f = self.f
     self.probe.run([f'w4 {SCB_AIRCR:08X} {AIRCR_SYSRESETREQ:08X}'], judge=False)
     watch = 2 * f['dblTapDelayMs'] / 1000 + USB_TIMEOUT
-    end = time.monotonic() + watch
-    while time.monotonic() < end:
-      if usb_device(f['vid'], f['pid'], self.b['uid']):
-        raise StepFail('the reset without the magic entered DFU', {'controlBootedApp': False})
-      time.sleep(0.2)
+    stays_away(lambda: usb_device(f['vid'], f['pid'], self.b['uid']), watch, 'the reset without the magic entered DFU',
+               {'controlBootedApp': False})
     return {'control': self.observe_app(app_bin), 'controlWatchedS': watch, 'controlBootedApp': True}
 
 
@@ -1399,26 +1407,20 @@ class EspBattery(Battery):
     ev = check_esp_chip(self.f, res)
     # in the report too: a recovery's restore checks the preserved regions against it
     ev.update(preserved=preserved_md5(keep, res), preservedRegions={n: list(r) for n, r in keep.items()})
-    self.preserved = {'regions': keep, 'md5': ev['preserved']}
+    self.preserved = ev['preserved']
     return ev
 
-  def reinstall(self, files):
-    """The record's segments, the preserved regions checked against the identity snapshot or, with none, against
-    MD5s taken before the writes; that baseline is checked again once blinky is copied."""
-    self.touched = True
-    self.baseline = esp_program(self.tool, self.b, files['segments'], self.dir, snapshot=self.preserved)['preserved']
-    return {}
-
   def after_copy(self):
+    """The preserved regions checked again once blinky is copied, against the install's baseline: the identity
+    snapshot or, with none, MD5s taken before the writes."""
     keep = self.b['regions']['preserved']
-    now = preserved_md5(keep, self.tool.run(preserved_ops(keep), 'hard-reset'))
-    if now != self.baseline:
-      raise StepFail('a preserved region changed by the end of the restore', {'before': self.baseline, 'after': now})
+    check_preserved(self.baseline, preserved_md5(keep, self.tool.run(preserved_ops(keep), 'hard-reset')), 'restore')
     return {'preserved': 'unchanged since identity' if self.preserved else 'unchanged since before the install'}
 
-  def install(self, segments):
+  def install(self, files):
     self.touched = True
-    ev = esp_program(self.tool, self.b, segments, self.dir, snapshot=self.preserved)
+    ev = esp_program(self.tool, self.b, files['segments'], self.dir, snapshot=self.preserved)
+    self.baseline = ev['preserved']
     return {'writes': ev['writes'], 'readBack': True}
 
   def usb_dfu(self, op):
@@ -1480,13 +1482,16 @@ class EspBattery(Battery):
   def run(self, files, version):
     self.chunks, self.nonce_off = files['appChunks'], files['nonceOffset']
     self.step('identity', self.identity)
-    self.step('install', lambda: self.install(files['segments']))
+    self.step('install', lambda: self.install(files))
     self.step('dfu', lambda: self.dfu(version))
     self.step('copy', lambda: self.copy_app('copy'))
     self.step('app-ran', self.app_ran)
     self.step('reenter', lambda: self.reenter(version))
     self.step('recopy', lambda: dict(self.copy_app('recopy'), **self.app_ran(),
                                      claim='a fresh copy boots the app after re-entry'))
+
+
+BATTERIES = {'jlink': Battery, 'esptool': EspBattery}
 
 
 TERM_SIGNALS = {signal.SIGTERM, signal.SIGINT}
@@ -1602,8 +1607,7 @@ def run_board(args, board, facts, helper, workdir):
   if fh is None and not bypass:
     raise Refused(f'{board["name"]}: the lock dir is unusable (tinyusb helper fails open); refusing to run unlocked')
   row['lockBypassed'] = fh is None
-  bat = (EspBattery if board['flasher'] == 'esptool' else Battery)(board, facts, workdir, args.fail_at,
-                                                                    row.get('commissioning', False))
+  bat = BATTERIES[board['flasher']](board, facts, workdir, args.fail_at, row.get('commissioning', False))
   code = 0
   try:
     row['ran'] = True
@@ -1696,7 +1700,7 @@ def main(argv=None):
     signal.signal(sig, on_signal)
   run_dir = cb.BUILD_DIR / 'hil' / f'run-{time.strftime("%Y%m%d-%H%M%S")}-{os.getpid()}'
   result = {'pass': False, 'caveat': '', 'results': [], 'reportPath': str(run_dir / 'hil_report.json')}
-  code, recovery, restoring = 2, None, None
+  code, recovery, bat = 2, None, None
   try:
     run_dir.mkdir(parents=True)
     board = load_board(args.config, args.board)
@@ -1730,7 +1734,7 @@ def main(argv=None):
       exclusion_configured(facts, board['uid'])
       check_jlink()
       try:
-        Battery(board, facts, run_dir).program(args.firmware, board['install'][0], facts['binBase'], facts['appStart'])
+        Battery(board, facts, run_dir).program(args.firmware)
       finally:
         result['survivors'] = stuck_children()
       result['results'].append({'board': board['name'], 'installed': {'path': args.firmware, 'sha256': args.sha256}})
@@ -1751,10 +1755,7 @@ def main(argv=None):
           raise Refused(f'{args.report} names no cleanup holder {args.recover_holder} of {board["name"]}')
         held = [failed[0]['cleanup']]
         if board['flasher'] == 'esptool':
-          snapshot = report_snapshot(failed[0])
-          if snapshot and snapshot['regions'] != board['regions']['preserved']:
-            raise Refused(f'the failed run preserved {snapshot["regions"]}; this checkout preserves '
-                          f'{board["regions"]["preserved"]}')
+          snapshot = report_snapshot(failed[0], board['regions']['preserved'])
         recovery = recovery_lock(helper, board['lock'])
         rec = prove_hold(helper, board['lock'], args.recover_holder, reason='hil_test.py', role=HOLDER_ROLE)
         cmdline = Path(f'/proc/{args.recover_holder}/cmdline').read_bytes()
@@ -1768,9 +1769,9 @@ def main(argv=None):
       users = probe_users(board)
       if users:
         raise Refused(f'probe {board["probe"]} is still in use by pids {users}; recovery may not overlap them')
-      bat = restoring = (EspBattery if board['flasher'] == 'esptool' else Battery)(board, facts, run_dir)
+      bat = BATTERIES[board['flasher']](board, facts, run_dir)
       try:
-        if board['flasher'] == 'esptool':
+        if snapshot:
           bat.preserved = snapshot
         cleanup = bat.restore(files, fw['version'])
       finally:
@@ -1792,7 +1793,7 @@ def main(argv=None):
     code = 2
   except (StepFail, Interrupted) as e:
     result['error'] = str(e)
-    code = 4 if restoring is not None and restoring.touched else 1   # a failed restore keeps the hold
+    code = 4 if bat is not None and bat.touched else 1   # a failed restore keeps the hold
   if recovery:
     recovery.close()
   if result.get('survivors'):   # a manual operation's survivor: keep your hold until it is gone

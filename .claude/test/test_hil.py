@@ -524,14 +524,14 @@ class EspFlash(EspFake):
 
   def test_a_battery_install_compares_the_preserved_regions_with_its_identity_snapshot(self):
     tool, keep = ht.Esptool(self.board, self.work, self.work / 'hil.log'), self.board['regions']['preserved']
-    snap = {'regions': keep, 'md5': ht.preserved_md5(keep, tool.run(ht.preserved_ops(keep), 'no-reset'))}
+    snap = ht.preserved_md5(keep, tool.run(ht.preserved_ops(keep), 'no-reset'))
     ev = ht.esp_program(tool, self.board, self.segments, self.work, snapshot=snap)
-    self.assertEqual(ev['preserved'], snap['md5'])
+    self.assertEqual(ev['preserved'], snap)
     self.assertEqual(ev['writes'][-1], {'what': 'tinyuf2.bin', 'span': ['0x410000', hex(0x410000 + self.segments[-1][1].stat().st_size)],
                                         'blocks': ['0x410000', ev['writes'][-1]['blocks'][1]]})
     self.assertEqual(self.sessions()[-1]['ops'], ['write'] * 4 + ['read'] * 4 + ['md5'] * 3)
     with self.assertRaisesRegex(ht.StepFail, 'preserved region changed by the end of the install'):
-      ht.esp_program(tool, self.board, self.segments, self.work, snapshot=dict(snap, md5=dict(snap['md5'], nvs='x')))
+      ht.esp_program(tool, self.board, self.segments, self.work, snapshot=dict(snap, nvs='x'))
 
   def test_the_identity_snapshot_round_trips_through_the_report(self):
     keep = self.board['regions']['preserved']
@@ -539,8 +539,9 @@ class EspFlash(EspFake):
     row = {'steps': [{'step': 'identity', 'pass': True,
                       'evidence': {'preserved': md5, 'preservedRegions': {n: list(r) for n, r in keep.items()}}}],
            'cleanup': {'state': 'unknown'}}
-    snap = ht.report_snapshot(json.loads(json.dumps(row)))
-    self.assertEqual(snap, {'regions': keep, 'md5': md5})
+    self.assertEqual(ht.report_snapshot(json.loads(json.dumps(row)), keep), md5)
+    with self.assertRaisesRegex(ht.Refused, 'this checkout preserves'):
+      ht.report_snapshot(json.loads(json.dumps(row)), {'nvs': (0x9000, 0xe000)})
 
   def test_a_malformed_snapshot_is_refused_not_coerced(self):
     good = {'nvs': [0x9000, 0xe000]}, {'nvs': 'ab' * 16}
@@ -553,7 +554,7 @@ class EspFlash(EspFake):
       row = {'steps': [{'step': 'identity', 'pass': True, 'evidence': {'preserved': md5, 'preservedRegions': regions}}],
              'cleanup': {'state': 'unknown'}}
       with self.subTest(what), self.assertRaisesRegex(ht.Refused, 'malformed'):
-        ht.report_snapshot(json.loads(json.dumps(row)))
+        ht.report_snapshot(json.loads(json.dumps(row)), good[0])
 
   def test_a_touched_run_without_a_snapshot_is_not_recovered(self):
     for state, want in (('unknown', ht.Refused), ('untouched', None)):
@@ -561,9 +562,9 @@ class EspFlash(EspFake):
       with self.subTest(state):
         if want:
           with self.assertRaisesRegex(ht.Refused, 'no preserved-region snapshot'):
-            ht.report_snapshot(row)
+            ht.report_snapshot(row, {})
         else:
-          self.assertIsNone(ht.report_snapshot(row))
+          self.assertIsNone(ht.report_snapshot(row, {}))
 
   def test_the_bridge_is_found_by_serial_exactly_once(self):
     for hits in ([], ['/dev/serial/by-id/a_x-if00-port0', '/dev/serial/by-id/b_x-if00-port0']):
@@ -1579,8 +1580,8 @@ class RunBoard(Tmp):
 class FakeRig:
   """A probe and a UF2 drive that behave as the battery expects; each test breaks one thing."""
 
-  def __init__(self, bat, reentry):
-    self.bat, self.reentry, self.scripts, self.present = bat, reentry, [], True
+  def __init__(self, bat):
+    self.bat, self.scripts, self.present = bat, [], True
     self.r0, self.mem, self.double_reset, self.flash = 5, {}, False, set()
 
   def probe(self, commands, judge=True):
@@ -1631,7 +1632,7 @@ class BatteryRun(Tmp):
     facts = ht.source_facts(board)
     bat = ht.Battery(board, facts, self.tmp, commissioning=commissioning)
     bootloader_bin(self.tmp / 'c.bin')
-    rig = FakeRig(bat, reentry)
+    rig = FakeRig(bat)
     (self.tmp / 'cur').mkdir()
     bat.probe.run = rig.probe
     clock = [0.0]   # time passes only when the battery sleeps
@@ -1654,21 +1655,17 @@ class BatteryRun(Tmp):
     return bat, rig
 
   def test_every_step_passes_and_resumes_only_after_a_halt(self):
-    for reentry in ht.REENTRY['jlink']:
-      with self.subTest(reentry):
-        self.tmp = Path(tempfile.mkdtemp(dir=self.tmp))
-        bat, rig = self.battery(reentry)
-        bat.run({'bin': self.tmp / 'c.bin'}, 'v1')
-        self.assertEqual([x['step'] for x in bat.steps if x['pass']], list(ht.STEPS['jlink']))
-        image = self.tmp / 'program.bin'
-        self.assertEqual(rig.scripts[1], ['h', f'loadbin {image},0x0', f'verifybin {image},0x0', 'r', 'g'])
-        self.assertEqual(rig.scripts[2][:2], ['h', f'w4 {bat.f["dblTapReg"]:08X} 00000000'])   # cleared in dfu
-        self.assertIn(f'sleep {2 * bat.f["dblTapDelayMs"] + 200}', rig.scripts[3])
-        for script in rig.scripts:
-          if 'g' in script:
-            self.assertEqual(script[0], 'h', script)
-        if reentry == 'retained-register':
-          self.assertIn([f'w4 {ht.SCB_AIRCR:08X} {ht.AIRCR_SYSRESETREQ:08X}'], rig.scripts)
+    bat, rig = self.battery()
+    bat.run({'bin': self.tmp / 'c.bin'}, 'v1')
+    self.assertEqual([x['step'] for x in bat.steps if x['pass']], list(ht.STEPS['jlink']))
+    image = self.tmp / 'program.bin'
+    self.assertEqual(rig.scripts[1], ['h', f'loadbin {image},0x0', f'verifybin {image},0x0', 'r', 'g'])
+    self.assertEqual(rig.scripts[2][:2], ['h', f'w4 {bat.f["dblTapReg"]:08X} 00000000'])   # cleared in dfu
+    self.assertIn(f'sleep {2 * bat.f["dblTapDelayMs"] + 200}', rig.scripts[3])
+    for script in rig.scripts:
+      if 'g' in script:
+        self.assertEqual(script[0], 'h', script)
+    self.assertIn([f'w4 {ht.SCB_AIRCR:08X} {ht.AIRCR_SYSRESETREQ:08X}'], rig.scripts)
 
   def test_the_whole_fixture_is_read_back_including_its_last_partial_block(self):
     bat, _ = self.battery(corrupt=lambda img: img.__setitem__(len(img) - 1, img[-1] ^ 1))
@@ -1734,7 +1731,8 @@ class BatteryRun(Tmp):
   def test_one_image_carries_the_bootloader_ff_padding_and_a_zero_page(self):
     bat, rig = self.battery()
     fw = bootloader_bin(self.tmp / 'fw.bin', size=0x5000)
-    bat.program(fw, 0, 0, 0x10000)
+    bat.f.update(binBase=0, appStart=0x10000)
+    bat.program(fw)
     image = (self.tmp / 'program.bin').read_bytes()
     self.assertEqual(image, fw.read_bytes() + b'\xff' * 0xb000 + bytes(512))
     self.assertEqual(rig.scripts, [['h', f'loadbin {self.tmp / "program.bin"},0x0',
@@ -1743,11 +1741,13 @@ class BatteryRun(Tmp):
   def test_a_bin_that_starts_past_the_flash_base_is_padded_in_front(self):
     bat, rig = self.battery()
     fw = bootloader_bin(self.tmp / 'fw.bin', size=0x5000)
-    bat.program(fw, 0, 0x400, 0x10000)
+    bat.f.update(binBase=0x400, appStart=0x10000)
+    bat.program(fw)
     image = (self.tmp / 'program.bin').read_bytes()
     self.assertEqual(image, b'\xff' * 0x400 + fw.read_bytes() + b'\xff' * 0xac00 + bytes(512))
     with self.assertRaisesRegex(ht.StepFail, 'overlaps the app start'):
-      bat.program(bootloader_bin(self.tmp / 'big.bin', size=0xFC01), 0, 0x400, 0x10000)
+      bat.f.update(binBase=0x400, appStart=0x10000)
+      bat.program(bootloader_bin(self.tmp / 'big.bin', size=0xFC01))
 
   def test_restore_reinstalls_the_record_and_leaves_dfu_after_blinky(self):
     bat, rig = self.battery()
@@ -1772,14 +1772,16 @@ class BatteryRun(Tmp):
   def test_a_bin_that_fills_the_install_span_exactly_has_no_padding(self):
     bat, _ = self.battery()
     fw = bootloader_bin(self.tmp / 'fw.bin', size=0x10000)
-    bat.program(fw, 0, 0, 0x10000)
+    bat.f.update(binBase=0, appStart=0x10000)
+    bat.program(fw)
     self.assertEqual((self.tmp / 'program.bin').read_bytes(), fw.read_bytes() + bytes(512))
 
   def test_a_bin_past_the_app_start_is_refused_before_any_probe_session(self):
     bat, rig = self.battery()
     fw = bootloader_bin(self.tmp / 'fw.bin', size=0x10001)
     with self.assertRaisesRegex(ht.StepFail, 'overlaps the app start'):
-      bat.program(fw, 0, 0, 0x10000)
+      bat.f.update(binBase=0, appStart=0x10000)
+      bat.program(fw)
     self.assertEqual((rig.scripts, bat.touched), ([], False))
 
   def test_a_wrong_version_on_the_drive_fails_dfu(self):
@@ -1810,7 +1812,7 @@ class BatteryRun(Tmp):
 
   def test_a_write_the_bus_dropped_fails_its_read_back(self):
     bat, rig = self.battery()
-    rig.probe = lambda commands, judge=True: f'J-Link>mem32 4002C05C 1\n4002C05C = 00000000 \n'
+    rig.probe = lambda commands, judge=True: 'J-Link>mem32 4002C05C 1\n4002C05C = 00000000 \n'
     bat.probe.run = rig.probe
     with self.assertRaisesRegex(ht.StepFail, 'reads back 00000000'):
       bat.probe.write32(0x4002C05C, 0xF01669EF)
@@ -1927,7 +1929,8 @@ class Main(Tmp):
          mock.patch.object(ht, 'load_helper', lambda p: None), mock.patch.object(ht, 'manual_holder', lambda *a: None), \
          mock.patch.object(ht, 'exclusion_configured', lambda *a: None), \
          mock.patch.object(ht, 'check_jlink', lambda: None), \
-         mock.patch.object(ht.Battery, 'program', lambda bat, b, base, at, a: programmed.append((b, base, at, a))):
+         mock.patch.object(ht.Battery, 'program',
+                           lambda bat, b: programmed.append((b, bat.b['install'][0], bat.f['binBase'], bat.f['appStart']))):
       code = ht.main(['install', '-b', BOARD, '--firmware', str(fw), '--sha256', ht.sha256(fw),
                       '--under-hold', 'debug 7', str(cfg)])
     self.assertEqual((code, programmed), (0, [(str(fw), 0, 0, 0x10000)]))
@@ -1991,7 +1994,7 @@ class Main(Tmp):
         code = ht.main(['restore', '-b', S3, '--build-record', 'r.json', '--recover-holder', str(p.pid), '--report',
                         str(report), str(cfg)])
         self.assertEqual(code, want)
-        self.assertEqual(seen, [{'regions': keep, 'md5': md5}] if want == 0 else [])
+        self.assertEqual(seen, [md5] if want == 0 else [])
 
   def test_no_jlinkexe_programs_nothing_on_any_path(self):
     fw = bootloader_bin(self.tmp / 'fw.bin')
