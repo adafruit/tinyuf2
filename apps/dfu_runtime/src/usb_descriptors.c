@@ -26,8 +26,8 @@
 #include "tusb.h"
 
 // TinyUSB example IDs: 0x4000 is its product ID for a device with none of CDC, MSC, HID, MIDI or vendor
-#define USB_VID   0xCafe
-#define USB_PID   0x4000
+#define APP_USB_VID   0xCafe
+#define APP_USB_PID   0x4000
 
 extern char dfu_rt_string[];
 
@@ -39,8 +39,8 @@ tusb_desc_device_t const desc_device = {
   .bDeviceSubClass    = 0x00,
   .bDeviceProtocol    = 0x00,
   .bMaxPacketSize0    = CFG_TUD_ENDPOINT0_SIZE,
-  .idVendor           = USB_VID,
-  .idProduct          = USB_PID,
+  .idVendor           = APP_USB_VID,
+  .idProduct          = APP_USB_PID,
   .bcdDevice          = 0x0100,
   .iManufacturer      = 0x01,
   .iProduct           = 0x02,
