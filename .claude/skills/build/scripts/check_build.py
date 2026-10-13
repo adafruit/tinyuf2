@@ -638,10 +638,11 @@ def build_idf(board, root, defines, log, verbose, idf_mode, image):
   return not run(idf_docker(root) + [image, 'bash', '-c', inner], log, verbose), []
 
 
-def idf_docker(root):
-  """`docker run` with the checkout, its git dir and the build dir mounted at their own paths, image last."""
+def idf_docker(root, verb='run'):
+  """`docker run` (or `create`) with the checkout, its git dir and the build dir mounted at their own paths, image
+  last."""
   common = Path(git('rev-parse', '--path-format=absolute', '--git-common-dir').strip())
-  cmd = ['docker', 'run', '--rm', '--user', f'{os.getuid()}:{os.getgid()}', '-e', 'HOME=/tmp', '-w', str(ROOT)]
+  cmd = ['docker', verb, '--rm', '--user', f'{os.getuid()}:{os.getgid()}', '-e', 'HOME=/tmp', '-w', str(ROOT)]
   for m in sorted({ROOT, common, root.parent}):
     cmd += ['-v', f'{m}:{m}']
   return cmd

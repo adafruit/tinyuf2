@@ -21,6 +21,7 @@ import json
 import os
 import re
 import select
+import shlex
 import shutil
 import signal
 import struct
@@ -404,6 +405,7 @@ def make_uf2(img, base, family, workdir):
 # ------------------------------------------------------------------ processes
 
 CHILDREN = []
+CONTAINERS = []   # docker containers a flash started, by name: outside every child's session
 REGISTERING = {'on': False, 'signum': None}
 
 
@@ -480,9 +482,30 @@ def proc_start(pid):
   return int(st[19]) if st and len(st) > 19 else None
 
 
+def container_present(name):
+  r = subprocess.run(['docker', 'ps', '-aq', '-f', f'name=^{name}$'], capture_output=True, text=True, timeout=30)
+  if r.returncode:
+    raise StepFail(f'docker ps failed: {r.stderr.strip()[-200:]}')
+  return bool(r.stdout.strip())
+
+
+def container_gone(name):
+  """`docker rm -f` (a running, created or exited container alike), then whether docker no longer lists it; a
+  docker error is not an answer, so it counts as still there."""
+  try:
+    subprocess.run(['docker', 'rm', '-f', name], capture_output=True, timeout=30)
+    end = time.monotonic() + 2 * KILL_WAIT
+    while (left := container_present(name)) and time.monotonic() < end:
+      time.sleep(0.2)
+    return not left
+  except (StepFail, OSError, subprocess.SubprocessError):
+    return False
+
+
 def stuck_children():
-  """Processes of the children's sessions that survived SIGKILL, identified so a later recovery can tell they
-  are still alive."""
+  """Processes of the children's sessions, and containers a flash created, that survived SIGKILL, identified so
+  a later recovery can tell they are still alive. The launchers go first, so no `docker` child can create or start
+  a container after its name is checked."""
   stuck = []
   for p in list(CHILDREN):
     for pid in reap(p):
@@ -491,11 +514,17 @@ def stuck_children():
       except OSError:
         cmd = []
       stuck.append({'pid': pid, 'start': proc_start(pid), 'cmd': [c.decode(errors='replace') for c in cmd]})
+  for name in list(CONTAINERS):
+    if container_gone(name):
+      CONTAINERS.remove(name)
+    else:
+      stuck.append({'container': name})
   return stuck
 
 
 def still_alive(survivors):
-  return [s for s in survivors if s.get('start') is not None and proc_start(s['pid']) == s['start']]
+  return [s for s in survivors if (not container_gone(s['container']) if 'container' in s else
+                                   s.get('start') is not None and proc_start(s['pid']) == s['start'])]
 
 
 # ------------------------------------------------------------------ probe
@@ -530,6 +559,16 @@ def judge_jlink_target(code, out, board, hex_path):
     raise StepFail(f'tinyuf2-jlink failed (exit {code})', {'tail': out.strip().splitlines()[-5:],
                                                            'beforeTarget': stopped_before_target(code, out, board['probe'])})
   return {'flashDownload': m[1]}
+
+
+def judge_esp_target(code, out, segments):
+  """ESP-IDF's flash target, through CMake and Ninja in CI's image: esptool's write of every segment at its offset,
+  each hash-verified, then the hard reset (bench transcript, esptool v4.8.1 in espressif/idf:v5.3.2)."""
+  wrote = sorted(int(a, 16) for a in re.findall(r'^Wrote \d+ bytes \(\d+ compressed\) at 0x([0-9a-f]{8}) in ', out, re.M))
+  if code or wrote != sorted(off for off, _ in segments) or out.count('Hash of data verified.') != len(segments) or \
+     'Hard resetting via RTS pin' not in out:
+    raise StepFail(f'the flash target failed (exit {code})', {'tail': out.strip().splitlines()[-5:]})
+  return {'wrote': [hex(a) for a in wrote]}
 
 
 class Probe:
@@ -626,13 +665,12 @@ def check_preserved(before, after, by):
     raise StepFail(f'a preserved region changed by the end of the {by}', {'before': before, 'after': after})
 
 
-def esp_program(esp, board, segments, workdir, snapshot):
-  """Write every segment and read each back byte for byte in one connection, then one reset. The preserved
-  regions' MD5s after the writes must equal `snapshot`, taken before the install."""
+def esp_verify(esp, board, segments, workdir, snapshot):
+  """After the flash target: every segment read back byte for byte in one connection of the runner's, then one
+  reset. The preserved regions' MD5s must equal `snapshot`, taken before the install."""
   reads = [(off, path, workdir / f'readback-{off:x}.bin') for off, path in segments]
   keep = board['regions']['preserved']
-  ops = [{'op': 'write', 'addr': off, 'file': str(path)} for off, path in segments] + \
-        [{'op': 'read', 'addr': off, 'size': path.stat().st_size, 'file': str(rb)} for off, path, rb in reads] + \
+  ops = [{'op': 'read', 'addr': off, 'size': path.stat().st_size, 'file': str(rb)} for off, path, rb in reads] + \
         preserved_ops(keep)
   md5s = [r for r in esp.run(ops, 'hard-reset') if r['op'] == 'md5']
   after = preserved_md5(keep, md5s[-len(keep):])
@@ -1100,7 +1138,8 @@ def verify_record(record_path, board, facts):
   root = cb.ROOT / row['buildDir']
   flash = flash_binding(record_path, rec, row, root, board)
   if want == 'idf':
-    return esp_record(record_path, rec, row, root, board, facts)
+    files, fw = esp_record(record_path, rec, row, root, board, facts)
+    return dict(files, flash=flash), fw
   files, digests = {}, {}
   for p in cb.expected_artifacts(board['port'], board['name'], 'cmake', root):
     kind = CMAKE_RECORD_FILES.get(p.name)
@@ -1135,7 +1174,7 @@ def flash_binding(record_path, rec, row, root, board):
     if digests[rel] is None or row.get('sha256', {}).get(rel) != digests[rel]:
       raise Refused(f'{root / rel}: missing, unreadable or changed since the build record')
   idf = rec.get('idf') or {}
-  return {'root': root, 'binding': fl, 'sha256': digests,
+  return {'root': root, 'binding': fl, 'sha256': digests, 'image': idf.get('image'),
           'ninja': lambda d: cb.ninja_in(d, row['backend'], idf.get('mode'), idf.get('image'))}
 
 
@@ -1212,7 +1251,7 @@ class Battery:
       raise
     self.steps.append({'step': name, 'pass': True, 'evidence': ev, 'detail': ''})
 
-  def flash_target(self, flash, judge):
+  def flash_target(self, flash, cmd, timeout, judge):
     """The record's flash target, under its build dir's lock: the inputs still hash as recorded and a dry run shows
     the target runs nothing but its flasher (cb.flash_ready); after it, the inputs are hashed again. Touched from the
     target's start; only a transcript recognised as ending before any target connect leaves the board as it was."""
@@ -1228,7 +1267,7 @@ class Battery:
       except cb.Fail as e:
         raise StepFail(str(e))
       was, self.touched = self.touched, True
-      code, out = spawn(['cmake', '--build', root, '--target', fl['target']], self.log, PROBE_TIMEOUT)
+      code, out = spawn(cmd, self.log, timeout)
       try:
         ev = judge(code, out)
       except StepFail as e:
@@ -1388,7 +1427,9 @@ class Battery:
 
   def install(self, files):
     """The record's tinyuf2-jlink target, then the BIN verified at its flash address in a session of the runner's."""
-    ev = self.flash_target(files['flash'], lambda code, out: judge_jlink_target(code, out, self.b, files['hex']))
+    fl = files['flash']
+    ev = self.flash_target(fl, ['cmake', '--build', fl['root'], '--target', fl['binding']['target']], PROBE_TIMEOUT,
+                           lambda code, out: judge_jlink_target(code, out, self.b, files['hex']))
     self.probe.run(['h', f'verifybin {files["bin"]},{self.f["binBase"]:#x}', 'r', 'g'])
     return dict(ev, verified=True)
 
@@ -1483,14 +1524,33 @@ class EspBattery(Battery):
 
   def install(self, files):
     """The preserved regions' snapshot first, in a session of its own, which the report keeps however the run ends:
-    a recovery's restore checks against it. A restore reuses the run's snapshot, or a recovery's."""
-    esp_port(self.b['probe'])   # no bridge fails here, untouched; any session may leave the chip in its ROM loader
+    a recovery's restore checks against it. A restore reuses the run's snapshot, or a recovery's. Then ESP-IDF's
+    flash target in CI's image, given only the bridge's tty, in a container named for the board so a survivor is
+    found and ended by name (cleanup, recovery); then the runner's own read-back."""
+    tty = esp_port(self.b['probe'])   # no bridge fails here, untouched; any session may leave the chip in its ROM loader
+    name = f'tinyuf2-hil-{self.b["name"]}'
+    if container_present(name):
+      raise StepFail(f'container {name} from an earlier flash still exists: check what it runs, then docker rm -f {name}')
+    fl = files['flash']
+    # created, not run: the container exists, and its name is tracked, before anything can start it; cleanup
+    # removes it by name however the run ends
+    CONTAINERS.append(name)
+    code, out = spawn(cb.idf_docker(fl['root'], 'create') + [
+      '--name', name, '--device', tty, '--group-add', str(os.stat(tty).st_gid), '-e', f'ESPPORT={tty}', fl['image'],
+      'bash', '-c', '. $IDF_PATH/export.sh >/dev/null 2>&1 && ' +
+      shlex.join(['cmake', '--build', str(fl['root']), '--target', fl['binding']['target']])], self.log, 60)
+    if code:
+      raise StepFail(f'docker create {name} failed (exit {code})', {'tail': out.strip().splitlines()[-3:]})
     self.touched = True
     if self.preserved is None:
       keep = self.b['regions']['preserved']
       self.preserved = preserved_md5(keep, self.tool.run(preserved_ops(keep), 'no-reset'))
-    ev = esp_program(self.tool, self.b, files['segments'], self.dir, self.preserved)
-    return {'writes': ev['writes'], 'readBack': True}
+    ev = self.flash_target(fl, ['docker', 'start', '-a', name], ESP_TIMEOUT,
+                           lambda code, out: judge_esp_target(code, out, files['segments']))
+    if container_gone(name):
+      CONTAINERS.remove(name)
+    ev.update(esp_verify(self.tool, self.b, files['segments'], self.dir, self.preserved))
+    return {'wrote': ev['wrote'], 'writes': ev['writes'], 'readBack': True}
 
   def report_fields(self):
     keep = self.b['regions']['preserved']

@@ -20,6 +20,7 @@ TYPE = {'app': APP, 'data': DATA}
 SEGMENT_PATHS = {'bootloader/bootloader.bin': 'bootloader.bin', 'partition_table/partition-table.bin': 'partition-table.bin',
                  'ota_data_initial.bin': 'ota_data_initial.bin', 'tinyuf2.bin': 'tinyuf2.bin'}
 SEGMENTS = tuple(SEGMENT_PATHS.values())
+NATIVE = {v: k for k, v in SEGMENT_PATHS.items()}
 APP_UF2 = f'_bin/apps/{HIL_APP}.uf2'   # the battery's app, copied through TinyUF2
 BLINKY_UF2 = '_bin/apps/blinky.uf2'   # what cleanup leaves running
 RECORD_FILES = ('_bin/flash_args', *(f'_bin/{s}' for s in SEGMENTS), APP_UF2, BLINKY_UF2, 'sdkconfig')
@@ -141,7 +142,8 @@ def read_flash_args(text, what):
 def admit(root, board, f, lay):
   """The segments an install writes, [(offset, path)], from an IDF build dir already hash-checked against
   its record: flash_args, the generated sdkconfig and partition table must agree with the candidate's
-  source, and every segment must sit inside its own region."""
+  source, and every segment must sit inside its own region. Paths are the build tree's own files, which
+  ESP-IDF's flash target writes, not the _bin copies."""
   gen = sdkconfig((root / 'sdkconfig').read_text())
   want = {'CONFIG_IDF_TARGET': f'"{board["device"]}"', 'CONFIG_PARTITION_TABLE_OFFSET': hex(PARTITION_TABLE[0]),
           'CONFIG_PARTITION_TABLE_CUSTOM_FILENAME': f'"{f["partitionCsv"]}"',
@@ -149,19 +151,19 @@ def admit(root, board, f, lay):
   bad = {k: gen.get(k) for k, v in want.items() if gen.get(k) != v}
   if bad:
     raise Refused(f'generated sdkconfig differs from the candidate source: {bad}')
-  settings, segs = read_flash_args((root / '_bin' / 'flash_args').read_text(), 'flash_args')
+  settings, segs = read_flash_args((root / 'flash_args').read_text(), 'flash_args')
   for k, v in (('flash_mode', gen.get('CONFIG_ESPTOOLPY_FLASHMODE')), ('flash_freq', gen.get('CONFIG_ESPTOOLPY_FLASHFREQ')),
                ('flash_size', gen.get('CONFIG_ESPTOOLPY_FLASHSIZE'))):
     if f'"{settings.get(k)}"' != v:
       raise Refused(f'flash_args --{k} {settings.get(k)} differs from the generated sdkconfig {v}')
   if sorted(segs.values()) != sorted(SEGMENTS):
     raise Refused(f'flash_args names {sorted(segs.values())}, not exactly {sorted(SEGMENTS)}')
-  table = parse_table((root / '_bin' / 'partition-table.bin').read_bytes(), 'partition-table.bin')
+  table = parse_table((root / NATIVE['partition-table.bin']).read_bytes(), 'partition-table.bin')
   if table != f['partitions']:
     raise Refused(f'partition-table.bin {table} differs from {f["partitionCsv"]} {f["partitions"]}')
   out = []
   for off, name in sorted(segs.items()):
-    path = root / '_bin' / name
+    path = root / NATIVE[name]
     lo, hi = lay['install'][name]
     size = path.stat().st_size
     if off != lo or off + size > hi:
