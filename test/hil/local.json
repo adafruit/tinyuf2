@@ -9,7 +9,8 @@
     {
       "name": "metro_m7_1011",
       "uid": "7BE8715DD77116635100005002004200",
-      "flasher": {"name": "jlink", "uid": "000801012283", "args": "-device MIMXRT1011DAE5A"}
+      "flasher": {"name": "jlink", "uid": "000801012283", "args": "-device MIMXRT1011DAE5A"},
+      "tinyuf2": {"reentry": "retained-register"}
     },
     {
       "name": "espressif_esp32s3_devkitc_1",
