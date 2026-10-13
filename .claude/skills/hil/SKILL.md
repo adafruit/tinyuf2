@@ -123,7 +123,7 @@ A review (`pr-review`) maps each board's row, except a commissioning run's (`com
 - **Exit 4.**
   - The board stays held by a detached holder forked from the run: reason `hil_test.py`, `role: cleanup-holder`, with its pid in `cleanup.holder`. It ignores SIGTERM and SIGINT, so a timeout kill cannot free the board; only recovery releases it.
   - If no holder could be forked, `cleanup.holder.inProcess` is set and the runner itself is the holder: it prints the report, closes its stdio and does not exit until recovered, so no completion notice arrives. When a run's notice is overdue, read the task's output: a final JSON line with `cleanup.holder.inProcess` true is this case. Do not wait for its exit.
-  - `cleanup.survivors` lists children that outlived SIGKILL (a J-Link, mtools or FAT read stuck on the device); recovery refuses while any of them is still alive.
+  - `cleanup.survivors` lists children that outlived SIGKILL (a J-Link, mtools or FAT read stuck on the device); recovery refuses while any of them is still alive. Each child runs in a session of its own and the kill reaches the whole session, so a JLinkExe that ninja runs in a process group of its own under the flash target is killed and reported too.
   - tinyusb sees that holder as a battery run and waits, which is safe but means the board is out of service until recovered.
   - Do not release it by hand, and do not treat it as safe because tinyusb reflashes. The holder may stand for a stuck J-Link or mtools process.
   - Recovery is a separate `hil-operator` dispatch whose scope names forcing that board. After process, probe and host readiness are established, it runs:

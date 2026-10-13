@@ -442,32 +442,56 @@ def spawn(cmd, log, timeout, cwd=None):
     return p.returncode, out
 
 
+def proc_stat(pid):
+  """proc(5) stat fields from the third (state) on, or None for a process that is gone or a zombie."""
+  try:
+    fields = Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()
+  except (OSError, IndexError):
+    return None
+  return fields if fields and fields[0] != 'Z' else None
+
+
+def session(sid):
+  """The live processes of session `sid` (stat field 6): a child started with start_new_session and everything it
+  started, a process ninja moved into a group of its own included."""
+  return [int(d.name) for d in Path('/proc').iterdir()
+          if d.name.isdigit() and (st := proc_stat(d.name)) and st[3] == str(sid)]
+
+
 def reap(p):
-  try:
-    os.killpg(p.pid, signal.SIGKILL)
-  except ProcessLookupError:
-    pass
-  try:
+  """SIGKILL to the child's whole session; the members still alive after KILL_WAIT (D state on a stuck USB
+  device), empty once the session is gone."""
+  for pid in session(p.pid):
+    with contextlib.suppress(ProcessLookupError):
+      os.kill(pid, signal.SIGKILL)
+  with contextlib.suppress(subprocess.TimeoutExpired):
     p.wait(KILL_WAIT)
-  except subprocess.TimeoutExpired:
-    return False
-  if p in CHILDREN:
+  end = time.monotonic() + KILL_WAIT
+  while (left := session(p.pid)) and time.monotonic() < end:
+    time.sleep(0.1)
+  if not left and p in CHILDREN:   # tracked while any of its session lives, for cleanup to see
     CHILDREN.remove(p)
-  return True
+  return left
 
 
 def proc_start(pid):
-  """The start time of `pid` in clock ticks (proc(5) stat field 22), which tells a reused pid apart."""
-  try:
-    return int(Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[19])
-  except (OSError, IndexError, ValueError):
-    return None
+  """The start time of a live `pid` in clock ticks (proc(5) stat field 22), which tells a reused pid apart."""
+  st = proc_stat(pid)
+  return int(st[19]) if st and len(st) > 19 else None
 
 
 def stuck_children():
-  """Children that survived SIGKILL, identified so a later recovery can tell they are still alive."""
-  return [{'pid': p.pid, 'start': proc_start(p.pid), 'cmd': [str(c) for c in p.args][:3]}
-          for p in list(CHILDREN) if not reap(p)]
+  """Processes of the children's sessions that survived SIGKILL, identified so a later recovery can tell they
+  are still alive."""
+  stuck = []
+  for p in list(CHILDREN):
+    for pid in reap(p):
+      try:
+        cmd = Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0')[:3]
+      except OSError:
+        cmd = []
+      stuck.append({'pid': pid, 'start': proc_start(pid), 'cmd': [c.decode(errors='replace') for c in cmd]})
+  return stuck
 
 
 def still_alive(survivors):

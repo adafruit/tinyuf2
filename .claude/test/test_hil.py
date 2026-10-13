@@ -1245,6 +1245,50 @@ class Spawn(Tmp):
     self.assertIsNotNone(launched[0].poll())
     self.assertEqual(ht.CHILDREN, [])
 
+  def test_a_kill_reaches_a_grandchild_in_a_process_group_of_its_own(self):
+    # as ninja runs JLinkExe: setpgid moves it out of the child's group, not out of its session
+    pidfile = self.tmp / 'grandchild'
+    code = ('import os, subprocess, sys, time\n'
+            'g = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], process_group=0)\n'
+            f'open({str(pidfile)!r}, "w").write(str(g.pid)); time.sleep(60)')
+    with self.assertRaisesRegex(ht.StepFail, 'timed out'):
+      ht.spawn([sys.executable, '-c', code], self.tmp / 'log', 2)
+    stat = Path(f'/proc/{pidfile.read_text()}/stat')
+    self.assertFalse(stat.exists() and stat.read_text().rsplit(')', 1)[1].split()[0] != 'Z')   # gone, or a zombie
+    self.assertEqual(ht.CHILDREN, [])
+
+  def test_a_grandchild_that_outlives_the_kill_stays_tracked_until_it_is_gone(self):
+    pidfile = self.tmp / 'grandchild'
+    code = ('import subprocess, sys, time\n'
+            'g = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], process_group=0)\n'
+            f'open({str(pidfile)!r}, "w").write(str(g.pid)); time.sleep(60)')
+    kill = os.kill
+    spared = lambda pid, sig: None if pidfile.exists() and pid == int(pidfile.read_text()) else kill(pid, sig)   # noqa: E731
+    with mock.patch.object(ht.os, 'kill', spared), mock.patch.object(ht, 'KILL_WAIT', 0.5), \
+         self.assertRaisesRegex(ht.StepFail, 'timed out'):
+      ht.spawn([sys.executable, '-c', code], self.tmp / 'log', 2)
+    grandchild = int(pidfile.read_text())
+
+    def end():
+      with contextlib.suppress(ProcessLookupError):
+        kill(grandchild, signal.SIGKILL)
+    self.addCleanup(end)
+    with mock.patch.object(ht.os, 'kill', spared), mock.patch.object(ht, 'KILL_WAIT', 0.5):
+      stuck = ht.stuck_children()   # as cleanup asks after the failed step
+    self.assertEqual([x['pid'] for x in stuck], [grandchild])
+    self.assertEqual(ht.still_alive(stuck), stuck)
+    kill(grandchild, signal.SIGKILL)
+    self.assertEqual((ht.stuck_children(), ht.CHILDREN), ([], []))
+
+  def test_a_zombie_is_not_a_live_survivor(self):
+    p = subprocess.Popen([sys.executable, '-c', 'pass'])
+    self.addCleanup(p.wait)
+    start = ht.proc_start(p.pid)
+    while ht.proc_stat(p.pid):   # exited, not yet waited for
+      time.sleep(0.01)
+    self.assertTrue(Path(f'/proc/{p.pid}').exists())
+    self.assertEqual(ht.still_alive([{'pid': p.pid, 'start': start}]), [])
+
   def test_registering_leaves_the_childs_signal_mask_alone(self):
     code, out = ht.spawn(['grep', 'SigBlk', '/proc/self/status'], self.tmp / 'log', 5)
     self.assertEqual(code, 0, out)
