@@ -49,6 +49,7 @@
 
 #if CONFIG_IDF_TARGET_ESP32P4
 #include "soc/lp_system_reg.h"
+#include "esp_rom_sys.h"
 #endif
 
 #ifndef BUILD_NO_TINYUSB
@@ -266,6 +267,14 @@ void board_init(void) {
   esp_timer_create(&periodic_timer_args, &timer_hdl);
 }
 
+#if CONFIG_IDF_TARGET_ESP32P4 && !defined(BUILD_NO_TINYUSB)
+// A software restart leaves OTG HS attached: detach first, or the host keeps talking to a device that stopped answering
+static void usb_disconnect_shutdown_handler(void) {
+  tud_disconnect();
+  esp_rom_delay_us(20000);
+}
+#endif
+
 static usb_phy_handle_t phy_hdl;
 void board_dfu_init(void) {
   // Configure USB PHY
@@ -283,6 +292,10 @@ void board_dfu_init(void) {
   };
 
   ESP_ERROR_CHECK(usb_new_phy(&phy_conf, &phy_hdl));
+
+#if CONFIG_IDF_TARGET_ESP32P4 && !defined(BUILD_NO_TINYUSB)
+  esp_register_shutdown_handler(usb_disconnect_shutdown_handler);
+#endif
 }
 
 void board_reset(void) {

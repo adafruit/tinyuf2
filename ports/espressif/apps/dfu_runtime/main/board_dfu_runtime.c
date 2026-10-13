@@ -29,9 +29,11 @@
 #include "esp_timer.h"
 #include "esp_private/system_internal.h"
 #include "esp_private/usb_phy.h"
+#include "esp_rom_sys.h"
 
 #include "board_api.h"
 #include "dfu_runtime.h"
+#include "tusb.h"
 
 // Espressif glue for the DFU runtime example, without the bootloader's boards component
 
@@ -92,6 +94,11 @@ void board_reboot_to_bootloader(void) {
   // the call makes the link keep esp_reset_reason_set_hint() (ports/espressif/README.md)
   (void) esp_reset_reason();
   esp_reset_reason_set_hint((esp_reset_reason_t) APP_REQUEST_UF2_RESET_HINT);
+#if CONFIG_IDF_TARGET_ESP32P4
+  // as TinyUF2's boards.c: a software restart leaves OTG HS attached
+  tud_disconnect();
+  esp_rom_delay_us(20000);
+#endif
   esp_restart();
 }
 
