@@ -246,7 +246,7 @@ def run_main(argv, boards=None, ghostfat=None, tests=None, identities=None):
   boards = boards or {}
   identities = iter(identities or [])
 
-  def build_board(board, backend, args, idf):
+  def build_board(board, backend, args, idf, flasher=None):
     status = boards.get(board, 'ok')
     return {'board': board, 'port': cb.port_of(board), 'backend': backend, 'buildDir': f'cmake-build/x-{board}',
             'status': status, 'firstError': '' if status == 'ok' else f'{board} {status}', 'artifacts': ['a.bin']}
@@ -495,7 +495,7 @@ class Verdict(unittest.TestCase):
 
   def test_backend_override_builds_with_cmake(self):
     seen = []
-    def build_board(board, backend, args, idf):
+    def build_board(board, backend, args, idf, flasher=None):
       seen.append(backend)
       return {'board': board, 'port': 'mimxrt10xx', 'backend': backend, 'buildDir': 'cmake-build/x', 'status': 'ok',
               'firstError': '', 'artifacts': [], 'sha256': {}}
@@ -505,7 +505,7 @@ class Verdict(unittest.TestCase):
     self.assertEqual(seen, ['cmake'])
 
   def test_passing_private_roots_leave_nothing_in_built(self):
-    def build_board(board, backend, args, idf):
+    def build_board(board, backend, args, idf, flasher=None):
       return {'board': board, 'port': 'lpc55', 'backend': backend, 'buildDir': 'cmake-build/x', 'status': 'ok',
               'firstError': '', 'artifacts': ['a.bin'], 'removed': True}
     with mock.patch.object(cb, 'build_board', build_board), \
@@ -649,6 +649,109 @@ class BuildBoard(unittest.TestCase):
     with mock.patch.object(cb, 'check_deps', lambda p: 'lib/mcu/nxp/mcux-sdk missing'):
       rec = cb.build_board('lpcxpresso55s69', 'make', self.args, {})
     self.assertEqual((rec['status'], rec['firstError']), ('error', 'lib/mcu/nxp/mcux-sdk missing'))
+
+
+class HilRecord(unittest.TestCase):
+  """A HIL record binds the build's own flash target to the roster's probe or bridge."""
+
+  def setUp(self):
+    tmp = build_tmpdir()
+    self.addCleanup(tmp.cleanup)
+    self.tmp = Path(tmp.name)
+    self.roster = self.tmp / 'local.json'
+    self.roster.write_text(json.dumps({'boards': [
+      {'name': 'metro_m7_1011', 'uid': 'U', 'flasher': {'name': 'jlink', 'uid': '000801012283', 'args': '-device MIMXRT1011DAE5A'}},
+      {'name': 'espressif_esp32s3_devkitc_1', 'uid': 'M', 'flasher': {'name': 'esptool', 'uid': 'b1', 'args': '--chip esp32s3'}},
+      {'name': 'lpcxpresso55s69', 'uid': 'L', 'flasher': {'name': 'openocd', 'uid': 'x', 'args': '-f a.cfg'}}]}))
+    self.config = str(self.roster.relative_to(ROOT))
+
+  def jlink_tree(self, root, script=None, options='-USB 000801012283 -ExitOnError 1 -NoGui 1', interface='swd'):
+    root.mkdir(parents=True, exist_ok=True)
+    (root / 'tinyuf2.jlink').write_text(script or f'halt\nloadfile {root / "tinyuf2.hex"}\nr\ngo\nexit')
+    line = (f'cd {root} && JLinkExe -device MIMXRT1011DAE5A {options} -if {interface} -JTAGConf -1,-1 -speed auto '
+            f'-CommandFile {root / "tinyuf2.jlink"}')
+    return lambda args: subprocess.CompletedProcess(args, 0, f'arm-none-eabi-gcc ...\n{line}\n', '')
+
+  def idf_tree(self, root, chip='esp32s3', extra='', args_file='flash_args'):
+    root.mkdir(parents=True, exist_ok=True)
+    (root / 'flash_args').write_text('--flash_mode dio --flash_freq 80m --flash_size 8MB\n0x0 bootloader/bootloader.bin\n'
+                                     '0x410000 tinyuf2.bin\n0x8000 partition_table/partition-table.bin\n'
+                                     f'0xe000 ota_data_initial.bin\n{extra}')
+    line = (f'cd /opt/esp/idf/components/esptool_py && cmake -D IDF_PATH=/opt/esp/idf '
+            f'-D "SERIAL_TOOL=python;;/opt/esp/idf/components/esptool_py/esptool/esptool.py;--chip;{chip}" '
+            f'-D "SERIAL_TOOL_ARGS=--before=default_reset;--after=hard_reset;write_flash;@{args_file}" '
+            f'-D WORKING_DIRECTORY={root} -P /opt/esp/idf/components/esptool_py/run_serial_tool.cmake')
+    return lambda args: subprocess.CompletedProcess(args, 0, line + '\n', '')
+
+  def test_the_roster_flasher_selects_the_probe_through_configure_defines(self):
+    self.assertEqual(cb.roster_flasher(self.config, 'metro_m7_1011'),
+                     ({'name': 'jlink', 'uid': '000801012283', 'device': 'MIMXRT1011DAE5A'},
+                      ['JLINK_OPTION=-USB 000801012283 -ExitOnError 1 -NoGui 1']))
+    self.assertEqual(cb.roster_flasher(self.config, 'espressif_esp32s3_devkitc_1'),
+                     ({'name': 'esptool', 'uid': 'b1', 'device': 'esp32s3'}, []))   # the tty is chosen at flash time
+    for board, err in (('lpcxpresso55s69', 'no HIL flash target'), ('imxrt1060_evk', 'not on')):
+      with self.subTest(board), self.assertRaisesRegex(cb.Fail, err):
+        cb.roster_flasher(self.config, board)
+
+  def test_the_generated_jlink_target_must_name_the_roster_probe_and_the_build_image(self):
+    flasher = {'name': 'jlink', 'uid': '000801012283', 'device': 'MIMXRT1011DAE5A'}
+    root = self.tmp / 'b'
+    out = cb.flash_binding(flasher, root, self.jlink_tree(root))
+    self.assertEqual((out['target'], out['inputs']), ('tinyuf2-jlink', ['tinyuf2.jlink', 'tinyuf2.hex']))
+    for what, tree in (('another probe', dict(options='-USB 1 -ExitOnError 1 -NoGui 1')),
+                       ('no exit on error', dict(options='-USB 000801012283')),
+                       ('two probes', dict(options='-USB 000801012283 -USB 2 -ExitOnError 1 -NoGui 1')),
+                       ('jtag', dict(interface='jtag')),
+                       ('another image', dict(script=f'halt\nloadfile {self.tmp / "other.hex"}\nr\ngo\nexit')),
+                       ('a second image', dict(script=f'halt\nloadfile {root / "tinyuf2.hex"}\nloadfile /tmp/o.hex\nr\ngo\nexit'))):
+      with self.subTest(what), self.assertRaisesRegex(cb.Fail, 'does not flash'):
+        cb.flash_binding(flasher, root, self.jlink_tree(root, **tree))
+
+  def test_the_idf_flash_target_must_write_flash_args_for_the_roster_chip(self):
+    flasher = {'name': 'esptool', 'uid': 'b1', 'device': 'esp32s3'}
+    root = self.tmp / 'e'
+    out = cb.flash_binding(flasher, root, self.idf_tree(root))
+    self.assertEqual(out['inputs'][0], 'flash_args')
+    for what, tree in (('another chip', dict(chip='esp32s2')),
+                       ('a chip prefix', dict(chip='esp32s3WRONG')),
+                       ('another argument file', dict(args_file='flash_args.extra')),
+                       ('another segment', dict(extra='0x10000 app.bin\n'))):
+      with self.subTest(what), self.assertRaisesRegex(cb.Fail, 'does not flash'):
+        cb.flash_binding(flasher, root, self.idf_tree(root, **tree))
+
+  def test_a_hil_record_pins_the_target_inputs_and_holds_the_build_lock(self):
+    args = mock.Mock(shared=True, define=[], verbose=False, idf='docker')
+    built = []
+
+    def fake_cmake(port, board, root, defines, log, verbose):
+      built.append(defines)
+      lock = root.with_name(root.name + '.lock')
+      with open(lock) as f, self.assertRaises(BlockingIOError):   # held while the build runs
+        cb.fcntl.flock(f, cb.fcntl.LOCK_EX | cb.fcntl.LOCK_NB)
+      for rel in ('_bin/tinyuf2.bin', '_bin/tinyuf2.hex', '_bin/apps/blinky.uf2', 'tinyuf2.hex'):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(rel)
+      return True, []
+    build_dir = self.tmp / 'cmake-build'   # absent: the first shared build creates it before its lock
+    with mock.patch.object(cb, 'BUILD_DIR', build_dir), mock.patch.object(cb, 'check_deps', lambda p: None), \
+         mock.patch.object(cb, 'check_tools', lambda *a: None), mock.patch.object(cb, 'build_cmake', fake_cmake), \
+         mock.patch.object(cb, 'expected_artifacts', lambda *a: []), \
+         mock.patch.object(cb, 'ninja_in', lambda root, *a: self.jlink_tree(root)):
+      rec = cb.build_board('metro_m7_1011', 'cmake', args, {}, cb.roster_flasher(self.config, 'metro_m7_1011'))
+    self.assertEqual(rec['status'], 'ok', rec)
+    self.assertEqual(built, [['JLINK_OPTION=-USB 000801012283 -ExitOnError 1 -NoGui 1']])
+    self.assertIn('tinyuf2.hex', rec['sha256'])
+    self.assertIn('tinyuf2.jlink', rec['sha256'])
+    self.assertEqual(rec['flash']['lock'], str((build_dir / 'cmake-build-metro_m7_1011-cmake.lock').relative_to(ROOT)))
+
+  def test_a_hil_record_takes_probe_selection_only_from_the_roster(self):
+    for argv in (['--board', 'metro_m7_1011', '--shared', '--hil-config', self.config, '-D', 'JLINK_OPTION=-USB 1'],
+                 ['--board', 'metro_m7_1011', '--shared', '--hil-config', self.config, '-D', 'ESPPORT:STRING=/dev/x'],
+                 ['--board', 'metro_m7_1011', '--hil-config', self.config]):
+      with self.subTest(argv), contextlib.redirect_stdout(io.StringIO()) as out, self.assertRaises(SystemExit) as e:
+        cb.main(argv)
+      self.assertEqual(e.exception.code, 2)
+      self.assertIn('usage', json.loads(out.getvalue())['error'])
 
 
 class Ghostfat(unittest.TestCase):
