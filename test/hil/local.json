@@ -5,6 +5,18 @@
       "uid": "4629F865D2291713E000005002004200",
       "flasher": {"name": "jlink", "uid": "000726129165", "args": "-device MIMXRT1062xxx6A"},
       "tinyuf2": {"lock": "mimxrt1060_evk", "reentry": "retained-register"}
+    },
+    {
+      "name": "metro_m7_1011",
+      "uid": "7BE8715DD77116635100005002004200",
+      "flasher": {"name": "jlink", "uid": "000801012283", "args": "-device MIMXRT1011DAE5A"},
+      "tinyuf2": {"reentry": "retained-register"}
+    },
+    {
+      "name": "espressif_esp32s3_devkitc_1",
+      "uid": "7CDFA1E06FD0",
+      "flasher": {"name": "esptool", "uid": "8ecc58dfb1cdeb1185e7b806e93fd3f1", "args": "--chip esp32s3"},
+      "tinyuf2": {"reentry": "dfu-detach"}
     }
   ]
 }

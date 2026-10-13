@@ -246,7 +246,7 @@ def run_main(argv, boards=None, ghostfat=None, tests=None, identities=None):
   boards = boards or {}
   identities = iter(identities or [])
 
-  def build_board(board, backend, args, idf):
+  def build_board(board, backend, args, idf, flasher=None):
     status = boards.get(board, 'ok')
     return {'board': board, 'port': cb.port_of(board), 'backend': backend, 'buildDir': f'cmake-build/x-{board}',
             'status': status, 'firstError': '' if status == 'ok' else f'{board} {status}', 'artifacts': ['a.bin']}
@@ -317,6 +317,19 @@ class HilSelection(unittest.TestCase):
     self.assertEqual(self.hil('ports/mimxrt10xx/boards/imxrt1060_evk/board.h')['boards'], ['imxrt1060_evk'])
     self.assertEqual(self.hil('ports/mimxrt10xx/board_flash.c')['boards'], ['imxrt1060_evk'])
     self.assertNotIn('mimxrt10xx', [u['target'] for u in self.hil('src/main.c')['uncovered']])
+
+  def test_the_battery_app_selects_the_esptool_roster_boards_and_other_apps_none(self):
+    self.roster.write_text(json.dumps({'boards': [{'name': 'imxrt1060_evk', 'flasher': {'name': 'jlink'}},
+                                                  {'name': 'espressif_esp32s3_devkitc_1', 'flasher': {'name': 'esptool'}}]}))
+    for path in ('apps/dfu_runtime/src/nonce.c', 'ports/espressif/apps/dfu_runtime/main/board_dfu_runtime.c'):
+      with self.subTest(path):
+        h = self.hil(path)
+        self.assertEqual((h['boards'], h['uncovered']), (['espressif_esp32s3_devkitc_1'], []))
+    h = self.hil('apps/blinky/src/blinky.c', 'ports/espressif/apps/blinky/main/CMakeLists.txt')
+    self.assertEqual((h['boards'], len(h['uncovered'])), ([], 2))
+    self.roster.write_text(json.dumps({'boards': [{'name': 'imxrt1060_evk', 'flasher': {'name': 'jlink'}}]}))
+    h = self.hil('apps/dfu_runtime/src/nonce.c')
+    self.assertEqual((h['boards'], [u['reason'] for u in h['uncovered']]), ([], [f'no {self.config} esptool board runs dfu_runtime']))
 
   def test_the_hil_follows_its_cmake_build_not_cis_make(self):
     self.roster.write_text(json.dumps({'boards': [{'name': 'imxrt1060_evk'}]}))
@@ -482,7 +495,7 @@ class Verdict(unittest.TestCase):
 
   def test_backend_override_builds_with_cmake(self):
     seen = []
-    def build_board(board, backend, args, idf):
+    def build_board(board, backend, args, idf, flasher=None):
       seen.append(backend)
       return {'board': board, 'port': 'mimxrt10xx', 'backend': backend, 'buildDir': 'cmake-build/x', 'status': 'ok',
               'firstError': '', 'artifacts': [], 'sha256': {}}
@@ -492,7 +505,7 @@ class Verdict(unittest.TestCase):
     self.assertEqual(seen, ['cmake'])
 
   def test_passing_private_roots_leave_nothing_in_built(self):
-    def build_board(board, backend, args, idf):
+    def build_board(board, backend, args, idf, flasher=None):
       return {'board': board, 'port': 'lpc55', 'backend': backend, 'buildDir': 'cmake-build/x', 'status': 'ok',
               'firstError': '', 'artifacts': ['a.bin'], 'removed': True}
     with mock.patch.object(cb, 'build_board', build_board), \
@@ -592,6 +605,28 @@ class BuildBoard(unittest.TestCase):
     self.assertEqual(set(rec['sha256']), set(rec['artifacts']))
     self.assertTrue((root / '_bin' / 'tinyuf2-lpcxpresso55s69.bin').is_file())
 
+  def test_an_idf_build_hashes_its_flash_config_and_needs_it(self):
+    self.args.shared = True
+    root = self.build_dir / 'cmake-build-espressif_esp32s3_devkitc_1'
+    made = [str(p.relative_to(root)) for p in cb.expected_artifacts('espressif', 'x', 'idf', root)] + list(cb.IDF_CONFIG)
+
+    def run(cmd, log, verbose, cwd=cb.ROOT):
+      for rel in made:
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(rel)
+      return 0
+    inspect = mock.Mock(return_value=mock.Mock(returncode=0))
+    with mock.patch.object(cb, 'run', run), mock.patch.object(cb.subprocess, 'run', inspect), \
+         mock.patch.object(cb, 'git', lambda *a: str(self.build_dir)):
+      rec = cb.build_board('espressif_esp32s3_devkitc_1', 'idf', self.args, {'image': 'espressif/idf:v5.3.2'})
+      self.assertEqual(rec['status'], 'ok', rec)
+      self.assertLessEqual({'sdkconfig', '_bin/flash_args', '_bin/ota_data_initial.bin', '_bin/apps/dfu_runtime.uf2'},
+                           set(rec['sha256']))
+      made.remove('sdkconfig')
+      rec = cb.build_board('espressif_esp32s3_devkitc_1', 'idf', self.args, {'image': 'espressif/idf:v5.3.2'})
+    self.assertEqual(rec['status'], 'failed')
+    self.assertIn('sdkconfig', rec['firstError'])
+
   def test_cmake_missing_app_image_fails(self):
     def run(cmd, log, verbose, cwd=cb.ROOT):
       log.write_text('ok')
@@ -614,6 +649,202 @@ class BuildBoard(unittest.TestCase):
     with mock.patch.object(cb, 'check_deps', lambda p: 'lib/mcu/nxp/mcux-sdk missing'):
       rec = cb.build_board('lpcxpresso55s69', 'make', self.args, {})
     self.assertEqual((rec['status'], rec['firstError']), ('error', 'lib/mcu/nxp/mcux-sdk missing'))
+
+
+class HilRecord(unittest.TestCase):
+  """A HIL record binds the build's own flash target to the roster's probe or bridge."""
+
+  def setUp(self):
+    tmp = build_tmpdir()
+    self.addCleanup(tmp.cleanup)
+    self.tmp = Path(tmp.name)
+    self.roster = self.tmp / 'local.json'
+    self.roster.write_text(json.dumps({'boards': [
+      {'name': 'metro_m7_1011', 'uid': 'U', 'flasher': {'name': 'jlink', 'uid': '000801012283', 'args': '-device MIMXRT1011DAE5A'}},
+      {'name': 'espressif_esp32s3_devkitc_1', 'uid': 'M', 'flasher': {'name': 'esptool', 'uid': 'b1', 'args': '--chip esp32s3'}},
+      {'name': 'lpcxpresso55s69', 'uid': 'L', 'flasher': {'name': 'openocd', 'uid': 'x', 'args': '-f a.cfg'}}]}))
+    self.config = str(self.roster.relative_to(ROOT))
+
+  def jlink_tree(self, root, script=None, options='-USB 000801012283 -ExitOnError 1 -NoGui 1', interface='swd'):
+    root.mkdir(parents=True, exist_ok=True)
+    (root / 'tinyuf2.jlink').write_text(script or f'halt\nloadfile {root / "tinyuf2.hex"}\nr\ngo\nexit')
+    line = (f'cd {root} && JLinkExe -device MIMXRT1011DAE5A {options} -if {interface} -JTAGConf -1,-1 -speed auto '
+            f'-CommandFile {root / "tinyuf2.jlink"}')
+    return lambda d, args: subprocess.CompletedProcess(args, 0, f'arm-none-eabi-gcc ...\n{line}\n', '')
+
+  def idf_tree(self, root, chip='esp32s3', extra='', args_file='flash_args'):
+    root.mkdir(parents=True, exist_ok=True)
+    (root / 'flash_args').write_text('--flash_mode dio --flash_freq 80m --flash_size 8MB\n0x0 bootloader/bootloader.bin\n'
+                                     '0x410000 tinyuf2.bin\n0x8000 partition_table/partition-table.bin\n'
+                                     f'0xe000 ota_data_initial.bin\n{extra}')
+    line = (f'cd /opt/esp/idf/components/esptool_py && cmake -D IDF_PATH=/opt/esp/idf '
+            f'-D "SERIAL_TOOL=python;;/opt/esp/idf/components/esptool_py/esptool/esptool.py;--chip;{chip}" '
+            f'-D "SERIAL_TOOL_ARGS=--before=default_reset;--after=hard_reset;write_flash;@{args_file}" '
+            f'-D WORKING_DIRECTORY={root} -P /opt/esp/idf/components/esptool_py/run_serial_tool.cmake')
+    return lambda d, args: subprocess.CompletedProcess(args, 0, line + '\n', '')
+
+  def test_the_roster_flasher_selects_the_probe_through_configure_defines(self):
+    self.assertEqual(cb.roster_flasher(self.config, 'metro_m7_1011'),
+                     ({'name': 'jlink', 'uid': '000801012283', 'device': 'MIMXRT1011DAE5A'},
+                      ['JLINK_OPTION=-USB 000801012283 -ExitOnError 1 -NoGui 1']))
+    self.assertEqual(cb.roster_flasher(self.config, 'espressif_esp32s3_devkitc_1'),
+                     ({'name': 'esptool', 'uid': 'b1', 'device': 'esp32s3'}, []))   # the tty is chosen at flash time
+    for board, err in (('lpcxpresso55s69', 'no HIL flash target'), ('imxrt1060_evk', 'not on')):
+      with self.subTest(board), self.assertRaisesRegex(cb.Fail, err):
+        cb.roster_flasher(self.config, board)
+
+  def test_the_generated_jlink_target_must_name_the_roster_probe_and_the_build_image(self):
+    flasher = {'name': 'jlink', 'uid': '000801012283', 'device': 'MIMXRT1011DAE5A'}
+    root = self.tmp / 'b'
+    out = cb.flash_binding(flasher, root, self.jlink_tree(root))
+    self.assertEqual((out['target'], out['inputs']), ('tinyuf2-jlink', ['tinyuf2.jlink', 'tinyuf2.hex']))
+    for what, tree in (('another probe', dict(options='-USB 1 -ExitOnError 1 -NoGui 1')),
+                       ('no exit on error', dict(options='-USB 000801012283')),
+                       ('two probes', dict(options='-USB 000801012283 -USB 2 -ExitOnError 1 -NoGui 1')),
+                       ('jtag', dict(interface='jtag')),
+                       ('another image', dict(script=f'halt\nloadfile {self.tmp / "other.hex"}\nr\ngo\nexit')),
+                       ('a second image', dict(script=f'halt\nloadfile {root / "tinyuf2.hex"}\nloadfile /tmp/o.hex\nr\ngo\nexit'))):
+      with self.subTest(what), self.assertRaisesRegex(cb.Fail, 'does not flash'):
+        cb.flash_binding(flasher, root, self.jlink_tree(root, **tree))
+
+  def test_the_idf_flash_target_must_write_flash_args_for_the_roster_chip(self):
+    flasher = {'name': 'esptool', 'uid': 'b1', 'device': 'esp32s3'}
+    root = self.tmp / 'e'
+    out = cb.flash_binding(flasher, root, self.idf_tree(root))
+    self.assertEqual(out['inputs'][0], 'flash_args')
+    for what, tree in (('another chip', dict(chip='esp32s2')),
+                       ('a chip prefix', dict(chip='esp32s3WRONG')),
+                       ('another argument file', dict(args_file='flash_args.extra')),
+                       ('another segment', dict(extra='0x10000 app.bin\n'))):
+      with self.subTest(what), self.assertRaisesRegex(cb.Fail, 'does not flash'):
+        cb.flash_binding(flasher, root, self.idf_tree(root, **tree))
+
+  def ready(self, flasher, root, tree, steps, nested=(), code=0, banner=True):
+    """flash_ready on `root` whose target dry-runs `steps` and whose bootloader subproject dry-runs `nested`;
+    `banner` False drops ninja's banner from both, 'nested' from the subproject's only."""
+    commands = tree(root)
+    command = cb.flash_binding(flasher, root, commands)['command']
+    flash = {'target': cb.FLASH[flasher['name']][0], 'flasher': flasher, 'command': command}
+
+    def ninja(d, args):
+      self.assertEqual(args[:2], ['-n', '-v'])
+      out = [command if x == 'FLASH' else x for x in (steps if d == root else nested)]
+      return subprocess.CompletedProcess(args, code, 'entrypoint banner\n' + ("ninja: Entering directory `x'\n" if banner is True or banner == 'nested' and d == root else '') +
+                                         ''.join(f'[{i}/9] {x}\n' for i, x in enumerate(out, 1)), '')
+    cb.flash_ready(root, flash, ninja)
+
+  def test_a_flash_target_is_ready_only_when_its_dry_run_shows_just_the_flasher(self):
+    jlink = {'name': 'jlink', 'uid': '000801012283', 'device': 'MIMXRT1011DAE5A'}
+    root = self.tmp / 'b'
+    self.ready(jlink, root, self.jlink_tree, ['FLASH'])
+    rebuild = [f'/usr/bin/arm-none-eabi-gcc -c {ROOT}/src/main.c -o main.c.obj', ': && arm-none-eabi-gcc -o tinyuf2.elf', 'FLASH']
+    for what, steps, kw in (('a rebuild', rebuild, {}), ('a CMake re-run', ['/usr/bin/cmake --regenerate-during-build -S.. -B.'], {}),
+                            ('ninja fails', ['FLASH'], {'code': 1}), ('nothing', [], {}),
+                            ('no ninja banner', ['FLASH'], {'banner': False}),
+                            ('another command', ['JLinkExe -USB 1'], {}), ('the flasher twice', ['FLASH', 'FLASH'], {})):
+      with self.subTest(what), self.assertRaisesRegex(cb.Fail, 'would not run only its flasher'):
+        self.ready(jlink, root, self.jlink_tree, steps, **kw)
+
+  def test_an_idf_flash_target_may_also_run_steps_that_write_no_flash_input(self):
+    esp = {'name': 'esptool', 'uid': 'b1', 'device': 'esp32s3'}
+    root = self.tmp / 'e'
+    cmake, py = '/opt/esp/tools/cmake/3.30.2/bin/cmake', '/opt/esp/python_env/idf5.3_py3.10_env/bin/python'
+    sizes = f'{py} /opt/esp/idf/components/partition_table/check_sizes.py --offset 0x8000'
+    size = (f'cd {root}/esp-idf/esptool_py && {sizes} partition --type app {root}/partition_table/partition-table.bin '
+            f'{root}/tinyuf2.bin')
+    boot_size = f'cd {root}/bootloader/esp-idf/esptool_py && {sizes} bootloader 0x0 {root}/bootloader/bootloader.bin'
+    copies = ' && '.join(f'{cmake} -E copy {root}/{f} {root}/_bin/{Path(f).name}' for f in cb.FLASH['esptool'][1])
+    post = (f'cd {root} && bash {root}/tinyuf2.postbuild.sh && cd {root} && {cmake} -E echo "Copy binaries for artifact" && '
+            f'{copies} && cd {root} && {py}3.10 {ROOT}/lib/uf2/utils/uf2conv.py --carray -o '
+            f'{root}/apps/update_tinyuf2/bootloader_bin.c {root}/tinyuf2.bin')
+    stamps = (f'cd {root} && {cmake} -E make_directory {root}/CMakeFiles && {cmake} -E touch {root}/CMakeFiles/bootloader-complete '
+              f'&& {cmake} -E touch {root}/bootloader-prefix/src/bootloader-stamp/bootloader-done')
+    fresh = [f'cd {root}/bootloader && {cmake} --build .', size, f'cd {root}/bootloader && {cmake} -E echo_append', post, stamps,
+             'FLASH']
+    script = root / 'tinyuf2.postbuild.sh'
+    good = ('#!/bin/bash\necho "Creating combined.bin"\n'
+            f"esptool.py --chip esp32s3 merge_bin --output combined.bin $(tr '\\n' ' ' < {root}/flash_args)\n")
+    self.idf_tree(root)
+    script.write_text(good)
+    self.ready(esp, root, self.idf_tree, fresh, [boot_size])
+    cases = (('a CMake re-run', [f'cd {root} && {cmake} --regenerate-during-build -S/p -B{root}'], [boot_size], good),
+             ('an app rebuild', [f'{root}/xtensa-esp32s3-elf-g++ -o tinyuf2.elf'] + fresh, [boot_size], good),
+             ('a bootloader rebuild', fresh, ['xtensa-esp32s3-elf-gcc -c bootloader_start.c', boot_size], good),
+             ('a size check and a copy', [size + f' && cp /tmp/o.bin {root}/tinyuf2.bin', 'FLASH'], [], good),
+             ('a copy out of _bin', [f'{cmake} -E copy /tmp/o.bin {root}/_bin/../tinyuf2.bin', 'FLASH'], [], good),
+             ('a redirect', [f'{cmake} -E echo x > {root}/tinyuf2.bin', 'FLASH'], [], good),
+             ('a changed post-build script', fresh, [boot_size], good + f'cp /tmp/o.bin {root}/tinyuf2.bin\n'),
+             ('a step after the bootloader build', [f'cd {root}/bootloader && {cmake} --build . && {cmake} -E echo_append', 'FLASH'],
+              ['xtensa-esp32s3-elf-gcc -c bootloader_start.c'], good),
+             ('a copy through a symlink', [f'{cmake} -E copy /tmp/o.bin {root}/_bin/alias/tinyuf2.bin', 'FLASH'], [], good),
+             ('a touch of a flash input', [f'{cmake} -E touch {root}/flash_args', 'FLASH'], [], good))
+    (root / '_bin').mkdir()
+    (root / '_bin/alias').symlink_to('..')
+    for what, steps, nested, text in cases:
+      with self.subTest(what), self.assertRaisesRegex(cb.Fail, 'would not run only its flasher'):
+        script.write_text(text)
+        self.ready(esp, root, self.idf_tree, steps, nested)
+    script.write_text(good)
+    (root / '_bin/alias').unlink()
+    (root / '_bin').rmdir()
+    (root / '_bin').symlink_to('.')   # a copy into _bin would land on the input itself
+    with self.subTest('a symlinked _bin'), self.assertRaisesRegex(cb.Fail, 'would not run only its flasher'):
+      self.ready(esp, root, self.idf_tree, [f'{cmake} -E copy /tmp/o.bin {root}/_bin/tinyuf2.bin', 'FLASH'], [boot_size])
+    (root / 'apps').symlink_to('.')
+    (root / 'update_tinyuf2').symlink_to('.')
+    carray = 'cd ' + post.split(' && cd ')[-1]
+    self.ready(esp, root, self.idf_tree, [carray, 'FLASH'], [boot_size])   # before the alias
+    (root / 'bootloader_bin.c').symlink_to('tinyuf2.bin')
+    with self.subTest('a C array onto the image'), self.assertRaisesRegex(cb.Fail, 'would not run only its flasher'):
+      self.ready(esp, root, self.idf_tree, [carray, 'FLASH'], [boot_size])
+    (root / 'combined.bin').symlink_to('tinyuf2.bin')
+    with self.subTest('a post-build onto the image'), self.assertRaisesRegex(cb.Fail, 'would not run only its flasher'):
+      self.ready(esp, root, self.idf_tree, [post.split(' && cd ')[0], 'FLASH'], [boot_size])
+    (root / 'combined.bin').unlink()
+    self.ready(esp, root, self.idf_tree, [post.split(' && cd ')[0], 'FLASH'], [boot_size])
+    (root / '_bin').unlink()
+    (root / '_bin').mkdir()
+    (root / '_bin/image.bin').write_text('x')
+    (root / 'ota_data_initial.bin').unlink(missing_ok=True)
+    (root / 'ota_data_initial.bin').symlink_to('_bin/image.bin')
+    with self.subTest('a copy onto a symlinked input'), self.assertRaisesRegex(cb.Fail, 'would not run only its flasher'):
+      self.ready(esp, root, self.idf_tree, [f'{cmake} -E copy /tmp/o.bin {root}/_bin/image.bin', 'FLASH'], [boot_size])
+    with self.assertRaisesRegex(cb.Fail, 'bootloader: ninja -n failed'):
+      self.ready(esp, root, self.idf_tree, fresh, [boot_size], banner='nested')
+
+  def test_a_hil_record_pins_the_target_inputs_and_holds_the_build_lock(self):
+    args = mock.Mock(shared=True, define=[], verbose=False, idf='docker')
+    built = []
+
+    def fake_cmake(port, board, root, defines, log, verbose):
+      built.append(defines)
+      lock = root.with_name(root.name + '.lock')
+      with open(lock) as f, self.assertRaises(BlockingIOError):   # held while the build runs
+        cb.fcntl.flock(f, cb.fcntl.LOCK_EX | cb.fcntl.LOCK_NB)
+      for rel in ('_bin/tinyuf2.bin', '_bin/tinyuf2.hex', '_bin/apps/blinky.uf2', 'tinyuf2.hex'):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(rel)
+      return True, []
+    build_dir = self.tmp / 'cmake-build'   # absent: the first shared build creates it before its lock
+    with mock.patch.object(cb, 'BUILD_DIR', build_dir), mock.patch.object(cb, 'check_deps', lambda p: None), \
+         mock.patch.object(cb, 'check_tools', lambda *a: None), mock.patch.object(cb, 'build_cmake', fake_cmake), \
+         mock.patch.object(cb, 'expected_artifacts', lambda *a: []), \
+         mock.patch.object(cb, 'ninja_in', lambda backend, mode, image, root, args: self.jlink_tree(root)(root, args)):
+      rec = cb.build_board('metro_m7_1011', 'cmake', args, {}, cb.roster_flasher(self.config, 'metro_m7_1011'))
+    self.assertEqual(rec['status'], 'ok', rec)
+    self.assertEqual(built, [['JLINK_OPTION=-USB 000801012283 -ExitOnError 1 -NoGui 1']])
+    self.assertIn('tinyuf2.hex', rec['sha256'])
+    self.assertIn('tinyuf2.jlink', rec['sha256'])
+    self.assertEqual(rec['flash']['defines'], ['JLINK_OPTION=-USB 000801012283 -ExitOnError 1 -NoGui 1'])
+
+  def test_a_hil_record_takes_probe_selection_only_from_the_roster(self):
+    for argv in (['--board', 'metro_m7_1011', '--shared', '--hil-config', self.config, '-D', 'JLINK_OPTION=-USB 1'],
+                 ['--board', 'metro_m7_1011', '--shared', '--hil-config', self.config, '-D', 'ESPPORT:STRING=/dev/x'],
+                 ['--board', 'metro_m7_1011', '--hil-config', self.config]):
+      with self.subTest(argv), contextlib.redirect_stdout(io.StringIO()) as out, self.assertRaises(SystemExit) as e:
+        cb.main(argv)
+      self.assertEqual(e.exception.code, 2)
+      self.assertIn('usage', json.loads(out.getvalue())['error'])
 
 
 class Ghostfat(unittest.TestCase):

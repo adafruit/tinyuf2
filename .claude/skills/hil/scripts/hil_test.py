@@ -2,17 +2,20 @@
 """TinyUF2 HIL battery and the probe operations debug sessions share with it.
 
   hil_test.py run -b BOARD --build-record FILE CONFIG [--fail-at STEP] [--try-reentry METHOD]
-  hil_test.py install -b BOARD --firmware BIN --sha256 HASH --under-hold REASON CONFIG
-  hil_test.py invalidate -b BOARD (--under-hold REASON | --recover-holder PID --report FILE) CONFIG
+  hil_test.py install -b BOARD --build-record FILE --under-hold REASON [--try-reentry METHOD] CONFIG
+  hil_test.py restore -b BOARD --build-record FILE (--under-hold REASON [--try-reentry METHOD] | --recover-holder PID --report FILE) CONFIG
 
 The last stdout line is JSON. Exit 0 every board passed and was cleaned up, 1 a board failed or did not
 run (cleaned up or never touched), 2 refused before any hardware access, 4 cleanup failed (the board is
-held when `cleanup.heldAfter`; not under HIL_NO_BOARD_LOCK) or a manual operation left `survivors`.
+held when `cleanup.heldAfter`; not under HIL_NO_BOARD_LOCK), a manual operation left `survivors`, or a
+`restore` failed after it began writing.
 SKILL.md beside this script is the contract; this file is its mechanics.
 """
 import argparse
 import contextlib
 import fcntl
+import functools
+import glob
 import hashlib
 import importlib.util
 import json
@@ -29,30 +32,44 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT / '.claude' / 'skills' / 'build' / 'scripts'))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True   # nothing the runner imports may write into a checkout it binds
 import check_build as cb  # noqa: E402
+import hil_esp as esp  # noqa: E402
 
 # [floor, ceiling) the runner ever programs, per J-Link device, independent of roster and source:
 # LPC55S69 PFR starts at 0x9DE00 and a bad CMPA write can lock the part (UM11126 Table 173, Table 1064);
 # 0x9D800-0x9DDFF is reserved and undocumented. MIMXRT1062: FlexSPI XIP at 0x60000000 (IMXRT1060RM
-# Table 3-1) holding the EVK's 8 MiB IS25WP064A (EVK hardware user's guide 2.7).
-FLASH_LIMITS = {'LPC55S69_M33_0': (0, 0x9D800), 'MIMXRT1062xxx6A': (0x60000000, 0x60800000)}
-STEPS = ('identity', 'install', 'dfu', 'copy', 'app-ran', 'reenter')
-REENTRY = ('retained-register', 'app-invalidate')
+# Table 3-1) holding the EVK's 8 MiB IS25WP064A (EVK hardware user's guide 2.7). MIMXRT1011: FlexSPI XIP at
+# 0x60000000 (IMXRT1010RM Table 3-1) holding the Metro M7 1011's W25Q64JV (Metro M7 RT1011 SD revA schematic), 8 MiB.
+FLASH_LIMITS = {'LPC55S69_M33_0': (0, 0x9D800), 'MIMXRT1062xxx6A': (0x60000000, 0x60800000),
+                'MIMXRT1011DAE5A': (0x60000000, 0x60800000)}
+STEPS = {'jlink': ('install', 'dfu', 'copy', 'app-ran', 'reenter')}
+STEPS['esptool'] = STEPS['jlink'] + ('recopy',)
+REENTRY = {'jlink': ('retained-register',), 'esptool': ('dfu-detach',)}
+REENTRY_METHODS = sorted({m for v in REENTRY.values() for m in v})
 PROTECTED = {'hil_test.py', 'pool_check'}   # tinyusb hil_lock.PROTECTED_REASONS, checked at load
 HOLDER_ROLE = 'cleanup-holder'
-SCB_VTOR, SCB_AIRCR, SCB_CPUID, DHCSR = 0xE000ED08, 0xE000ED0C, 0xE000ED00, 0xE000EDF0
+SCB_VTOR, SCB_AIRCR = 0xE000ED08, 0xE000ED0C
 AIRCR_SYSRESETREQ = 0x05FA0004
 UF2_MAGIC = (0x0A324655, 0x9E5D5157, 0x0AB16F30)
 UF2_FLAG_FAMILY = 0x2000
 PROBE_TIMEOUT, USB_TIMEOUT, QUIET_TIME, KILL_WAIT, UDEV_TIMEOUT = 120, 20, 3, 5, 5
 JLINK_RETRY_DELAY = 2
+ESPTOOL_VERSION = '5.2.0'   # the CLI and API the esptool session helper is written and bench-checked against
+ESP_BAUD, ESP_TIMEOUT = 921600, 300
+ESP_SESSION = Path(__file__).resolve().parent / 'esp_session.py'
+USB_DFU = Path(__file__).resolve().parent / 'usb_dfu.py'
+NONCE_MAGIC, NONCE_BLOCK = b'TUF2NONC', 256   # apps/dfu_runtime/src/dfu_runtime.h
 JLINK_IF, JLINK_SPEED = 'SWD', '4000'
-ZERO_PAGE = 512   # bytes zeroed at the app start so its reset vector reads 0
+CMAKE_RECORD_FILES = ('_bin/tinyuf2.bin', '_bin/apps/blinky.uf2')   # besides the flash target's inputs
+JLINK_ERRORS = r'Verify failed|Could not|Cannot connect|ERROR|ResetTarget failed|Failed to halt|CPU is not halted'
 UDEV_RULES = ('/etc/udev/rules.d', '/run/udev/rules.d')
 # J-Link notes that are not failures, per device, each with the line that shows the operation completed
-# (bench: every MIMXRT1062 reset with an invalid app vector, then the reset halts as usual)
-BENIGN = {'MIMXRT1062xxx6A': r'(?m)^Could not find valid reset vector\.\nTarget halted on flash header read\.$'}
+# (bench: every MIMXRT1062 reset with an invalid app vector, then the reset halts as usual; every MIMXRT1011 reset
+# of a TinyUF2 image, which then boots)
+_RESET_VECTOR_NOTE = r'(?m)^Could not find valid reset vector\.\nTarget halted on flash header read\.$'
+BENIGN = {'MIMXRT1062xxx6A': _RESET_VECTOR_NOTE, 'MIMXRT1011DAE5A': _RESET_VECTOR_NOTE}
 
 
 class Refused(Exception):
@@ -63,6 +80,10 @@ class StepFail(Exception):
   def __init__(self, msg, evidence=None):
     super().__init__(msg)
     self.evidence = evidence or {}
+
+
+class NotEnumerated(StepFail):
+  """The DFU device never appeared: the only failure after an install that re-entry may follow."""
 
 
 class Interrupted(Exception):
@@ -85,9 +106,10 @@ def load_board(config, name):
     raise Refused('set TINYUSB_DIR to the absolute path of the tinyusb checkout whose test/hil/helper/hil_lock.py '
                   'owns the board locks')
   fl, t = b.get('flasher') or {}, b.get('tinyuf2') or {}
-  m = re.fullmatch(r'-device (\S+)', fl.get('args') or '')
-  if fl.get('name') != 'jlink' or not isinstance(fl.get('uid'), str) or not m:
-    raise Refused(f'{name}: flasher must be jlink with a string uid and args exactly "-device NAME"')
+  m = re.fullmatch(cb.FLASHER_ARGS.get(fl.get('name'), r'(?!)'), fl.get('args') or '')
+  if not isinstance(fl.get('uid'), str) or not m:
+    raise Refused(f'{name}: flasher must be jlink with args exactly "-device NAME", or esptool with args exactly '
+                  f'"--chip CHIP", with a string uid')
   if not isinstance(b.get('uid'), str) or not b['uid']:
     raise Refused(f'{name}: uid (the bootloader USB serial) is required')
   lock = t.get('lock', name)   # tinyusb's name for the board when it differs: both runners take one lock
@@ -97,10 +119,13 @@ def load_board(config, name):
     port = cb.port_of(name)
   except cb.Fail as e:
     raise Refused(f'{name}: the roster names a board by its TinyUF2 name: {e}')
-  if m.group(1) not in FLASH_LIMITS:
+  if fl['name'] == 'esptool':
+    if m.group(1) not in esp.BOOTLOADER_OFFSET or port != 'espressif':
+      raise Refused(f'{name}: esptool is supported for espressif chips {sorted(esp.BOOTLOADER_OFFSET)} only')
+  elif m.group(1) not in FLASH_LIMITS:
     raise Refused(f'{name}: no programming limits known for J-Link device {m.group(1)}')
-  return {'name': name, 'lock': lock, 'uid': b['uid'], 'probe': fl['uid'], 'device': m.group(1),
-          'if': JLINK_IF, 'speed': JLINK_SPEED, 'port': port, 'page': ZERO_PAGE,
+  return {'name': name, 'lock': lock, 'uid': b['uid'], 'flasher': fl['name'], 'probe': fl['uid'], 'device': m.group(1),
+          'if': JLINK_IF, 'speed': JLINK_SPEED, 'port': port,
           'helper': os.path.join(tinyusb, 'test', 'hil', 'helper', 'hil_lock.py'),
           'reentry': t.get('reentry')}
 
@@ -158,19 +183,25 @@ def cmake_var(path, name):
 
 
 def port_sources(port, bdir):
-  """(CMSIS device header, the SDK's flash linker script, FLASH_BASE) of a port the HIL supports, read from
-  the CMake files the HIL's build uses."""
+  """(CMSIS device header, the SDK's flash linker script, FLASH_BASE, where the BIN starts in flash) of a port
+  the HIL supports, read from the CMake files the HIL's build uses."""
   if not (ROOT / f'ports/{port}/CMakeLists.txt').is_file():
     raise Refused(f'ports/{port} has no cmake build, which is what the HIL builds')
   if port != 'mimxrt10xx':
     raise Refused(f'ports/{port}: the HIL runner has no source facts for this port')
   sdk = cmake_var(f'ports/{port}/family.cmake', 'SDK_DIR')
   mcu = cmake_var(f'{bdir}/board.cmake', 'MCU_VARIANT')
-  ld = f'ports/{port}/linker/{mcu}_ram.ld'   # where family.cmake takes FLASH_BASE from
-  m = re.search(r'^\s*_flash_base\s*=\s*(0x[0-9a-fA-F]+)\s*;', (ROOT / ld).read_text(), re.M)
-  if not m:
-    raise Refused(f'{ld}: no _flash_base')
-  return f'{sdk}/devices/{mcu}/{mcu}.h', f'{sdk}/devices/{mcu}/gcc/{mcu}xxxxx_flexspi_nor.ld', int(m.group(1), 16)
+  ld = f'ports/{port}/linker/{mcu}_ram.ld'   # where family.cmake takes FLASH_BASE and FCFB_ORIGIN from
+  vals = {}
+  for name in ('_flash_base', '_fcfb_origin'):
+    m = re.search(rf'^\s*{name}\s*=\s*(0x[0-9a-fA-F]+)\s*;', (ROOT / ld).read_text(), re.M)
+    if not m:
+      raise Refused(f'{ld}: no {name}')
+    vals[name] = int(m.group(1), 16)
+  flash_base = vals['_flash_base']
+  # family.cmake FLASH_FCFB_ADDR: the BIN starts at the FCB, 0x400 into flash on RT1010 (IMXRT1010RM Table 9-8)
+  bin_base = flash_base + (vals['_fcfb_origin'] & 0xFFF)
+  return f'{sdk}/devices/{mcu}/{mcu}.h', f'{sdk}/devices/{mcu}/gcc/{mcu}xxxxx_flexspi_nor.ld', flash_base, bin_base
 
 
 def source_facts(board):
@@ -179,11 +210,14 @@ def source_facts(board):
   bdir = f'ports/{port}/boards/{board["name"]}'
   if not (ROOT / bdir).is_dir():
     raise Refused(f'{bdir} does not exist')
-  header, ld, flash_base = port_sources(port, bdir)
+  if board.get('flasher') == 'esptool':
+    return esp_source_facts(board, bdir)
+  header, ld, flash_base, bin_base = port_sources(port, bdir)
   if re.search(r'^\s*#\s*define\s+BOARD_FLASH_APP_START\b', (ROOT / f'{bdir}/board.h').read_text(), re.M):
     raise Refused(f'{bdir}/board.h overrides BOARD_FLASH_APP_START; the runner reads the port default only')
   facts = {
     'flashBase': flash_base,
+    'binBase': bin_base,
     'appStart': flash_addr(define(f'ports/{port}/boards.h', 'BOARD_FLASH_APP_START'), flash_base,
                            'BOARD_FLASH_APP_START'),
     'flashSize': product(define(f'{bdir}/board.h', 'BOARD_FLASH_SIZE'), 'BOARD_FLASH_SIZE'),
@@ -204,6 +238,25 @@ def source_facts(board):
   facts['dblTapMagic'] = 0xf01669ef   # board_api.h DBL_TAP_MAGIC at TINYUF2_DBL_TAP_REG_SIZE 32
   if 'TINYUF2_DBL_TAP_REG_SIZE' in (ROOT / f'ports/{port}/boards.h').read_text():
     raise Refused(f'ports/{port} overrides TINYUF2_DBL_TAP_REG_SIZE: the magic would need its shift')
+  return facts
+
+
+def esp_source_facts(board, bdir):
+  try:
+    facts = esp.facts(ROOT, board)
+  except (esp.Refused, OSError, ValueError) as e:
+    raise Refused(str(e))
+  delay = re.search(r'^\s*#\s*define\s+UF2_DETECTION_DELAY_MS\s+(\d+)', (ROOT / bdir / 'board.h').read_text(), re.M)
+  facts.update(vid=num(define(f'{bdir}/board.h', 'USB_VID'), 'USB_VID'),
+               pid=num(define(f'{bdir}/board.h', 'USB_PID'), 'USB_PID'),
+               boardId=define(f'{bdir}/board.h', 'UF2_BOARD_ID').strip('"'),
+               detectionDelayMs=int(delay.group(1)) if delay else
+               num(define('ports/espressif/bootloader_components/main/bootloader_start.c', 'UF2_DETECTION_DELAY_MS'),
+                   'UF2_DETECTION_DELAY_MS'),
+               appVid=num(define(f'apps/{cb.HIL_APP}/src/usb_descriptors.c', 'USB_VID'), 'USB_VID'),
+               appPid=num(define(f'apps/{cb.HIL_APP}/src/usb_descriptors.c', 'USB_PID'), 'USB_PID'),
+               family=int(cmake_var('ports/espressif/family.cmake', f'UF2_FAMILY_ID_{board["device"]}'), 16),
+               flashCache=product(define('ports/espressif/boards/board_flash.c', 'FLASH_CACHE_SIZE'), 'FLASH_CACHE_SIZE'))
   return facts
 
 
@@ -235,13 +288,18 @@ def register_layout(header, periph, member):
 def apply_layout(board, facts):
   """The install and app spans, from the candidate's source: the bootloader from the flash base up to the app
   start, the app from there to the end of the board's flash, all inside the device's programming limits."""
+  if board.get('flasher') == 'esptool':
+    try:
+      lay = esp.layout(facts, board['device'])
+    except esp.Refused as e:
+      raise Refused(str(e))
+    board.update(regions=lay, app=lay['app'])
+    return
   base, start, end = facts['flashBase'], facts['appStart'], facts['flashBase'] + facts['flashSize']
   floor, ceiling = FLASH_LIMITS[board['device']]
   if not floor <= base < start < end <= ceiling:
     raise Refused(f'{board["name"]}: flash [{base:#x}, {end:#x}) with app start {start:#x} leaves the '
                   f'{board["device"]} flash [{floor:#x}, {ceiling:#x}) or is out of order')
-  if start % ZERO_PAGE:
-    raise Refused(f'{board["name"]}: app start {start:#x} is not {ZERO_PAGE}-byte aligned')
   board.update(install=(base, start), app=(start, end))
 
 
@@ -347,6 +405,7 @@ def make_uf2(img, base, family, workdir):
 # ------------------------------------------------------------------ processes
 
 CHILDREN = []
+CONTAINERS = []   # docker containers a flash started, by name: outside every child's session
 REGISTERING = {'on': False, 'signum': None}
 
 
@@ -385,36 +444,87 @@ def spawn(cmd, log, timeout, cwd=None):
     return p.returncode, out
 
 
+def proc_stat(pid):
+  """proc(5) stat fields from the third (state) on, or None for a process that is gone or a zombie."""
+  try:
+    fields = Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()
+  except (OSError, IndexError):
+    return None
+  return fields if fields and fields[0] != 'Z' else None
+
+
+def session(sid):
+  """The live processes of session `sid` (stat field 6): a child started with start_new_session and everything it
+  started, a process ninja moved into a group of its own included."""
+  return [int(d.name) for d in Path('/proc').iterdir()
+          if d.name.isdigit() and (st := proc_stat(d.name)) and st[3] == str(sid)]
+
+
 def reap(p):
-  try:
-    os.killpg(p.pid, signal.SIGKILL)
-  except ProcessLookupError:
-    pass
-  try:
+  """SIGKILL to the child's whole session; the members still alive after KILL_WAIT (D state on a stuck USB
+  device), empty once the session is gone."""
+  for pid in session(p.pid):
+    with contextlib.suppress(ProcessLookupError):
+      os.kill(pid, signal.SIGKILL)
+  with contextlib.suppress(subprocess.TimeoutExpired):
     p.wait(KILL_WAIT)
-  except subprocess.TimeoutExpired:
-    return False
-  if p in CHILDREN:
+  end = time.monotonic() + KILL_WAIT
+  while (left := session(p.pid)) and time.monotonic() < end:
+    time.sleep(0.1)
+  if not left and p in CHILDREN:   # tracked while any of its session lives, for cleanup to see
     CHILDREN.remove(p)
-  return True
+  return left
 
 
 def proc_start(pid):
-  """The start time of `pid` in clock ticks (proc(5) stat field 22), which tells a reused pid apart."""
+  """The start time of a live `pid` in clock ticks (proc(5) stat field 22), which tells a reused pid apart."""
+  st = proc_stat(pid)
+  return int(st[19]) if st and len(st) > 19 else None
+
+
+def container_present(name):
+  r = subprocess.run(['docker', 'ps', '-aq', '-f', f'name=^{name}$'], capture_output=True, text=True, timeout=30)
+  if r.returncode:
+    raise StepFail(f'docker ps failed: {r.stderr.strip()[-200:]}')
+  return bool(r.stdout.strip())
+
+
+def container_gone(name):
+  """`docker rm -f` (a running, created or exited container alike), then whether docker no longer lists it; a
+  docker error is not an answer, so it counts as still there."""
   try:
-    return int(Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[19])
-  except (OSError, IndexError, ValueError):
-    return None
+    subprocess.run(['docker', 'rm', '-f', name], capture_output=True, timeout=30)
+    end = time.monotonic() + 2 * KILL_WAIT
+    while (left := container_present(name)) and time.monotonic() < end:
+      time.sleep(0.2)
+    return not left
+  except (StepFail, OSError, subprocess.SubprocessError):
+    return False
 
 
 def stuck_children():
-  """Children that survived SIGKILL, identified so a later recovery can tell they are still alive."""
-  return [{'pid': p.pid, 'start': proc_start(p.pid), 'cmd': [str(c) for c in p.args][:3]}
-          for p in list(CHILDREN) if not reap(p)]
+  """Processes of the children's sessions, and containers a flash created, that survived SIGKILL, identified so
+  a later recovery can tell they are still alive. The launchers go first, so no `docker` child can create or start
+  a container after its name is checked."""
+  stuck = []
+  for p in list(CHILDREN):
+    for pid in reap(p):
+      try:
+        cmd = Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0')[:3]
+      except OSError:
+        cmd = []
+      stuck.append({'pid': pid, 'start': proc_start(pid), 'cmd': [c.decode(errors='replace') for c in cmd]})
+  for name in list(CONTAINERS):
+    if container_gone(name):
+      CONTAINERS.remove(name)
+    else:
+      stuck.append({'container': name})
+  return stuck
 
 
 def still_alive(survivors):
-  return [s for s in survivors if s.get('start') is not None and proc_start(s['pid']) == s['start']]
+  return [s for s in survivors if (not container_gone(s['container']) if 'container' in s else
+                                   s.get('start') is not None and proc_start(s['pid']) == s['start'])]
 
 
 # ------------------------------------------------------------------ probe
@@ -427,6 +537,38 @@ def died_at_probe_connect(code, out, probe):
   last = re.fullmatch(r'S/N: (\d+)', lines[-1]) if lines else None
   return code in (-signal.SIGSEGV, -signal.SIGABRT) and bool(last) and int(last.group(1)) == int(probe) and \
     'Connecting to target' not in out
+
+
+def stopped_before_target(code, out, probe):
+  """A session recognised as ending before any target connect, so it changed nothing: no probe with the serial
+  (bench: "Connecting to J-Link ...FAILED", then nothing more), or the crash at the probe connect. Any other
+  failure, an empty transcript included, may have reached the target."""
+  no_probe = re.search(r'^Connecting to J-Link \.\.\.FAILED', out, re.M) and 'Connecting to target' not in out
+  return bool(no_probe) or died_at_probe_connect(code, out, probe)
+
+
+def judge_jlink_target(code, out, board, hex_path):
+  """The tinyuf2-jlink transcript, through CMake and Ninja: JLinkExe can exit 0 with every command FAILED (no probe
+  with the serial), so success is read from the transcript: this HEX downloaded, programmed or already matching,
+  then O.K. and the script completed, with no failure line anywhere."""
+  judged = re.sub(BENIGN[board['device']], '', out) if board['device'] in BENIGN else out
+  m = re.search(rf'^Downloading file \[{re.escape(str(hex_path))}\]\.\.\.$(?:\n.*)*?\nJ-Link: Flash download: Bank \d+ @ '
+                r'0x[0-9A-F]+: (Skipped\. Contents already match|\d+ ranges? affected \(\d+ bytes\))$(?:\n.*)*?\nO\.K\.$',
+                judged, re.M)
+  if code or not m or 'Script processing completed.' not in judged or re.search(JLINK_ERRORS + '|FAILED', judged):
+    raise StepFail(f'tinyuf2-jlink failed (exit {code})', {'tail': out.strip().splitlines()[-5:],
+                                                           'beforeTarget': stopped_before_target(code, out, board['probe'])})
+  return {'flashDownload': m[1]}
+
+
+def judge_esp_target(code, out, segments):
+  """ESP-IDF's flash target, through CMake and Ninja in CI's image: esptool's write of every segment at its offset,
+  each hash-verified, then the hard reset (bench transcript, esptool v4.8.1 in espressif/idf:v5.3.2)."""
+  wrote = sorted(int(a, 16) for a in re.findall(r'^Wrote \d+ bytes \(\d+ compressed\) at 0x([0-9a-f]{8}) in ', out, re.M))
+  if code or wrote != sorted(off for off, _ in segments) or out.count('Hash of data verified.') != len(segments) or \
+     'Hard resetting via RTS pin' not in out:
+    raise StepFail(f'the flash target failed (exit {code})', {'tail': out.strip().splitlines()[-5:]})
+  return {'wrote': [hex(a) for a in wrote]}
 
 
 class Probe:
@@ -450,9 +592,9 @@ class Probe:
       code, out = spawn(cmd, self.log, PROBE_TIMEOUT)
     judged = re.sub(BENIGN[self.b['device']], '', out) if self.b['device'] in BENIGN else out
     # a crash fails even a reset session (judge=False): its commands may not have run
-    if code < 0 or judge and (code or re.search(r'Verify failed|Could not|Cannot connect|ERROR|ResetTarget failed|'
-                                                r'Failed to halt|CPU is not halted', judged)):
-      raise StepFail(f'JLinkExe failed (exit {code})', {'tail': out.strip().splitlines()[-5:]})
+    if code < 0 or judge and (code or re.search(JLINK_ERRORS, judged)):
+      raise StepFail(f'JLinkExe failed (exit {code})', {'tail': out.strip().splitlines()[-5:],
+                                                        'beforeTarget': stopped_before_target(code, out, self.b['probe'])})
     return out
 
   def mem32(self, addrs):
@@ -471,6 +613,97 @@ class Probe:
     if not m or int(m.group(1), 16) != value:
       raise StepFail(f'{addr:#010x} reads back {m.group(1) if m else "nothing"}, not {value:#010x}')
     return hex(value)
+
+
+def esp_port(uid):
+  """The tty of the USB-UART bridge with this serial: exactly one, never a guessed /dev/ttyUSBn."""
+  hits = sorted(glob.glob(f'/dev/serial/by-id/*_{glob.escape(uid)}-if*'))
+  if len(hits) != 1:
+    raise StepFail(f'{len(hits)} serial ports for bridge {uid}: {hits}')
+  return os.path.realpath(hits[0])
+
+
+def child_json(cmd, log, timeout, what):
+  """The JSON last line of a helper child (esp_session.py, usb_dfu.py, fat-read); a missing line, a non-zero
+  exit or an `ok` other than true fails the step with the helper's `reason` (else `error`) and the output tail."""
+  code, out = spawn(cmd, log, timeout)
+  tail = out.strip().splitlines()[-5:]
+  try:
+    res = json.loads(tail[-1])
+  except (IndexError, ValueError):
+    res = None
+  if not isinstance(res, dict):
+    raise StepFail(f'{what} ended without its JSON (exit {code})', {'tail': tail})
+  if code or res.get('ok') is not True:
+    raise StepFail(f'{what}: {res.get("reason") or res.get("error")}', {'tail': tail, 'error': res.get('error')})
+  return res
+
+
+class Esptool:
+  """esptool sessions on one board, each one connection in its own child (esp_session.py)."""
+  def __init__(self, board, workdir, log):
+    self.b, self.dir, self.log = board, workdir, log
+
+  def run(self, ops, after):
+    spec = self.dir / f'esp-{time.monotonic_ns()}.json'
+    spec.write_text(json.dumps(ops))
+    return child_json([sys.executable, '-B', ESP_SESSION, '--port', esp_port(self.b['probe']), '--chip', self.b['device'],
+                       '--baud', str(ESP_BAUD), '--after', after, spec], self.log, ESP_TIMEOUT, 'esptool session')['results']
+
+
+def preserved_ops(regions):
+  return [{'op': 'md5', 'addr': lo, 'size': hi - lo} for lo, hi in regions.values()]
+
+
+def preserved_md5(regions, results):
+  md5 = [r['md5'] for r in results if r['op'] == 'md5']
+  return dict(zip(regions, md5))
+
+
+def check_preserved(before, after, by):
+  if before != after:
+    raise StepFail(f'a preserved region changed by the end of the {by}', {'before': before, 'after': after})
+
+
+def esp_verify(tool, board, segments, workdir, snapshot):
+  """After the flash target: every segment read back byte for byte in one connection of the runner's, then one
+  reset. The preserved regions' MD5s must equal `snapshot`, taken before the install."""
+  reads = [(off, path, workdir / f'readback-{off:x}.bin') for off, path in segments]
+  keep = board['regions']['preserved']
+  ops = [{'op': 'read', 'addr': off, 'size': path.stat().st_size, 'file': str(rb)} for off, path, rb in reads] + \
+        preserved_ops(keep)
+  after = preserved_md5(keep, tool.run(ops, 'hard-reset'))
+  check_preserved(snapshot, after, 'install')
+  for off, path, rb in reads:
+    if rb.read_bytes() != path.read_bytes():
+      raise StepFail(f'{path.name} does not read back as written', {'addr': hex(off)})
+  return {'preserved': after, 'writes': [write_span(path.name, off, path.stat().st_size) for off, path in segments]}
+
+
+def write_span(what, addr, length, block=0x1000):
+  """A write's payload span and the `block`-aligned span covering it."""
+  lo, hi = addr // block * block, -(-(addr + length) // block) * block
+  return {'what': what, 'span': [hex(addr), hex(addr + length)], 'blocks': [hex(lo), hex(hi)]}
+
+
+def report_snapshot(row, keep):
+  """The preserved-region MD5s a failed esptool run took before its install wrote, from its report row, over the
+  regions `keep` this checkout preserves. A board whose flash was written always has them (the snapshot precedes
+  the writes), so a touched row without them is refused, never recovered blind."""
+  ev = row.get('snapshot') or {}
+  regions, md5 = ev.get('preservedRegions'), ev.get('preserved')
+  if regions is None and md5 is None and (row.get('cleanup') or {}).get('state') == 'untouched':
+    return None
+  if regions is None or md5 is None:
+    raise Refused('the failed run touched the board but its report has no preserved-region snapshot to check')
+  ok = isinstance(regions, dict) and isinstance(md5, dict) and regions and set(regions) == set(md5) and all(
+    isinstance(r, list) and len(r) == 2 and all(type(v) is int for v in r) and 0 <= r[0] < r[1] < 1 << 32 and
+    isinstance(md5[n], str) and re.fullmatch(r'[0-9a-f]{32}', md5[n]) for n, r in regions.items())
+  if not ok:
+    raise Refused(f'the failed run\'s preserved-region snapshot is malformed: {regions} {md5}')
+  if {n: tuple(r) for n, r in regions.items()} != keep:
+    raise Refused(f'the failed run preserved {regions}; this checkout preserves {keep}')
+  return md5
 
 
 def after(out, command):
@@ -512,14 +745,24 @@ def block_device(usb_path):
   return None
 
 
-def wait_for(fn, timeout, what):
+def wait_for(fn, timeout, what, fail=None):
   end = time.monotonic() + timeout
   while time.monotonic() < end:
     v = fn()
     if v:
       return v
     time.sleep(0.2)
-  raise StepFail(f'{what} not seen within {timeout}s')
+  raise (fail or StepFail)(f'{what} not seen within {timeout}s')
+
+
+def stays_away(fn, seconds, what, ev):
+  end = time.monotonic() + seconds
+  while True:
+    if fn():
+      raise StepFail(what, ev)
+    if time.monotonic() >= end:   # sampled once more after the last sleep: the window's end is checked too
+      return
+    time.sleep(min(0.2, max(0.0, end - time.monotonic())))
 
 
 def exclusion_configured(facts, serial):
@@ -566,9 +809,24 @@ def check_exclusive(dev):
 class Fat:
   """Read-only FAT12/16 reader for the ghostfat volume. Its geometry and chains come from the firmware
   under test, so every one is bounded; it runs in its own process (fat_read) so a stuck USB read cannot
-  hold the process that owns cleanup."""
+  hold the process that owns cleanup. It keeps one descriptor for its life: the device's last close drops its
+  page cache (Linux block/bdev.c blkdev_put_whole -> kill_bdev), so a reader that reopened it per read would
+  cost a USB read per cluster (bench: the nonce block 4 MiB into CURRENT.UF2 took >20s)."""
   def __init__(self, dev):
-    self.dev = dev
+    self.dev, self.fd = dev, os.open(dev, os.O_RDONLY)
+    try:
+      self._geometry()
+    except BaseException:
+      os.close(self.fd)
+      raise
+
+  def __enter__(self):
+    return self
+
+  def __exit__(self, *exc):
+    os.close(self.fd)
+
+  def _geometry(self):
     bs = self.read(0, 512)
     self.bps, self.spc, self.res, self.nfat = struct.unpack_from('<HBHB', bs, 11)
     self.roots, = struct.unpack_from('<H', bs, 17)
@@ -579,13 +837,10 @@ class Fat:
     self.root = (self.res + self.nfat * self.spf) * self.bps
     self.data = self.root + self.roots * 32
     self.fat16 = bs[54:62].startswith(b'FAT16')
+    self.fat = self.read(self.res * self.bps, self.spf * self.bps)   # the first FAT, walked in memory
 
   def read(self, off, n):
-    fd = os.open(self.dev, os.O_RDONLY)
-    try:
-      b = os.pread(fd, n, off)
-    finally:
-      os.close(fd)
+    b = os.pread(self.fd, n, off)
     if len(b) != n:
       raise ValueError(f'short read at {off:#x}: {len(b)} of {n} bytes')
     return b
@@ -602,47 +857,55 @@ class Fat:
     return out
 
   def next_cluster(self, c):
-    off = self.res * self.bps
     if self.fat16:
-      return struct.unpack('<H', self.read(off + 2 * c, 2))[0]
-    v = struct.unpack('<H', self.read(off + c * 3 // 2, 2))[0]
+      return struct.unpack_from('<H', self.fat, 2 * c)[0]
+    v = struct.unpack_from('<H', self.fat, c * 3 // 2)[0]
     return v >> 4 if c & 1 else v & 0xFFF
 
-  def file(self, name, length=None):
+  def file(self, name, length=None, offset=0):
+    """`length` bytes of `name` from `offset`, a whole number of clusters in; the clusters before it are
+    walked in the FAT, not read."""
     ents = self.entries()
     if name not in ents:
       raise ValueError(f'{name} not on the volume (found {sorted(ents)})')
     c, size = ents[name]
-    want, out, csize, seen = min(size, length or size), b'', self.spc * self.bps, set()
+    csize, seen = self.spc * self.bps, set()
+    if offset % csize or offset > size:
+      raise ValueError(f'{name}: offset {offset:#x} is not a cluster boundary inside its {size} bytes')
+    want, out, skip = min(size - offset, length or size), b'', offset // csize
     while len(out) < want:
       if not 2 <= c < (0xFFF8 if self.fat16 else 0xFF8) or c in seen:
         raise ValueError(f'{name}: cluster chain broken at {c:#x} after {len(out)} of {want} bytes')
       seen.add(c)
-      out += self.read(self.data + (c - 2) * csize, min(csize, want - len(out)))
+      if skip:
+        skip -= 1
+      else:
+        out += self.read(self.data + (c - 2) * csize, min(csize, want - len(out)))
       c = self.next_cluster(c)
     return out, size
 
 
-def fat_read(dev, name, length, log):
+def fat_read(dev, name, length, log, offset=0):
   """{'entries': {...}, 'data': bytes} of `name` on `dev`, read by a bounded child process."""
-  code, out = spawn([sys.executable, '-B', __file__, 'fat-read', '--dev', dev, '--file', name,
-                     '--length', str(length)], log, USB_TIMEOUT)
   try:
-    r = json.loads(out.strip().splitlines()[-1])
-  except (ValueError, IndexError):
-    raise StepFail(f'fat-read of {name} gave no result (exit {code})', {'tail': out.strip().splitlines()[-3:]})
-  if 'error' in r:
-    raise StepFail(f'{name} on {dev}: {r["error"]}')
+    r = child_json([sys.executable, '-B', __file__, 'fat-read', '--dev', dev, '--file', name, '--length', str(length),
+                    '--offset', str(offset)], log, USB_TIMEOUT, name)
+  except StepFail as e:
+    e.evidence['dev'] = dev
+    raise
   return {'entries': r['entries'], 'data': bytes.fromhex(r['data']), 'size': r['size']}
 
 
 def fat_read_main(args):
   try:
-    fat = Fat(args.dev)
-    data, size = fat.file(args.file, args.length) if args.length else (b'', fat.entries()[args.file][1])
-    print(json.dumps({'entries': fat.entries(), 'data': data.hex(), 'size': size}))
+    with Fat(args.dev) as fat:
+      entries = fat.entries()
+      data, size = fat.file(args.file, args.length, args.offset) if args.length else (b'', entries[args.file][1])
+    print(json.dumps({'ok': True, 'entries': entries, 'data': data.hex(), 'size': size}))
   except (OSError, ValueError, KeyError, struct.error) as e:
-    print(json.dumps({'error': f'{type(e).__name__}: {e}'}))
+    # reason: the same failure reads the same in every run; an OSError's text names the device node
+    reason = f'{type(e).__name__}: {e.strerror}' if isinstance(e, OSError) and e.strerror else f'{type(e).__name__}: {e}'
+    print(json.dumps({'ok': False, 'error': f'{type(e).__name__}: {e}', 'reason': reason}))
   return 0
 
 
@@ -742,9 +1005,12 @@ def manual_holder(helper, board, reason):
   prove_hold(helper, board, pid, reason=reason)
 
 
-def probe_users(probe):
-  """Processes that have this probe open by serial (a JLinkExe or GDB server from an earlier session)."""
-  users = []
+def probe_users(board):
+  """Processes using this board's probe: for J-Link one opened by serial (a JLinkExe or GDB server from an
+  earlier session), for esptool any process holding the bridge's tty open."""
+  if board['flasher'] == 'esptool':
+    return tty_users(esp_port(board['probe']))
+  probe, users = board['probe'], []
   for d in Path('/proc').iterdir():
     try:
       cmd = (d / 'cmdline').read_bytes().split(b'\0')
@@ -754,6 +1020,28 @@ def probe_users(probe):
        any(probe.encode() in c for c in cmd):
       users.append(int(d.name))
   return users
+
+
+def tty_users(dev):
+  users = []
+  for d in Path('/proc').iterdir():
+    if not d.name.isdigit() or int(d.name) == os.getpid():
+      continue
+    try:
+      fds = list((d / 'fd').iterdir())
+    except OSError:
+      continue
+    if any(readlink(fd) == dev for fd in fds):
+      users.append(int(d.name))
+  return users
+
+
+def readlink(fd):
+  """A /proc fd's target, or None once it has closed: one closing fd must not hide the process's others."""
+  try:
+    return os.readlink(fd)
+  except OSError:
+    return None
 
 
 def holder_record(fh, board, detail, survivors):
@@ -823,7 +1111,7 @@ def hand_off(fh, board, detail, survivors=()):
 
 # ------------------------------------------------------------------ the battery
 
-def verify_record(record_path, board, facts):
+def verify_record(record_path, board, facts, workdir):
   try:
     rec = json.loads(Path(record_path).read_text())
   except (OSError, ValueError) as e:
@@ -832,9 +1120,19 @@ def verify_record(record_path, board, facts):
   if not rec.get('pass') or len(rows) != 1 or rows[0].get('status') != 'ok' or rows[0].get('removed'):
     raise Refused(f'{record_path}: not a passing --shared build of {board["name"]}')
   row, info = rows[0], rec.get('input', {})
-  if row.get('backend') != 'cmake':
-    raise Refused(f'{record_path}: a {row.get("backend")} build; the HIL takes cmake builds only '
-                  f'(check_build.py --board {board["name"]} --backend cmake --shared)')
+  want = 'idf' if board.get('flasher') == 'esptool' else 'cmake'
+  if row.get('backend') != want:
+    raise Refused(f'{record_path}: a {row.get("backend")} build; the HIL takes {want} builds only for this board '
+                  f'(check_build.py --board {board["name"]}{" --backend cmake" if want == "cmake" else ""} --shared '
+                  f'--hil-config <roster>)')
+  if want == 'idf':
+    try:
+      image = f'espressif/idf:{cb.ci_idf_version()}'
+    except cb.Fail as e:
+      raise Refused(str(e))
+    idf = rec.get('idf') or {}
+    if idf.get('mode') != 'docker' or idf.get('image') != image:
+      raise Refused(f'{record_path}: an IDF build from {idf.get("mode")} {idf.get("image")}; the HIL takes CI\'s {image} only')
   try:
     now = cb.identity({board['port']})
   except (cb.Fail, OSError) as e:
@@ -848,21 +1146,90 @@ def verify_record(record_path, board, facts):
     if bad:
       raise Refused(f'build inputs are not clean: {bad} (commit, or rebuild from a clean checkout)')
   root = cb.ROOT / row['buildDir']
-  files, digests = {}, {}
-  for p in cb.expected_artifacts(board['port'], board['name'], 'cmake', root):
-    kind = p.suffix[1:]
-    if kind not in ('hex', 'bin'):
-      continue
-    digests[kind] = sha256(p)
-    if digests[kind] is None:
-      raise Refused(f'{p}: missing or unreadable; rebuild with --shared')
-    if row.get('sha256', {}).get(str(p.relative_to(root))) != digests[kind]:
-      raise Refused(f'{p}: hash differs from the build record')
-    files[kind] = p
-  if files.keys() != {'hex', 'bin'}:
-    raise Refused(f'{record_path}: the build of {board["name"]} names no {" or ".join(sorted({"hex", "bin"} - files.keys()))}')
-  return files, {'path': str(files['bin']), 'sha256': digests['bin'], 'buildRecord': str(record_path),
+  flash = admit_flash(record_path, rec, row, root, board)
+  # the runner reads its own copies of the BIN, segments and blinky: the build dir's lock covers the flash target
+  # only, and a rebuild may replace the dir after it
+  copy = workdir / 'record'
+  if want == 'idf':
+    bin_rel = 'tinyuf2.bin'
+    copied(root, (*esp.RECORD_FILES, *flash['sha256']), row, copy)
+    files = esp_record(record_path, copy, board, facts)
+  else:
+    bin_rel, blinky_rel = CMAKE_RECORD_FILES
+    copies = copied(root, CMAKE_RECORD_FILES, row, copy)
+    files = dict(check_blinky(copies[blinky_rel], board['app'], facts), bin=copies[bin_rel], hex=root / 'tinyuf2.hex')
+  files['flash'] = flash
+  return files, {'path': str(root / bin_rel), 'sha256': sha256(files['bin']), 'buildRecord': str(record_path),
                  'defines': rec.get('defines', []), 'version': embedded_version(files['bin'])}
+
+
+def admit_flash(record_path, rec, row, root, board):
+  """The record's flash target, bound by check_build --hil-config to this roster flasher, with every file it reads
+  hash-checked; the install runs that target, under the build dir's lock."""
+  fl = row.get('flash') or {}
+  target, inputs = cb.FLASH[board['flasher']]
+  want = {'name': board['flasher'], 'uid': board['probe'], 'device': board['device']}
+  if (fl.get('flasher'), fl.get('target'), fl.get('inputs')) != (want, target, list(inputs)):
+    raise Refused(f'{record_path}: its flash target is not bound to this roster flasher {want} (rebuild it with '
+                  f'check_build.py --board {board["name"]} ... --shared --hil-config <roster>)')
+  idf = rec.get('idf') or {}
+  return {'root': root, 'binding': fl, 'sha256': recorded(root, inputs, row), 'image': idf.get('image'),
+          'ninja': functools.partial(cb.ninja_in, row['backend'], idf.get('mode'), idf.get('image'))}
+
+
+def recorded(root, rels, row):
+  """Each file's sha256, which must be the build record's."""
+  for rel in rels:
+    recorded_bytes(root, rel, row)
+  return {rel: row['sha256'][rel] for rel in rels}
+
+
+def recorded_bytes(root, rel, row):
+  try:
+    data = (root / rel).read_bytes()
+  except OSError:
+    data = None
+  if data is None or row.get('sha256', {}).get(rel) != hashlib.sha256(data).hexdigest():
+    raise Refused(f'{root / rel}: missing, unreadable or changed since the build record')
+  return data
+
+
+def copied(root, rels, row, dest):
+  """Each file copied to the same relative path under `dest`, from bytes that hash as the build record's."""
+  out = {}
+  for rel in rels:
+    data = recorded_bytes(root, rel, row)
+    out[rel] = dest / rel
+    out[rel].parent.mkdir(parents=True, exist_ok=True)
+    out[rel].write_bytes(data)
+  return out
+
+
+def check_blinky(path, span, facts):
+  """The record's apps/blinky.uf2, which cleanup copies through TinyUF2: one family, numbered under one
+  numBlocks, every block inside `span` (the app region, in the UF2's own addresses)."""
+  try:
+    blocks = parse_uf2(Path(path).read_bytes())
+  except (OSError, ValueError) as e:
+    raise Refused(f'{path}: {e}')
+  for i, bl in enumerate(blocks):
+    if (bl['no'], bl['total'], bl['family']) != (i, len(blocks), facts['family']) or not bl['flags'] & UF2_FLAG_FAMILY \
+       or not span[0] <= bl['addr'] <= bl['addr'] + bl['size'] <= span[1]:
+      raise Refused(f'{path}: block {i} is not block {i} of {len(blocks)} for family {facts["family"]:#x} '
+                    f'inside [{span[0]:#x}, {span[1]:#x})')
+  if not blocks:
+    raise Refused(f'{path}: no UF2 blocks')
+  return {'blinky': Path(path), 'blinkyBlocks': len(blocks)}
+
+
+def esp_record(record_path, root, board, facts):
+  """An IDF record's segments, from `root`, the run's copy of every file the record binds."""
+  try:
+    segments = esp.admit(root, board, facts, board['regions'])
+  except (esp.Refused, OSError, ValueError) as e:
+    raise Refused(f'{record_path}: {e}')
+  return {'segments': segments, 'bin': root / 'tinyuf2.bin', **esp_app_chunks(root / esp.APP_UF2, facts, board),
+          **check_blinky(root / esp.BLINKY_UF2, (0, board['app'][1] - board['app'][0]), facts)}
 
 
 def sha256(p):
@@ -873,14 +1240,10 @@ def sha256(p):
 
 
 def check_bootloader_bin(bin_path, board, facts, what):
-  """Every span a bootloader install writes: the BIN from the install start inside `install` and the zero
-  page at the start of `app` inside it, both within the device's flash limits; and the BIN is this
+  """The BIN from its flash address (`binBase`) inside `install`, within the device's flash limits, and this
   board's (its UF2_BOARD_ID)."""
-  install, app = board['install'], board['app']
-  size = Path(bin_path).stat().st_size
-  limits = FLASH_LIMITS[board['device']]
-  check_ranges({install[0]: 0, install[0] + size - 1: 0}, [install], limits, what)
-  check_ranges({app[0]: 0, app[0] + board['page'] - 1: 0}, [app], limits, f'{what} zero page')
+  start, size = facts['binBase'], Path(bin_path).stat().st_size
+  check_ranges({start: 0, start + size - 1: 0}, [board['install']], FLASH_LIMITS[board['device']], what)
   if facts['boardId'].encode() not in Path(bin_path).read_bytes():
     raise Refused(f'{what}: {bin_path} does not carry board id {facts["boardId"]!r}; not this board\'s bootloader')
 
@@ -891,8 +1254,9 @@ class Battery:
     self.log = workdir / 'hil.log'
     self.probe = Probe(board, workdir, self.log)
     self.steps, self.usb_path, self.touched, self.at = [], None, False, 'setup'
-    self.zero = workdir / 'zero.bin'
-    self.zero.write_bytes(b'\0' * board['page'])
+    # where CURRENT.UF2 starts and the flash size INFO_UF2.TXT reports
+    self.app_start, self.dfu_flash = facts.get('appStart'), facts['flashSize']
+    self.dfu_claim = 'DFU observed after the install'
 
   def step(self, name, fn):
     self.at = name   # an abort names the step it cut short without recording it as a failing step
@@ -906,30 +1270,73 @@ class Battery:
       raise
     self.steps.append({'step': name, 'pass': True, 'evidence': ev, 'detail': ''})
 
-  def identity(self):
-    v = self.probe.mem32([SCB_CPUID, DHCSR])
-    return {'cpuid': f'{v[SCB_CPUID]:#010x}', 'dhcsr': f'{v[DHCSR]:#010x}'}
+  def flash_target(self, flash, cmd, timeout, judge):
+    """The record's flash target, under its build dir's lock: the inputs still hash as recorded and a dry run shows
+    the target runs nothing but its flasher (cb.flash_ready); after it, the inputs are hashed again. Touched from the
+    target's start; only a transcript recognised as ending before any target connect leaves the board as it was."""
+    root, fl = flash['root'], flash['binding']
+    with contextlib.ExitStack() as held:
+      try:
+        held.enter_context(cb.build_lock(root, wait=False))
+      except BlockingIOError:
+        raise StepFail(f'{root.name} is in use by a build or another flash; nothing was flashed')
+      self.check_inputs(flash, 'before the flash')
+      try:
+        cb.flash_ready(root, fl, flash['ninja'])
+      except cb.Fail as e:
+        raise StepFail(str(e))
+      was, self.touched = self.touched, True
+      code, out = spawn(cmd, self.log, timeout)
+      try:
+        ev = judge(code, out)
+      except StepFail as e:
+        if e.evidence.get('beforeTarget'):
+          self.touched = was
+        raise
+      self.check_inputs(flash, 'while flashing', ev)
+    return ev
 
-  def program(self, bin_path, base, app_start):
-    """One image from `base`: the bootloader BIN, 0xFF up to app_start, then a zero page, written by a single
-    loadbin and read back, so no second write lands in the bootloader's erase block; the zeroed reset vector
-    makes the app invalid by construction, so the next boot stays in DFU. No range erase is ever issued.
-    Callers have range-checked both spans (check_bootloader_bin)."""
-    data = Path(bin_path).read_bytes()
-    if base + len(data) > app_start:
-      raise StepFail(f'{bin_path} [{base:#x}, {base + len(data):#x}) overlaps the app start {app_start:#x}')
-    image = self.dir / 'program.bin'
-    image.write_bytes(data + b'\xff' * (app_start - base - len(data)) + bytes(self.b['page']))
-    self.touched = True
-    self.installed = (bin_path, base)
-    self.probe.run(['h', f'loadbin {image},{base:#x}', f'verifybin {image},{base:#x}', 'r', 'g'])
+  @staticmethod
+  def check_inputs(flash, when, ev=None):
+    changed = [rel for rel, digest in flash['sha256'].items() if sha256(flash['root'] / rel) != digest]
+    if changed:
+      raise StepFail(f'flash inputs changed {when}: {changed}', ev or {})
+
+  def dfu_after_install(self, version):
+    """DFU after an install: J-Link's download erased the bootloader's whole 64 KiB block on the bench, the app start
+    with it (SKILL.md Limits), so DFU comes up; should enumeration time out instead, as when a valid app boots, the
+    board's commissioned retained-register re-entry brings DFU up. Any other failure fails as it is."""
+    try:
+      return self.dfu(version)
+    except NotEnumerated as e:
+      if self.b['reentry'] != 'retained-register':
+        raise StepFail(f'{e}, and {self.b["name"]} has no retained-register re-entry to try', e.evidence)
+    return self.retained_reentry(version, 'DFU did not enumerate after the install; the retained-register re-entry '
+                                          'brought it up')
+
+  def retained_reentry(self, version, claim):
+    f = self.f
+    self.probe.write32(f['dblTapReg'], f['dblTapMagic'])
+    # SYSRESETREQ may drop the debug connection mid-write: its exit is not judged, enumeration is;
+    # no probe session opens again until DFU is observed
+    tail = self.probe.run([f'w4 {SCB_AIRCR:08X} {AIRCR_SYSRESETREQ:08X}'], judge=False)
+    ev = dict(self.dfu(version), dfuCameUp=True, resetTail=tail.strip().splitlines()[-3:], claim=claim)
+    try:
+      left = self.probe.mem32([f['dblTapReg']])[f['dblTapReg']]
+    except StepFail as e:
+      e.evidence = {**ev, **e.evidence}
+      raise
+    ev.update(dblTapRegAfter=hex(left), magicConsumed=not left)
+    if left:
+      raise StepFail('the double-tap register was not consumed', ev)
+    return ev
 
   def dfu(self, version):
     f = self.f
     path = wait_for(lambda: usb_device(f['vid'], f['pid'], self.b['uid']), USB_TIMEOUT,
-                    f'{f["vid"]:04x}:{f["pid"]:04x} serial {self.b["uid"]}')
+                    f'{f["vid"]:04x}:{f["pid"]:04x} serial {self.b["uid"]}', NotEnumerated)
     if self.usb_path and path != self.usb_path:
-      raise StepFail(f'came back on USB port {path}, not {self.usb_path}')
+      raise StepFail('came back on another USB port', {'usb': path, 'expected': self.usb_path})
     self.usb_path = path
     dev = wait_for(lambda: block_device(path), USB_TIMEOUT, f'the block device of USB {path}')
     udev_wait = check_exclusive(dev)
@@ -937,26 +1344,36 @@ class Battery:
     lines = info['data'].decode('ascii', 'replace').splitlines()
     want = f'TinyUF2 Bootloader {version}'
     if not lines or lines[0] != want or f'Board-ID: {f["boardId"]}' not in lines or \
-       f'Flash Size: 0x{f["flashSize"]:08X} bytes' not in lines:
+       f'Flash Size: 0x{self.dfu_flash:08X} bytes' not in lines:
       raise StepFail('INFO_UF2.TXT does not match this build', {'info': lines, 'want': want})
     size = (info['entries'].get('CURRENT.UF2') or [None, None])[1]
-    if size != f['flashSize'] // 256 * 512:
-      raise StepFail(f'CURRENT.UF2 is {size} bytes, not {f["flashSize"] // 256 * 512}')
+    if size != self.dfu_flash // 256 * 512:
+      raise StepFail(f'CURRENT.UF2 is {size} bytes, not {self.dfu_flash // 256 * 512}')
     return {'usb': path, 'dev': dev, 'udevWaitS': udev_wait, 'info': lines[0], 'currentUf2': size,
-            'claim': 'app rejected (reset vector 0); DFU observed'}
+            'claim': self.dfu_claim}
 
-  def current_uf2(self, length):
-    """CURRENT.UF2's first blocks, each checked for its place: block i maps to app_start + 256*i."""
+  def current_uf2(self, length, offset=0):
+    """CURRENT.UF2's blocks from byte `offset`, each checked for its place: block i maps to app_start + 256*i."""
     dev = block_device(self.usb_path)
-    data = fat_read(dev, 'CURRENT.UF2', length, self.log)['data']
+    data = fat_read(dev, 'CURRENT.UF2', length, self.log, offset)['data']
     try:
       blocks = parse_uf2(data)
     except ValueError as e:
       raise StepFail(f'CURRENT.UF2 is not UF2: {e}', {'head': data[:32].hex()})
-    for i, bl in enumerate(blocks):
-      if (bl['no'], bl['addr'], bl['size']) != (i, self.f['appStart'] + 256 * i, 256):
-        raise StepFail(f'CURRENT.UF2 block {i} is {bl["no"]} at {bl["addr"]:#x}, not at {self.f["appStart"] + 256 * i:#x}')
+    for i, bl in enumerate(blocks, offset // 512):
+      if (bl['no'], bl['addr'], bl['size']) != (i, self.app_start + 256 * i, 256):
+        raise StepFail(f'CURRENT.UF2 block {i} is {bl["no"]} at {bl["addr"]:#x}, not at {self.app_start + 256 * i:#x}')
     return b''.join(bl['data'] for bl in blocks)
+
+  def copy(self, uf2, blocks, nonce=None):
+    dev = block_device(self.usb_path)
+    code, out = spawn(['mcopy', '-o', '-i', dev, uf2, '::APP.UF2'], self.log, 60)
+    if code:
+      raise StepFail('mcopy failed', {'tail': out.strip().splitlines()[-5:]})
+    spawn(['sync'], self.log, 60)
+    f = self.f
+    wait_for(lambda: usb_device(f['vid'], f['pid'], self.b['uid']) is None, USB_TIMEOUT, 'the DFU device leaving')
+    return {'blocks': blocks, **({'nonce': nonce.hex()} if nonce else {})}
 
   def run(self, files, version):
     f = self.f
@@ -970,22 +1387,12 @@ class Battery:
         raise Refused('generated UF2 has the wrong family')
       payload.update({bl['addr'] + i: x for i, x in enumerate(bl['data'])})
     check_ranges(payload, [self.b['app']], FLASH_LIMITS[self.b['device']], 'fixture UF2')
-    self.step('identity', self.identity)
-    self.step('install', lambda: self.program(files['bin'], self.b['install'][0], f['appStart']) or
-              {'zeroPage': f'{f["appStart"]:#x}', 'verified': True})
+    self.step('install', lambda: self.install(files))
     # cleared once the bootloader has run board_init (the register's clock), so a magic a failed reenter left
     # cannot send the copied app back to DFU
-    self.step('dfu', lambda: dict(self.dfu(version), dblTapReg=self.probe.write32(f['dblTapReg'], 0)))
+    self.step('dfu', lambda: dict(self.dfu_after_install(version), dblTapReg=self.probe.write32(f['dblTapReg'], 0)))
 
-    def copy():
-      dev = block_device(self.usb_path)
-      code, out = spawn(['mcopy', '-o', '-i', dev, app_uf2, '::APP.UF2'], self.log, 60)
-      if code:
-        raise StepFail(f'mcopy failed: {out.strip()[-200:]}')
-      spawn(['sync'], self.log, 60)
-      wait_for(lambda: usb_device(f['vid'], f['pid'], self.b['uid']) is None, USB_TIMEOUT, 'the DFU device leaving')
-      return {'blocks': len(blocks), 'nonce': nonce.hex()}
-    self.step('copy', copy)
+    self.step('copy', lambda: self.copy(app_uf2, len(blocks), nonce))
 
     def app_ran():
       # the bootloader writes DBL_TAP_MAGIC as it boots: a probe connect that resets inside that window
@@ -993,9 +1400,8 @@ class Battery:
       window = 2 * f['dblTapDelayMs'] / 1000 + 0.5
       time.sleep(window)
       ev = dict(self.observe_app(app_bin), waitedS=window)
-      time.sleep(QUIET_TIME)
-      if usb_device(f['vid'], f['pid'], self.b['uid']):
-        raise StepFail('the DFU device came back while the app should run', ev)
+      stays_away(lambda: usb_device(f['vid'], f['pid'], self.b['uid']), QUIET_TIME,
+                 'the DFU device came back while the app should run', ev)
       return ev
     self.step('app-ran', app_ran)
 
@@ -1008,34 +1414,14 @@ class Battery:
         raise
 
     def entered(ev):
-      method = ev['path']
-      if method == 'retained-register':
-        if self.commissioning:
-          ev.update(self.control(app_bin))
-        self.probe.write32(f['dblTapReg'], f['dblTapMagic'])
-        # SYSRESETREQ may drop the debug connection mid-write: its exit is not judged, enumeration is;
-        # no probe session opens again until DFU is observed
-        tail = self.probe.run([f'w4 {SCB_AIRCR:08X} {AIRCR_SYSRESETREQ:08X}'], judge=False)
-      else:
-        bin_path, base = self.installed
-        tail = self.probe.run(['h', f'loadbin {self.zero},{f["appStart"]:#x}', f'verifybin {self.zero},{f["appStart"]:#x}',
-                               f'verifybin {bin_path},{base:#x}', 'r', 'g'])
-        ev['bootloaderVerified'] = True
-      ev.update(self.dfu(version), dfuCameUp=True, resetTail=tail.strip().splitlines()[-3:])
-      ev['claim'] = 'the write/reset sequence re-entered DFU (register retention inferred)' \
-        if method == 'retained-register' else 'invalidate application and enter DFU'
-      if method == 'retained-register':
-        left = self.probe.mem32([f['dblTapReg']])[f['dblTapReg']]
-        ev.update(dblTapRegAfter=hex(left), magicConsumed=not left)
-        if left:
-          raise StepFail('the double-tap register was not consumed', ev)
-      expect = bytearray(self.fix['image'])
-      if method == 'app-invalidate':
-        expect[:self.b['page']] = bytes(self.b['page'])
+      if self.commissioning:
+        ev.update(self.control(app_bin))
+      ev.update(self.retained_reentry(version, 'the write/reset sequence re-entered DFU (register retention inferred)'))
+      expect = self.fix['image']
       n = -(-len(expect) // 256)
       try:
         got = self.current_uf2(n * 512)
-        if got[:len(expect)] != bytes(expect):
+        if got[:len(expect)] != expect:
           raise StepFail('CURRENT.UF2 does not read back the fixture from the app start')
       except StepFail as e:
         e.evidence = {**ev, **e.evidence, 'failedAt': 'readback', 'appIntact': 'unshown'}
@@ -1043,6 +1429,30 @@ class Battery:
       ev['appIntact'] = True
       return ev
     self.step('reenter', reenter)
+
+  def restore(self, files, version):
+    """Cleanup: the record's TinyUF2 installed again and its blinky copied through the drive; the board must
+    leave DFU and stay out of it."""
+    self.install(files)
+    ev = {'dfu': self.dfu_after_install(version)['usb'], 'copy': self.copy(files['blinky'], files['blinkyBlocks'])}
+    ev.update(self.after_copy())
+    stays_away(lambda: usb_device(self.f['vid'], self.f['pid'], self.b['uid']), QUIET_TIME,
+               'the DFU device came back after the blinky copy', ev)
+    return {'pass': True, 'state': 'blinky copied', 'evidence': ev}
+
+  def report_fields(self):
+    return {'jlinkRetried': self.probe.retried}   # the cleanup's retries land here too: the same list
+
+  def install(self, files):
+    """The record's tinyuf2-jlink target, then the BIN verified at its flash address in a session of the runner's."""
+    fl = files['flash']
+    ev = self.flash_target(fl, ['cmake', '--build', fl['root'], '--target', fl['binding']['target']], PROBE_TIMEOUT,
+                           lambda code, out: judge_jlink_target(code, out, self.b, files['hex']))
+    self.probe.run(['h', f'verifybin {files["bin"]},{self.f["binBase"]:#x}', 'r', 'g'])
+    return dict(ev, verified=True)
+
+  def after_copy(self):
+    return {}
 
   def observe_app(self, app_bin):
     """The fixture running from the bootloader handoff: two halts in one session, the counter moving,
@@ -1076,27 +1486,161 @@ class Battery:
     f = self.f
     self.probe.run([f'w4 {SCB_AIRCR:08X} {AIRCR_SYSRESETREQ:08X}'], judge=False)
     watch = 2 * f['dblTapDelayMs'] / 1000 + USB_TIMEOUT
-    end = time.monotonic() + watch
-    while time.monotonic() < end:
-      if usb_device(f['vid'], f['pid'], self.b['uid']):
-        raise StepFail('the reset without the magic entered DFU', {'controlBootedApp': False})
-      time.sleep(0.2)
+    stays_away(lambda: usb_device(f['vid'], f['pid'], self.b['uid']), watch, 'the reset without the magic entered DFU',
+               {'controlBootedApp': False})
     return {'control': self.observe_app(app_bin), 'controlWatchedS': watch, 'controlBootedApp': True}
 
 
-def invalidate(board, facts, workdir, battery=None):
-  """The board left unbootable: a zero page at the device's flash floor (FLASH_LIMITS, never the candidate's
-  layout) written and read back, the target reset, then the zero page verified again from a new session."""
-  base = FLASH_LIMITS[board['device']][0]
-  bat = battery or Battery(board, facts, workdir)
-  load, verify = f'loadbin {bat.zero},{base:#x}', f'verifybin {bat.zero},{base:#x}'
-  bat.probe.run(['h', load, verify, 'r', 'g'])
-  # with no boot image, a new session reads flash wrong until a loadbin has run (bench-observed on MIMXRT1062,
-  # cause unknown: verifybin alone fails), so the check is a loadbin J-Link skips as already matching
-  out = bat.probe.run(['h', load, verify, 'g'])
-  if 'Skipped. Contents already match' not in ''.join(after(out, load)[:1]).split('J-Link>')[0]:
-    raise StepFail('the zero page did not persist past the reset; the new session wrote it again')
-  return {'pass': True, 'state': 'bootloader invalidated', 'evidence': {'zeroPage': f'{base:#x}', 'verified': True}}
+def nonce_block(nonce):
+  """apps/dfu_runtime's nonce block (dfu_runtime.h): magic, LE length, the nonce, then each byte its offset."""
+  head = NONCE_MAGIC + len(nonce).to_bytes(4, 'little') + nonce
+  return head + bytes(i & 0xff for i in range(len(head), NONCE_BLOCK))
+
+
+def pack_uf2(chunks, family):
+  """A UF2 of [(addr, 256 bytes)], numbered in order under one numBlocks."""
+  return b''.join(struct.pack('<8I', UF2_MAGIC[0], UF2_MAGIC[1], UF2_FLAG_FAMILY, addr, 256, i, len(chunks), family) +
+                  data + bytes(476 - len(data)) + struct.pack('<I', UF2_MAGIC[2]) for i, (addr, data) in enumerate(chunks))
+
+
+def esp_app_chunks(uf2_path, facts, board):
+  """The 256-byte chunks of the record's apps/dfu_runtime.uf2 (one family, contiguous from address 0: espressif
+  UF2 addresses are ota_0 offsets) and the nonce block's offset, ota_0's last 256 bytes, where the app reads it.
+  The image must end before it, and TinyUF2's flash cache window over it must lie inside ota_0
+  (board_flash.c reads and rewrites the whole FLASH_CACHE_SIZE-aligned window)."""
+  try:
+    blocks = parse_uf2(Path(uf2_path).read_bytes())
+  except (OSError, ValueError) as e:
+    raise Refused(f'{uf2_path}: {e}')
+  for i, bl in enumerate(blocks):
+    if (bl['no'], bl['total'], bl['addr'], bl['size'], bl['family']) != (i, len(blocks), 256 * i, 256, facts['family']) \
+       or not bl['flags'] & UF2_FLAG_FAMILY:
+      raise Refused(f'{uf2_path}: block {i} is not block {i} of {len(blocks)} at {256 * i:#x} for family {facts["family"]:#x}')
+  size, cache = board['app'][1] - board['app'][0], facts['flashCache']
+  off = size - NONCE_BLOCK
+  if not blocks or off < 256 * len(blocks) or off % 256 or off // cache * cache + cache > size:
+    raise Refused(f'{uf2_path}: the app [0, {256 * len(blocks):#x}) and the nonce block at {off:#x} (in a {cache:#x} '
+                  f'cache window) do not both fit in the {size:#x} app partition in order')
+  return {'appChunks': [bl['data'] for bl in blocks], 'nonceOffset': off}
+
+
+class EspBattery(Battery):
+  """The battery on an esptool board. TinyUF2 copies apps/dfu_runtime with this run's nonce block past the
+  image; the app reports the nonce in its DFU runtime interface string and returns to DFU on DFU_DETACH."""
+  def __init__(self, board, facts, workdir, fail_at=None, commissioning=False):
+    super().__init__(board, facts, workdir, fail_at, commissioning)
+    self.tool, self.preserved = Esptool(board, workdir, self.log), None
+    # TinyUF2 takes espressif UF2 addresses as ota_0 offsets and reports ota_0 as its flash
+    self.app_start, self.dfu_flash = 0, board['app'][1] - board['app'][0]
+    self.dfu_claim = 'DFU observed'
+
+  def after_copy(self):
+    """The preserved regions checked again once blinky is copied, against the snapshot."""
+    keep = self.b['regions']['preserved']
+    check_preserved(self.preserved, preserved_md5(keep, self.tool.run(preserved_ops(keep), 'hard-reset')), 'restore')
+    return {'preserved': 'unchanged since the snapshot before the install'}
+
+  def install(self, files):
+    """The preserved regions' snapshot first, in a session of its own, which the report keeps however the run ends:
+    a recovery's restore checks against it. A restore reuses the run's snapshot, or a recovery's. Then ESP-IDF's
+    flash target in CI's image, given only the bridge's tty, in a container named for the board so a survivor is
+    found and ended by name (cleanup, recovery); then the runner's own read-back."""
+    tty = esp_port(self.b['probe'])   # no bridge fails here, untouched; any session may leave the chip in its ROM loader
+    name = f'tinyuf2-hil-{self.b["name"]}'
+    if container_present(name):
+      raise StepFail(f'container {name} from an earlier flash still exists: check what it runs, then docker rm -f {name}')
+    fl = files['flash']
+    # created, not run: the container exists, and its name is tracked, before anything can start it; cleanup
+    # removes it by name however the run ends
+    CONTAINERS.append(name)
+    code, out = spawn(cb.idf_docker(fl['root'], 'create') + [
+      '--name', name, '--device', tty, '--group-add', str(os.stat(tty).st_gid), '-e', f'ESPPORT={tty}', fl['image'],
+      'cmake', '--build', str(fl['root']), '--target', fl['binding']['target']], self.log, 60)
+    if code:
+      raise StepFail(f'docker create {name} failed (exit {code})', {'tail': out.strip().splitlines()[-3:]})
+    self.touched = True
+    if self.preserved is None:
+      keep = self.b['regions']['preserved']
+      self.preserved = preserved_md5(keep, self.tool.run(preserved_ops(keep), 'no-reset'))
+    ev = self.flash_target(fl, ['docker', 'start', '-a', name], ESP_TIMEOUT,
+                           lambda code, out: judge_esp_target(code, out, files['segments']))
+    if container_gone(name):
+      CONTAINERS.remove(name)
+    ev.update(esp_verify(self.tool, self.b, files['segments'], self.dir, self.preserved))
+    return {'wrote': ev['wrote'], 'writes': ev['writes'], 'readBack': True}
+
+  def report_fields(self):
+    keep = self.b['regions']['preserved']
+    return {'snapshot': self.preserved and {'preserved': self.preserved,
+                                            'preservedRegions': {n: list(r) for n, r in keep.items()}}}
+
+  def usb_dfu(self, op):
+    f = self.f
+    return child_json([sys.executable, '-B', USB_DFU, '--vid', hex(f['appVid']), '--pid', hex(f['appPid']),
+                       '--serial', self.b['uid'], '--path', self.usb_path, op], self.log, USB_TIMEOUT, f'usb_dfu.py {op}')
+
+  def app(self):
+    return usb_device(self.f['appVid'], self.f['appPid'], self.b['uid'])
+
+  def copy_app(self, step):
+    self.nonce, cache = os.urandom(16), self.f['flashCache']
+    image = 256 * len(self.chunks)
+    uf2 = self.dir / f'{step}.uf2'
+    uf2.write_bytes(pack_uf2([(256 * i, c) for i, c in enumerate(self.chunks)] +
+                             [(self.nonce_off, nonce_block(self.nonce))], self.f['family']))
+    return dict(self.copy(uf2, len(self.chunks) + 1, self.nonce),
+                writes=[write_span('app image', 0, image, cache), write_span('nonce block', self.nonce_off, NONCE_BLOCK, cache)])
+
+  def app_ran(self):
+    f = self.f
+    path = wait_for(self.app, USB_TIMEOUT, f'the app {f["appVid"]:04x}:{f["appPid"]:04x} serial {self.b["uid"]}')
+    ev = {'usb': path}
+    if path != self.usb_path:
+      raise StepFail('the app came up on another USB port than DFU', dict(ev, expected=self.usb_path))
+    ev['string'] = self.usb_dfu('string')['string']
+    if ev['string'] != f'HIL {self.nonce.hex()}':
+      raise StepFail('the app does not report this copy\'s nonce', ev)
+    stays_away(lambda: usb_device(f['vid'], f['pid'], self.b['uid']), QUIET_TIME,
+               'the DFU device came back while the app should run', ev)
+    if self.app() != path:
+      raise StepFail('the app left the bus', ev)
+    return ev
+
+  def reenter(self, version):
+    ev = {'path': self.b['reentry']}
+    try:
+      self.usb_dfu('detach')
+      ev['detachAcked'] = True
+      wait_for(lambda: self.app() is None, USB_TIMEOUT, 'the app leaving the bus')
+      ev['appLeft'] = True
+      ev.update(self.dfu(version), dfuCameUp=True, claim='DFU_DETACH to the app re-entered DFU')
+    except StepFail as e:
+      e.evidence = {**ev, **e.evidence}
+      raise
+    try:
+      if self.current_uf2(512 * len(self.chunks)) != b''.join(self.chunks):
+        raise StepFail('CURRENT.UF2 does not read back the app image')
+      off = self.nonce_off
+      if self.current_uf2(512, off // 256 * 512) != nonce_block(self.nonce):
+        raise StepFail(f'CURRENT.UF2 does not read back the nonce block at {off:#x}')
+    except StepFail as e:
+      e.evidence = {**ev, **e.evidence, 'failedAt': 'readback', 'appIntact': 'unshown'}
+      raise
+    ev['appIntact'] = True
+    return ev
+
+  def run(self, files, version):
+    self.chunks, self.nonce_off = files['appChunks'], files['nonceOffset']
+    self.step('install', lambda: self.install(files))
+    self.step('dfu', lambda: self.dfu(version))
+    self.step('copy', lambda: self.copy_app('copy'))
+    self.step('app-ran', self.app_ran)
+    self.step('reenter', lambda: self.reenter(version))
+    self.step('recopy', lambda: dict(self.copy_app('recopy'), **self.app_ran(),
+                                     claim='a fresh copy boots the app after re-entry'))
+
+
+BATTERIES = {'jlink': Battery, 'esptool': EspBattery}
 
 
 TERM_SIGNALS = {signal.SIGTERM, signal.SIGINT}
@@ -1125,6 +1669,29 @@ def check_jlink():
     raise Refused('JLinkExe must be on PATH')
 
 
+def check_esptool():
+  import importlib.metadata
+  try:
+    v = importlib.metadata.version('esptool')
+  except importlib.metadata.PackageNotFoundError:
+    v = None
+  if v != ESPTOOL_VERSION:
+    raise Refused(f'esptool {v} is installed for {sys.executable}; the runner needs esptool {ESPTOOL_VERSION}')
+
+
+def check_pyusb():
+  try:
+    import usb.backend.libusb1
+  except ImportError:
+    raise Refused(f'pyusb is not installed for {sys.executable}; usb_dfu.py needs it')
+  if usb.backend.libusb1.get_backend() is None:
+    raise Refused('pyusb finds no libusb-1.0; usb_dfu.py needs it')
+
+
+def check_flasher(board):
+  check_esptool() if board['flasher'] == 'esptool' else check_jlink()
+
+
 def reentry_decision(row):
   """The re-entry method a commissioning run establishes (SKILL.md, Commissioning), or None: every
   observation of the tried method held, the board was cleaned up and released, and the run passed or failed
@@ -1138,31 +1705,52 @@ def reentry_decision(row):
   if len(reenter) != 1 or failed not in ([], reenter) or (not failed and not row.get('pass')) or \
      (failed and reenter[0]['evidence'].get('failedAt') != 'readback'):
     return None
-  need = ('controlBootedApp', 'dfuCameUp', 'magicConsumed') if row['tried'] == 'retained-register' else \
-    ('bootloaderVerified', 'dfuCameUp')
+  need = {'retained-register': ('controlBootedApp', 'dfuCameUp', 'magicConsumed'),
+          'dfu-detach': ('detachAcked', 'appLeft', 'dfuCameUp')}[row['tried']]
   return row['tried'] if all(reenter[0]['evidence'].get(k) is True for k in need) else None
+
+
+def admit_record(record_path, board, facts, workdir):
+  """A build record the battery and restore may install, with what they need on this host."""
+  files, fw = verify_record(record_path, board, facts, workdir)
+  if board['flasher'] == 'jlink':
+    data = parse_hex(files['hex'])
+    check_ranges(data, [board['install']], FLASH_LIMITS[board['device']], files['hex'])
+    if not hex_matches_bin(data, files['bin'], facts['binBase']):
+      raise Refused(f'{files["hex"]} and {files["bin"]} do not hold the same bytes')
+    check_bootloader_bin(files['bin'], board, facts, 'candidate')
+  exclusion_configured(facts, board['uid'])
+  if shutil.which('mcopy') is None:
+    raise Refused('mcopy must be on PATH')
+  check_flasher(board)
+  return files, fw
+
+
+def trial_reentry(board, method):
+  """The board with `method` as its re-entry, for commissioning: refused once the roster's reentry is set."""
+  if not method:
+    return board
+  if board['reentry'] is not None:
+    raise Refused(f'{board["name"]}: reentry is already commissioned; --try-reentry is for commissioning only')
+  if method not in REENTRY[board['flasher']]:
+    raise Refused(f'{board["name"]}: a {board["flasher"]} board re-enters by one of {REENTRY[board["flasher"]]}')
+  return dict(board, reentry=method)
 
 
 def run_board(args, board, facts, helper, workdir):
   row = {'board': board['name'], 'lock': board['lock'], 'ran': False, 'pass': False, 'locked': False,
          'lockBypassed': False, 'steps': [], 'cleanup': None, 'detail': ''}
+  methods = REENTRY[board['flasher']]
+  if args.fail_at and args.fail_at not in (*STEPS[board['flasher']], 'cleanup'):
+    raise Refused(f'{board["name"]}: the {board["flasher"]} battery has no step {args.fail_at}')
   if args.try_reentry:
-    if board['reentry'] is not None:
-      raise Refused(f'{board["name"]}: reentry is already commissioned; --try-reentry is for commissioning only')
-    board = dict(board, reentry=args.try_reentry)
+    board = trial_reentry(board, args.try_reentry)
     row.update(commissioning=True, tried=args.try_reentry)
-  elif board['reentry'] not in REENTRY:
-    raise Refused(f'{board["name"]}: tinyuf2.reentry must be one of {REENTRY} (set from commissioning)')
-  files, row['firmware'] = verify_record(args.build_record, board, facts)
-  data = parse_hex(files['hex'])
-  check_ranges(data, [board['install']], FLASH_LIMITS[board['device']], files['hex'])
-  if not hex_matches_bin(data, files['bin'], board['install'][0]):
-    raise Refused(f'{files["hex"]} and {files["bin"]} do not hold the same bytes')
-  check_bootloader_bin(files['bin'], board, facts, 'candidate')
-  exclusion_configured(facts, board['uid'])
-  if shutil.which('mcopy') is None:
-    raise Refused('mcopy must be on PATH')
-  check_jlink()
+  elif board['reentry'] not in methods:
+    raise Refused(f'{board["name"]}: tinyuf2.reentry must be one of {methods} (set from commissioning)')
+  files, row['firmware'] = admit_record(args.build_record, board, facts, workdir)
+  if board['flasher'] == 'esptool':
+    check_pyusb()
   bypass = os.environ.get('HIL_NO_BOARD_LOCK') == '1'
   # blocked from here until the process exits or becomes the holder (keep_held): a signal acts only
   # inside the battery, and the report and any hold are settled first
@@ -1175,7 +1763,7 @@ def run_board(args, board, facts, helper, workdir):
   if fh is None and not bypass:
     raise Refused(f'{board["name"]}: the lock dir is unusable (tinyusb helper fails open); refusing to run unlocked')
   row['lockBypassed'] = fh is None
-  bat = Battery(board, facts, workdir, args.fail_at, row.get('commissioning', False))
+  bat = BATTERIES[board['flasher']](board, facts, workdir, args.fail_at, row.get('commissioning', False))
   code = 0
   try:
     row['ran'] = True
@@ -1185,8 +1773,9 @@ def run_board(args, board, facts, helper, workdir):
   except BaseException as e:   # anything after admission still cleans up below
     row['detail'] = f'{bat.at}: {e}' if isinstance(e, StepFail) else f'{bat.at}: {type(e).__name__}: {e}'
     code = 1
-  row['steps'], row['jlinkRetried'] = bat.steps, bat.probe.retried   # the cleanup's retries land here too
-  code = clean_up(row, code, bat, fh, board, facts, helper, workdir)
+  row['steps'] = bat.steps
+  code = clean_up(row, code, bat, fh, board, helper, files)
+  row.update(bat.report_fields())   # after the cleanup, whose install may take the snapshot a recovery needs
   if row.get('commissioning'):
     row['reentryDecision'] = reentry_decision(row)
   return deferred(row), code
@@ -1199,18 +1788,20 @@ def deferred(row):
   return row
 
 
-def clean_up(row, code, bat, fh, board, facts, helper, workdir):
-  """Invalidate a touched board, then release it. A child that survived SIGKILL, or any unsuccessful
-  cleanup, leaves the board held (exit 4), touched or not."""
+def clean_up(row, code, bat, fh, board, helper, files):
+  """Restore a touched board to the record's TinyUF2 with blinky copied, then release it. A child that survived
+  SIGKILL, or any unsuccessful cleanup, leaves the board held (exit 4), touched or not."""
   stuck = []
   try:
     stuck = stuck_children()
     if stuck:
-      raise StepFail(f'children {[x["pid"] for x in stuck]} survived SIGKILL; no flash may overlap them')
+      raise StepFail('children survived SIGKILL; no flash may overlap them')   # their pids are in survivors
     if bat.touched:
       if bat.fail_at == 'cleanup':
         raise StepFail('--fail-at cleanup: injected cleanup failure (acceptance only)')
-      row['cleanup'] = dict(invalidate(board, facts, workdir, bat), heldAfter=False)
+      row['cleanup'] = dict(bat.restore(files, row['firmware']['version']), heldAfter=False)
+    else:
+      row['cleanup'] = {'pass': True, 'state': 'untouched', 'evidence': {}, 'heldAfter': False}
   except BaseException as e:
     stuck += [x for x in stuck_children() if x not in stuck]
     row['cleanup'] = {'pass': False, 'state': 'unknown' if bat.touched else 'untouched',
@@ -1232,29 +1823,35 @@ def main(argv=None):
   sub = ap.add_subparsers(dest='cmd', required=True)
   r = sub.add_parser('run', help='the battery on one board (self-locking)')
   r.add_argument('-b', '--board', required=True)
-  r.add_argument('--build-record', required=True, help='check_build.py --board B --backend cmake --shared JSON, under cmake-build/')
-  r.add_argument('--fail-at', choices=(*STEPS, 'cleanup'), help='acceptance only: fail this step, or the cleanup, '
+  r.add_argument('--build-record', required=True, help='check_build.py --board B [--backend cmake] --shared --hil-config ROSTER '
+                 'JSON, under cmake-build/')
+  r.add_argument('--fail-at', choices=(*STEPS['esptool'], 'cleanup'), help='acceptance only: fail this step, or the cleanup, '
                  'to exercise cleanup and its holder')
-  r.add_argument('--try-reentry', choices=REENTRY, help="commissioning only, while the roster's reentry is unset")
+  r.add_argument('--try-reentry', choices=REENTRY_METHODS, help="commissioning only, while the roster's reentry is unset")
   r.add_argument('config')
-  i = sub.add_parser('install', help='program a bootloader BIN under your own manual hold')
+  i = sub.add_parser('install', help='program a bootloader under your own manual hold')
   i.add_argument('-b', '--board', required=True)
-  i.add_argument('--firmware', required=True,
-                 help='a bootloader BIN, programmed at the install start with a zero page at the app start')
-  i.add_argument('--sha256', required=True)
+  i.add_argument('--build-record', required=True, help="the HIL build record whose TinyUF2 is installed")
   i.add_argument('--under-hold', required=True, metavar='REASON')
+  i.add_argument('--try-reentry', choices=REENTRY_METHODS,
+                 help="commissioning only, while the roster's reentry is unset: DFU's fallback after the install")
   i.add_argument('config')
-  s = sub.add_parser('invalidate', help='leave the board unbootable, under your hold or to recover a holder')
+  s = sub.add_parser('restore', help="install the record's TinyUF2 and copy its blinky, under your hold or to "
+                     'recover a holder')
   s.add_argument('-b', '--board', required=True)
+  s.add_argument('--build-record', required=True, help='the build record whose TinyUF2 and apps/blinky.uf2 are installed')
   g = s.add_mutually_exclusive_group(required=True)
   g.add_argument('--under-hold', metavar='REASON')
   g.add_argument('--recover-holder', type=int, metavar='PID')
   s.add_argument('--report', help="the failed run's hil_report.json (with --recover-holder)")
+  s.add_argument('--try-reentry', choices=REENTRY_METHODS,
+                 help="commissioning only, under your hold, while the roster's reentry is unset")
   s.add_argument('config')
   fr = sub.add_parser('fat-read')
   fr.add_argument('--dev', required=True)
   fr.add_argument('--file', required=True)
   fr.add_argument('--length', type=int, required=True)
+  fr.add_argument('--offset', type=int, default=0)
   args = ap.parse_args(argv)
   if args.cmd == 'fat-read':
     return fat_read_main(args)
@@ -1262,46 +1859,48 @@ def main(argv=None):
     signal.signal(sig, on_signal)
   run_dir = cb.BUILD_DIR / 'hil' / f'run-{time.strftime("%Y%m%d-%H%M%S")}-{os.getpid()}'
   result = {'pass': False, 'caveat': '', 'results': [], 'reportPath': str(run_dir / 'hil_report.json')}
-  code, recovery = 2, None
+  code, recovery, bat = 2, None, None
   try:
     run_dir.mkdir(parents=True)
     board = load_board(args.config, args.board)
-    facts = None   # invalidate, recovery included, writes only at the device's flash floor: no candidate source
-    if args.cmd != 'invalidate':
-      facts = source_facts(board)
-      apply_layout(board, facts)
+    facts = source_facts(board)
+    apply_layout(board, facts)
     helper = load_helper(board['helper'])
     if args.cmd == 'run':
       row, code = run_board(args, board, facts, helper, run_dir)
       result['results'].append(row)
       result['pass'] = code == 0 and row['pass']
     elif args.cmd == 'install':
+      board = trial_reentry(board, args.try_reentry)
       manual_holder(helper, board['lock'], args.under_hold)
-      if sha256(args.firmware) != args.sha256:
-        raise Refused(f'{args.firmware} does not match --sha256')
-      check_bootloader_bin(args.firmware, board, facts, args.firmware)
-      exclusion_configured(facts, board['uid'])
-      check_jlink()
+      files, fw = admit_record(args.build_record, board, facts, run_dir)
+      bat = BATTERIES[board['flasher']](board, facts, run_dir)
       try:
-        Battery(board, facts, run_dir).program(args.firmware, board['install'][0], facts['appStart'])
+        ev = bat.install(files)
+        ev['dfu'] = bat.dfu_after_install(fw['version'])
       finally:
         result['survivors'] = stuck_children()
-      result['results'].append({'board': board['name'], 'installed': {'path': args.firmware, 'sha256': args.sha256}})
+      result['results'].append({'board': board['name'], 'installed': fw, 'evidence': ev})
       result['pass'], code = True, 0
     else:
-      check_jlink()
-      rec = None
+      files, fw = admit_record(args.build_record, board, facts, run_dir)
+      rec = snapshot = None
       if args.recover_holder is not None:
+        if args.try_reentry:
+          raise Refused('--try-reentry is for a restore under your own hold, not a recovery')
         if not args.report:
           raise Refused("--recover-holder needs --report, the failed run's report naming that holder")
         try:
           rows = json.loads(Path(args.report).read_text())['results']
         except (OSError, ValueError, KeyError, TypeError) as e:
           raise Refused(f'cannot read {args.report}: {e}')
-        held = [x['cleanup'] for x in rows if ((x.get('cleanup') or {}).get('holder') or {}).get('pid')
-                == args.recover_holder and x.get('board') == board['name']]
-        if len(held) != 1:
+        failed = [x for x in rows if ((x.get('cleanup') or {}).get('holder') or {}).get('pid')
+                  == args.recover_holder and x.get('board') == board['name']]
+        if len(failed) != 1:
           raise Refused(f'{args.report} names no cleanup holder {args.recover_holder} of {board["name"]}')
+        held = [failed[0]['cleanup']]
+        if board['flasher'] == 'esptool':
+          snapshot = report_snapshot(failed[0], board['regions']['preserved'])
         recovery = recovery_lock(helper, board['lock'])
         rec = prove_hold(helper, board['lock'], args.recover_holder, reason='hil_test.py', role=HOLDER_ROLE)
         cmdline = Path(f'/proc/{args.recover_holder}/cmdline').read_bytes()
@@ -1311,22 +1910,26 @@ def main(argv=None):
         if alive:
           raise Refused(f'the failed run\'s children {alive} are still alive; recovery may not overlap them')
       else:
+        board = trial_reentry(board, args.try_reentry)
         manual_holder(helper, board['lock'], args.under_hold)
-      users = probe_users(board['probe'])
+      users = probe_users(board)
       if users:
         raise Refused(f'probe {board["probe"]} is still in use by pids {users}; recovery may not overlap them')
+      bat = BATTERIES[board['flasher']](board, facts, run_dir)
       try:
-        cleanup = invalidate(board, facts, run_dir)
+        if snapshot:
+          bat.preserved = snapshot
+        cleanup = bat.restore(files, fw['version'])
       finally:
         result['survivors'] = stuck_children()
       if result['survivors']:
-        raise StepFail('invalidate left children that survived SIGKILL')
+        raise StepFail('restore left children that survived SIGKILL')
       if args.recover_holder is not None:
         os.kill(args.recover_holder, signal.SIGUSR1)
         wait_for(lambda: flock_free(helper.lock_path(board['lock'])), 10,
                  f'cleanup holder {args.recover_holder} releasing {board["name"]}')
         cleanup['recovered'] = {'holder': args.recover_holder, 'record': rec}
-      result['results'].append({'board': board['name'], 'cleanup': cleanup})
+      result['results'].append({'board': board['name'], 'firmware': fw, 'cleanup': cleanup})
       result['pass'], code = True, 0
   except Refused as e:
     result['error'] = str(e)
@@ -1336,7 +1939,7 @@ def main(argv=None):
     code = 2
   except (StepFail, Interrupted) as e:
     result['error'] = str(e)
-    code = 1
+    code = 4 if bat is not None and bat.touched else 1   # a failed restore keeps the hold
   if recovery:
     recovery.close()
   if result.get('survivors'):   # a manual operation's survivor: keep your hold until it is gone

@@ -2,6 +2,7 @@
 """Build TinyUF2 for the boards a change affects, or for named boards: the project's build contract.
 
   check_build.py (--scope PATH... | --base REF [--worktree] | --board B...) [-D VAR=VAL]... [--shared] [--idf docker|local] [-v]
+  check_build.py --board B --shared --hil-config ROSTER [--backend cmake]   (a HIL record: binds the flash target)
   check_build.py --select-only (--scope PATH... | --base REF [--worktree] | --diff-file FILE) [--hil-config ROSTER]
 
 Each board builds the way .github/workflows/build.yml builds its port (make, cmake or ESP-IDF)
@@ -14,6 +15,8 @@ resolution or a missing prerequisite ("error" names the remedy), 3 uncovered pat
 """
 
 import argparse
+import contextlib
+import fcntl
 import functools
 import gzip
 import hashlib
@@ -87,6 +90,17 @@ NOTHING = ('.claude/', '.github/', '.idea/', 'tools/codespell/', 'tools/gen_boar
 CODEQL = '.github/workflows/codeql-buildscript.sh'
 # one board per backend for a change to how boards build; lpc55 also runs make's self-update and apps
 SMOKE = {'make': 'lpcxpresso55s69', 'cmake': 'feather_stm32f405_express', 'idf': 'espressif_esp32s3_devkitm_1'}
+
+
+# What a roster flasher runs to install TinyUF2: the build's own flash target, and the build-tree files that
+# target reads, which a HIL record pins so the runner can check them before it flashes.
+FLASH = {'jlink': ('tinyuf2-jlink', ('tinyuf2.jlink', 'tinyuf2.hex')),
+         'esptool': ('flash', ('flash_args', 'bootloader/bootloader.bin', 'partition_table/partition-table.bin',
+                               'ota_data_initial.bin', 'tinyuf2.bin'))}
+# a roster flasher's args, whose one group is the device or chip its flash target must name
+FLASHER_ARGS = {'jlink': r'-device (\S+)', 'esptool': r'--chip (\w+)'}
+# configure variables that select a probe or port: a HIL record sets them from the roster, never from -D
+SELECTION = ('JLINK_OPTION', 'OPENOCD_SERIAL', 'OPENOCD_OPTION', 'ESPPORT')
 
 
 class Fail(Exception):
@@ -424,13 +438,18 @@ def path_view(records, effect=None, keys=('path', 'rule', 'effect', 'reason')):
   return [{k: r[k] for k in keys} for r in records if effect in (None, r['effect'])]
 
 
+HIL_APP = 'dfu_runtime'   # the app hil_test.py's esptool battery copies through TinyUF2
+
+
 def hil_selection(sel, config):
   """Roster boards the selection puts under the HIL battery. A board's own change reaches that board,
   an app change none, any other change every roster board of the ports it selects, a core or HIL-control
   change the whole roster; what no roster board on this host can run is uncovered, whatever else was
   selected."""
   try:
-    roster = sorted({b['name'] for b in json.loads((ROOT / config).read_text())['boards']})   # TinyUF2 names
+    entries = json.loads((ROOT / config).read_text())['boards']
+    roster = sorted({b['name'] for b in entries})   # TinyUF2 names
+    esptool = {b['name'] for b in entries if (b.get('flasher') or {}).get('name') == 'esptool'}
   except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
     raise Fail(f'cannot read boards from {config}: {e}')
   by_port = {}
@@ -465,7 +484,15 @@ def hil_selection(sel, config):
     elif r['effect'] == 'gap':   # firmware no build covers is no HIL board's either
       uncovered[r['path']] = r['reason']
     elif r['rule'] in ('app', 'port-app'):
-      uncovered[r['path']] = f'the battery runs the bootloader and its generated fixture, never {r["path"]}'
+      app = parts[1] if r['rule'] == 'app' else parts[3] if len(parts) > 3 else None
+      ports = {port_of(b) for b, _ in r['boards']} if r['rule'] == 'app' else {parts[1]}
+      own = sorted(b for b in esptool if port_of(b) in ports)
+      if app != HIL_APP:
+        uncovered[r['path']] = f'the battery runs the bootloader and {HIL_APP} on esptool boards, never {r["path"]}'
+      elif own:
+        boards.update(own)
+      else:
+        uncovered[r['path']] = f'no {config} esptool board runs {HIL_APP}'
     elif r['rule'] == 'board':
       (b, _), = r['boards']
       if b in roster:
@@ -569,8 +596,13 @@ def expected_artifacts(port, board, backend, root):
       exp.append(bin_dir / 'apps' / f'{"update-tinyuf2" if app == "self_update" else app}.uf2')
     exp += [bin_dir / a for a in re.findall(r'\$\{ARTIFACT_PATH\}/(apps/[\w.-]+\.uf2)', cml)]
     return exp
-  return [bin_dir / f for f in ('tinyuf2.bin', 'bootloader.bin', 'partition-table.bin', 'combined.bin',
-                                'apps/update-tinyuf2.uf2', 'apps/blinky.uf2')]
+  return [bin_dir / f for f in ('tinyuf2.bin', 'bootloader.bin', 'partition-table.bin', 'ota_data_initial.bin',
+                                'flash_args', 'combined.bin', 'apps/update-tinyuf2.uf2', 'apps/blinky.uf2',
+                                f'apps/{HIL_APP}.uf2')]
+
+
+# what an IDF build's flash layout also depends on: the HIL admits its segments only against these
+IDF_CONFIG = ('sdkconfig',)
 
 
 def build_make(port, board, root, defines, log, verbose, rec):
@@ -602,15 +634,30 @@ def build_cmake(port, board, root, defines, log, verbose):
 def build_idf(board, root, defines, log, verbose, idf_mode, image):
   idf = ['idf.py', '-C', 'ports/espressif', '-B', str(root), f'-DBOARD={board}',
          f'-DARTIFACT_PATH={root / "_bin"}', *[f'-D{d}' for d in defines], 'build']
+  fixture = ['cmake', '--build', str(root), '--target', HIL_APP]   # out of ALL, so CI's releases never carry it
   if idf_mode == 'local':
-    return not run(idf, log, verbose), []
+    return not (run(idf, log, verbose) or run(fixture, log, verbose)), []
+  inner = "git config --global --add safe.directory '*' && " + shlex.join(idf) + ' && ' + shlex.join(fixture)
+  return not run(idf_docker(root) + [image, 'bash', '-c', inner], log, verbose), []
+
+
+def idf_docker(root, verb='run'):
+  """`docker run` (or `create`) with the checkout, its git dir and the build dir mounted at their own paths, image
+  last."""
   common = Path(git('rev-parse', '--path-format=absolute', '--git-common-dir').strip())
-  mounts = {ROOT, common, root.parent}
-  cmd = ['docker', 'run', '--rm', '--user', f'{os.getuid()}:{os.getgid()}', '-e', 'HOME=/tmp', '-w', ROOT]
-  for m in sorted(mounts):
+  cmd = ['docker', verb, '--rm', '--user', f'{os.getuid()}:{os.getgid()}', '-e', 'HOME=/tmp', '-w', str(ROOT)]
+  for m in sorted({ROOT, common, root.parent}):
     cmd += ['-v', f'{m}:{m}']
-  inner = "git config --global --add safe.directory '*' && " + shlex.join(idf)
-  return not run(cmd + [image, 'bash', '-c', inner], log, verbose), []
+  return cmd
+
+
+def ninja_in(backend, idf_mode, image, root, args):
+  """Runs ninja on `root` with the ninja that built it: the host's, or the IDF image's (whose build log and
+  generator a host ninja would rewrite). Callers bind the build's own backend, mode and image."""
+  cmd = ['ninja', '-C', str(root), *args]
+  if backend == 'idf' and idf_mode == 'docker':
+    cmd = idf_docker(root) + [image, *cmd]   # the image's entrypoint sources export.sh, then runs cmd
+  return subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT)
 
 
 def backend_of(port):
@@ -620,7 +667,142 @@ def backend_of(port):
   return BACKENDS.get(port) or UNBUILT[port][0]
 
 
-def build_board(board, backend, args, idf):
+def roster_flasher(config, board):
+  """The board's roster flasher, and the configure defines that bind the build's flash target to its probe.
+  ESP-IDF takes the bridge's tty at flash time (ESPPORT), which the runner resolves from the serial."""
+  try:
+    entry = next((b for b in json.loads((ROOT / config).read_text())['boards'] if b['name'] == board), None)
+    if entry is None:
+      raise Fail(f'{board} is not on {config}')
+    name, uid, fargs = (entry['flasher'][k] for k in ('name', 'uid', 'args'))
+  except (OSError, ValueError, KeyError, TypeError) as e:
+    raise Fail(f'cannot read {board} from {config}: {e}')
+  form = FLASHER_ARGS.get(name)
+  if form is None:
+    raise Fail(f'{board}: flasher {name!r} has no HIL flash target (jlink or esptool)')
+  m = re.fullmatch(form, fargs)
+  if not m or not re.fullmatch(r'[\w-]+', uid):
+    raise Fail(f'{board}: flasher args {fargs!r} or uid {uid!r} is not the roster form')
+  flasher = {'name': name, 'uid': uid, 'device': m[1]}
+  return flasher, [f'JLINK_OPTION=-USB {uid} -ExitOnError 1 -NoGui 1'] if name == 'jlink' else []
+
+
+def flash_binding(flasher, root, ninja):
+  """The generated flash target's own command, checked token for token against the roster flasher: the probe,
+  device and image it names, not CMakeCache, which need not hold JLINK_DEVICE. `ninja(dir, args)` runs ninja in the
+  build's environment."""
+  target, inputs = FLASH[flasher['name']]
+  r = ninja(root, ['-t', 'commands', target])
+  tool = 'JLinkExe' if flasher['name'] == 'jlink' else 'run_serial_tool.cmake'
+  cmds = [l for l in r.stdout.splitlines() if tool in l] if r.returncode == 0 else []
+  ok = len(cmds) == 1
+  if ok and flasher['name'] == 'jlink':
+    cd, _, cmd = cmds[0].partition(' && ')
+    argv = shlex.split(cmd)
+    ok = cd == f'cd {root}' and Path(argv[0]).name == 'JLinkExe' and argv[1:] == [
+      '-device', flasher['device'], '-USB', flasher['uid'], '-ExitOnError', '1', '-NoGui', '1', '-if', 'swd',
+      '-JTAGConf', '-1,-1', '-speed', 'auto', '-CommandFile', str(root / inputs[0])] and \
+      (root / inputs[0]).is_file() and (root / inputs[0]).read_text() == f'halt\nloadfile {root / inputs[1]}\nr\ngo\nexit'
+  elif ok:
+    argv = shlex.split(cmds[0].partition(' && ')[2])
+    defs = dict(v.split('=', 1) for k, v in zip(argv[1:-2], argv[2:-2]) if k == '-D' and '=' in v)
+    tool_argv = defs.get('SERIAL_TOOL', '').split(';')
+    ok = len(argv) == 1 + 2 * len(defs) + 2 and argv[-2] == '-P' and Path(argv[-1]).name == 'run_serial_tool.cmake' and \
+      defs.keys() == {'IDF_PATH', 'SERIAL_TOOL', 'SERIAL_TOOL_ARGS', 'WORKING_DIRECTORY'} and \
+      Path(tool_argv[-3]).name == 'esptool.py' and tool_argv[-2:] == ['--chip', flasher['device']] and \
+      defs['SERIAL_TOOL_ARGS'].split(';') == ['--before=default_reset', '--after=hard_reset', 'write_flash', '@flash_args'] and \
+      defs['WORKING_DIRECTORY'] == str(root)
+    # flash_args: one settings line, then "<offset> <file>" per segment
+    segs = (root / 'flash_args').read_text().splitlines()[1:] if (root / 'flash_args').is_file() else []
+    ok = ok and sorted(l.split()[1] for l in segs if l.strip()) == sorted(inputs[1:])
+  if not ok:
+    raise Fail(f'{root.name}: target {target} does not flash {flasher} with the build\'s image: '
+               f'{cmds if cmds else r.stderr.strip()[-200:]}')
+  return {'target': target, 'flasher': flasher, 'command': cmds[0], 'inputs': list(inputs)}
+
+
+def dry_run(ninja, root, target=None):
+  """The commands `ninja -n -v` would run; whatever precedes ninja's own output (the IDF image's entrypoint
+  banner) is skipped. None when ninja failed or its output is not ninja's."""
+  r = ninja(root, ['-n', '-v'] + ([target] if target else []))
+  lines = r.stdout.splitlines()
+  start = next((i for i, l in enumerate(lines) if l.startswith('ninja: Entering directory')), None)
+  if r.returncode or start is None:
+    return None
+  steps = [l for l in lines[start + 1:] if l.strip() and l != 'ninja: no work to do.']
+  return None if any(not re.match(r'\[\d+/\d+\] ', l) for l in steps) else [l.split('] ', 1)[1] for l in steps]
+
+
+def idf_step_writes_no_input(cmd, root, chip):
+  """True for a command ESP-IDF's flash target always runs before its flasher, segment by `&&` segment in one
+  of the forms TinyUF2's port and IDF generate: the bootloader subproject's build (its own tree is dry-run too),
+  stamps, read-only size checks, the port's post-build (combined.bin, copies into _bin, the update app's C
+  array). None of them writes a flash input; anything else, a shell operator included, is refused."""
+  cwd, py, cm = None, r'\S*/python[\d.]*', r'\S*/cmake'
+  # a path resolved, against a boundary resolved only up to the build root, so no symlink inside the tree moves
+  # either; a write never lands on a flash input
+  real = Path(os.path.realpath(root))
+  inputs = {Path(os.path.realpath(root / i)) for i in FLASH['esptool'][1]}
+  under = lambda p, d='': Path(os.path.realpath(p)).is_relative_to(real / d)   # noqa: E731
+  writes = lambda p, d='': under(p, d) and Path(os.path.realpath(p)) not in inputs   # noqa: E731
+  postbuild = root / 'tinyuf2.postbuild.sh'
+  for seg in cmd.split(' && '):
+    if re.search(r'[;|<>&$`(){}\\]', seg):
+      return False
+    argv = shlex.split(seg)
+    head, tail = ' '.join(argv[:3]), argv[3:]
+    ok = argv[:1] == ['cd'] and len(argv) == 2 and under(argv[1]) or \
+      re.fullmatch(cm, argv[0]) and (
+        argv[1:] == ['--build', '.'] and cwd == root / 'bootloader' or
+        argv[1:] == ['-E', 'echo_append'] or argv[1:3] == ['-E', 'echo'] and len(argv) == 4 or
+        argv[1:3] in (['-E', 'make_directory'], ['-E', 'touch']) and len(argv) == 4 and writes(argv[3]) or
+        argv[1:3] == ['-E', 'copy'] and len(argv) == 5 and writes(argv[4], '_bin')) or \
+      re.fullmatch(py + r' \S*/partition_table/check_sizes\.py --offset', head) and tail[1:] in (
+        ['partition', '--type', 'app', str(root / 'partition_table/partition-table.bin'), str(root / 'tinyuf2.bin')],
+        ['bootloader', '0x0', str(root / 'bootloader/bootloader.bin')]) or \
+      re.fullmatch(py + r' \S*/lib/uf2/utils/uf2conv\.py --carray', head) and \
+      tail == ['-o', str(root / 'apps/update_tinyuf2/bootloader_bin.c'), str(root / 'tinyuf2.bin')] and writes(tail[1]) or \
+      argv == ['bash', str(postbuild)] and cwd == root and writes(root / 'combined.bin') and postbuild.is_file() and \
+      postbuild.read_text() == (
+        '#!/bin/bash\necho "Creating combined.bin"\n'
+        f"esptool.py --chip {chip} merge_bin --output combined.bin $(tr '\\n' ' ' < {root / 'flash_args'})\n")
+    if not ok:
+      return False
+    if argv[0] == 'cd':
+      cwd = Path(argv[1])
+  return True
+
+
+def flash_ready(root, flash, ninja):
+  """Before a HIL flash, under the build lock and with its inputs hash-checked: a dry run shows the target would run
+  the recorded command once and nothing else that could write a flash input: no rebuild, relink or CMake re-run
+  (ESP-IDF re-runs CMake after any commit, through its git describe dependency). `ninja(dir, args)` runs ninja in
+  the build's environment."""
+  steps = dry_run(ninja, root, flash['target'])
+  extra = None
+  if steps is not None:
+    others = [c for c in steps if c != flash['command']]
+    if flash['flasher']['name'] == 'esptool':
+      nested = dry_run(ninja, root / 'bootloader')   # always: the outer build step runs whatever it needs
+      others += ['bootloader: ninja -n failed'] if nested is None else nested
+      others = [c for c in others if not idf_step_writes_no_input(c, root, flash['flasher']['device'])]
+    extra = others if steps.count(flash['command']) == 1 else others + ['no flash command']
+  if extra is None or extra:
+    raise Fail(f'{root.name}: target {flash["target"]} would not run only its flasher: '
+               f'{"ninja -n failed" if extra is None else extra[:3]}; rebuild the record')
+
+
+@contextlib.contextmanager
+def build_lock(root, wait=True):
+  """Excludes a rebuild of a shared build dir while another build or a HIL flash uses it; without `wait`, a held
+  lock raises BlockingIOError."""
+  root.parent.mkdir(parents=True, exist_ok=True)
+  with open(root.with_name(root.name + '.lock'), 'a') as f:
+    fcntl.flock(f, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
+    yield
+
+
+def build_board(board, backend, args, idf, flasher=None):
   port = port_of(board)
   # a board built with another backend than its port's (codeql's make) gets its own root
   name = board if backend == backend_of(port) else f'{board}-{backend}'
@@ -638,17 +820,26 @@ def build_board(board, backend, args, idf):
   if problem:
     rec.update(status='error', firstError=problem)
     return rec
+  with build_lock(root) if args.shared else contextlib.nullcontext():
+    return build_root(board, port, backend, root, rec, args, idf, flasher)
+
+
+def build_root(board, port, backend, root, rec, args, idf, flasher):
+  defines = args.define
+  if flasher:
+    flasher, extra = flasher
+    defines = defines + extra
   # always from clean: make cannot see a changed define or flag, so a reused root could pass stale firmware
   shutil.rmtree(root, ignore_errors=True)
   root.mkdir(parents=True)
   log = root / 'check_build.log'
   try:
     if backend == 'make':
-      ok, apps = build_make(port, board, root, args.define, log, args.verbose, rec)
+      ok, apps = build_make(port, board, root, defines, log, args.verbose, rec)
     elif backend == 'cmake':
-      ok, apps = build_cmake(port, board, root, args.define, log, args.verbose)
+      ok, apps = build_cmake(port, board, root, defines, log, args.verbose)
     else:
-      ok, apps = build_idf(board, root, args.define, log, args.verbose, args.idf, idf['image'])
+      ok, apps = build_idf(board, root, defines, log, args.verbose, args.idf, idf['image'])
   except OSError as e:
     rec.update(status='error', firstError=f'{type(e).__name__}: {e}', log=str(log.relative_to(ROOT)))
     return rec
@@ -656,6 +847,8 @@ def build_board(board, backend, args, idf):
     rec.update(status='failed', firstError=first_error(log.read_text(errors='replace')), log=str(log.relative_to(ROOT)))
     return rec
   missing = [p for p in expected_artifacts(port, board, backend, root) if not p.is_file()]
+  if backend == 'idf':
+    missing += [root / c for c in IDF_CONFIG if not (root / c).is_file()]
   missing += [a for a in apps if not list(a.glob('*.elf'))]
   if missing:
     rec.update(status='failed', log=str(log.relative_to(ROOT)), firstError='missing expected artifact(s): ' +
@@ -663,6 +856,16 @@ def build_board(board, backend, args, idf):
     return rec
   rec['artifacts'] = sorted(str(p.relative_to(root)) for p in (root / '_bin').rglob('*') if p.is_file())
   rec['artifacts'] += sorted(str(e.relative_to(root)) for a in apps for e in a.glob('*.elf'))
+  if backend == 'idf':
+    rec['artifacts'] += list(IDF_CONFIG)
+  if flasher:
+    try:
+      rec['flash'] = flash_binding(flasher, root, functools.partial(ninja_in, backend, args.idf, idf.get('image')))
+    except (Fail, OSError) as e:
+      rec.update(status='failed', firstError=str(e), log=str(log.relative_to(ROOT)))
+      return rec
+    rec['flash']['defines'] = extra
+    rec['artifacts'] += [a for a in rec['flash']['inputs'] if a not in rec['artifacts']]
   if args.shared:
     rec['sha256'] = {a: hashlib.sha256((root / a).read_bytes()).hexdigest() for a in rec['artifacts']}
   else:
@@ -740,7 +943,7 @@ def main(argv=None):
   src.add_argument('--diff-file', metavar='FILE', help='changed paths, one per line (--select-only)')
   ap.add_argument('--worktree', action='store_true', help='with --base: add uncommitted and untracked files')
   ap.add_argument('--select-only', action='store_true', help='print the selection manifest and stop')
-  ap.add_argument('--hil-config', metavar='ROSTER', help="with --select-only: the host's HIL roster, adds `hil`")
+  ap.add_argument('--hil-config', metavar='ROSTER', help="the host's HIL roster: with --select-only adds `hil`; with --board --shared binds the flash target (a HIL record)")
   ap.add_argument('-D', '--define', action='append', default=[], metavar='VAR=VAL',
                   help="passed to the board's backend: make VAR=VAL, cmake/idf -DVAR=VAL")
   ap.add_argument('--shared', action='store_true', help='build into cmake-build/cmake-build-<board> and keep it')
@@ -754,8 +957,10 @@ def main(argv=None):
     ap.error('--worktree needs --base')
   if args.diff_file and not args.select_only:
     ap.error('--diff-file is for --select-only')
-  if args.hil_config and not args.select_only:
-    ap.error('--hil-config is for --select-only')
+  if args.hil_config and not (args.select_only or (args.board and args.shared)):
+    ap.error('--hil-config is for --select-only, or a HIL record with --board and --shared')
+  if args.hil_config and args.board and any(d.split('=', 1)[0].split(':', 1)[0] in SELECTION for d in args.define):
+    ap.error(f'a HIL record takes {", ".join(SELECTION)} from the roster, not -D')
   if args.backend and not (args.board and args.shared):
     ap.error('--backend needs --board and --shared')
   if args.select_only and args.board:
@@ -792,7 +997,8 @@ def main(argv=None):
         v = subprocess.run(['idf.py', '--version'], capture_output=True, text=True)
         idf['version'] = (v.stdout or v.stderr).strip()
         idf['matchesCi'] = ci in idf['version']
-    records = [build_board(b, backend, args, idf) for (b, backend) in sel['boards']]
+    flashers = {b: roster_flasher(args.hil_config, b) for b, _ in sel['boards']} if args.hil_config else {}
+    records = [build_board(b, backend, args, idf, flashers.get(b)) for (b, backend) in sel['boards']]
     for r in records:
       r['selectedBy'] = sel['boards'][(r['board'], r['backend'])]
     # an input that moved while building, even if restored before the HIL checks it, leaves firmware
