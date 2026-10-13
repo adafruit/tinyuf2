@@ -719,6 +719,79 @@ def flash_binding(flasher, root, ninja):
   return {'target': target, 'flasher': flasher, 'command': cmds[0], 'inputs': list(inputs)}
 
 
+def dry_run(ninja, target=None):
+  """The commands `ninja -n -v` would run; whatever precedes ninja's own output (the IDF image's entrypoint
+  banner) is skipped. None when ninja failed or its output is not ninja's."""
+  r = ninja(['-n', '-v'] + ([target] if target else []))
+  lines = r.stdout.splitlines()
+  start = next((i for i, l in enumerate(lines) if l.startswith('ninja: Entering directory')), None)
+  if r.returncode or start is None:
+    return None
+  steps = [l for l in lines[start + 1:] if l.strip() and l != 'ninja: no work to do.']
+  return None if any(not re.match(r'\[\d+/\d+\] ', l) for l in steps) else [l.split('] ', 1)[1] for l in steps]
+
+
+def idf_step_writes_no_input(cmd, root, chip):
+  """True for a command ESP-IDF's flash target always runs before its flasher, segment by `&&` segment in one
+  of the forms TinyUF2's port and IDF generate: the bootloader subproject's build (its own tree is dry-run too),
+  stamps, read-only size checks, the port's post-build (combined.bin, copies into _bin, the update app's C
+  array). None of them writes a flash input; anything else, a shell operator included, is refused."""
+  cwd, py, cm = None, r'\S*/python[\d.]*', r'\S*/cmake'
+  # a path resolved, against a boundary resolved only up to the build root, so no symlink inside the tree moves
+  # either; a write never lands on a flash input
+  real = Path(os.path.realpath(root))
+  inputs = {Path(os.path.realpath(root / i)) for i in FLASH['esptool'][1]}
+  under = lambda p, d='': Path(os.path.realpath(p)).is_relative_to(real / d)   # noqa: E731
+  writes = lambda p, d='': under(p, d) and Path(os.path.realpath(p)) not in inputs   # noqa: E731
+  postbuild = root / 'tinyuf2.postbuild.sh'
+  for seg in cmd.split(' && '):
+    if re.search(r'[;|<>&$`(){}\\]', seg):
+      return False
+    argv = shlex.split(seg)
+    head, tail = ' '.join(argv[:3]), argv[3:]
+    ok = argv[:1] == ['cd'] and len(argv) == 2 and under(argv[1]) or \
+      re.fullmatch(cm, argv[0]) and (
+        argv[1:] == ['--build', '.'] and cwd == root / 'bootloader' or
+        argv[1:] == ['-E', 'echo_append'] or argv[1:3] == ['-E', 'echo'] and len(argv) == 4 or
+        argv[1:3] in (['-E', 'make_directory'], ['-E', 'touch']) and len(argv) == 4 and writes(argv[3]) or
+        argv[1:3] == ['-E', 'copy'] and len(argv) == 5 and writes(argv[4], '_bin')) or \
+      re.fullmatch(py + r' \S*/partition_table/check_sizes\.py --offset', head) and tail[1:] in (
+        ['partition', '--type', 'app', str(root / 'partition_table/partition-table.bin'), str(root / 'tinyuf2.bin')],
+        ['bootloader', '0x0', str(root / 'bootloader/bootloader.bin')]) or \
+      re.fullmatch(py + r' \S*/lib/uf2/utils/uf2conv\.py --carray', head) and \
+      tail == ['-o', str(root / 'apps/update_tinyuf2/bootloader_bin.c'), str(root / 'tinyuf2.bin')] and writes(tail[1]) or \
+      argv == ['bash', str(postbuild)] and cwd == root and writes(root / 'combined.bin') and postbuild.is_file() and \
+      postbuild.read_text() == (
+        '#!/bin/bash\necho "Creating combined.bin"\n'
+        f"esptool.py --chip {chip} merge_bin --output combined.bin $(tr '\\n' ' ' < {root / 'flash_args'})\n")
+    if not ok:
+      return False
+    if argv[0] == 'cd':
+      cwd = Path(argv[1])
+  return True
+
+
+def flash_ready(root, flash, ninja_for):
+  """Before a HIL flash, under the build lock: the target still runs the recorded command, and a dry run shows it
+  would run nothing else that could write a flash input: no rebuild, relink or CMake re-run (ESP-IDF re-runs CMake
+  after any commit, through its git describe dependency). `ninja_for(dir)` runs ninja on dir in the build's
+  environment."""
+  if flash_binding(flash['flasher'], root, ninja_for(root))['command'] != flash['command']:
+    raise Fail(f'{root.name}: target {flash["target"]} no longer runs the recorded command; rebuild the record')
+  steps = dry_run(ninja_for(root), flash['target'])
+  extra = None
+  if steps is not None:
+    others = [c for c in steps if c != flash['command']]
+    if flash['flasher']['name'] == 'esptool':
+      nested = dry_run(ninja_for(root / 'bootloader'))   # always: the outer build step runs whatever it needs
+      others += ['bootloader: ninja -n failed'] if nested is None else nested
+      others = [c for c in others if not idf_step_writes_no_input(c, root, flash['flasher']['device'])]
+    extra = others if steps.count(flash['command']) == 1 else others + ['no flash command']
+  if extra is None or extra:
+    raise Fail(f'{root.name}: target {flash["target"]} would not run only its flasher: '
+               f'{"ninja -n failed" if extra is None else extra[:3]}; rebuild the record')
+
+
 @contextlib.contextmanager
 def build_lock(root):
   """Excludes a rebuild of a shared build dir while another build or a HIL flash uses it."""
