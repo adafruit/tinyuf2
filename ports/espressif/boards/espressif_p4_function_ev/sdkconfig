@@ -1,0 +1,10 @@
+# Board Specific Config
+
+# Partition Table
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-16MB.csv"
+
+# Serial flasher config
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+
+# Function-EV-Board v1.4 carries P4 chip revision v1.x, whose images do not run on v3.x silicon
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y

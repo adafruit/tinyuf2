@@ -70,12 +70,16 @@ void board_usb_init(void) {
   // same PHY setup as TinyUF2's boards.c board_dfu_init()
   usb_phy_config_t const phy_conf = {
     .controller = USB_PHY_CTRL_OTG,
+#if CONFIG_IDF_TARGET_ESP32P4
+    .target = USB_PHY_TARGET_UTMI, // OTG HS
+#else
     .target = USB_PHY_TARGET_INT,
+#endif
     .otg_mode = USB_OTG_MODE_DEVICE,
     // https://github.com/hathach/tinyusb/issues/2943#issuecomment-2601888322
     .otg_speed = USB_PHY_SPEED_UNDEFINED,
   };
-  usb_new_phy(&phy_conf, &phy_hdl);
+  ESP_ERROR_CHECK(usb_new_phy(&phy_conf, &phy_hdl));
 }
 
 uint8_t board_usb_get_serial(uint8_t serial_id[16]) {

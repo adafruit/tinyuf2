@@ -205,7 +205,7 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
           #ifdef PIN_DOUBLE_RESET_RC
           // Double reset detect if board implements 1-bit memory with RC components
           esp_rom_gpio_pad_select_gpio(PIN_DOUBLE_RESET_RC);
-          PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[PIN_DOUBLE_RESET_RC]);
+          gpio_ll_input_enable(&GPIO, PIN_DOUBLE_RESET_RC);
           if ( gpio_ll_get_level(&GPIO, PIN_DOUBLE_RESET_RC) == 1 ) {
             // RC pin is already high, double reset detected
             ESP_LOGI(TAG, "Detect double reset using RC on GPIO %d to enter UF2 bootloader", PIN_DOUBLE_RESET_RC);
@@ -219,7 +219,7 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
           #endif
 
           if (boot_index != FACTORY_INDEX) {
-            #if SOC_USB_SERIAL_JTAG_SUPPORTED
+            #if SOC_USB_SERIAL_JTAG_SUPPORTED && !CONFIG_IDF_TARGET_ESP32P4
             // startup with USB JTAG, while delaying here, USB JTAG will be enumerated which can cause confusion when
             // switching to OTG in application. Switch to OTG PHY here to avoid this.
             uint32_t const rtc_cntl_usb_conf = READ_PERI_REG(RTC_CNTL_USB_CONF_REG);
@@ -232,7 +232,7 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
             }
 
             esp_rom_gpio_pad_select_gpio(PIN_BUTTON_UF2);
-            PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[PIN_BUTTON_UF2]);
+            gpio_ll_input_enable(&GPIO, PIN_BUTTON_UF2);
             esp_rom_gpio_pad_pullup_only(PIN_BUTTON_UF2);
 
             // run the GPIO detection at least once even if UF2_DETECTION_DELAY_MS is set to zero
@@ -249,7 +249,7 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
               board_led_off();
             }
 
-            #if SOC_USB_SERIAL_JTAG_SUPPORTED
+            #if SOC_USB_SERIAL_JTAG_SUPPORTED && !CONFIG_IDF_TARGET_ESP32P4
             WRITE_PERI_REG(RTC_CNTL_USB_CONF_REG, rtc_cntl_usb_conf);
             #endif
           }

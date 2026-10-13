@@ -7,6 +7,8 @@ set(tusb_src "${CMAKE_CURRENT_SOURCE_DIR}/../../../../lib/tinyusb/src")
 
 if(target STREQUAL "esp32s3")
   set(tusb_mcu "OPT_MCU_ESP32S3")
+elseif(target STREQUAL "esp32p4")
+  set(tusb_mcu "OPT_MCU_ESP32P4")
 elseif(target STREQUAL "esp32s2")
   set(tusb_mcu "OPT_MCU_ESP32S2")
 else()

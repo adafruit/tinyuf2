@@ -43,6 +43,7 @@
 | espressif_esp32s3_eye | Espressif ESP32S3 EYE | 0x303A:0x700E | https://github.com/espressif/esp-who/blob/master/docs/en/get-started/ESP32-S3-EYE_Getting_Started_Guide.md |
 | espressif_hmi_1 | Espressif HMI 1 | 0x303A:0x7000 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-esp32-s2-kaluga-1-kit.html |
 | espressif_kaluga_1 | Espressif Kaluga 1 | 0x239A:0x00C7 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-esp32-s2-kaluga-1-kit.html |
+| espressif_p4_function_ev | Espressif ESP32P4 Function EV | 0x239A:0x00A5 | https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32p4/esp32-p4-function-ev-board/index.html |
 | espressif_saola_1_wroom | Espressif Saola 1M WROOM | 0x239A:0x00A7 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-saola-1-v1.2.html |
 | espressif_saola_1_wrover | Espressif Saola 1R WROVER | 0x239A:0x00A5 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-saola-1-v1.2.html |
 | firebeetle2_esp32s3 | DFRobot FireBeetle 2 ESP32-S3 | 0x3343:0x83CF | https://www.dfrobot.com/product-2676.html |
