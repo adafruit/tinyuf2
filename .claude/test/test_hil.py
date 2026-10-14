@@ -2046,6 +2046,10 @@ JLINK_NO_PROBE = ('[1/1] cd /b && JLinkExe -USB 999999999 -ExitOnError 1\nJ-Link
                   'ninja: build stopped: subcommand failed.\n')
 
 
+# J-Link's connect to an STM32F303VC with TinyUF2's write protection set, as the bench recorded it
+F3_UNPROTECT = ('Active write protection detected.\nDevice will be unsecured now.\nFailed to unlock device.\n'
+                'Can not attach to CPU. Trying connect under reset.\n')
+
 class FakeRig:
   """A probe and a UF2 drive that behave as the battery expects; each test breaks one thing."""
 
@@ -2253,13 +2257,11 @@ class BatteryRun(Tmp):
 
   def test_the_f3_unprotect_note_passes_on_the_f303_only_and_only_whole(self):
     hexp = self.tmp / 'tinyuf2.hex'
-    note = ('Active write protection detected.\nDevice will be unsecured now.\nFailed to unlock device.\n'
-            'Can not attach to CPU. Trying connect under reset.\n')
-    out = jlink_target(hexp).replace('ResetTarget() start\n', 'InitTarget() start\n' + note + 'ResetTarget() start\n')
+    out = jlink_target(hexp).replace('ResetTarget() start\n', 'InitTarget() start\n' + F3_UNPROTECT + 'ResetTarget() start\n')
     f3 = {'device': 'stm32f303vc', 'probe': '1'}
     ht.judge_jlink_target(0, out, f3, hexp)
     for what, board, text in (('another device', {'device': 'MIMXRT1011DAE5A', 'probe': '1'}, out),
-                              ('the unlock line alone', f3, out.replace(note, 'Failed to unlock device.\n')),
+                              ('the unlock line alone', f3, out.replace(F3_UNPROTECT, 'Failed to unlock device.\n')),
                               ('no connect under reset', f3, out.replace('Can not attach to CPU. Trying connect under reset.\n', ''))):
       with self.subTest(what), self.assertRaises(ht.StepFail):
         ht.judge_jlink_target(0, text, board, hexp)
@@ -2408,10 +2410,8 @@ class BatteryRun(Tmp):
     aircr = [f'w4 {ht.SCB_AIRCR:08X} {ht.AIRCR_SYSRESETREQ:08X}']
     issued = f'J-Link>{aircr[0]}\nCortex-M4 identified.\nWriting 05FA0004 -> E000ED0C\n'
     f3 = ht.Probe({'probe': '1', 'device': 'stm32f303vc', 'if': 'SWD', 'speed': '4000'}, self.tmp, None)
-    note = ('Active write protection detected.\nDevice will be unsecured now.\nFailed to unlock device.\n'
-            'Can not attach to CPU. Trying connect under reset.\n')
     for what, code, out in (('dropped after the write', 1, issued + 'Cannot read register 15 (R15)\n'),
-                            ('after the F3 unprotect note', 0, issued.replace('Cortex-M4', note + 'Cortex-M4'))):
+                            ('after the F3 unprotect note', 0, issued.replace('Cortex-M4', F3_UNPROTECT + 'Cortex-M4'))):
       with self.subTest(what), mock.patch.object(ht, 'spawn', lambda *a, c=code, o=out, **k: (c, o)):
         f3.run(aircr, judge=False)
     for what, code, out in (('never connected', 1, f'J-Link>{aircr[0]}\nError occurred: Could not connect to the target device.\n'),

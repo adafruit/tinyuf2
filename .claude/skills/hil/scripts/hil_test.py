@@ -69,8 +69,8 @@ JLINK_ERRORS = (r'Verify failed|Could not|Cannot connect|ERROR|ResetTarget faile
 UDEV_RULES = ('/etc/udev/rules.d', '/run/udev/rules.d')
 # J-Link notes that are not failures, per device, each with the line that shows the operation completed
 # (bench: every MIMXRT1062 reset with an invalid app vector, then the reset halts as usual; every MIMXRT1011 reset
-# of a TinyUF2 image, which then boots; STM32F303VC: the connect to a chip with TinyUF2's write protection set,
-# after which the option bytes read RDP 0xAA with no WRP and flash is intact, despite the "Failed" line)
+# of a TinyUF2 image, which then boots; STM32F303VC: the connect that removes TinyUF2's write protection, SKILL.md
+# Limits)
 _RESET_VECTOR_NOTE = r'(?m)^Could not find valid reset vector\.\nTarget halted on flash header read\.$'
 _F3_UNPROTECT_NOTE = (r'(?m)^Active write protection detected\.\nDevice will be unsecured now\.\nFailed to unlock device\.\n'
                       r'Can not attach to CPU\. Trying connect under reset\.$')
@@ -130,16 +130,20 @@ def load_board(config, name):
   elif m.group(1) not in FLASH_LIMITS:
     raise Refused(f'{name}: no programming limits known for J-Link device {m.group(1)}')
   power = t.get('usbPower')
-  if power is not None and not (isinstance(power, dict) and set(power) == {'hub', 'port'} and
-                                isinstance(power['hub'], str) and re.fullmatch(r'[\w-]+', power['hub']) and
-                                type(power['port']) is int and 1 <= power['port'] <= 15):
-    raise Refused(f'{name}: tinyuf2.usbPower must be {{"hub": "<hub serial>", "port": <1-15>}}')
-  if power is not None and fl['name'] != 'jlink':
-    raise Refused(f'{name}: tinyuf2.usbPower is for J-Link boards only')
+  if power is not None:
+    if not (isinstance(power, dict) and set(power) == {'hub', 'port'} and isinstance(power['hub'], str) and
+            re.fullmatch(r'[\w-]+', power['hub']) and type(power['port']) is int and 1 <= power['port'] <= 15):
+      raise Refused(f'{name}: tinyuf2.usbPower must be {{"hub": "<hub serial>", "port": <1-15>}}')
+    if fl['name'] != 'jlink':
+      raise Refused(f'{name}: tinyuf2.usbPower is for J-Link boards only')
   return {'name': name, 'lock': lock, 'uid': b['uid'], 'flasher': fl['name'], 'probe': fl['uid'], 'device': m.group(1),
           'if': JLINK_IF, 'speed': JLINK_SPEED, 'port': port,
           'helper': os.path.join(tinyusb, 'test', 'hil', 'helper', 'hil_lock.py'),
           'reentry': t.get('reentry'), 'usbPower': power}
+
+
+def has_define(path, name):
+  return bool(re.search(rf'^\s*#\s*define\s+{name}\b', (ROOT / path).read_text(), re.M))
 
 
 def define(path, name):
@@ -270,10 +274,10 @@ def ld_symbol(ld, name, depth=0):
 
 def vector_count(header):
   """NUMBER_OF_INT_VECTORS, else the 16 system vectors plus IRQ 0 to the highest IRQn_Type value."""
-  text = (ROOT / header).read_text()
-  if re.search(r'^\s*#\s*define\s+NUMBER_OF_INT_VECTORS\b', text, re.M):
+  if has_define(header, 'NUMBER_OF_INT_VECTORS'):
     return num(define(header, 'NUMBER_OF_INT_VECTORS'), 'NUMBER_OF_INT_VECTORS')
-  enums = re.findall(r'typedef\s+enum\s*\{([^}]*)\}\s*IRQn_Type\s*;', re.sub(r'/\*.*?\*/|//[^\n]*', ' ', text, flags=re.S))
+  text = re.sub(r'/\*.*?\*/|//[^\n]*', ' ', (ROOT / header).read_text(), flags=re.S)
+  enums = re.findall(r'typedef\s+enum\s*\{([^}]*)\}\s*IRQn_Type\s*;', text)
   items = [i.strip() for i in enums[0].split(',') if i.strip()] if len(enums) == 1 else []
   vals = [re.fullmatch(r'\w+\s*=\s*(-?\d+)', i) for i in items]
   irqs = [int(v.group(1)) for v in vals] if items and all(vals) else []
@@ -291,7 +295,7 @@ def source_facts(board):
   if board.get('flasher') == 'esptool':
     return esp_source_facts(board, bdir)
   header, ld, flash_base, bin_base, ram = port_sources(port, bdir)
-  if re.search(r'^\s*#\s*define\s+BOARD_FLASH_APP_START\b', (ROOT / f'{bdir}/board.h').read_text(), re.M):
+  if has_define(f'{bdir}/board.h', 'BOARD_FLASH_APP_START'):
     raise Refused(f'{bdir}/board.h overrides BOARD_FLASH_APP_START; the runner reads the port default only')
   facts = {
     'flashBase': flash_base,
@@ -307,7 +311,7 @@ def source_facts(board):
     'ram': ram,
     'dblTapDelayMs': num(define('src/board_api.h', 'TINYUF2_DBL_TAP_DELAY'), 'TINYUF2_DBL_TAP_DELAY'),
   }
-  if re.search(r'^\s*#\s*define\s+TINYUF2_DBL_TAP_REG\b', (ROOT / f'ports/{port}/boards.h').read_text(), re.M):
+  if has_define(f'ports/{port}/boards.h', 'TINYUF2_DBL_TAP_REG'):
     reg = define(f'ports/{port}/boards.h', 'TINYUF2_DBL_TAP_REG')
     m = re.fullmatch(r'(\w+)->(\w+)\[(\d+)\]', reg)
     if not m:
@@ -628,6 +632,10 @@ def stopped_before_target(code, out, probe):
   return bool(no_probe) or died_at_probe_connect(code, out, probe)
 
 
+def jlink_failure(code, out, probe):
+  return {'tail': out.strip().splitlines()[-5:], 'beforeTarget': stopped_before_target(code, out, probe)}
+
+
 def judge_jlink_target(code, out, board, hex_path):
   """The tinyuf2-jlink transcript, through CMake and Ninja: JLinkExe can exit 0 with every command FAILED (no probe
   with the serial), so success is read from the transcript: this HEX downloaded, programmed or already matching,
@@ -637,8 +645,7 @@ def judge_jlink_target(code, out, board, hex_path):
                 r'0x[0-9A-F]+: (Skipped\. Contents already match|\d+ ranges? affected \(\d+ bytes\))$(?:\n.*)*?\nO\.K\.$',
                 judged, re.M)
   if code or not m or 'Script processing completed.' not in judged or re.search(JLINK_ERRORS + '|FAILED', judged):
-    raise StepFail(f'tinyuf2-jlink failed (exit {code})', {'tail': out.strip().splitlines()[-5:],
-                                                           'beforeTarget': stopped_before_target(code, out, board['probe'])})
+    raise StepFail(f'tinyuf2-jlink failed (exit {code})', jlink_failure(code, out, board['probe']))
   return {'flashDownload': m[1]}
 
 
@@ -675,15 +682,13 @@ class Probe:
     judged = re.sub(BENIGN[self.b['device']], '', out) if self.b['device'] in BENIGN else out
     # a crash fails even a reset session (judge=False): its commands may not have run
     if code < 0 or judge and (code or re.search(JLINK_ERRORS, judged)):
-      raise StepFail(f'JLinkExe failed (exit {code})', {'tail': out.strip().splitlines()[-5:],
-                                                        'beforeTarget': stopped_before_target(code, out, self.b['probe'])})
+      raise StepFail(f'JLinkExe failed (exit {code})', jlink_failure(code, out, self.b['probe']))
     if not judge and commands[-1].startswith('w4 '):
       _, addr, value = commands[-1].split()
       head, issued, _ = judged.partition(f'Writing {value} -> {addr}')
       if not issued or re.search(JLINK_ERRORS, head):
         raise StepFail(f'the reset write was not issued on a connected target (exit {code})',
-                       {'tail': out.strip().splitlines()[-5:],
-                        'beforeTarget': stopped_before_target(code, out, self.b['probe'])})
+                       jlink_failure(code, out, self.b['probe']))
     return out
 
   def mem32(self, addrs):
@@ -855,13 +860,10 @@ def port_dir(cfg):
 
 
 class PortPower:
-  """The roster's usbPower, for a board whose TinyUF2 signals no disconnect when it comes up after a reset
-  (SKILL.md Limits): while DFU is awaited, its hub port is power-cycled once the host has left the device connected
-  but unaddressed (sysfs port state "default") for STUCK s of this wait, at most once per GAP s. The cycle writes
-  the port's sysfs `disable`, which the kernel runs under the hub's lock, after any enumeration in progress, and
-  which disconnects the child before switching VBUS off; a raw hub request (uhubctl) that met an enumeration once
-  killed the host controller (SKILL.md Limits)."""
+  """The roster's usbPower (SKILL.md Roster): while DFU is awaited, the hub port's sysfs `disable` is written 1 then 0
+  once the port sat in state "default" for STUCK s of this wait, at most once per GAP s."""
   STUCK, GAP, OFF, TIMEOUT = 2.0, 10.0, 1, 15
+  RESTORED = {True: 'restored', False: 'NOT restored', None: 'not attempted: a cycle child survived'}
   # each write and its read-back in a bounded child: both take the hub's lock and talk to the hub
   SET = 'echo "$2" > "$1" && [ "$(cat "$1")" = "$2" ]'
 
@@ -890,17 +892,16 @@ class PortPower:
     self.since, disable, done = None, port / 'disable', False
     try:
       off = self.set(disable, '1')
-      if off == (0, ''):
+      if off:
         time.sleep(self.OFF)
       on = self.set(disable, '0')
-      done = (off, on) == ((0, ''), (0, ''))
+      done = off and on
     finally:
       self.last = time.monotonic()
       if not done:   # an interruption or failure past the off write must not leave the port without VBUS
         restored = self.restore(disable)
         with open(self.log, 'a') as f:
-          f.write(f'# power-cycle of {port} failed; power-on '
-                  f'{ {True: "restored", False: "NOT restored", None: "not attempted: a cycle child survived"}[restored]}\n')
+          f.write(f'# power-cycle of {port} failed; power-on {self.RESTORED[restored]}\n')
     if not done:
       raise StepFail(f'could not power-cycle {port}', {'off': off, 'on': on, 'restored': restored})
     self.cycles.append(port.name)
@@ -912,13 +913,13 @@ class PortPower:
     if any([reap(p) for p in ours]):
       return None
     try:
-      return self.set(disable, '0') == (0, '')
+      return self.set(disable, '0')
     except StepFail:
       return False
 
   def set(self, disable, value):
     code, out = spawn(['sh', '-c', self.SET, 'sh', disable, value], self.log, self.TIMEOUT)
-    return code, out.strip()
+    return code == 0 and not out.strip()
 
 
 def wait_for(fn, timeout, what, fail=None):
@@ -1482,8 +1483,9 @@ class Battery:
   def dfu_after_install(self, version):
     """DFU after an install: on the RT boards J-Link's download erased the bootloader's whole 64 KiB block on the
     bench, the app start with it (SKILL.md Limits), so DFU comes up; should enumeration time out instead, as when a
-    valid app boots (the F303's install keeps the app), the board's commissioned retained-register re-entry brings
-    DFU up. Any other failure fails as it is."""
+    valid app boots (the F303's install keeps the app; there the verify session's reset may land in TinyUF2's
+    double-tap window instead, SKILL.md Limits), the board's commissioned retained-register re-entry brings DFU up.
+    Any other failure fails as it is."""
     try:
       return self.dfu(version)
     except NotEnumerated as e:
