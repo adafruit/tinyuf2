@@ -46,6 +46,11 @@ bool board_reset_by_option_bytes(void)
 
 void board_init(void)
 {
+#ifdef BUILD_APPLICATION
+  // system_stm32f3xx.c: SystemInit() will reset vector table, set it here if we are building application
+  SCB->VTOR = (uint32_t) BOARD_FLASH_APP_START;
+#endif
+
   // Check asap to ensure correct reason
   reset_by_option_bytes = !!(__HAL_RCC_GET_FLAG(RCC_FLAG_OBLRST));
 

@@ -24,3 +24,4 @@ family_flash_jlink(tinyuf2 hex)
 # Application
 #------------------------------------
 family_add_app(update-tinyuf2 ${TOP}/apps/self_update SELF_UPDATE)
+family_add_app(blinky ${TOP}/apps/blinky)

@@ -127,7 +127,7 @@ class Selection(unittest.TestCase):
 
   def test_top_level_app_selects_ports_whose_backend_compiles_it(self):
     ports = {cb.port_of(b) for b, _ in classify('apps/blinky/src/blinky.c')[2]}
-    self.assertEqual(ports, {'espressif', 'maxim', 'mimxrt10xx', 'stm32f4', 'stm32h5'})
+    self.assertEqual(ports, {'espressif', 'maxim', 'mimxrt10xx', 'stm32f3', 'stm32f4', 'stm32h5'})
 
   def test_dependency_selects_the_ports_get_deps_names(self):
     self.assertEqual(classify('lib/mcu/st/cmsis_device_f4/x.h')[2], [('feather_stm32f405_express', 'cmake')])
@@ -959,7 +959,7 @@ class BackendCommands(unittest.TestCase):
     self.assertEqual(names('mimxrt10xx', 'metro_m7_1011_sd', 'cmake'), rt | {'_bin/apps/factory_test_metro_sd.uf2'})
     self.assertEqual(names('mimxrt10xx', 'imxrt1060_evk', 'cmake'), rt)
     self.assertEqual(names('stm32f3', 'stm32f303disco', 'cmake'),
-                     {'_bin/tinyuf2.bin', '_bin/tinyuf2.hex', '_bin/apps/update-tinyuf2.uf2'})
+                     {'_bin/tinyuf2.bin', '_bin/tinyuf2.hex', '_bin/apps/update-tinyuf2.uf2', '_bin/apps/blinky.uf2'})
 
 
 class FirstError(unittest.TestCase):
