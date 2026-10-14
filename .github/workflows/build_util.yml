@@ -9,6 +9,10 @@ on:
       boards:
         required: true
         type: string
+      build-system:
+        required: false
+        type: string
+        default: 'make'
       toolchain:
         required: true
         type: string
@@ -52,8 +56,18 @@ jobs:
       - name: Build
         if: inputs.toolchain != 'esp-idf'
         run: |
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=MinSizeRel -DBOARD=${{ matrix.board }} ports/${{ inputs.port }}
-          cmake --build build
+          if [[ ${{ inputs.build-system }} == cmake ]]; then
+            cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=MinSizeRel -DBOARD=${{ matrix.board }} ports/${{ inputs.port }}
+            cmake --build build
+          else
+            make -j$(nproc) -C ports/${{ inputs.port }} BOARD=${{ matrix.board }} all self-update
+            make -C ports/${{ inputs.port }} BOARD=${{ matrix.board }} copy-artifact
+            for app in ports/${{ inputs.port }}/apps/*/; do
+              if [ -f "$app/Makefile" ] && [ "$(basename $app)" != self_update ]; then
+                make -j$(nproc) -C $app BOARD=${{ matrix.board }} all
+              fi
+            done
+          fi
 
       - name: Build using ESP-IDF docker
         if: inputs.toolchain == 'esp-idf'
@@ -74,7 +88,9 @@ jobs:
             cp ${{ env.BIN_PATH }}/apps/update-tinyuf2.uf2 update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
           else
             UPDATE_UF2=${{ env.BIN_PATH }}/apps/update-tinyuf2.uf2
-            if [[ ${{ inputs.release-names }} == make ]]; then
+            if [[ ${{ inputs.build-system }} == make ]]; then
+              UPDATE_UF2=${{ env.BIN_PATH }}/apps/update-tinyuf2-${{ matrix.board }}.uf2
+            elif [[ ${{ inputs.release-names }} == make ]]; then
               for f in $(find ${{ env.BIN_PATH }} -type f); do
                 mv $f ${f%.*}-${{ matrix.board }}.${f##*.}
               done

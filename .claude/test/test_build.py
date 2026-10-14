@@ -40,8 +40,8 @@ def ci_jobs():
     toolchain = re.search(r"toolchain:\s*'([^']+)'", code)
     if not toolchain or 'build_util.yml' not in code:
       continue
-    ports = re.findall(r"^\s*-\s*'(\w+)'", code, re.M) or re.findall(r"^\s*port:\s*'(\w+)'", code, re.M)
-    backend = 'idf' if toolchain.group(1) == 'esp-idf' else 'cmake'
+    ports = re.findall(r"^\s*-\s*'(\w+)'", code, re.M) or re.findall(r"^\s*(?:-\s*)?port:\s*'(\w+)'", code, re.M)
+    backend = 'idf' if toolchain.group(1) == 'esp-idf' else re.search(r"build-system:\s*'(\w+)'", code).group(1)
     for port in ports:
       if re.search(r'^\s*if:\s*false', code, re.M):
         disabled.add(port)
@@ -70,8 +70,8 @@ class TablesMatchTheTree(unittest.TestCase):
     for port, boards in cb.REPRESENTATIVES.items():
       for b in boards:
         self.assertTrue((ROOT / 'ports' / port / 'boards' / b).is_dir(), f'{port}/{b}')
-    for backend in ('cmake', 'idf'):
-      self.assertEqual(cb.BACKENDS[cb.port_of(cb.SMOKE[backend])], backend)
+    for backend, board in cb.SMOKE.items():
+      self.assertEqual(cb.BACKENDS[cb.port_of(board)], backend)
 
   def test_make_smoke_is_build_ymls_make_smoke_job(self):
     text = (ROOT / '.github' / 'workflows' / 'build.yml').read_text()
@@ -102,14 +102,16 @@ class Selection(unittest.TestCase):
                      ('board', 'select', [('stm32f411ce_blackpill', 'cmake')], False, False))
 
   def test_build_file_the_backend_never_reads_is_uncovered(self):
-    for path in ('ports/stm32f4/boards/stm32f411ce_blackpill/board.mk', 'ports/espressif/Makefile'):
+    for path in ('ports/stm32f4/boards/stm32f411ce_blackpill/board.mk', 'ports/espressif/Makefile',
+                 'ports/lpc55/CMakeLists.txt'):
       self.assertEqual(classify(path)[:2], ('other-backend', 'gap'), path)
 
-  def test_shared_make_file_selects_every_make_smoke_board(self):
+  def test_shared_make_file_selects_make_ports_and_every_make_smoke_board(self):
+    make_reps = [(b, 'make') for p, be in cb.BACKENDS.items() if be == 'make' for b in cb.REPRESENTATIVES[p]]
     for path in ('ports/make.mk', 'ports/rules.mk'):
       rule, effect, boards, _, _ = classify(path)
       self.assertEqual((rule, effect), ('make-shared', 'select'), path)
-      self.assertEqual(boards, sorted((b, 'make') for b in cb.MAKE_SMOKE.values()), path)
+      self.assertEqual(boards, sorted(make_reps + [(b, 'make') for b in cb.MAKE_SMOKE.values()]), path)
 
   def test_make_app_the_make_smoke_board_does_not_build_is_uncovered(self):
     # factory_test_metro_sd's Makefile builds for metro_m7_1011_sd only, make-smoke builds metro_m7_1011
@@ -150,10 +152,10 @@ class Selection(unittest.TestCase):
 
   def test_dependency_selects_the_ports_get_deps_names(self):
     self.assertEqual(classify('lib/mcu/st/cmsis_device_f4/x.h')[2], [('feather_stm32f405_express', 'cmake')])
-    self.assertEqual(classify('lib/sct_neopixel/x.c')[2], [('lpcxpresso55s69', 'cmake')])
+    self.assertEqual(classify('lib/sct_neopixel/x.c')[2], [('lpcxpresso55s69', 'make')])
 
   def test_unbuilt_ports_are_uncovered(self):
-    for path in ('ports/template_port/boards.c',):
+    for path in ('ports/template_port/boards.c', 'ports/ch32v20x/boards.c'):
       self.assertEqual(classify(path)[:2], ('unbuilt-port', 'gap'), path)
 
   def test_ghostfat_inputs(self):
@@ -325,9 +327,9 @@ class HilSelection(unittest.TestCase):
     self.assertEqual([u['target'] for u in h['uncovered']], ['stm32f4'])
 
   def test_a_build_gap_stays_uncovered_beside_a_runner_change(self):
-    h = self.hil('ports/template_port/boards.c', '.claude/skills/hil/scripts/hil_test.py')
+    h = self.hil('ports/ch32v20x/board_flash.c', '.claude/skills/hil/scripts/hil_test.py')
     self.assertEqual(h['boards'], ['lpcxpresso55s69'])
-    self.assertEqual([u['target'] for u in h['uncovered']], ['ports/template_port/boards.c'])
+    self.assertEqual([u['target'] for u in h['uncovered']], ['ports/ch32v20x/board_flash.c'])
 
   def test_a_port_change_reaches_roster_boards_that_are_not_its_representative(self):
     self.roster.write_text(json.dumps({'boards': [{'name': 'stm32f401_blackpill'}]}))
@@ -623,12 +625,11 @@ class BuildBoard(unittest.TestCase):
       rec = cb.build_board('lpcxpresso55s69', 'make', self.args, {})
     self.assertEqual(rec['status'], 'failed')
     self.assertIn('update-tinyuf2-lpcxpresso55s69.uf2', rec['firstError'])
-    # make is not lpc55's CI backend: the root is named for it
-    self.assertTrue((self.build_dir / f'cmake-build-agent-{cb.os.getpid()}-lpcxpresso55s69-make').is_dir())
+    self.assertTrue((self.build_dir / f'cmake-build-agent-{cb.os.getpid()}-lpcxpresso55s69').is_dir())
 
   def test_shared_root_is_rebuilt_from_clean_and_kept(self):
     self.args.shared = True
-    root = self.build_dir / 'cmake-build-lpcxpresso55s69-make'
+    root = self.build_dir / 'cmake-build-lpcxpresso55s69'
     root.mkdir()
     (root / 'stale.o').write_text('old configuration')
     run, _ = self.fake_make(lambda cmd: LPC55_ARTIFACTS if 'copy-artifact' in cmd else [])
