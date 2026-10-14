@@ -193,7 +193,7 @@ class Selection(unittest.TestCase):
 
 
 def ci(*paths):
-  return cb.ci_selection([cb.classify(p) for p in paths])
+  return cb.ci_selection(cb.select(paths))
 
 
 class CiSelection(unittest.TestCase):
@@ -241,11 +241,15 @@ class CiSelection(unittest.TestCase):
     self.assertEqual(ci('ports/lpc55/boards/lpcxpresso55s28/board.h', 'ports/lpc55/boards.c')['ports'],
                      {'lpc55': cb.boards_of('lpc55')})
 
-  def test_select_only_carries_it(self):
-    out = io.StringIO()
-    with contextlib.redirect_stdout(out):
-      self.assertEqual(cb.main(['--select-only', '--scope', 'ports/lpc55/boards/lpcxpresso55s28/board.h']), 0)
-    self.assertEqual(json.loads(out.getvalue())['build']['ci']['ports'], {'lpc55': ['lpcxpresso55s28']})
+  def test_ci_covers_every_board_a_tracked_path_selects_locally(self):
+    _, codeql_board = cb.codeql_build()
+    for path in cb.git('ls-files').split():
+      r = cb.classify(path)
+      if r['ci'] == cb.FULL:
+        continue
+      local = {b for b, _ in r['boards']} - ({codeql_board} if r['rule'] in ('codeql', 'make-shared') else set())
+      covered = {b for p, boards in r['ci'].items() for b in (cb.boards_of(p) if boards is None else boards)}
+      self.assertLessEqual(local, covered, path)
 
 
 class ChangedPaths(unittest.TestCase):

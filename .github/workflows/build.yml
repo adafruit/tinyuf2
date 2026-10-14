@@ -56,24 +56,10 @@ jobs:
           fetch-depth: 2
 
       # a pull request builds the boards its change reaches: HEAD is the merge commit, HEAD^1 the base it merges into
-      - name: Select boards
-        if: github.event_name == 'pull_request'
-        run: |
-          SEL="$RUNNER_TEMP/selection.json"
-          if ! python3 .claude/skills/build/scripts/check_build.py --select-only --base HEAD^1 > "$SEL"; then
-            echo "::warning::build selection failed, building the full matrix: $(cat "$SEL")"
-            rm -f "$SEL"
-          fi
-
       - name: Generate matrix json
         id: set-matrix-json
         run: |
-          SEL="$RUNNER_TEMP/selection.json"
-          if [[ "${{ github.event_name }}" == pull_request && -f "$SEL" ]]; then
-            MATRIX_JSON=$(python .github/workflows/ci_set_matrix.py --select-file "$SEL")
-          else
-            MATRIX_JSON=$(python .github/workflows/ci_set_matrix.py)
-          fi
+          MATRIX_JSON=$(python .github/workflows/ci_set_matrix.py ${{ github.event_name == 'pull_request' && '--base HEAD^1' || '' }})
           echo "matrix=$MATRIX_JSON"
           echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
 

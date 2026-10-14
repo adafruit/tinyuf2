@@ -1,11 +1,13 @@
 import argparse
 import json
+import subprocess
 import sys
 from pathlib import Path
 
 # TOP is tinyuf2 root dir
 TOP = Path(__file__).parent.parent.parent.resolve()
 GHOSTFAT = 'test_ghostfat'
+CHECK_BUILD = TOP / '.claude' / 'skills' / 'build' / 'scripts' / 'check_build.py'
 
 
 def full_matrix():
@@ -42,11 +44,20 @@ def narrow(full, manifest):
     return matrix
 
 
-def set_matrix_json(select_file=None):
+def selection(base):
+    """The build contract's selection of the change since `base`, run as a script so it never has to load."""
+    r = subprocess.run([sys.executable, str(CHECK_BUILD), '--select-only', '--base', base],
+                       cwd=TOP, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise ValueError(f'check_build.py exited {r.returncode}: {r.stdout.strip() or r.stderr.strip()}')
+    return json.loads(r.stdout)
+
+
+def set_matrix_json(base=None):
     matrix = full_matrix()
-    if select_file:
+    if base:
         try:
-            matrix = narrow(matrix, json.loads(Path(select_file).read_text()))
+            matrix = narrow(matrix, selection(base))
         except Exception as e:  # any failure builds everything rather than nothing
             # the runner reads workflow commands from stderr too, so stdout stays the JSON alone
             print(f'::warning::build selection unusable ({e}), building the full matrix', file=sys.stderr)
@@ -55,5 +66,5 @@ def set_matrix_json(select_file=None):
 
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
-    ap.add_argument('--select-file', help='check_build.py --select-only output; without it, the full matrix')
-    set_matrix_json(ap.parse_args().select_file)
+    ap.add_argument('--base', help="a pull request's base: build only the boards its change reaches")
+    set_matrix_json(ap.parse_args().base)

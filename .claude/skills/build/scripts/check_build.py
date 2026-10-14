@@ -216,12 +216,11 @@ def port_app_selection(port, path):
     calls = [c for c in cmake_app_calls(port) if c[1].endswith(f'/apps/{parts[3]}')] if len(parts) >= 5 else []
     if not calls:
       return None, f'ports/{port}/CMakeLists.txt adds no app that reads {path}', {}
-    boards = {}
+    boards, ci = {}, {}
     for name, _, enabled in calls:
       boards.update(rep_selection([port], f'builds {name}') if enabled is None else
                     {(b, 'cmake'): f'enables {name}' for b in enabled})
-    ci = whole_ports([port]) if any(enabled is None for *_, enabled in calls) else \
-      {port: [b for *_, enabled in calls for b in enabled]}
+      ci = merge_ci(ci, whole_ports([port]) if enabled is None else {port: enabled})
     return boards, f'{port} apps: {", ".join(sorted(c[0] for c in calls))}', ci
   if len(parts) >= 5 and (apps_dir / parts[3]).is_dir():
     apps = [apps_dir / parts[3]]
@@ -301,7 +300,7 @@ def merge_ci(a, b):
     return FULL
   out = dict(a)
   for p, boards in b.items():
-    out[p] = None if boards is None or (p in out and out[p] is None) else sorted({*out.get(p, []), *boards})
+    out[p] = None if boards is None or out.get(p, ()) is None else sorted({*out.get(p, []), *boards})
   return out
 
 
@@ -488,15 +487,15 @@ def select(paths):
   }
 
 
-def ci_selection(records):
+def ci_selection(sel):
   """What CI builds: every board of every port when full (ghostfat too), else each reached board."""
   ci = {}
-  for r in records:
+  for r in sel['records']:
     ci = merge_ci(ci, r['ci'])
   if ci == FULL:
     return {'full': True, 'ports': {}, 'ghostfat': True}
   return {'full': False, 'ports': {p: boards_of(p) if b is None else b for p, b in sorted(ci.items())},
-          'ghostfat': any(r['ghostfat'] for r in records)}
+          'ghostfat': sel['ghostfat']}
 
 
 def path_view(records, effect=None, keys=('path', 'rule', 'effect', 'reason')):
@@ -592,7 +591,7 @@ def manifest(sel, info, hil_config=None):
       'ghostfat': sel['ghostfat'],
       'tests': sel['tests'],
       'paths': path_view(sel['records']),
-      'ci': ci_selection(sel['records']),
+      'ci': ci_selection(sel),
     },
   }
   if hil_config:
