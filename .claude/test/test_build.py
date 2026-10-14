@@ -780,7 +780,7 @@ class HilRecord(unittest.TestCase):
              stamps, 'FLASH']
     script = root / 'tinyuf2.postbuild.sh'
     good = ('#!/bin/bash\necho "Creating combined.bin"\n'
-            f"esptool.py --chip esp32s3 merge_bin --output combined.bin $(tr '\\n' ' ' < {root}/flash_args)\n")
+            f"esptool --chip esp32s3 merge-bin --output combined.bin $(tr '\\n' ' ' < {root}/flash_args)\n")
     self.idf_tree(root)
     script.write_text(good)
     self.ready(esp, root, self.idf_tree, fresh, [boot_size])

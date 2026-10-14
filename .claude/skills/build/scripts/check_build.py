@@ -808,7 +808,7 @@ def idf_step_writes_no_input(cmd, root, chip):
       argv == ['bash', str(postbuild)] and cwd == root and writes(root / 'combined.bin') and postbuild.is_file() and \
       postbuild.read_text() == (
         '#!/bin/bash\necho "Creating combined.bin"\n'
-        f"esptool.py --chip {chip} merge_bin --output combined.bin $(tr '\\n' ' ' < {root / 'flash_args'})\n")
+        f"esptool --chip {chip} merge-bin --output combined.bin $(tr '\\n' ' ' < {root / 'flash_args'})\n")
     if not ok:
       return False
     if argv[0] == 'cd':

@@ -30,7 +30,6 @@
 
 #include "esp_private/usb_phy.h"
 
-#include "soc/usb_periph.h"
 #include "esp_private/periph_ctrl.h"
 #include "hal/usb_wrap_ll.h"
 
