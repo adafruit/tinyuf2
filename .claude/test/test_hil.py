@@ -131,11 +131,19 @@ class Roster(Tmp):
       'int uid': {'flasher': {'name': 'jlink', 'uid': 1, 'args': '-device LPC55S69_M33_0'}},
       'unknown device': {'flasher': {'name': 'jlink', 'uid': '1', 'args': '-device NRF52840_XXAA'}},
       'bad lock name': {'tinyuf2': {'lock': '../x'}},
+      'usbPower without a port': {'tinyuf2': {'usbPower': {'hub': 'PA40004'}}},
+      'usbPower port out of range': {'tinyuf2': {'usbPower': {'hub': 'PA40004', 'port': 16}}},
+      'usbPower port as text': {'tinyuf2': {'usbPower': {'hub': 'PA40004', 'port': '3'}}},
+      'usbPower hub path': {'tinyuf2': {'usbPower': {'hub': '../x', 'port': 3}}},
       'not a TinyUF2 board': {'name': 'no_such_board'},
     }
     for what, over in cases.items():
       with self.subTest(what), self.assertRaises(ht.Refused):
         ht.load_board(roster(self.tmp, **over), over.get('name', BOARD))
+
+  def test_usb_power_is_for_jlink_boards_only(self):
+    with self.assertRaisesRegex(ht.Refused, 'usbPower is for J-Link boards only'):
+      ht.load_board(s3_roster(self.tmp, tinyuf2={'reentry': 'dfu-detach', 'usbPower': {'hub': 'PA40004', 'port': 3}}), S3)
 
   def test_the_lock_helper_comes_from_an_absolute_tinyusb_dir(self):
     for value in ('', 'tinyusb'):
@@ -166,7 +174,116 @@ class Roster(Tmp):
     b = self.load(ROOT / 'test' / 'hil' / 'local.json', 'imxrt1060_evk')
     self.assertEqual((b['lock'], b['reentry']), ('mimxrt1060_evk', 'retained-register'))
     self.assertEqual(b['install'], (0x60000000, 0x6000C000))
+    f3 = self.load(ROOT / 'test' / 'hil' / 'local.json', 'stm32f303disco')
+    self.assertEqual((f3['reentry'], f3['usbPower'], f3['install'], f3['app']),
+                     ('retained-register', {'hub': 'PA40004', 'port': 3}, (0x08000000, 0x08004000), (0x08004000, 0x08040000)))
+    self.assertIsNone(b['usbPower'])
 
+
+class PortPowerCase(Tmp):
+  """A stuck port is cycled through its sysfs disable, in bounded children, only after STUCK s in "default" within
+  one wait, at most once per GAP s, and never left off."""
+
+  def setUp(self):
+    super().setUp()
+    self.sys = self.tmp / 'sys'
+    for name, cls, serial in (('5-3', '09', 'PA40004'), ('5-3.3', '00', 'x'), ('5-1', '09', 'OTHER')):
+      (self.sys / name).mkdir(parents=True)
+      (self.sys / name / 'bDeviceClass').write_text(cls + '\n')
+      (self.sys / name / 'serial').write_text(serial + '\n')
+    self.port = self.sys / '5-3' / '5-3:1.0' / '5-3-port3'
+    self.port.mkdir(parents=True)
+    (self.port / 'disable').write_text('0\n')
+    self.clock, self.writes, self.fail = [0.0], [], {}
+    real_path = ht.Path
+
+    def spawn(cmd, log, timeout, cwd=None):
+      self.assertEqual((cmd[:3], timeout), (['sh', '-c', ht.PortPower.SET], ht.PortPower.TIMEOUT))
+      value = cmd[-1]
+      self.writes.append((self.clock[0], value))
+      outcome = self.fail.pop(len(self.writes), None)
+      if isinstance(outcome, BaseException):
+        raise outcome
+      if outcome is None:
+        cmd[-2].write_text(value + '\n')
+        return 0, ''
+      return outcome
+    for p in (mock.patch.object(ht, 'Path', lambda *a: self.sys if a == ('/sys/bus/usb/devices',) else real_path(*a)),
+              mock.patch.object(ht, 'spawn', spawn),
+              mock.patch.object(ht.time, 'monotonic', lambda: self.clock[0]),
+              mock.patch.object(ht.time, 'sleep', lambda t: self.clock.__setitem__(0, self.clock[0] + t))):
+      p.start()
+      self.addCleanup(p.stop)
+    self.power = ht.PortPower({'hub': 'PA40004', 'port': 3}, self.tmp / 'hil.log')
+
+  def poll_at(self, t, state):
+    self.clock[0] = t
+    (self.port / 'state').write_text(state + '\n')
+    self.power.poll()
+
+  def disable(self):
+    return (self.port / 'disable').read_text().strip()
+
+  def test_the_hub_is_found_by_its_serial_and_cycled_after_two_stuck_seconds(self):
+    for t, state in ((0, 'default'), (1.9, 'default'), (2.0, 'configured'), (2.1, 'default'), (4.0, 'default')):
+      self.poll_at(t, state)
+    self.assertEqual(self.writes, [])   # the configured sample restarted the 2 s
+    self.poll_at(4.2, 'default')
+    self.assertEqual(self.writes, [(4.2, '1'), (5.2, '0')])   # VBUS off for 1 s
+    for t in (7.3, 9.4, 15.1):   # stuck again, but within GAP of the last cycle
+      self.poll_at(t, 'default')
+    self.assertEqual(len(self.writes), 2)
+    self.poll_at(15.3, 'default')
+    self.assertEqual((len(self.writes), self.power.cycles, self.disable()), (4, ['5-3-port3', '5-3-port3'], '0'))
+
+  def test_a_new_wait_forgets_the_stuck_time_it_did_not_observe(self):
+    self.poll_at(0, 'default')
+    self.power.start()
+    self.poll_at(100, 'default')
+    self.assertEqual(self.writes, [])
+    self.poll_at(102, 'default')
+    self.assertEqual(len(self.writes), 2)
+
+  def test_power_is_restored_after_a_failure_or_an_interruption_past_the_off_write(self):
+    for what, fail, exc in (('interrupted while off', {2: ht.Interrupted()}, ht.Interrupted),
+                            ('the on write timed out', {2: ht.StepFail('sh timed out after 15s')}, ht.StepFail),
+                            ('the on read-back failed', {2: (1, '')}, ht.StepFail)):
+      with self.subTest(what):
+        self.writes.clear()
+        self.fail.update(fail)
+        self.power = ht.PortPower({'hub': 'PA40004', 'port': 3}, self.tmp / 'hil.log')
+        self.poll_at(100, 'default')
+        with self.assertRaises(exc):
+          self.poll_at(102, 'default')
+        self.assertEqual([v for _, v in self.writes][-1], '0')
+        self.assertEqual((self.disable(), self.power.cycles), ('0', []))
+    self.assertIn('power-on restored', (self.tmp / 'hil.log').read_text())
+
+  def test_no_restore_while_an_interrupted_cycle_child_survives(self):
+    disable = self.port / 'disable'
+    child = mock.Mock(args=['sh', '-c', ht.PortPower.SET, 'sh', str(disable), '1'])
+    for survivors, restored in (([4242], 'not attempted: a cycle child survived'), ([], 'power-on restored')):
+      with self.subTest(survivors=survivors), mock.patch.object(ht, 'CHILDREN', [child]), \
+           mock.patch.object(ht, 'reap', lambda p, s=survivors: s) as _:
+        self.writes.clear()
+        self.fail[1] = ht.Interrupted()   # the off write's child is left behind, as spawn leaves it
+        self.power = ht.PortPower({'hub': 'PA40004', 'port': 3}, self.tmp / 'hil.log')
+        self.poll_at(200, 'default')
+        with self.assertRaises(ht.Interrupted):
+          self.poll_at(202, 'default')
+        self.assertEqual([v for _, v in self.writes], ['1'] if survivors else ['1', '0'])
+        self.assertIn(restored, (self.tmp / 'hil.log').read_text().splitlines()[-1])
+
+  def test_no_config_does_nothing_and_a_failed_restore_or_a_missing_hub_fails(self):
+    ht.PortPower(None, None).poll()
+    self.fail.update({1: (0, ''), 2: (1, ''), 3: (1, '')})   # off, on fails, the restore fails too
+    self.poll_at(0, 'default')
+    with self.assertRaisesRegex(ht.StepFail, 'could not power-cycle') as e:
+      self.poll_at(2.0, 'default')
+    self.assertIs(e.exception.evidence['restored'], False)
+    self.assertIn('power-on NOT restored', (self.tmp / 'hil.log').read_text())
+    with self.assertRaisesRegex(ht.StepFail, '0 USB hubs with serial GONE'):
+      ht.PortPower({'hub': 'GONE', 'port': 3}, None).poll()
 
 def bootloader_bin(path, size=0x5824, board_id=b'LPC55S69-Xpresso-revA', version=b'0.35.0 - tinyusb (x)'):
   body = b'TinyUF2 Bootloader ' + version + b'\r\nModel: x\r\nBoard-ID: ' + board_id + b'\r\n'

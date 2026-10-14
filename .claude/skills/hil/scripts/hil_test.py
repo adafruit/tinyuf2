@@ -129,10 +129,17 @@ def load_board(config, name):
       raise Refused(f'{name}: esptool is supported for espressif chips {sorted(esp.BOOTLOADER_OFFSET)} only')
   elif m.group(1) not in FLASH_LIMITS:
     raise Refused(f'{name}: no programming limits known for J-Link device {m.group(1)}')
+  power = t.get('usbPower')
+  if power is not None and not (isinstance(power, dict) and set(power) == {'hub', 'port'} and
+                                isinstance(power['hub'], str) and re.fullmatch(r'[\w-]+', power['hub']) and
+                                type(power['port']) is int and 1 <= power['port'] <= 15):
+    raise Refused(f'{name}: tinyuf2.usbPower must be {{"hub": "<hub serial>", "port": <1-15>}}')
+  if power is not None and fl['name'] != 'jlink':
+    raise Refused(f'{name}: tinyuf2.usbPower is for J-Link boards only')
   return {'name': name, 'lock': lock, 'uid': b['uid'], 'flasher': fl['name'], 'probe': fl['uid'], 'device': m.group(1),
           'if': JLINK_IF, 'speed': JLINK_SPEED, 'port': port,
           'helper': os.path.join(tinyusb, 'test', 'hil', 'helper', 'hil_lock.py'),
-          'reentry': t.get('reentry')}
+          'reentry': t.get('reentry'), 'usbPower': power}
 
 
 def define(path, name):
@@ -827,6 +834,93 @@ def block_device(usb_path):
   return None
 
 
+def hub_location(serial):
+  """uhubctl's location (the sysfs name) of the one USB hub with this serial: it follows the hub when it is
+  plugged elsewhere."""
+  hits = []
+  for d in Path('/sys/bus/usb/devices').iterdir():
+    try:
+      if (d / 'bDeviceClass').read_text().strip() == '09' and (d / 'serial').read_text().strip() == serial:
+        hits.append(d.name)
+    except OSError:
+      continue
+  if len(hits) != 1:
+    raise StepFail(f'{len(hits)} USB hubs with serial {serial}: {hits}')
+  return hits[0]
+
+
+def port_dir(cfg):
+  hub = hub_location(cfg['hub'])
+  return Path('/sys/bus/usb/devices') / hub / f'{hub}:1.0' / f'{hub}-port{cfg["port"]}'
+
+
+class PortPower:
+  """The roster's usbPower, for a board whose TinyUF2 signals no disconnect when it comes up after a reset
+  (SKILL.md Limits): while DFU is awaited, its hub port is power-cycled once the host has left the device connected
+  but unaddressed (sysfs port state "default") for STUCK s of this wait, at most once per GAP s. The cycle writes
+  the port's sysfs `disable`, which the kernel runs under the hub's lock, after any enumeration in progress, and
+  which disconnects the child before switching VBUS off; a raw hub request (uhubctl) that met an enumeration once
+  killed the host controller (SKILL.md Limits)."""
+  STUCK, GAP, OFF, TIMEOUT = 2.0, 10.0, 1, 15
+  # each write and its read-back in a bounded child: both take the hub's lock and talk to the hub
+  SET = 'echo "$2" > "$1" && [ "$(cat "$1")" = "$2" ]'
+
+  def __init__(self, cfg, log):
+    self.cfg, self.log, self.since, self.last, self.cycles = cfg, log, None, None, []
+
+  def start(self):
+    """A new wait: what the port did between waits was not observed."""
+    self.since = None
+
+  def poll(self):
+    if not self.cfg:
+      return
+    port = port_dir(self.cfg)
+    try:
+      state = (port / 'state').read_text().strip()
+    except OSError as e:
+      raise StepFail(f'cannot read {port / "state"}: {e}')
+    now = time.monotonic()
+    if state != 'default':
+      self.since = None
+    elif self.since is None:
+      self.since = now
+    if self.since is None or now - self.since < self.STUCK or self.last is not None and now - self.last < self.GAP:
+      return
+    self.since, disable, done = None, port / 'disable', False
+    try:
+      off = self.set(disable, '1')
+      if off == (0, ''):
+        time.sleep(self.OFF)
+      on = self.set(disable, '0')
+      done = (off, on) == ((0, ''), (0, ''))
+    finally:
+      self.last = time.monotonic()
+      if not done:   # an interruption or failure past the off write must not leave the port without VBUS
+        restored = self.restore(disable)
+        with open(self.log, 'a') as f:
+          f.write(f'# power-cycle of {port} failed; power-on '
+                  f'{ {True: "restored", False: "NOT restored", None: "not attempted: a cycle child survived"}[restored]}\n')
+    if not done:
+      raise StepFail(f'could not power-cycle {port}', {'off': off, 'on': on, 'restored': restored})
+    self.cycles.append(port.name)
+
+  def restore(self, disable):
+    """Power on after a failed cycle: True or False as the write and read-back went, None when a cycle child an
+    interruption or timeout left behind survives SIGKILL, since it could still write after the restore."""
+    ours = [p for p in CHILDREN if list(p.args[:3]) == ['sh', '-c', self.SET] and p.args[3:5] == ['sh', str(disable)]]
+    if any([reap(p) for p in ours]):
+      return None
+    try:
+      return self.set(disable, '0') == (0, '')
+    except StepFail:
+      return False
+
+  def set(self, disable, value):
+    code, out = spawn(['sh', '-c', self.SET, 'sh', disable, value], self.log, self.TIMEOUT)
+    return code, out.strip()
+
+
 def wait_for(fn, timeout, what, fail=None):
   end = time.monotonic() + timeout
   while time.monotonic() < end:
@@ -1335,6 +1429,7 @@ class Battery:
     self.b, self.f, self.dir, self.fail_at, self.commissioning = board, facts, workdir, fail_at, commissioning
     self.log = workdir / 'hil.log'
     self.probe = Probe(board, workdir, self.log)
+    self.power = PortPower(board.get('usbPower'), self.log)
     self.steps, self.usb_path, self.touched, self.at = [], None, False, 'setup'
     # where CURRENT.UF2 starts and the flash size INFO_UF2.TXT reports
     self.app_start, self.dfu_flash = facts.get('appStart'), facts['flashSize']
@@ -1416,7 +1511,8 @@ class Battery:
 
   def dfu(self, version):
     f = self.f
-    path = wait_for(lambda: usb_device(f['vid'], f['pid'], self.b['uid']), USB_TIMEOUT,
+    self.power.start()
+    path = wait_for(lambda: self.power.poll() or usb_device(f['vid'], f['pid'], self.b['uid']), USB_TIMEOUT,
                     f'{f["vid"]:04x}:{f["pid"]:04x} serial {self.b["uid"]}', NotEnumerated)
     if self.usb_path and path != self.usb_path:
       raise StepFail('came back on another USB port', {'usb': path, 'expected': self.usb_path})
@@ -1524,7 +1620,8 @@ class Battery:
     return {'pass': True, 'state': 'blinky copied', 'evidence': ev}
 
   def report_fields(self):
-    return {'jlinkRetried': self.probe.retried}   # the cleanup's retries land here too: the same list
+    # the cleanup's retries and cycles land here too: the same lists
+    return {'jlinkRetried': self.probe.retried, **({'portCycles': self.power.cycles} if self.power.cfg else {})}
 
   def install(self, files):
     """The record's tinyuf2-jlink target, then the BIN verified at its flash address in a session of the runner's."""
@@ -1775,6 +1872,13 @@ def check_pyusb():
 
 def check_flasher(board):
   check_esptool() if board['flasher'] == 'esptool' else check_jlink()
+  if board.get('usbPower'):
+    try:
+      disable = port_dir(board['usbPower']) / 'disable'
+    except StepFail as e:
+      raise Refused(f'{board["name"]}: usbPower: {e}')
+    if not os.access(disable, os.W_OK):
+      raise Refused(f'{board["name"]}: usbPower: {disable} is not writable (SKILL.md, Commissioning: Port power)')
 
 
 def reentry_decision(row):

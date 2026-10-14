@@ -28,7 +28,7 @@
       "name": "stm32f303disco",
       "uid": "250039001657344232383020",
       "flasher": {"name": "jlink", "uid": "000771261572", "args": "-device stm32f303vc"},
-      "tinyuf2": {}
+      "tinyuf2": {"reentry": "retained-register", "usbPower": {"hub": "PA40004", "port": 3}}
     }
   ]
 }
