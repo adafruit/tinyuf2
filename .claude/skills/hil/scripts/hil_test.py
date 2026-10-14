@@ -42,8 +42,9 @@ import hil_esp as esp  # noqa: E402
 # 0x9D800-0x9DDFF is reserved and undocumented. MIMXRT1062: FlexSPI XIP at 0x60000000 (IMXRT1060RM
 # Table 3-1) holding the EVK's 8 MiB IS25WP064A (EVK hardware user's guide 2.7). MIMXRT1011: FlexSPI XIP at
 # 0x60000000 (IMXRT1010RM Table 3-1) holding the Metro M7 1011's W25Q64JV (Metro M7 RT1011 SD revA schematic), 8 MiB.
+# STM32F303VC: 256 KiB main flash at 0x08000000 (RM0316 Rev 10 Table 2); option bytes at 0x1FFFF800 stay outside.
 FLASH_LIMITS = {'LPC55S69_M33_0': (0, 0x9D800), 'MIMXRT1062xxx6A': (0x60000000, 0x60800000),
-                'MIMXRT1011DAE5A': (0x60000000, 0x60800000)}
+                'MIMXRT1011DAE5A': (0x60000000, 0x60800000), 'stm32f303vc': (0x08000000, 0x08040000)}
 STEPS = {'jlink': ('install', 'dfu', 'copy', 'app-ran', 'reenter')}
 STEPS['esptool'] = STEPS['jlink'] + ('recopy',)
 REENTRY = {'jlink': ('retained-register',), 'esptool': ('dfu-detach',)}
@@ -63,13 +64,17 @@ USB_DFU = Path(__file__).resolve().parent / 'usb_dfu.py'
 NONCE_MAGIC, NONCE_BLOCK = b'TUF2NONC', 256   # apps/dfu_runtime/src/dfu_runtime.h
 JLINK_IF, JLINK_SPEED = 'SWD', '4000'
 CMAKE_RECORD_FILES = ('_bin/tinyuf2.bin', '_bin/apps/blinky.uf2')   # besides the flash target's inputs
-JLINK_ERRORS = r'Verify failed|Could not|Cannot connect|ERROR|ResetTarget failed|Failed to halt|CPU is not halted'
+JLINK_ERRORS = (r'Verify failed|Could not|Cannot connect|ERROR|ResetTarget failed|Failed to halt|CPU is not halted|'
+                r'Failed to unlock|Can not attach')
 UDEV_RULES = ('/etc/udev/rules.d', '/run/udev/rules.d')
 # J-Link notes that are not failures, per device, each with the line that shows the operation completed
 # (bench: every MIMXRT1062 reset with an invalid app vector, then the reset halts as usual; every MIMXRT1011 reset
-# of a TinyUF2 image, which then boots)
+# of a TinyUF2 image, which then boots; STM32F303VC: the connect to a chip with TinyUF2's write protection set,
+# after which the option bytes read RDP 0xAA with no WRP and flash is intact, despite the "Failed" line)
 _RESET_VECTOR_NOTE = r'(?m)^Could not find valid reset vector\.\nTarget halted on flash header read\.$'
-BENIGN = {'MIMXRT1062xxx6A': _RESET_VECTOR_NOTE, 'MIMXRT1011DAE5A': _RESET_VECTOR_NOTE}
+_F3_UNPROTECT_NOTE = (r'(?m)^Active write protection detected\.\nDevice will be unsecured now\.\nFailed to unlock device\.\n'
+                      r'Can not attach to CPU\. Trying connect under reset\.$')
+BENIGN = {'MIMXRT1062xxx6A': _RESET_VECTOR_NOTE, 'MIMXRT1011DAE5A': _RESET_VECTOR_NOTE, 'stm32f303vc': _F3_UNPROTECT_NOTE}
 
 
 class Refused(Exception):
@@ -183,8 +188,16 @@ def cmake_var(path, name):
 
 
 def port_sources(port, bdir):
-  """(CMSIS device header, the SDK's flash linker script, FLASH_BASE, where the BIN starts in flash) of a port
-  the HIL supports, read from the CMake files the HIL's build uses."""
+  """(CMSIS device header, the bootloader's linker script, FLASH_BASE, where the BIN starts in flash, RAM origin) of
+  a port the HIL supports, read from the CMake files the HIL's build uses."""
+  if port == 'stm32f3':
+    ld = cmake_script(f'ports/{port}/CMakeLists.txt')
+    mcus = set(re.findall(r'\bSTM32F3\d\dx[A-Z]\b', cb.code_lines(ROOT / bdir / 'board.cmake')))
+    if len(mcus) != 1:
+      raise Refused(f'{bdir}/board.cmake: expected one STM32F3 device define, found {sorted(mcus)}')
+    header = f'{cmake_var(f"ports/{port}/family.cmake", "ST_CMSIS")}/Include/{mcus.pop().lower()}.h'
+    flash_base, ram = ld_memory(ld, 'FLASH')[0], ld_memory(ld, 'RAM')[0]
+    return header, ld, flash_base, flash_base, ram
   if port != 'mimxrt10xx':
     raise Refused(f'ports/{port}: the HIL runner has no source facts for this port')
   sdk = cmake_var(f'ports/{port}/family.cmake', 'SDK_DIR')
@@ -199,7 +212,67 @@ def port_sources(port, bdir):
   flash_base = vals['_flash_base']
   # family.cmake FLASH_FCFB_ADDR: the BIN starts at the FCB, 0x400 into flash on RT1010 (IMXRT1010RM Table 9-8)
   bin_base = flash_base + (vals['_fcfb_origin'] & 0xFFF)
-  return f'{sdk}/devices/{mcu}/{mcu}.h', f'{sdk}/devices/{mcu}/gcc/{mcu}xxxxx_flexspi_nor.ld', flash_base, bin_base
+  return (f'{sdk}/devices/{mcu}/{mcu}.h', ld, flash_base, bin_base,
+          ram_origin(f'{sdk}/devices/{mcu}/gcc/{mcu}xxxxx_flexspi_nor.ld'))
+
+
+def cmake_script(path):
+  """The one linker script a port's CMakeLists.txt passes with --script=${CMAKE_CURRENT_LIST_DIR}/..."""
+  hits = re.findall(r'--script=\$\{CMAKE_CURRENT_LIST_DIR\}/([\w./-]+\.ld)(?=["\s)])', cb.code_lines(ROOT / path))
+  if len(hits) != 1:
+    raise Refused(f'{path}: expected one --script=${{CMAKE_CURRENT_LIST_DIR}}/<script>.ld, found {hits}')
+  return f'{Path(path).parent}/{hits[0]}'
+
+
+def ld_text(ld):
+  return re.sub(r'/\*.*?\*/', ' ', (ROOT / ld).read_text(), flags=re.S)
+
+
+def ld_expr(expr, what):
+  """A sum or difference of literals, each with an optional K or M suffix, e.g. 40K - 4; nothing else."""
+  term = r'(0x[0-9a-fA-F]+|\d+)([KM]?)'
+  if not re.fullmatch(rf'\s*{term}(\s*[+-]\s*{term})*\s*', expr):
+    raise Refused(f'{what}: {expr!r} is not a sum of literals')
+  v = 0
+  for sign, n, unit in re.findall(rf'([+-]?)\s*{term}', expr):
+    v += (-1 if sign == '-' else 1) * int(n, 0) * {'': 1, 'K': 1 << 10, 'M': 1 << 20}[unit]
+  return v
+
+
+def ld_memory(ld, region):
+  """(ORIGIN, LENGTH) of a MEMORY region."""
+  hits = re.findall(rf'^\s*{region}\s*\(\w+\)\s*:\s*ORIGIN\s*=\s*([^,]+),\s*LENGTH\s*=\s*([^\n]+?)\s*$', ld_text(ld), re.M)
+  if len(hits) != 1:
+    raise Refused(f'{ld}: expected one {region} memory region, found {len(hits)}')
+  return ld_expr(hits[0][0], f'{ld} {region} ORIGIN'), ld_expr(hits[0][1], f'{ld} {region} LENGTH')
+
+
+def ld_symbol(ld, name, depth=0):
+  """A symbol the script assigns once: a literal sum, ORIGIN(R) + LENGTH(R), or another such symbol."""
+  hits = re.findall(rf'(?<![\w.]){name}\s*(<<|>>|[-+*/|&]?)=(?!=)\s*([^;]+);', ld_text(ld))
+  if len(hits) != 1 or hits[0][0]:
+    raise Refused(f'{ld}: expected one plain {name} = ...;, found {[op + "=" for op, _ in hits]}')
+  rhs = hits[0][1].strip()
+  if re.fullmatch(r'[A-Za-z_]\w*', rhs) and depth < 2:
+    return ld_symbol(ld, rhs, depth + 1)
+  m = re.fullmatch(r'ORIGIN\((\w+)\)\s*\+\s*LENGTH\(\1\)', rhs)
+  if m:
+    return sum(ld_memory(ld, m.group(1)))
+  return ld_expr(rhs, f'{ld} {name}')
+
+
+def vector_count(header):
+  """NUMBER_OF_INT_VECTORS, else the 16 system vectors plus IRQ 0 to the highest IRQn_Type value."""
+  text = (ROOT / header).read_text()
+  if re.search(r'^\s*#\s*define\s+NUMBER_OF_INT_VECTORS\b', text, re.M):
+    return num(define(header, 'NUMBER_OF_INT_VECTORS'), 'NUMBER_OF_INT_VECTORS')
+  enums = re.findall(r'typedef\s+enum\s*\{([^}]*)\}\s*IRQn_Type\s*;', re.sub(r'/\*.*?\*/|//[^\n]*', ' ', text, flags=re.S))
+  items = [i.strip() for i in enums[0].split(',') if i.strip()] if len(enums) == 1 else []
+  vals = [re.fullmatch(r'\w+\s*=\s*(-?\d+)', i) for i in items]
+  irqs = [int(v.group(1)) for v in vals] if items and all(vals) else []
+  if not irqs or max(irqs) < 0:
+    raise Refused(f'{header}: neither NUMBER_OF_INT_VECTORS nor one IRQn_Type enum of NAME = decimal entries')
+  return 16 + max(irqs) + 1
 
 
 def source_facts(board):
@@ -210,7 +283,7 @@ def source_facts(board):
     raise Refused(f'{bdir} does not exist')
   if board.get('flasher') == 'esptool':
     return esp_source_facts(board, bdir)
-  header, ld, flash_base, bin_base = port_sources(port, bdir)
+  header, ld, flash_base, bin_base, ram = port_sources(port, bdir)
   if re.search(r'^\s*#\s*define\s+BOARD_FLASH_APP_START\b', (ROOT / f'{bdir}/board.h').read_text(), re.M):
     raise Refused(f'{bdir}/board.h overrides BOARD_FLASH_APP_START; the runner reads the port default only')
   facts = {
@@ -223,16 +296,19 @@ def source_facts(board):
     'pid': num(define(f'{bdir}/board.h', 'USB_PID'), 'USB_PID'),
     'boardId': define(f'{bdir}/board.h', 'UF2_BOARD_ID').strip('"'),
     'family': int(cmake_var(f'ports/{port}/family.cmake', 'UF2_FAMILY_ID'), 16),
-    'vectors': num(define(header, 'NUMBER_OF_INT_VECTORS'), 'NUMBER_OF_INT_VECTORS'),
-    'ram': ram_origin(ld),
+    'vectors': vector_count(header),
+    'ram': ram,
     'dblTapDelayMs': num(define('src/board_api.h', 'TINYUF2_DBL_TAP_DELAY'), 'TINYUF2_DBL_TAP_DELAY'),
   }
-  reg = define(f'ports/{port}/boards.h', 'TINYUF2_DBL_TAP_REG')
-  m = re.fullmatch(r'(\w+)->(\w+)\[(\d+)\]', reg)
-  if not m:
-    raise Refused(f'TINYUF2_DBL_TAP_REG {reg!r} is not PERIPH->ARRAY[N]')
-  base, offset, step = register_layout(header, m.group(1), m.group(2))
-  facts['dblTapReg'] = base + offset + step * int(m.group(3))
+  if re.search(r'^\s*#\s*define\s+TINYUF2_DBL_TAP_REG\b', (ROOT / f'ports/{port}/boards.h').read_text(), re.M):
+    reg = define(f'ports/{port}/boards.h', 'TINYUF2_DBL_TAP_REG')
+    m = re.fullmatch(r'(\w+)->(\w+)\[(\d+)\]', reg)
+    if not m:
+      raise Refused(f'TINYUF2_DBL_TAP_REG {reg!r} is not PERIPH->ARRAY[N]')
+    base, offset, step = register_layout(header, m.group(1), m.group(2))
+    facts['dblTapReg'] = base + offset + step * int(m.group(3))
+  else:   # board_api.h's default: the word the bootloader's linker script places
+    facts['dblTapReg'] = ld_symbol(ld, '_board_dfu_dbl_tap')
   facts['dblTapMagic'] = 0xf01669ef   # board_api.h DBL_TAP_MAGIC at TINYUF2_DBL_TAP_REG_SIZE 32
   if 'TINYUF2_DBL_TAP_REG_SIZE' in (ROOT / f'ports/{port}/boards.h').read_text():
     raise Refused(f'ports/{port} overrides TINYUF2_DBL_TAP_REG_SIZE: the magic would need its shift')
@@ -575,8 +651,9 @@ class Probe:
     self.retried = []
 
   def run(self, commands, judge=True):
-    """One JLinkExe session. judge=False is for a command that resets the target, which may drop the
-    connection mid-transaction: its exit is recorded, and the caller's observation is the evidence."""
+    """One JLinkExe session. judge=False is for a last `w4` that resets the target, which may drop the
+    connection mid-transaction: only its issue on a connected target is judged (J-Link's "Writing VALUE ->
+    ADDR" with no failure before it), and the caller's observation is the evidence."""
     script = self.dir / f'jlink-{time.monotonic_ns()}.jlink'
     script.write_text('\n'.join(list(commands) + ['exit']) + '\n')
     cmd = ['JLinkExe', '-USB', self.b['probe'], '-device', self.b['device'], '-if', self.b['if'], '-speed',
@@ -593,6 +670,13 @@ class Probe:
     if code < 0 or judge and (code or re.search(JLINK_ERRORS, judged)):
       raise StepFail(f'JLinkExe failed (exit {code})', {'tail': out.strip().splitlines()[-5:],
                                                         'beforeTarget': stopped_before_target(code, out, self.b['probe'])})
+    if not judge and commands[-1].startswith('w4 '):
+      _, addr, value = commands[-1].split()
+      head, issued, _ = judged.partition(f'Writing {value} -> {addr}')
+      if not issued or re.search(JLINK_ERRORS, head):
+        raise StepFail(f'the reset write was not issued on a connected target (exit {code})',
+                       {'tail': out.strip().splitlines()[-5:],
+                        'beforeTarget': stopped_before_target(code, out, self.b['probe'])})
     return out
 
   def mem32(self, addrs):
@@ -1301,9 +1385,10 @@ class Battery:
       raise StepFail(f'flash inputs changed {when}: {changed}', ev or {})
 
   def dfu_after_install(self, version):
-    """DFU after an install: J-Link's download erased the bootloader's whole 64 KiB block on the bench, the app start
-    with it (SKILL.md Limits), so DFU comes up; should enumeration time out instead, as when a valid app boots, the
-    board's commissioned retained-register re-entry brings DFU up. Any other failure fails as it is."""
+    """DFU after an install: on the RT boards J-Link's download erased the bootloader's whole 64 KiB block on the
+    bench, the app start with it (SKILL.md Limits), so DFU comes up; should enumeration time out instead, as when a
+    valid app boots (the F303's install keeps the app), the board's commissioned retained-register re-entry brings
+    DFU up. Any other failure fails as it is."""
     try:
       return self.dfu(version)
     except NotEnumerated as e:

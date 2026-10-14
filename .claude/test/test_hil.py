@@ -291,6 +291,64 @@ class SourceFacts(unittest.TestCase):
     self.assertEqual((f['dblTapReg'], f['ram']), (0x400D410C, 0x20000000))
     self.assertEqual(ht.source_facts(RT)['binBase'], 0x60000000)
 
+  def test_stm32f303disco_facts_come_from_the_source(self):
+    f = ht.source_facts({'port': 'stm32f3', 'name': 'stm32f303disco'})
+    self.assertEqual((f['flashBase'], f['binBase'], f['appStart'], f['flashSize'], f['vid'], f['pid'], f['boardId']),
+                     (0x08000000, 0x08000000, 0x08004000, 0x40000, 0xcafe, 0xffff, 'STM32F303-Discovery-MB1035D'))
+    # _board_dfu_dbl_tap = _estack, the last word of the 40K SRAM; FPU_IRQn = 81 is the highest IRQ
+    self.assertEqual((f['dblTapReg'], f['ram'], f['vectors'], f['family']), (0x20009FFC, 0x20000000, 98, 0x6b846188))
+
+  def test_linker_values_are_literal_sums_and_symbols_resolve_once(self):
+    t = tempfile.TemporaryDirectory()
+    self.addCleanup(t.cleanup)
+    (Path(t.name) / 'a.ld').write_text(textwrap.dedent('''\
+      _estack = ORIGIN(RAM) + LENGTH(RAM);   /* end of RAM */
+      _board_dfu_dbl_tap = _estack;
+      _loop = _loop2; _loop2 = _loop;
+      _twice = 1; _twice = 2;
+      _moved = 0x20009FFC; _moved -= 4;
+      _shifted = 0x20009FFC; _shifted >>= 1;
+      _shift = 1 << 4;
+      MEMORY
+      {
+        FLASH (rx)  : ORIGIN = 0x8000000, LENGTH = 16K
+        RAM (xrw)   : ORIGIN = 0x20000000, LENGTH = 40K - 4    /* reserve 4 bytes */
+        RAM2 (xrw)  : ORIGIN = 0x10000000, LENGTH = 8K * 2
+      }
+      '''))
+    with mock.patch.object(ht, 'ROOT', Path(t.name)):
+      self.assertEqual(ht.ld_memory('a.ld', 'RAM'), (0x20000000, 40 * 1024 - 4))
+      self.assertEqual(ht.ld_symbol('a.ld', '_board_dfu_dbl_tap'), 0x20009FFC)
+      for what, call in (('product', lambda: ht.ld_memory('a.ld', 'RAM2')), ('no region', lambda: ht.ld_memory('a.ld', 'CCM')),
+                         ('cycle', lambda: ht.ld_symbol('a.ld', '_loop')), ('twice', lambda: ht.ld_symbol('a.ld', '_twice')),
+                         ('compound', lambda: ht.ld_symbol('a.ld', '_moved')), ('shift', lambda: ht.ld_symbol('a.ld', '_shift')),
+                         ('compound shift', lambda: ht.ld_symbol('a.ld', '_shifted'))):
+        with self.subTest(what), self.assertRaises(ht.Refused):
+          call()
+
+  def test_the_vector_count_takes_decimal_irqn_entries_only(self):
+    t = tempfile.TemporaryDirectory()
+    self.addCleanup(t.cleanup)
+    enum = 'typedef enum {{\n  NonMaskableInt_IRQn = -14, /* = 200 */\n  USB_IRQn = 42,\n  {last}\n}} IRQn_Type;\n'
+    with mock.patch.object(ht, 'ROOT', Path(t.name)):
+      (Path(t.name) / 'ok.h').write_text(enum.format(last='FPU_IRQn = 81,   // last'))
+      self.assertEqual(ht.vector_count('ok.h'), 98)
+      for what, last in (('hex', 'FPU_IRQn = 0x51'), ('expression', 'FPU_IRQn = 80 + 1'), ('implicit', 'FPU_IRQn')):
+        (Path(t.name) / 'bad.h').write_text(enum.format(last=last))
+        with self.subTest(what), self.assertRaises(ht.Refused):
+          ht.vector_count('bad.h')
+
+  def test_the_linker_script_is_the_whole_script_argument(self):
+    t = tempfile.TemporaryDirectory()
+    self.addCleanup(t.cleanup)
+    with mock.patch.object(ht, 'ROOT', Path(t.name)):
+      (Path(t.name) / 'ok.txt').write_text('target_link_options(t PUBLIC "LINKER:--script=${CMAKE_CURRENT_LIST_DIR}/linker/a.ld")\n')
+      self.assertEqual(ht.cmake_script('ok.txt'), './linker/a.ld')
+      for what, arg in (('a longer name', 'a.ld.backup'), ('a variable suffix', 'a.ld${X}')):
+        (Path(t.name) / 'bad.txt').write_text(f'target_link_options(t PUBLIC "LINKER:--script=${{CMAKE_CURRENT_LIST_DIR}}/{arg}")\n')
+        with self.subTest(what), self.assertRaises(ht.Refused):
+          ht.cmake_script('bad.txt')
+
   def test_a_cmake_value_is_one_plain_set(self):
     t = tempfile.TemporaryDirectory()
     self.addCleanup(t.cleanup)
@@ -2076,6 +2134,19 @@ class BatteryRun(Tmp):
     with self.assertRaises(ht.StepFail):
       ht.judge_jlink_target(0, out, {'device': 'LPC55S69_M33_0', 'probe': '1'}, hexp)
 
+  def test_the_f3_unprotect_note_passes_on_the_f303_only_and_only_whole(self):
+    hexp = self.tmp / 'tinyuf2.hex'
+    note = ('Active write protection detected.\nDevice will be unsecured now.\nFailed to unlock device.\n'
+            'Can not attach to CPU. Trying connect under reset.\n')
+    out = jlink_target(hexp).replace('ResetTarget() start\n', 'InitTarget() start\n' + note + 'ResetTarget() start\n')
+    f3 = {'device': 'stm32f303vc', 'probe': '1'}
+    ht.judge_jlink_target(0, out, f3, hexp)
+    for what, board, text in (('another device', {'device': 'MIMXRT1011DAE5A', 'probe': '1'}, out),
+                              ('the unlock line alone', f3, out.replace(note, 'Failed to unlock device.\n')),
+                              ('no connect under reset', f3, out.replace('Can not attach to CPU. Trying connect under reset.\n', ''))):
+      with self.subTest(what), self.assertRaises(ht.StepFail):
+        ht.judge_jlink_target(0, text, board, hexp)
+
   def test_the_target_runs_under_the_build_lock_between_two_input_checks(self):
     bat, rig = self.battery()
     fl, hexp = self.files['flash'], self.files['hex']
@@ -2215,6 +2286,23 @@ class BatteryRun(Tmp):
             with self.assertRaisesRegex(ht.StepFail, r'exit -\d+'):
               probe.run(['h'], judge=judge)
           self.assertEqual(len(probe.retried), retries)
+
+  def test_a_reset_session_passes_only_once_its_write_was_issued_on_a_connected_target(self):
+    aircr = [f'w4 {ht.SCB_AIRCR:08X} {ht.AIRCR_SYSRESETREQ:08X}']
+    issued = f'J-Link>{aircr[0]}\nCortex-M4 identified.\nWriting 05FA0004 -> E000ED0C\n'
+    f3 = ht.Probe({'probe': '1', 'device': 'stm32f303vc', 'if': 'SWD', 'speed': '4000'}, self.tmp, None)
+    note = ('Active write protection detected.\nDevice will be unsecured now.\nFailed to unlock device.\n'
+            'Can not attach to CPU. Trying connect under reset.\n')
+    for what, code, out in (('dropped after the write', 1, issued + 'Cannot read register 15 (R15)\n'),
+                            ('after the F3 unprotect note', 0, issued.replace('Cortex-M4', note + 'Cortex-M4'))):
+      with self.subTest(what), mock.patch.object(ht, 'spawn', lambda *a, c=code, o=out, **k: (c, o)):
+        f3.run(aircr, judge=False)
+    for what, code, out in (('never connected', 1, f'J-Link>{aircr[0]}\nError occurred: Could not connect to the target device.\n'),
+                            ('unlock alone', 1, f'J-Link>{aircr[0]}\nFailed to unlock device.\nWriting 05FA0004 -> E000ED0C\n'),
+                            ('no transcript', 0, '')):
+      with self.subTest(what), mock.patch.object(ht, 'spawn', lambda *a, c=code, o=out, **k: (c, o)), \
+           self.assertRaisesRegex(ht.StepFail, 'reset write was not issued'):
+        f3.run(aircr, judge=False)
 
   def test_a_failed_reset_fails_the_session(self):
     out = 'J-Link>r\nResetTarget failed (-1).\nFailed to halt CPU.\nJ-Link>g\n\n****** Error: CPU is not halted\n'
