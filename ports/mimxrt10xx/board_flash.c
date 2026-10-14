@@ -301,6 +301,32 @@ void board_flash_erase_app(void) {
   TUF2_LOG1("TinyUF2 installation verified.\r\n");
 }
 
+#if defined(MIMXRT1011_SERIES)
+// The factory tester (PID5600 Metro M7 Brains) patches this initializer in the SDP-loaded
+// image, at __DATA_ROM + (&tester_erase_request - __DATA_RAM), to request a verified chip erase.
+// Keep its name and .data placement: the tester derives that address from the ELF.
+volatile uint32_t tester_erase_request = 0x13579BDF;
+extern uint8_t __DATA_ROM[], __DATA_RAM[];
+
+// Runs before check_dfu_mode(), so an existing app cannot start first
+void board_init2(void) {
+  if (tester_erase_request != DBL_TAP_MAGIC_ERASE_APP) {
+    return;
+  }
+
+  // Only reached when the tester uploaded this image over SDP with the erase request patched in.
+  // The image copy is what gets installed to flash: clear it so the erase stays one-shot
+  uintptr_t const offset = (uintptr_t) &tester_erase_request - (uintptr_t) __DATA_RAM;
+  *((volatile uint32_t*) ((uintptr_t) __DATA_ROM + offset)) = 0;
+  tester_erase_request = 0;
+  TINYUF2_DBL_TAP_REG = 0;
+
+  indicator_set(STATE_WRITING_STARTED);
+  board_flash_erase_app();
+  indicator_set(STATE_WRITING_FINISHED);
+}
+#endif
+
 bool board_flash_protect_bootloader(bool protect) {
   // TODO implement later
   (void)protect;
