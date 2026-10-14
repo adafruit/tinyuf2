@@ -67,14 +67,6 @@ UNBUILT = {
 }
 # compiler a port's make/cmake build needs, when not arm-none-eabi-gcc
 COMPILER = {'ch32v20x': 'riscv-none-elf-gcc'}
-# The board build.yml's make-smoke job builds with make (all, self-update, apps) for each CMake-built port it
-# covers; test_build.py holds the two equal.
-MAKE_SMOKE = {
-  'mimxrt10xx': 'metro_m7_1011',
-  'stm32f3': 'stm32f303disco',
-  'stm32f4': 'feather_stm32f405_express',
-  'stm32h5': 'stm32h563_nucleo',
-}
 # ports whose make self-update target only echoes "not implemented yet"
 NO_SELF_UPDATE = {'ch32v20x', 'kinetis_k32l2', 'stm32h7', 'stm32l4'}
 GHOSTFAT = 'test_ghostfat'
@@ -82,7 +74,7 @@ GHOSTFAT_INPUTS = ('src/ghostfat.c', 'src/favicon/', 'src/board_api.h', 'src/com
                    'lib/uf2', 'ports/family_support.cmake', 'ports/test_ghostfat/',
                    '.github/workflows/build_ghostfat.yml')
 CORE = ('src/', 'lib/', 'ports/family_support.cmake', 'CMakeLists.txt', 'cmake/', 'tools/get_deps.py')
-# make files every Makefile port includes: read by the make ports' builds and make-smoke (and CodeQL)
+# make files every Makefile port includes: read by the make ports' builds and CodeQL's
 MAKE_SHARED = ('ports/make.mk', 'ports/rules.mk')
 CONTRACT_TESTS = ('.claude/test/test_build', '.claude/test/test_hil')
 # the HIL contract's runner and rosters: a change there re-runs the battery on every roster board
@@ -315,7 +307,7 @@ def classify(path):
                boards, tests=True, hil=runner)
   if path.endswith('.md'):
     return out('docs', 'none', 'documentation')
-  _, codeql_board = codeql_build()
+  codeql_port, codeql_board = codeql_build()
   if path == CODEQL:
     return out('codeql', 'select', f'codeql-buildscript.sh builds {codeql_board} with make',
                {(codeql_board, 'make'): 'codeql build'})
@@ -326,14 +318,9 @@ def classify(path):
   if len(parts) >= 3 and parts[0] == 'ports' and parts[1] in BACKENDS:
     port = parts[1]
     if not read_by_backend(path, BACKENDS[port]):
-      smoke = MAKE_SMOKE.get(port)
-      if smoke and parts[2] == 'apps' and len(parts) >= 5:
-        enabled = app_boards(ports_dir(port) / 'apps' / parts[3])
-        if enabled is not None and smoke not in enabled:
-          return out('port-app', 'gap', f'make-smoke builds {smoke}, for which ports/{port}/apps/{parts[3]} builds nothing')
-      if smoke and (parts[2] != 'boards' or parts[3:4] == [smoke]):
-        return out('make-smoke', 'select', f'build.yml make-smoke builds {smoke} with make',
-                   {(smoke, 'make'): f'reads {path}'})
+      if port == codeql_port and parts[2] != 'apps' and (parts[2] != 'boards' or parts[3:4] == [codeql_board]):
+        return out('codeql', 'select', f'CodeQL builds {codeql_board} with make on every pull request',
+                   {(codeql_board, 'make'): f'reads {path}'})
       return out('other-backend', 'gap', f'CI builds {port} with {BACKENDS[port]}, which never reads {parts[-1]}')
     if parts[2] == 'boards' and len(parts) >= 4 and (ports_dir(port) / 'boards' / parts[3]).is_dir():
       return out('board', 'select', f'board {parts[3]} changed',
@@ -357,9 +344,9 @@ def classify(path):
         return out('dep', 'gap', f'{path}: no CI-built port uses this dependency')
       return out('dep', 'select', f'dependency of {", ".join(families)}', rep_selection(families, f'uses {path}'))
   if path in MAKE_SHARED:
-    return out('make-shared', 'select', 'every make port and make-smoke board builds with it',
+    return out('make-shared', 'select', 'every make port and the CodeQL build read it',
                {**rep_selection([p for p, be in BACKENDS.items() if be == 'make'], f'make reads {path}'),
-                **{(b, 'make'): f'make-smoke reads {path}' for b in MAKE_SMOKE.values()}})
+                (codeql_board, 'make'): f'codeql build reads {path}'})
   if path.startswith(NOTHING):
     return out('nothing', 'none', 'no firmware build reads this path')
   if path.startswith(CORE):

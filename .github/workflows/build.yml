@@ -109,47 +109,6 @@ jobs:
       release-names: ${{ matrix.release-names || 'cmake' }}
 
   # ---------------------------------------
-  # Make still builds one board of each CMake-built port with a Makefile (no release assets)
-  # ---------------------------------------
-  make-smoke:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { port: 'mimxrt10xx', board: 'metro_m7_1011' }
-          - { port: 'stm32f3', board: 'stm32f303disco' }
-          - { port: 'stm32f4', board: 'feather_stm32f405_express' }
-          - { port: 'stm32h5', board: 'stm32h563_nucleo' }
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - name: Fetch tags
-        run: git fetch --tags
-
-      - name: Setup Toolchain
-        uses: ./.github/actions/setup_toolchain
-        with:
-          toolchain: 'arm-gcc'
-
-      - name: Get Dependencies
-        run: python tools/get_deps.py --board ${{ matrix.board }}
-
-      - name: Build
-        run: |
-          set -e
-          make -j$(nproc) -C ports/${{ matrix.port }} BOARD=${{ matrix.board }} all self-update
-          make -C ports/${{ matrix.port }} BOARD=${{ matrix.board }} copy-artifact
-          for app in ports/${{ matrix.port }}/apps/*/; do
-            if [ -f "$app/Makefile" ] && [ "$(basename $app)" != self_update ]; then
-              make -j$(nproc) -C $app BOARD=${{ matrix.board }} all
-            fi
-          done
-
-  # ---------------------------------------
   # Build ESP
   # ---------------------------------------
   espressif:

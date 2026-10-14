@@ -73,14 +73,6 @@ class TablesMatchTheTree(unittest.TestCase):
     for backend, board in cb.SMOKE.items():
       self.assertEqual(cb.BACKENDS[cb.port_of(board)], backend)
 
-  def test_make_smoke_is_build_ymls_make_smoke_job(self):
-    text = (ROOT / '.github' / 'workflows' / 'build.yml').read_text()
-    job = text.split('\n  make-smoke:\n', 1)[1].split('\n\n  # ', 1)[0]
-    self.assertEqual(cb.MAKE_SMOKE, dict(re.findall(r"port:\s*'(\w+)',\s*board:\s*'(\w+)'", job)))
-    for port, board in cb.MAKE_SMOKE.items():
-      self.assertTrue((ROOT / 'ports' / port / 'Makefile').is_file(), port)
-      self.assertEqual(cb.port_of(board), port)
-
   def test_espressif_representatives_cover_every_idf_target(self):
     target = lambda b: re.search(r'IDF_TARGET "(\w+)"', (ROOT / 'ports/espressif/boards' / b / 'board.cmake').read_text())[1]
     every = {target(b.name) for b in (ROOT / 'ports/espressif/boards').iterdir() if (b / 'board.cmake').is_file()}
@@ -102,27 +94,16 @@ class Selection(unittest.TestCase):
                      ('board', 'select', [('stm32f411ce_blackpill', 'cmake')], False, False))
 
   def test_build_file_the_backend_never_reads_is_uncovered(self):
-    for path in ('ports/stm32f4/boards/stm32f411ce_blackpill/board.mk', 'ports/espressif/Makefile',
-                 'ports/lpc55/CMakeLists.txt'):
+    for path in ('ports/stm32f4/boards/stm32f411ce_blackpill/board.mk', 'ports/stm32f4/apps/self_update/Makefile',
+                 'ports/mimxrt10xx/apps/app.mk', 'ports/espressif/Makefile', 'ports/lpc55/CMakeLists.txt'):
       self.assertEqual(classify(path)[:2], ('other-backend', 'gap'), path)
 
-  def test_shared_make_file_selects_make_ports_and_every_make_smoke_board(self):
+  def test_shared_make_file_selects_make_ports_and_the_codeql_build(self):
     make_reps = [(b, 'make') for p, be in cb.BACKENDS.items() if be == 'make' for b in cb.REPRESENTATIVES[p]]
     for path in ('ports/make.mk', 'ports/rules.mk'):
       rule, effect, boards, _, _ = classify(path)
       self.assertEqual((rule, effect), ('make-shared', 'select'), path)
-      self.assertEqual(boards, sorted(make_reps + [(b, 'make') for b in cb.MAKE_SMOKE.values()]), path)
-
-  def test_make_app_the_make_smoke_board_does_not_build_is_uncovered(self):
-    # factory_test_metro_sd's Makefile builds for metro_m7_1011_sd only, make-smoke builds metro_m7_1011
-    self.assertEqual(classify('ports/mimxrt10xx/apps/factory_test_metro_sd/Makefile')[:2], ('port-app', 'gap'))
-    self.assertEqual(classify('ports/mimxrt10xx/apps/factory_test/Makefile')[:3],
-                     ('make-smoke', 'select', [('metro_m7_1011', 'make')]))
-
-  def test_make_file_of_a_make_smoke_port_selects_its_make_build(self):
-    for path in ('ports/stm32f4/apps/self_update/Makefile', 'ports/stm32f4/port.mk',
-                 'ports/stm32f4/boards/feather_stm32f405_express/board.mk'):
-      self.assertEqual(classify(path)[:3], ('make-smoke', 'select', [('feather_stm32f405_express', 'make')]), path)
+      self.assertEqual(boards, sorted(make_reps + [('feather_stm32f405_express', 'make')]), path)
 
   def test_make_files_codeql_builds_select_its_make_build(self):
     for path in ('ports/stm32f4/Makefile', 'ports/stm32f4/port.mk',
@@ -138,8 +119,6 @@ class Selection(unittest.TestCase):
     self.assertEqual(classify('ports/mimxrt10xx/apps/factory_test/main.c')[2], [('metro_m7_1011', 'cmake')])
     self.assertEqual(classify('ports/mimxrt10xx/apps/dfu_runtime/board_dfu_runtime.c')[2],
                      [('imxrt1064_evk', 'cmake'), ('imxrt1170_evk', 'cmake')])
-    # a make file of a make-smoke port: make-smoke's board, which builds every app
-    self.assertEqual(classify('ports/mimxrt10xx/apps/app.mk')[:3], ('make-smoke', 'select', [('metro_m7_1011', 'make')]))
 
   def test_app_nothing_builds_is_uncovered(self):
     self.assertEqual(classify('ports/lpc55/apps/erase_firmware/Makefile')[:2], ('port-app', 'gap'))
