@@ -192,6 +192,66 @@ class Selection(unittest.TestCase):
       cb.changed_paths(scope=['no/such/file.c'])
 
 
+def ci(*paths):
+  return cb.ci_selection(cb.select(paths))
+
+
+class CiSelection(unittest.TestCase):
+  """build.ci: what CI builds, every board a change reaches rather than the representatives."""
+  def test_board_file_selects_that_board_even_off_the_representatives(self):
+    self.assertEqual(ci('ports/lpc55/boards/lpcxpresso55s28/board.h'),
+                     {'full': False, 'ports': {'lpc55': ['lpcxpresso55s28']}, 'ghostfat': False})
+
+  def test_port_wide_changes_select_every_board_of_the_port(self):
+    for path, ports in (('ports/mimxrt10xx/board_flash.c', ['mimxrt10xx']),
+                        ('ports/lpc55/boards/no_such_board/board.h', ['lpc55']),   # a deleted board
+                        ('lib/mcu/st/cmsis_device_f4/x.h', ['stm32f4']),
+                        ('ports/make.mk', [p for p, be in cb.BACKENDS.items() if be == 'make']),
+                        ('apps/blinky/src/blinky.c', cb.ports_using_app('blinky'))):
+      self.assertEqual(ci(path), {'full': False, 'ports': {p: cb.boards_of(p) for p in sorted(ports)},
+                                  'ghostfat': False}, path)
+
+  def test_port_app_selects_the_boards_that_build_it(self):
+    self.assertEqual(ci('ports/mimxrt10xx/apps/factory_test/main.c')['ports'], {'mimxrt10xx': ['metro_m7_1011']})
+    self.assertEqual(ci('ports/mimxrt10xx/apps/dfu_runtime/board_dfu_runtime.c')['ports'],
+                     {'mimxrt10xx': cb.boards_of('mimxrt10xx')})
+    self.assertEqual(ci('ports/espressif/apps/blinky/main/CMakeLists.txt')['ports'],
+                     {'espressif': cb.boards_of('espressif')})
+
+  def test_shared_code_and_how_ci_builds_select_everything(self):
+    for path in ('lib/tinyusb', 'src/main.c', 'ports/family_support.cmake', 'tools/get_deps.py', 'some/new/file.c',
+                 '.github/workflows/build.yml', '.github/workflows/build_util.yml', '.github/actions/x/action.yml',
+                 '.github/workflows/ci_set_matrix.py', '.claude/skills/build/scripts/check_build.py'):
+      self.assertEqual(ci(path), {'full': True, 'ports': {}, 'ghostfat': True}, path)
+    self.assertTrue(ci('ports/lpc55/boards/lpcxpresso55s28/board.h', 'lib/tinyusb')['full'])
+
+  def test_ghostfat_input_selects_ghostfat_only(self):
+    self.assertEqual(ci('ports/test_ghostfat/main.c'), {'full': False, 'ports': {}, 'ghostfat': True})
+
+  def test_paths_no_build_job_compiles_select_nothing(self):
+    for path in ('README.md', '.claude/test/test_build.py', 'test/hil/local.json', '.github/workflows/codeql.yml',
+                 '.github/workflows/codeql-buildscript.sh', 'ports/stm32f4/Makefile', 'ports/ch32v20x/boards.c',
+                 'ports/lpc55/apps/erase_firmware/Makefile'):
+      self.assertEqual(ci(path), {'full': False, 'ports': {}, 'ghostfat': False}, path)
+
+  def test_selections_union_and_a_whole_port_absorbs_its_boards(self):
+    self.assertEqual(ci('ports/lpc55/boards/lpcxpresso55s28/board.h', 'ports/lpc55/boards/lpcxpresso55s69/board.h',
+                        'ports/stm32h5/boards/stm32h503_nucleo/board.h')['ports'],
+                     {'lpc55': ['lpcxpresso55s28', 'lpcxpresso55s69'], 'stm32h5': ['stm32h503_nucleo']})
+    self.assertEqual(ci('ports/lpc55/boards/lpcxpresso55s28/board.h', 'ports/lpc55/boards.c')['ports'],
+                     {'lpc55': cb.boards_of('lpc55')})
+
+  def test_ci_covers_every_board_a_tracked_path_selects_locally(self):
+    _, codeql_board = cb.codeql_build()
+    for path in cb.git('ls-files').split():
+      r = cb.classify(path)
+      if r['ci'] == cb.FULL:
+        continue
+      local = {b for b, _ in r['boards']} - ({codeql_board} if r['rule'] in ('codeql', 'make-shared') else set())
+      covered = {b for p, boards in r['ci'].items() for b in (cb.boards_of(p) if boards is None else boards)}
+      self.assertLessEqual(local, covered, path)
+
+
 class ChangedPaths(unittest.TestCase):
   """--base and --worktree in a scratch repository. Every GIT_* variable is dropped first:
   under pre-commit they point at the real checkout, and git would act on it."""

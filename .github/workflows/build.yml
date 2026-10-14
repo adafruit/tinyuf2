@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, main ]
     paths:
       - 'apps/**'
       - 'lib/**'
@@ -15,20 +15,10 @@ on:
       - '.github/workflows/ci_set_matrix.py'
       - 'cmake/**'
       - 'CMakeLists.txt'
+      - 'tools/get_deps.py'
+      - '.claude/skills/build/scripts/**'
+  # every pull request, whatever its base: the selection decides what it builds
   pull_request:
-    branches: [ master ]
-    paths:
-      - 'apps/**'
-      - 'lib/**'
-      - 'ports/**'
-      - 'src/**'
-      - '.github/actions/**'
-      - '.github/workflows/build.yml'
-      - '.github/workflows/build_util.yml'
-      - '.github/workflows/build_ghostfat.yml'
-      - '.github/workflows/ci_set_matrix.py'
-      - 'cmake/**'
-      - 'CMakeLists.txt'
   repository_dispatch:
   release:
     types:
@@ -39,10 +29,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  set-matrix:
+  pre-commit:
     runs-on: ubuntu-latest
-    outputs:
-      json: ${{ steps.set-matrix-json.outputs.matrix }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -56,10 +44,22 @@ jobs:
       - name: Run pre-commit
         uses: pre-commit/action@v3.0.1
 
+  set-matrix:
+    needs: pre-commit
+    runs-on: ubuntu-latest
+    outputs:
+      json: ${{ steps.set-matrix-json.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      # a pull request builds the boards its change reaches: HEAD is the merge commit, HEAD^1 the base it merges into
       - name: Generate matrix json
         id: set-matrix-json
         run: |
-          MATRIX_JSON=$(python .github/workflows/ci_set_matrix.py)
+          MATRIX_JSON=$(python .github/workflows/ci_set_matrix.py ${{ github.event_name == 'pull_request' && '--base HEAD^1' || '' }})
           echo "matrix=$MATRIX_JSON"
           echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
 
