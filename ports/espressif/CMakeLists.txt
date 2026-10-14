@@ -80,6 +80,21 @@ add_custom_target(combined-flash
   VERBATIM
   )
 
+# tinyuf2.bin must fit the factory (uf2) partition: IDF's app_check_size only warns while ota_0 is large enough
+partition_table_get_partition_info(UF2_PARTITION_OFFSET "--partition-type app --partition-subtype factory" "offset")
+if (UF2_PARTITION_OFFSET)
+  partition_table_add_check_size_target(tinyuf2_check_size
+    DEPENDS gen_project_binary
+    BINARY_PATH ${CMAKE_BINARY_DIR}/tinyuf2.bin
+    PARTITION_TYPE app
+    PARTITION_SUBTYPE factory
+    )
+else ()
+  # fail the build, not configure, so menuconfig can still fix the partition table
+  fail_at_build_time(tinyuf2_check_size "${PARTITION_CSV_PATH} has no factory app partition for tinyuf2")
+endif ()
+add_dependencies(app tinyuf2_check_size)
+
 #------------------------------
 # External project (update_tinyuf2, blinky etc ...)
 #------------------------------

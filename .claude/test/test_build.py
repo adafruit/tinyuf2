@@ -765,14 +765,15 @@ class HilRecord(unittest.TestCase):
     size = (f'cd {root}/esp-idf/esptool_py && {sizes} partition --type app {root}/partition_table/partition-table.bin '
             f'{root}/tinyuf2.bin')
     boot_size = f'cd {root}/bootloader/esp-idf/esptool_py && {sizes} bootloader 0x0 {root}/bootloader/bootloader.bin'
+    uf2_size = f'cd {root} && {sizes} partition --type app --subtype factory {root}/partition_table/partition-table.bin {root}/tinyuf2.bin'
     copies = ' && '.join(f'{cmake} -E copy {root}/{f} {root}/_bin/{Path(f).name}' for f in cb.FLASH['esptool'][1])
     post = (f'cd {root} && bash {root}/tinyuf2.postbuild.sh && cd {root} && {cmake} -E echo "Copy binaries for artifact" && '
             f'{copies} && cd {root} && {py}3.10 {ROOT}/lib/uf2/utils/uf2conv.py --carray -o '
             f'{root}/apps/update_tinyuf2/bootloader_bin.c {root}/tinyuf2.bin')
     stamps = (f'cd {root} && {cmake} -E make_directory {root}/CMakeFiles && {cmake} -E touch {root}/CMakeFiles/bootloader-complete '
               f'&& {cmake} -E touch {root}/bootloader-prefix/src/bootloader-stamp/bootloader-done')
-    fresh = [f'cd {root}/bootloader && {cmake} --build .', size, f'cd {root}/bootloader && {cmake} -E echo_append', post, stamps,
-             'FLASH']
+    fresh = [f'cd {root}/bootloader && {cmake} --build .', size, uf2_size, f'cd {root}/bootloader && {cmake} -E echo_append', post,
+             stamps, 'FLASH']
     script = root / 'tinyuf2.postbuild.sh'
     good = ('#!/bin/bash\necho "Creating combined.bin"\n'
             f"esptool.py --chip esp32s3 merge_bin --output combined.bin $(tr '\\n' ' ' < {root}/flash_args)\n")

@@ -1,0 +1,2 @@
+# Console on UART0 only: TinyUSB takes the USB PHY that USB-Serial-JTAG shares, so it would carry only output before board_dfu_init
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
