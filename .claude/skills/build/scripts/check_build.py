@@ -204,37 +204,41 @@ def cmake_apps(port, board):
 
 def port_app_selection(port, path):
   """Boards that compile a change under ports/<port>/apps/: the app's own enabled boards, or for
-  a file shared by the port's apps (app.mk) those of every app that includes it."""
+  a file shared by the port's apps (app.mk) those of every app that includes it; and CI's scope."""
   parts = path.split('/')
   apps_dir = ports_dir(port) / 'apps'
   if BACKENDS[port] == 'idf':
     if len(parts) >= 4 and parts[3] not in espressif_apps():
-      return None, f'ports/espressif/CMakeLists.txt builds no ExternalProject for apps/{parts[3]}'
-    return rep_selection([port], f'builds {"/".join(parts[2:4])}'), f'{port} {"/".join(parts[2:4])}'
+      return None, f'ports/espressif/CMakeLists.txt builds no ExternalProject for apps/{parts[3]}', {}
+    return (rep_selection([port], f'builds {"/".join(parts[2:4])}'), f'{port} {"/".join(parts[2:4])}',
+            whole_ports([port]))
   if BACKENDS[port] == 'cmake':
     calls = [c for c in cmake_app_calls(port) if c[1].endswith(f'/apps/{parts[3]}')] if len(parts) >= 5 else []
     if not calls:
-      return None, f'ports/{port}/CMakeLists.txt adds no app that reads {path}'
+      return None, f'ports/{port}/CMakeLists.txt adds no app that reads {path}', {}
     boards = {}
     for name, _, enabled in calls:
       boards.update(rep_selection([port], f'builds {name}') if enabled is None else
                     {(b, 'cmake'): f'enables {name}' for b in enabled})
-    return boards, f'{port} apps: {", ".join(sorted(c[0] for c in calls))}'
+    ci = whole_ports([port]) if any(enabled is None for *_, enabled in calls) else \
+      {port: [b for *_, enabled in calls for b in enabled]}
+    return boards, f'{port} apps: {", ".join(sorted(c[0] for c in calls))}', ci
   if len(parts) >= 5 and (apps_dir / parts[3]).is_dir():
     apps = [apps_dir / parts[3]]
   else:
     apps = [m.parent for m in apps_dir.glob('*/Makefile') if re.search(rf'^\s*include\s+\S*\b{re.escape(parts[-1])}\b',
                                                                      m.read_text(), re.M)]
-  boards = {}
+  boards, ci = {}, {}
   for app in apps:
     enabled = app_boards(app)
     if enabled is None:
       boards.update(rep_selection([port], f'builds apps/{app.name}'))
     for b in enabled or []:
       boards[(b, BACKENDS[port])] = f'enables apps/{app.name}'
+    ci = merge_ci(ci, whole_ports([port]) if enabled is None else {port: enabled})
   if not boards:
-    return None, f'no {port} board builds an app that reads {path}'
-  return boards, f'{port} apps: {", ".join(sorted(a.name for a in apps))}'
+    return None, f'no {port} board builds an app that reads {path}', {}
+  return boards, f'{port} apps: {", ".join(sorted(a.name for a in apps))}', ci
 
 
 def ports_using_app(app):
@@ -283,13 +287,31 @@ def rep_selection(ports, why):
   return {(b, BACKENDS[p]): why for p in ports for b in REPRESENTATIVES[p]}
 
 
+# CI's scope of a path: FULL, or {port: None for every board | [boards]}. CI builds every board a
+# change reaches; the representatives only cap a local build.
+FULL = 'full'
+
+
+def whole_ports(ports):
+  return {p: None for p in ports}
+
+
+def merge_ci(a, b):
+  if FULL in (a, b):
+    return FULL
+  out = dict(a)
+  for p, boards in b.items():
+    out[p] = None if boards is None or (p in out and out[p] is None) else sorted({*out.get(p, []), *boards})
+  return out
+
+
 def classify(path):
   """One path's rule: effect none (nothing to build), gap (uncovered), select or core, the boards
   it selects as {(board, backend): reason}, and whether it adds the ghostfat self-test or the
   contract's own tests."""
-  def out(rule, effect, reason, boards=None, ghostfat=False, tests=False, hil=False):
+  def out(rule, effect, reason, boards=None, ghostfat=False, tests=False, hil=False, ci=None):
     return {'path': path, 'rule': rule, 'effect': effect, 'reason': reason, 'boards': boards or {},
-            'ghostfat': ghostfat, 'tests': tests, 'hil': hil}
+            'ghostfat': ghostfat, 'tests': tests, 'hil': hil, 'ci': ci or {}}
 
   ghostfat = path.startswith(GHOSTFAT_INPUTS)
   parts = path.split('/')
@@ -304,7 +326,7 @@ def classify(path):
     return out('build-control', 'select', 'how boards build changed: the contract tests and one smoke build '
                'per backend; no firmware build verifies workflow syntax or orchestration' +
                ('; the HIL runner imports it: the battery on every roster board' if runner else ''),
-               boards, tests=True, hil=runner)
+               boards, tests=True, hil=runner, ci=FULL)
   if path.endswith('.md'):
     return out('docs', 'none', 'documentation')
   codeql_port, codeql_board = codeql_build()
@@ -324,11 +346,12 @@ def classify(path):
       return out('other-backend', 'gap', f'CI builds {port} with {BACKENDS[port]}, which never reads {parts[-1]}')
     if parts[2] == 'boards' and len(parts) >= 4 and (ports_dir(port) / 'boards' / parts[3]).is_dir():
       return out('board', 'select', f'board {parts[3]} changed',
-                 {(parts[3], BACKENDS[port]): f'{path} is its own'}, ghostfat)
+                 {(parts[3], BACKENDS[port]): f'{path} is its own'}, ghostfat, ci={port: [parts[3]]})
     if parts[2] == 'apps':
-      boards, reason = port_app_selection(port, path)
-      return out('port-app', 'select' if boards else 'gap', reason, boards)
-    return out('port', 'select', f'{port} port file', rep_selection([port], f'{port} representative'), ghostfat)
+      boards, reason, ci = port_app_selection(port, path)
+      return out('port-app', 'select' if boards else 'gap', reason, boards, ci=ci)
+    return out('port', 'select', f'{port} port file', rep_selection([port], f'{port} representative'), ghostfat,
+               ci=whole_ports([port]))
   if len(parts) >= 2 and parts[0] == 'ports' and len(parts) >= 3 and (ROOT / 'ports' / parts[1]).is_dir():
     raise Fail(f'ports/{parts[1]} has no backend in check_build.py: add it to BACKENDS or UNBUILT')
   if parts[0] == 'apps' and len(parts) >= 2:
@@ -336,22 +359,24 @@ def classify(path):
     if not users:
       return out('app', 'gap', f'no CI-built port builds apps/{parts[1]}')
     return out('app', 'select', f'apps/{parts[1]} is built by {", ".join(users)}',
-               rep_selection(users, f'builds apps/{parts[1]}'))
+               rep_selection(users, f'builds apps/{parts[1]}'), ci=whole_ports(users))
   if path.startswith(('lib/mcu/', 'lib/sct_neopixel')):
     families = deps_families(path)
     if families is not None:
       if not families:
         return out('dep', 'gap', f'{path}: no CI-built port uses this dependency')
-      return out('dep', 'select', f'dependency of {", ".join(families)}', rep_selection(families, f'uses {path}'))
+      return out('dep', 'select', f'dependency of {", ".join(families)}', rep_selection(families, f'uses {path}'),
+                 ci=whole_ports(families))
   if path in MAKE_SHARED:
+    make_ports = [p for p, be in BACKENDS.items() if be == 'make']
     return out('make-shared', 'select', 'every make port and the CodeQL build read it',
-               {**rep_selection([p for p, be in BACKENDS.items() if be == 'make'], f'make reads {path}'),
-                (codeql_board, 'make'): f'codeql build reads {path}'})
+               {**rep_selection(make_ports, f'make reads {path}'),
+                (codeql_board, 'make'): f'codeql build reads {path}'}, ci=whole_ports(make_ports))
   if path.startswith(NOTHING):
     return out('nothing', 'none', 'no firmware build reads this path')
   if path.startswith(CORE):
-    return out('core', 'core', 'shared by every port', ghostfat=ghostfat)
-  return out('unclassified', 'core', 'unclassified path: every port', ghostfat=ghostfat)
+    return out('core', 'core', 'shared by every port', ghostfat=ghostfat, ci=FULL)
+  return out('unclassified', 'core', 'unclassified path: every port', ghostfat=ghostfat, ci=FULL)
 
 
 def repo_path(p):
@@ -463,6 +488,17 @@ def select(paths):
   }
 
 
+def ci_selection(records):
+  """What CI builds: every board of every port when full (ghostfat too), else each reached board."""
+  ci = {}
+  for r in records:
+    ci = merge_ci(ci, r['ci'])
+  if ci == FULL:
+    return {'full': True, 'ports': {}, 'ghostfat': True}
+  return {'full': False, 'ports': {p: boards_of(p) if b is None else b for p, b in sorted(ci.items())},
+          'ghostfat': any(r['ghostfat'] for r in records)}
+
+
 def path_view(records, effect=None, keys=('path', 'rule', 'effect', 'reason')):
   return [{k: r[k] for k in keys} for r in records if effect in (None, r['effect'])]
 
@@ -556,6 +592,7 @@ def manifest(sel, info, hil_config=None):
       'ghostfat': sel['ghostfat'],
       'tests': sel['tests'],
       'paths': path_view(sel['records']),
+      'ci': ci_selection(sel['records']),
     },
   }
   if hil_config:
