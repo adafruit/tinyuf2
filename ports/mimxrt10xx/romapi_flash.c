@@ -170,7 +170,53 @@ status_t ROM_FLEXSPI_NorFlash_Init (uint32_t instance, flexspi_nor_config_t *con
   if ( status != kStatus_Success ) return status;
 
   // Configure Lookup table
-  flexspi_update_lut(instance, 0, memCfg->lookupTable, 16);
+  status = flexspi_update_lut(instance, 0, memCfg->lookupTable, 16);
+  if (status != kStatus_Success) return status;
+
+  // The RT1011 controller initializer does not configure the flash's QE bit.
+  // Support the configured one-byte SR2 method used by GD25Q64E and W25Q64JV.
+  // Other flash configuration methods retain their existing initialization.
+  if (memCfg->deviceModeCfgEnable && memCfg->deviceModeType == kDeviceConfigCmdType_QuadEnable &&
+      memCfg->deviceModeArg == 0x02 && memCfg->deviceModeSeq.seqId == 4 &&
+      memCfg->deviceModeSeq.seqNum == 1 && !flexspi_is_parallel_mode(memCfg) &&
+      memCfg->lookupTable[8] == FLEXSPI_LUT_SEQ(CMD_SDR, FLEXSPI_1PAD, 0x35,
+                                              READ_SDR, FLEXSPI_1PAD, 1) &&
+      memCfg->lookupTable[16] == FLEXSPI_LUT_SEQ(CMD_SDR, FLEXSPI_1PAD, 0x31,
+                                               WRITE_SDR, FLEXSPI_1PAD, 1)) {
+    uint32_t status2 = 0;
+    flexspi_xfer_t xfer = {0};
+    xfer.operation = kFlexSpiOperation_Read;
+    xfer.seqId = 2;
+    xfer.seqNum = 1;
+    xfer.rxBuffer = &status2;
+    xfer.rxSize = 1;
+    status = flexspi_command_xfer(instance, &xfer);
+    if (status != kStatus_Success) return status;
+
+    if ((status2 & memCfg->deviceModeArg) == 0) {
+      // Preserve protection and lock bits; change only the configured QE bit.
+      status2 |= memCfg->deviceModeArg;
+      status = flexspi_device_write_enable(instance, memCfg, false, 0);
+      if (status != kStatus_Success) return status;
+
+      flexspi_xfer_t write = {0};
+      write.operation = kFlexSpiOperation_Write;
+      write.seqId = memCfg->deviceModeSeq.seqId;
+      write.seqNum = memCfg->deviceModeSeq.seqNum;
+      write.txBuffer = &status2;
+      write.txSize = 1;
+      status = flexspi_command_xfer(instance, &write);
+      if (status != kStatus_Success) return status;
+      status = flexspi_device_wait_busy(instance, memCfg, false, 0);
+      if (status != kStatus_Success) return status;
+
+      status2 = 0;
+      status = flexspi_command_xfer(instance, &xfer);
+      if (status != kStatus_Success) return status;
+      if ((status2 & memCfg->deviceModeArg) == 0) return kStatus_Fail;
+    }
+    flexspi_clear_cache(instance);
+  }
 
   return status;
 }

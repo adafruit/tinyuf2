@@ -34,7 +34,7 @@ __attribute__((section(".boot_hdr.conf"))) const flexspi_nor_config_t flash_nor_
           .seqId  = 4u,
           .seqNum = 1u,
         },
-      .deviceModeArg     = 0x0200,
+      .deviceModeArg     = 0x02,
       .configCmdEnable   = 1u,
       .configModeType[0] = kDeviceConfigCmdType_Generic,
       .configCmdSeqs[0] =
@@ -81,8 +81,8 @@ __attribute__((section(".boot_hdr.conf"))) const flexspi_nor_config_t flash_nor_
          SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR, FLEXSPI_1PAD, 0x06 /* command code */, STOP, FLEXSPI_1PAD, 0x00),
                   TWO_EMPTY_STEPS, TWO_EMPTY_STEPS, TWO_EMPTY_STEPS),
 
-         // 4: Write Quad enabled i.e Write Status1 & Status2
-         SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR, FLEXSPI_1PAD, 0x01 /* command code */, WRITE_SDR, FLEXSPI_1PAD, 0x02),
+         // 4: Write Status2 only; GD25Q64E requires one byte per status command.
+         SEQUENCE(FLEXSPI_LUT_SEQ(CMD_SDR, FLEXSPI_1PAD, 0x31 /* command code */, WRITE_SDR, FLEXSPI_1PAD, 0x01),
                   TWO_EMPTY_STEPS, TWO_EMPTY_STEPS, TWO_EMPTY_STEPS),
 
          // 5: ROM: Erase Sector
