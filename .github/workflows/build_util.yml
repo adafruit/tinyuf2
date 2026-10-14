@@ -22,6 +22,8 @@ on:
 
 jobs:
   board:
+    # a pull request's selection can leave a port no boards, and an empty matrix is an error
+    if: fromJSON(inputs.boards)[0] != null
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
