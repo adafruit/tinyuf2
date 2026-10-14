@@ -58,6 +58,11 @@
 #define BOARD_TUD_RHPORT         0
 #endif
 
+#if CONFIG_IDF_TARGET_ESP32P4 && BOARD_TUD_RHPORT == 0
+// rhport 0 is the P4's OTG FS controller
+#define CFG_TUD_MAX_SPEED        OPT_MODE_FULL_SPEED
+#endif
+
 // can be defined by compiler in DEBUG build
 #ifndef CFG_TUSB_DEBUG
 #define CFG_TUSB_DEBUG           0

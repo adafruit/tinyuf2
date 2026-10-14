@@ -21,6 +21,14 @@
 // Specific board header specified with -DBOARD=
 #include "board.h"
 
+#ifdef PIN_DOUBLE_RESET_ADC
+#include "double_reset_adc.h"
+#endif
+
+#if CONFIG_IDF_TARGET_ESP32P4 && defined(NEOPIXEL_PIN)
+#include "neopixel_p4.h"
+#endif
+
 #ifdef TCA9554_ADDR
   // Using GPIO expander requires long reset delay (somehow)
   #define NEOPIXEL_RESET_DELAY      ns2cycle(1000*1000)
@@ -202,6 +210,15 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
         // TinyUF2: when reset by EN/nRST pin: check if GPIO0 is pressed and/or 1-bit RC on specific GPIO detect double reset
         // during this time. If yes then to load uf2 "bootloader".
         if (boot_index != FACTORY_INDEX && reset_reason == RESET_REASON_CHIP_POWER_ON) {
+          #ifdef PIN_DOUBLE_RESET_ADC
+          if (double_reset_adc_detect()) {
+            ESP_LOGI(TAG, "Detect double reset using ADC on GPIO %d", PIN_DOUBLE_RESET_ADC);
+            boot_index = FACTORY_INDEX;
+          } else {
+            double_reset_adc_arm();
+          }
+          #endif
+
           #ifdef PIN_DOUBLE_RESET_RC
           // Double reset detect if board implements 1-bit memory with RC components
           esp_rom_gpio_pad_select_gpio(PIN_DOUBLE_RESET_RC);
@@ -260,6 +277,9 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
           gpio_ll_set_level(&GPIO, PIN_DOUBLE_RESET_RC, 0);
           gpio_ll_output_disable(&GPIO, PIN_DOUBLE_RESET_RC);
 #endif
+          #ifdef PIN_DOUBLE_RESET_ADC
+          double_reset_adc_clear();
+          #endif
         }
 
         // Customer implementation.
@@ -287,6 +307,8 @@ static inline uint32_t ns2cycle(uint32_t ns) {
 
 #if CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32S31
   tick_per_us = ets_get_cpu_frequency();
+#elif CONFIG_IDF_TARGET_ESP32P4
+  tick_per_us = esp_rom_get_cpu_ticks_per_us();
 #else // ESP32S2
   extern uint32_t g_ticks_per_us_pro;
   tick_per_us = g_ticks_per_us_pro;
@@ -347,7 +369,7 @@ static inline __attribute__((always_inline)) void neopixel_pin_write(uint32_t nu
     RV_CLEAR_CSR(CSR_GPIO_OUT_USER, 1);
   }
 }
-#else
+#elif !CONFIG_IDF_TARGET_ESP32P4
 #define NEOPIXEL_T0H_NS 400
 
 static void neopixel_pin_begin(uint32_t num_pin) {
@@ -365,10 +387,12 @@ static inline __attribute__((always_inline)) void neopixel_pin_write(uint32_t nu
 #endif
 
 static void board_neopixel_set(uint32_t num_pin, uint8_t const rgb[]) {
+#if !CONFIG_IDF_TARGET_ESP32P4
   // WS2812B should be
   uint32_t const time0  = ns2cycle(NEOPIXEL_T0H_NS);
   uint32_t const time1  = ns2cycle(800);
   uint32_t const period = ns2cycle(1250);
+#endif
 
   uint8_t pixels[3*NEOPIXEL_NUMBER];
   for(uint32_t i=0; i<NEOPIXEL_NUMBER; i++) {
@@ -378,6 +402,12 @@ static void board_neopixel_set(uint32_t num_pin, uint8_t const rgb[]) {
     pixels[3*i+2] = color_brightness(rgb[2], NEOPIXEL_BRIGHTNESS);
   }
 
+#if CONFIG_IDF_TARGET_ESP32P4
+  // Generate pulses in hardware; GPIO write latency affects P4 bit-banging.
+  if (!bootloader_neopixel_write(num_pin, pixels, sizeof(pixels))) {
+    ESP_LOGW(TAG, "NeoPixel transmission failed");
+  }
+#else
   neopixel_pin_begin(num_pin);
 
   uint32_t cyc = 0;
@@ -401,6 +431,7 @@ static void board_neopixel_set(uint32_t num_pin, uint8_t const rgb[]) {
   while(esp_cpu_get_cycle_count() - cyc < period) {}
 
   neopixel_pin_end(num_pin);
+#endif
 }
 #endif
 
