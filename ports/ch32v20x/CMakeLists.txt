@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.17)
+cmake_minimum_required(VERSION 3.20)
 
 include(${CMAKE_CURRENT_LIST_DIR}/../family_support.cmake)
 
@@ -10,16 +10,14 @@ set(CMAKE_EXECUTABLE_SUFFIX .elf)
 #------------------------------------
 add_executable(tinyuf2
   boards.c
+  ${TOP}/lib/tinyusb/src/portable/st/stm32_fsdev/dcd_stm32_fsdev.c
+  ${TOP}/lib/tinyusb/src/portable/wch/dcd_ch32_usbfs.c
   )
 target_link_options(tinyuf2 PUBLIC
   "LINKER:--script=${CMAKE_CURRENT_LIST_DIR}/linker/${CH32_FAMILY}_boot.ld"
   )
 
 family_configure_tinyuf2(tinyuf2 OPT_MCU_CH32V20X)
-target_sources(tinyuf2-tinyusb PUBLIC
-  ${TOP}/lib/tinyusb/src/portable/st/stm32_fsdev/dcd_stm32_fsdev.c
-  ${TOP}/lib/tinyusb/src/portable/wch/dcd_ch32_usbfs.c
-  )
 family_flash_openocd_wch(tinyuf2)
 
 #------------------------------------

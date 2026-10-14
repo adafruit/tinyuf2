@@ -18,7 +18,6 @@ import argparse
 import contextlib
 import fcntl
 import functools
-import gzip
 import hashlib
 import json
 import os
@@ -28,7 +27,6 @@ import shlex
 import shutil
 import subprocess
 import sys
-import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -41,8 +39,8 @@ BACKENDS = {
   'kinetis_k32l2': 'make',
   'lpc55': 'make',
   'maxim': 'cmake',
-  'mimxrt10xx': 'make',
-  'stm32f3': 'make',
+  'mimxrt10xx': 'cmake',
+  'stm32f3': 'cmake',
   'stm32f4': 'cmake',
   'stm32h5': 'cmake',
   'stm32h7': 'make',
@@ -69,14 +67,15 @@ UNBUILT = {
 }
 # compiler a port's make/cmake build needs, when not arm-none-eabi-gcc
 COMPILER = {'ch32v20x': 'riscv-none-elf-gcc'}
-# make ports whose self-update target only echoes "not implemented yet"
+# ports whose make self-update target only echoes "not implemented yet"
 NO_SELF_UPDATE = {'ch32v20x', 'kinetis_k32l2', 'stm32h7', 'stm32l4'}
 GHOSTFAT = 'test_ghostfat'
 GHOSTFAT_INPUTS = ('src/ghostfat.c', 'src/favicon/', 'src/board_api.h', 'src/compile_date.h', 'src/uf2.h',
-                   'lib/uf2', 'ports/make.mk', 'ports/rules.mk', 'ports/test_ghostfat/',
+                   'lib/uf2', 'ports/family_support.cmake', 'ports/test_ghostfat/',
                    '.github/workflows/build_ghostfat.yml')
-CORE = ('src/', 'lib/', 'ports/make.mk', 'ports/rules.mk', 'ports/family_support.cmake', 'CMakeLists.txt',
-        'cmake/', 'tools/get_deps.py')
+CORE = ('src/', 'lib/', 'ports/family_support.cmake', 'CMakeLists.txt', 'cmake/', 'tools/get_deps.py')
+# make files every Makefile port includes: read by the make ports' builds and CodeQL's
+MAKE_SHARED = ('ports/make.mk', 'ports/rules.mk')
 CONTRACT_TESTS = ('.claude/test/test_build', '.claude/test/test_hil')
 # the HIL contract's runner and rosters: a change there re-runs the battery on every roster board
 HIL_CONTROL = ('.claude/skills/hil/scripts/', 'test/hil/')
@@ -187,6 +186,22 @@ def espressif_apps():
   return re.findall(r'SOURCE_DIR\s+\$\{CMAKE_CURRENT_LIST_DIR\}/apps/(\w+)', code_lines(ports_dir('espressif') / 'CMakeLists.txt'))
 
 
+def cmake_app_calls(port):
+  """The family_add_app() calls of a cmake port's CMakeLists.txt as (name, source dir, boards): boards
+  None for every board, else those its BOARDS argument names."""
+  calls = []
+  for m in re.finditer(r'^\s*family_add_app\(\s*([\w-]+)\s+([^\s)]+)([^)]*)\)',
+                       code_lines(ports_dir(port) / 'CMakeLists.txt'), re.M):
+    boards = re.search(r'\bBOARDS\s+([^)]*)', m.group(3))
+    calls.append((m.group(1), m.group(2), boards.group(1).split() if boards else None))
+  return calls
+
+
+def cmake_apps(port, board):
+  """Apps a cmake port builds for the board, each named after the app's target and so its <name>.uf2."""
+  return [name for name, _, boards in cmake_app_calls(port) if boards is None or board in boards]
+
+
 def port_app_selection(port, path):
   """Boards that compile a change under ports/<port>/apps/: the app's own enabled boards, or for
   a file shared by the port's apps (app.mk) those of every app that includes it."""
@@ -196,6 +211,15 @@ def port_app_selection(port, path):
     if len(parts) >= 4 and parts[3] not in espressif_apps():
       return None, f'ports/espressif/CMakeLists.txt builds no ExternalProject for apps/{parts[3]}'
     return rep_selection([port], f'builds {"/".join(parts[2:4])}'), f'{port} {"/".join(parts[2:4])}'
+  if BACKENDS[port] == 'cmake':
+    calls = [c for c in cmake_app_calls(port) if c[1].endswith(f'/apps/{parts[3]}')] if len(parts) >= 5 else []
+    if not calls:
+      return None, f'ports/{port}/CMakeLists.txt adds no app that reads {path}'
+    boards = {}
+    for name, _, enabled in calls:
+      boards.update(rep_selection([port], f'builds {name}') if enabled is None else
+                    {(b, 'cmake'): f'enables {name}' for b in enabled})
+    return boards, f'{port} apps: {", ".join(sorted(c[0] for c in calls))}'
   if len(parts) >= 5 and (apps_dir / parts[3]).is_dir():
     apps = [apps_dir / parts[3]]
   else:
@@ -319,6 +343,10 @@ def classify(path):
       if not families:
         return out('dep', 'gap', f'{path}: no CI-built port uses this dependency')
       return out('dep', 'select', f'dependency of {", ".join(families)}', rep_selection(families, f'uses {path}'))
+  if path in MAKE_SHARED:
+    return out('make-shared', 'select', 'every make port and the CodeQL build read it',
+               {**rep_selection([p for p, be in BACKENDS.items() if be == 'make'], f'make reads {path}'),
+                (codeql_board, 'make'): f'codeql build reads {path}'})
   if path.startswith(NOTHING):
     return out('nothing', 'none', 'no firmware build reads this path')
   if path.startswith(CORE):
@@ -603,8 +631,7 @@ def expected_artifacts(port, board, backend, root):
   if backend == 'cmake':
     exp = [bin_dir / 'tinyuf2.bin', bin_dir / 'tinyuf2.hex']
     cml = (ports_dir(port) / 'CMakeLists.txt').read_text()
-    for app in re.findall(r'add_subdirectory\(\$\{TOP\}/apps/(\w+)', cml):
-      exp.append(bin_dir / 'apps' / f'{"update-tinyuf2" if app == "self_update" else app}.uf2')
+    exp += [bin_dir / 'apps' / f'{app}.uf2' for app in cmake_apps(port, board)]
     exp += [bin_dir / a for a in re.findall(r'\$\{ARTIFACT_PATH\}/(apps/[\w.-]+\.uf2)', cml)]
     return exp
   return [bin_dir / f for f in ('tinyuf2.bin', 'bootloader.bin', 'partition-table.bin', 'ota_data_initial.bin',
@@ -827,7 +854,8 @@ def build_board(board, backend, args, idf, flasher=None):
          'status': 'ok', 'firstError': '', 'artifacts': []}
   if port in UNBUILT:
     rec['note'] = f'ports/{port}: {UNBUILT[port][1]}'
-  if port in NO_SELF_UPDATE:
+  if backend == 'make' and port in NO_SELF_UPDATE or backend == 'cmake' and \
+     'update-tinyuf2.uf2' not in {p.name for p in expected_artifacts(port, board, backend, root)}:
     rec['notImplemented'] = ['self-update']
   problem = check_tools(port, backend, args.idf) or check_deps(port)
   if backend == 'idf' and args.idf == 'docker' and not problem:
@@ -897,9 +925,9 @@ def keep_only_log(root, log):
 
 
 def run_ghostfat(verbose):
-  """Build and run the native self-test of every ports/test_ghostfat config, one at a time:
-  the `huge` image is about 1.5 GiB, twice over with its known-good copy."""
-  missing = [t for t in ('make', 'gcc') if not shutil.which(t)]
+  """Build and run the native self-test (its CMake `selftest` target) of every ports/test_ghostfat config,
+  one at a time: the `huge` image is about 1.5 GiB, twice over with its known-good copy."""
+  missing = [t for t in ('cmake', 'ninja', 'gcc', 'gzip') if not shutil.which(t)]
   if missing:
     return [{'config': cfg, 'status': 'error', 'firstError': f'{", ".join(missing)} not on PATH'}
             for cfg in boards_of(GHOSTFAT)]
@@ -911,19 +939,11 @@ def run_ghostfat(verbose):
     log = root / 'check_build.log'
     rec = {'config': cfg, 'status': 'ok', 'firstError': ''}
     try:
-      if run(['make', '-C', ports_dir(GHOSTFAT), f'BOARD={cfg}', f'BUILD_ROOT={root}', f'-j{os.cpu_count()}', 'all'],
-             log, verbose):
-        rec.update(status='failed', firstError=first_error(log.read_text(errors='replace')))
-      else:
-        work = root / 'ports' / GHOSTFAT
-        with gzip.open(ports_dir(GHOSTFAT) / 'boards' / cfg / 'knowngood.img.gz.gz') as outer, \
-             gzip.open(outer) as inner, open(work / 'knowngood.img', 'wb') as dst:
-          shutil.copyfileobj(inner, dst, 1 << 20)
-        # the self-test writes ghostfat.img and reads knowngood.img in its working directory
-        if run([work / f'tinyuf2-{cfg}.elf'], log, verbose, cwd=work):
-          out = log.read_text(errors='replace')
-          rec.update(status='failed', firstError=(re.findall(r'^FAIL.*$', out, re.M) or [first_error(out)])[-1])
-    except (OSError, EOFError, zlib.error) as e:
+      if run(['cmake', '-B', root, '-G', 'Ninja', f'-DBOARD={cfg}', ports_dir(GHOSTFAT)], log, verbose) or \
+         run(['cmake', '--build', root, '--target', 'selftest'], log, verbose):
+        out = log.read_text(errors='replace')
+        rec.update(status='failed', firstError=(re.findall(r'^FAIL.*$', out, re.M) or [first_error(out)])[-1])
+    except OSError as e:
       rec.update(status='error', firstError=f'{type(e).__name__}: {e}')
     finally:
       if rec['status'] == 'ok':

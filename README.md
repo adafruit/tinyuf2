@@ -78,6 +78,15 @@ Then compile with `all` target:
 make BOARD=feather_stm32f405_express all
 ```
 
+Every port also builds with CMake, the way CI builds it (Espressif uses ESP-IDF's, see its README):
+
+```
+cmake -B build -G Ninja -DBOARD=feather_stm32f405_express ports/stm32f4
+cmake --build build
+```
+
+The bootloader images land in `ports/<port>/_bin/<board>`. Each application the port supports (self-update, blinky, ...) is built as its own CMake project in `build/apps/<app>`, its UF2 in `_bin/<board>/apps`. Flash with targets such as `tinyuf2-jlink`, `tinyuf2-stlink` or `<app>-uf2`.
+
 ### Flash
 
 `flash` target will use the default on-board debugger (jlink/cmsisdap/stlink/dfu) to flash the binary, please install those support software in advance. Some board use bootloader/DFU via serial which is required to pass to make command

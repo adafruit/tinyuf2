@@ -89,7 +89,7 @@ def roster(tmp, **over):
 HELPER = Path('test/hil/helper/hil_lock.py')   # under TINYUSB_DIR
 
 
-# lpc55 has no cmake build, so the runner reads no facts for it; most tests keep its layout as synthetic facts
+# the runner reads no source facts for lpc55; most tests keep its layout as synthetic facts
 LPC_FACTS = {'flashBase': 0, 'binBase': 0, 'appStart': 0x10000, 'flashSize': 0x98000, 'vid': 0x1fc9, 'pid': 0x0094,
              'boardId': 'LPC55S69-Xpresso-revA', 'family': 0x2abc77ec, 'vectors': 76, 'ram': 0x20000000,
              'dblTapDelayMs': 500, 'dblTapReg': 0x4002C05C, 'dblTapMagic': 0xF01669EF}
@@ -131,11 +131,19 @@ class Roster(Tmp):
       'int uid': {'flasher': {'name': 'jlink', 'uid': 1, 'args': '-device LPC55S69_M33_0'}},
       'unknown device': {'flasher': {'name': 'jlink', 'uid': '1', 'args': '-device NRF52840_XXAA'}},
       'bad lock name': {'tinyuf2': {'lock': '../x'}},
+      'usbPower without a port': {'tinyuf2': {'usbPower': {'hub': 'PA40004'}}},
+      'usbPower port out of range': {'tinyuf2': {'usbPower': {'hub': 'PA40004', 'port': 16}}},
+      'usbPower port as text': {'tinyuf2': {'usbPower': {'hub': 'PA40004', 'port': '3'}}},
+      'usbPower hub path': {'tinyuf2': {'usbPower': {'hub': '../x', 'port': 3}}},
       'not a TinyUF2 board': {'name': 'no_such_board'},
     }
     for what, over in cases.items():
       with self.subTest(what), self.assertRaises(ht.Refused):
         ht.load_board(roster(self.tmp, **over), over.get('name', BOARD))
+
+  def test_usb_power_is_for_jlink_boards_only(self):
+    with self.assertRaisesRegex(ht.Refused, 'usbPower is for J-Link boards only'):
+      ht.load_board(s3_roster(self.tmp, tinyuf2={'reentry': 'dfu-detach', 'usbPower': {'hub': 'PA40004', 'port': 3}}), S3)
 
   def test_the_lock_helper_comes_from_an_absolute_tinyusb_dir(self):
     for value in ('', 'tinyusb'):
@@ -166,7 +174,116 @@ class Roster(Tmp):
     b = self.load(ROOT / 'test' / 'hil' / 'local.json', 'imxrt1060_evk')
     self.assertEqual((b['lock'], b['reentry']), ('mimxrt1060_evk', 'retained-register'))
     self.assertEqual(b['install'], (0x60000000, 0x6000C000))
+    f3 = self.load(ROOT / 'test' / 'hil' / 'local.json', 'stm32f303disco')
+    self.assertEqual((f3['reentry'], f3['usbPower'], f3['install'], f3['app']),
+                     ('retained-register', {'hub': 'PA40004', 'port': 3}, (0x08000000, 0x08004000), (0x08004000, 0x08040000)))
+    self.assertIsNone(b['usbPower'])
 
+
+class PortPowerCase(Tmp):
+  """A stuck port is cycled through its sysfs disable, in bounded children, only after STUCK s in "default" within
+  one wait, at most once per GAP s, and never left off."""
+
+  def setUp(self):
+    super().setUp()
+    self.sys = self.tmp / 'sys'
+    for name, cls, serial in (('5-3', '09', 'PA40004'), ('5-3.3', '00', 'x'), ('5-1', '09', 'OTHER')):
+      (self.sys / name).mkdir(parents=True)
+      (self.sys / name / 'bDeviceClass').write_text(cls + '\n')
+      (self.sys / name / 'serial').write_text(serial + '\n')
+    self.port = self.sys / '5-3' / '5-3:1.0' / '5-3-port3'
+    self.port.mkdir(parents=True)
+    (self.port / 'disable').write_text('0\n')
+    self.clock, self.writes, self.fail = [0.0], [], {}
+    real_path = ht.Path
+
+    def spawn(cmd, log, timeout, cwd=None):
+      self.assertEqual((cmd[:3], timeout), (['sh', '-c', ht.PortPower.SET], ht.PortPower.TIMEOUT))
+      value = cmd[-1]
+      self.writes.append((self.clock[0], value))
+      outcome = self.fail.pop(len(self.writes), None)
+      if isinstance(outcome, BaseException):
+        raise outcome
+      if outcome is None:
+        cmd[-2].write_text(value + '\n')
+        return 0, ''
+      return outcome
+    for p in (mock.patch.object(ht, 'Path', lambda *a: self.sys if a == ('/sys/bus/usb/devices',) else real_path(*a)),
+              mock.patch.object(ht, 'spawn', spawn),
+              mock.patch.object(ht.time, 'monotonic', lambda: self.clock[0]),
+              mock.patch.object(ht.time, 'sleep', lambda t: self.clock.__setitem__(0, self.clock[0] + t))):
+      p.start()
+      self.addCleanup(p.stop)
+    self.power = ht.PortPower({'hub': 'PA40004', 'port': 3}, self.tmp / 'hil.log')
+
+  def poll_at(self, t, state):
+    self.clock[0] = t
+    (self.port / 'state').write_text(state + '\n')
+    self.power.poll()
+
+  def disable(self):
+    return (self.port / 'disable').read_text().strip()
+
+  def test_the_hub_is_found_by_its_serial_and_cycled_after_two_stuck_seconds(self):
+    for t, state in ((0, 'default'), (1.9, 'default'), (2.0, 'configured'), (2.1, 'default'), (4.0, 'default')):
+      self.poll_at(t, state)
+    self.assertEqual(self.writes, [])   # the configured sample restarted the 2 s
+    self.poll_at(4.2, 'default')
+    self.assertEqual(self.writes, [(4.2, '1'), (5.2, '0')])   # VBUS off for 1 s
+    for t in (7.3, 9.4, 15.1):   # stuck again, but within GAP of the last cycle
+      self.poll_at(t, 'default')
+    self.assertEqual(len(self.writes), 2)
+    self.poll_at(15.3, 'default')
+    self.assertEqual((len(self.writes), self.power.cycles, self.disable()), (4, ['5-3-port3', '5-3-port3'], '0'))
+
+  def test_a_new_wait_forgets_the_stuck_time_it_did_not_observe(self):
+    self.poll_at(0, 'default')
+    self.power.start()
+    self.poll_at(100, 'default')
+    self.assertEqual(self.writes, [])
+    self.poll_at(102, 'default')
+    self.assertEqual(len(self.writes), 2)
+
+  def test_power_is_restored_after_a_failure_or_an_interruption_past_the_off_write(self):
+    for what, fail, exc in (('interrupted while off', {2: ht.Interrupted()}, ht.Interrupted),
+                            ('the on write timed out', {2: ht.StepFail('sh timed out after 15s')}, ht.StepFail),
+                            ('the on read-back failed', {2: (1, '')}, ht.StepFail)):
+      with self.subTest(what):
+        self.writes.clear()
+        self.fail.update(fail)
+        self.power = ht.PortPower({'hub': 'PA40004', 'port': 3}, self.tmp / 'hil.log')
+        self.poll_at(100, 'default')
+        with self.assertRaises(exc):
+          self.poll_at(102, 'default')
+        self.assertEqual([v for _, v in self.writes][-1], '0')
+        self.assertEqual((self.disable(), self.power.cycles), ('0', []))
+    self.assertIn('power-on restored', (self.tmp / 'hil.log').read_text())
+
+  def test_no_restore_while_an_interrupted_cycle_child_survives(self):
+    disable = self.port / 'disable'
+    child = mock.Mock(args=['sh', '-c', ht.PortPower.SET, 'sh', str(disable), '1'])
+    for survivors, restored in (([4242], 'not attempted: a cycle child survived'), ([], 'power-on restored')):
+      with self.subTest(survivors=survivors), mock.patch.object(ht, 'CHILDREN', [child]), \
+           mock.patch.object(ht, 'reap', lambda p, s=survivors: s) as _:
+        self.writes.clear()
+        self.fail[1] = ht.Interrupted()   # the off write's child is left behind, as spawn leaves it
+        self.power = ht.PortPower({'hub': 'PA40004', 'port': 3}, self.tmp / 'hil.log')
+        self.poll_at(200, 'default')
+        with self.assertRaises(ht.Interrupted):
+          self.poll_at(202, 'default')
+        self.assertEqual([v for _, v in self.writes], ['1'] if survivors else ['1', '0'])
+        self.assertIn(restored, (self.tmp / 'hil.log').read_text().splitlines()[-1])
+
+  def test_no_config_does_nothing_and_a_failed_restore_or_a_missing_hub_fails(self):
+    ht.PortPower(None, None).poll()
+    self.fail.update({1: (0, ''), 2: (1, ''), 3: (1, '')})   # off, on fails, the restore fails too
+    self.poll_at(0, 'default')
+    with self.assertRaisesRegex(ht.StepFail, 'could not power-cycle') as e:
+      self.poll_at(2.0, 'default')
+    self.assertIs(e.exception.evidence['restored'], False)
+    self.assertIn('power-on NOT restored', (self.tmp / 'hil.log').read_text())
+    with self.assertRaisesRegex(ht.StepFail, '0 USB hubs with serial GONE'):
+      ht.PortPower({'hub': 'GONE', 'port': 3}, None).poll()
 
 def bootloader_bin(path, size=0x5824, board_id=b'LPC55S69-Xpresso-revA', version=b'0.35.0 - tinyusb (x)'):
   body = b'TinyUF2 Bootloader ' + version + b'\r\nModel: x\r\nBoard-ID: ' + board_id + b'\r\n'
@@ -273,8 +390,8 @@ class Rt1060(Tmp):
 
 
 class SourceFacts(unittest.TestCase):
-  def test_a_port_without_a_cmake_build_has_no_facts(self):
-    with self.assertRaisesRegex(ht.Refused, 'ports/lpc55 has no cmake build'):
+  def test_a_port_the_runner_has_no_facts_for_is_refused(self):
+    with self.assertRaisesRegex(ht.Refused, 'ports/lpc55: the HIL runner has no source facts'):
       ht.source_facts({'port': 'lpc55', 'name': BOARD})
 
   def test_rt1060_facts_come_from_the_source(self):
@@ -290,6 +407,64 @@ class SourceFacts(unittest.TestCase):
                      (0x60000000, 0x60000400, 0x6000C000, 0x800000, 0x00e1, 'MIMXRT1011-Metro-revA'))
     self.assertEqual((f['dblTapReg'], f['ram']), (0x400D410C, 0x20000000))
     self.assertEqual(ht.source_facts(RT)['binBase'], 0x60000000)
+
+  def test_stm32f303disco_facts_come_from_the_source(self):
+    f = ht.source_facts({'port': 'stm32f3', 'name': 'stm32f303disco'})
+    self.assertEqual((f['flashBase'], f['binBase'], f['appStart'], f['flashSize'], f['vid'], f['pid'], f['boardId']),
+                     (0x08000000, 0x08000000, 0x08004000, 0x40000, 0xcafe, 0xffff, 'STM32F303-Discovery-MB1035D'))
+    # _board_dfu_dbl_tap = _estack, the last word of the 40K SRAM; FPU_IRQn = 81 is the highest IRQ
+    self.assertEqual((f['dblTapReg'], f['ram'], f['vectors'], f['family']), (0x20009FFC, 0x20000000, 98, 0x6b846188))
+
+  def test_linker_values_are_literal_sums_and_symbols_resolve_once(self):
+    t = tempfile.TemporaryDirectory()
+    self.addCleanup(t.cleanup)
+    (Path(t.name) / 'a.ld').write_text(textwrap.dedent('''\
+      _estack = ORIGIN(RAM) + LENGTH(RAM);   /* end of RAM */
+      _board_dfu_dbl_tap = _estack;
+      _loop = _loop2; _loop2 = _loop;
+      _twice = 1; _twice = 2;
+      _moved = 0x20009FFC; _moved -= 4;
+      _shifted = 0x20009FFC; _shifted >>= 1;
+      _shift = 1 << 4;
+      MEMORY
+      {
+        FLASH (rx)  : ORIGIN = 0x8000000, LENGTH = 16K
+        RAM (xrw)   : ORIGIN = 0x20000000, LENGTH = 40K - 4    /* reserve 4 bytes */
+        RAM2 (xrw)  : ORIGIN = 0x10000000, LENGTH = 8K * 2
+      }
+      '''))
+    with mock.patch.object(ht, 'ROOT', Path(t.name)):
+      self.assertEqual(ht.ld_memory('a.ld', 'RAM'), (0x20000000, 40 * 1024 - 4))
+      self.assertEqual(ht.ld_symbol('a.ld', '_board_dfu_dbl_tap'), 0x20009FFC)
+      for what, call in (('product', lambda: ht.ld_memory('a.ld', 'RAM2')), ('no region', lambda: ht.ld_memory('a.ld', 'CCM')),
+                         ('cycle', lambda: ht.ld_symbol('a.ld', '_loop')), ('twice', lambda: ht.ld_symbol('a.ld', '_twice')),
+                         ('compound', lambda: ht.ld_symbol('a.ld', '_moved')), ('shift', lambda: ht.ld_symbol('a.ld', '_shift')),
+                         ('compound shift', lambda: ht.ld_symbol('a.ld', '_shifted'))):
+        with self.subTest(what), self.assertRaises(ht.Refused):
+          call()
+
+  def test_the_vector_count_takes_decimal_irqn_entries_only(self):
+    t = tempfile.TemporaryDirectory()
+    self.addCleanup(t.cleanup)
+    enum = 'typedef enum {{\n  NonMaskableInt_IRQn = -14, /* = 200 */\n  USB_IRQn = 42,\n  {last}\n}} IRQn_Type;\n'
+    with mock.patch.object(ht, 'ROOT', Path(t.name)):
+      (Path(t.name) / 'ok.h').write_text(enum.format(last='FPU_IRQn = 81,   // last'))
+      self.assertEqual(ht.vector_count('ok.h'), 98)
+      for what, last in (('hex', 'FPU_IRQn = 0x51'), ('expression', 'FPU_IRQn = 80 + 1'), ('implicit', 'FPU_IRQn')):
+        (Path(t.name) / 'bad.h').write_text(enum.format(last=last))
+        with self.subTest(what), self.assertRaises(ht.Refused):
+          ht.vector_count('bad.h')
+
+  def test_the_linker_script_is_the_whole_script_argument(self):
+    t = tempfile.TemporaryDirectory()
+    self.addCleanup(t.cleanup)
+    with mock.patch.object(ht, 'ROOT', Path(t.name)):
+      (Path(t.name) / 'ok.txt').write_text('target_link_options(t PUBLIC "LINKER:--script=${CMAKE_CURRENT_LIST_DIR}/linker/a.ld")\n')
+      self.assertEqual(ht.cmake_script('ok.txt'), './linker/a.ld')
+      for what, arg in (('a longer name', 'a.ld.backup'), ('a variable suffix', 'a.ld${X}')):
+        (Path(t.name) / 'bad.txt').write_text(f'target_link_options(t PUBLIC "LINKER:--script=${{CMAKE_CURRENT_LIST_DIR}}/{arg}")\n')
+        with self.subTest(what), self.assertRaises(ht.Refused):
+          ht.cmake_script('bad.txt')
 
   def test_a_cmake_value_is_one_plain_set(self):
     t = tempfile.TemporaryDirectory()
@@ -1871,6 +2046,10 @@ JLINK_NO_PROBE = ('[1/1] cd /b && JLinkExe -USB 999999999 -ExitOnError 1\nJ-Link
                   'ninja: build stopped: subcommand failed.\n')
 
 
+# J-Link's connect to an STM32F303VC with TinyUF2's write protection set, as the bench recorded it
+F3_UNPROTECT = ('Active write protection detected.\nDevice will be unsecured now.\nFailed to unlock device.\n'
+                'Can not attach to CPU. Trying connect under reset.\n')
+
 class FakeRig:
   """A probe and a UF2 drive that behave as the battery expects; each test breaks one thing."""
 
@@ -2076,6 +2255,17 @@ class BatteryRun(Tmp):
     with self.assertRaises(ht.StepFail):
       ht.judge_jlink_target(0, out, {'device': 'LPC55S69_M33_0', 'probe': '1'}, hexp)
 
+  def test_the_f3_unprotect_note_passes_on_the_f303_only_and_only_whole(self):
+    hexp = self.tmp / 'tinyuf2.hex'
+    out = jlink_target(hexp).replace('ResetTarget() start\n', 'InitTarget() start\n' + F3_UNPROTECT + 'ResetTarget() start\n')
+    f3 = {'device': 'stm32f303vc', 'probe': '1'}
+    ht.judge_jlink_target(0, out, f3, hexp)
+    for what, board, text in (('another device', {'device': 'MIMXRT1011DAE5A', 'probe': '1'}, out),
+                              ('the unlock line alone', f3, out.replace(F3_UNPROTECT, 'Failed to unlock device.\n')),
+                              ('no connect under reset', f3, out.replace('Can not attach to CPU. Trying connect under reset.\n', ''))):
+      with self.subTest(what), self.assertRaises(ht.StepFail):
+        ht.judge_jlink_target(0, text, board, hexp)
+
   def test_the_target_runs_under_the_build_lock_between_two_input_checks(self):
     bat, rig = self.battery()
     fl, hexp = self.files['flash'], self.files['hex']
@@ -2215,6 +2405,21 @@ class BatteryRun(Tmp):
             with self.assertRaisesRegex(ht.StepFail, r'exit -\d+'):
               probe.run(['h'], judge=judge)
           self.assertEqual(len(probe.retried), retries)
+
+  def test_a_reset_session_passes_only_once_its_write_was_issued_on_a_connected_target(self):
+    aircr = [f'w4 {ht.SCB_AIRCR:08X} {ht.AIRCR_SYSRESETREQ:08X}']
+    issued = f'J-Link>{aircr[0]}\nCortex-M4 identified.\nWriting 05FA0004 -> E000ED0C\n'
+    f3 = ht.Probe({'probe': '1', 'device': 'stm32f303vc', 'if': 'SWD', 'speed': '4000'}, self.tmp, None)
+    for what, code, out in (('dropped after the write', 1, issued + 'Cannot read register 15 (R15)\n'),
+                            ('after the F3 unprotect note', 0, issued.replace('Cortex-M4', F3_UNPROTECT + 'Cortex-M4'))):
+      with self.subTest(what), mock.patch.object(ht, 'spawn', lambda *a, c=code, o=out, **k: (c, o)):
+        f3.run(aircr, judge=False)
+    for what, code, out in (('never connected', 1, f'J-Link>{aircr[0]}\nError occurred: Could not connect to the target device.\n'),
+                            ('unlock alone', 1, f'J-Link>{aircr[0]}\nFailed to unlock device.\nWriting 05FA0004 -> E000ED0C\n'),
+                            ('no transcript', 0, '')):
+      with self.subTest(what), mock.patch.object(ht, 'spawn', lambda *a, c=code, o=out, **k: (c, o)), \
+           self.assertRaisesRegex(ht.StepFail, 'reset write was not issued'):
+        f3.run(aircr, judge=False)
 
   def test_a_failed_reset_fails_the_session(self):
     out = 'J-Link>r\nResetTarget failed (-1).\nFailed to halt CPU.\nJ-Link>g\n\n****** Error: CPU is not halted\n'

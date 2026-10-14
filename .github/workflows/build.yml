@@ -2,6 +2,7 @@ name: Build
 
 on:
   push:
+    branches: [ master ]
     paths:
       - 'apps/**'
       - 'lib/**'
@@ -11,6 +12,9 @@ on:
       - '.github/workflows/build.yml'
       - '.github/workflows/build_util.yml'
       - '.github/workflows/build_ghostfat.yml'
+      - '.github/workflows/ci_set_matrix.py'
+      - 'cmake/**'
+      - 'CMakeLists.txt'
   pull_request:
     branches: [ master ]
     paths:
@@ -22,6 +26,9 @@ on:
       - '.github/workflows/build.yml'
       - '.github/workflows/build_util.yml'
       - '.github/workflows/build_ghostfat.yml'
+      - '.github/workflows/ci_set_matrix.py'
+      - 'cmake/**'
+      - 'CMakeLists.txt'
   repository_dispatch:
   release:
     types:
@@ -40,11 +47,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # the claude-tests hook reads lib/uf2's uf2conv.py and the RT1062 SDK source
+      # the claude-tests hook reads lib/uf2's uf2conv.py, the RT1062 SDK source and the STM32F303 CMSIS header
       - name: Fetch test inputs
         run: |
           git submodule update --init lib/uf2
-          python3 tools/get_deps.py mimxrt10xx
+          python3 tools/get_deps.py mimxrt10xx stm32f3
 
       - name: Run pre-commit
         uses: pre-commit/action@v3.0.1
@@ -69,8 +76,6 @@ jobs:
         # Alphabetical order
         - 'kinetis_k32l2'
         - 'lpc55'
-        - 'mimxrt10xx'
-        - 'stm32f3'
         - 'stm32h7'
         - 'stm32l4'
     with:
@@ -91,7 +96,8 @@ jobs:
         port:
           # Alphabetical order by family
           - 'maxim'
-          # - 'stm32f303disco' # overflows flash
+          - 'mimxrt10xx'
+          - 'stm32f3'
           - 'stm32f4'
           - 'stm32h5'
     with:
@@ -99,7 +105,6 @@ jobs:
       boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)[matrix.port].board) }}
       build-system: 'cmake'
       toolchain: 'arm-gcc'
-
 
   # ---------------------------------------
   # Build ESP

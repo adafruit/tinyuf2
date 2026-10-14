@@ -31,11 +31,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # the claude-tests hook reads lib/uf2's uf2conv.py and the RT1062 SDK source
+      # the claude-tests hook reads lib/uf2's uf2conv.py, the RT1062 SDK source and the STM32F303 CMSIS header
       - name: Fetch test inputs
         run: |
           git submodule update --init lib/uf2
-          python3 tools/get_deps.py mimxrt10xx
+          python3 tools/get_deps.py mimxrt10xx stm32f3
 
       - name: Run pre-commit
         uses: pre-commit/action@v3.0.1

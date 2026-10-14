@@ -42,8 +42,9 @@ import hil_esp as esp  # noqa: E402
 # 0x9D800-0x9DDFF is reserved and undocumented. MIMXRT1062: FlexSPI XIP at 0x60000000 (IMXRT1060RM
 # Table 3-1) holding the EVK's 8 MiB IS25WP064A (EVK hardware user's guide 2.7). MIMXRT1011: FlexSPI XIP at
 # 0x60000000 (IMXRT1010RM Table 3-1) holding the Metro M7 1011's W25Q64JV (Metro M7 RT1011 SD revA schematic), 8 MiB.
+# STM32F303VC: 256 KiB main flash at 0x08000000 (RM0316 Rev 10 Table 2); option bytes at 0x1FFFF800 stay outside.
 FLASH_LIMITS = {'LPC55S69_M33_0': (0, 0x9D800), 'MIMXRT1062xxx6A': (0x60000000, 0x60800000),
-                'MIMXRT1011DAE5A': (0x60000000, 0x60800000)}
+                'MIMXRT1011DAE5A': (0x60000000, 0x60800000), 'stm32f303vc': (0x08000000, 0x08040000)}
 STEPS = {'jlink': ('install', 'dfu', 'copy', 'app-ran', 'reenter')}
 STEPS['esptool'] = STEPS['jlink'] + ('recopy',)
 REENTRY = {'jlink': ('retained-register',), 'esptool': ('dfu-detach',)}
@@ -63,13 +64,17 @@ USB_DFU = Path(__file__).resolve().parent / 'usb_dfu.py'
 NONCE_MAGIC, NONCE_BLOCK = b'TUF2NONC', 256   # apps/dfu_runtime/src/dfu_runtime.h
 JLINK_IF, JLINK_SPEED = 'SWD', '4000'
 CMAKE_RECORD_FILES = ('_bin/tinyuf2.bin', '_bin/apps/blinky.uf2')   # besides the flash target's inputs
-JLINK_ERRORS = r'Verify failed|Could not|Cannot connect|ERROR|ResetTarget failed|Failed to halt|CPU is not halted'
+JLINK_ERRORS = (r'Verify failed|Could not|Cannot connect|ERROR|ResetTarget failed|Failed to halt|CPU is not halted|'
+                r'Failed to unlock|Can not attach')
 UDEV_RULES = ('/etc/udev/rules.d', '/run/udev/rules.d')
 # J-Link notes that are not failures, per device, each with the line that shows the operation completed
 # (bench: every MIMXRT1062 reset with an invalid app vector, then the reset halts as usual; every MIMXRT1011 reset
-# of a TinyUF2 image, which then boots)
+# of a TinyUF2 image, which then boots; STM32F303VC: the connect that removes TinyUF2's write protection, SKILL.md
+# Limits)
 _RESET_VECTOR_NOTE = r'(?m)^Could not find valid reset vector\.\nTarget halted on flash header read\.$'
-BENIGN = {'MIMXRT1062xxx6A': _RESET_VECTOR_NOTE, 'MIMXRT1011DAE5A': _RESET_VECTOR_NOTE}
+_F3_UNPROTECT_NOTE = (r'(?m)^Active write protection detected\.\nDevice will be unsecured now\.\nFailed to unlock device\.\n'
+                      r'Can not attach to CPU\. Trying connect under reset\.$')
+BENIGN = {'MIMXRT1062xxx6A': _RESET_VECTOR_NOTE, 'MIMXRT1011DAE5A': _RESET_VECTOR_NOTE, 'stm32f303vc': _F3_UNPROTECT_NOTE}
 
 
 class Refused(Exception):
@@ -124,10 +129,21 @@ def load_board(config, name):
       raise Refused(f'{name}: esptool is supported for espressif chips {sorted(esp.BOOTLOADER_OFFSET)} only')
   elif m.group(1) not in FLASH_LIMITS:
     raise Refused(f'{name}: no programming limits known for J-Link device {m.group(1)}')
+  power = t.get('usbPower')
+  if power is not None:
+    if not (isinstance(power, dict) and set(power) == {'hub', 'port'} and isinstance(power['hub'], str) and
+            re.fullmatch(r'[\w-]+', power['hub']) and type(power['port']) is int and 1 <= power['port'] <= 15):
+      raise Refused(f'{name}: tinyuf2.usbPower must be {{"hub": "<hub serial>", "port": <1-15>}}')
+    if fl['name'] != 'jlink':
+      raise Refused(f'{name}: tinyuf2.usbPower is for J-Link boards only')
   return {'name': name, 'lock': lock, 'uid': b['uid'], 'flasher': fl['name'], 'probe': fl['uid'], 'device': m.group(1),
           'if': JLINK_IF, 'speed': JLINK_SPEED, 'port': port,
           'helper': os.path.join(tinyusb, 'test', 'hil', 'helper', 'hil_lock.py'),
-          'reentry': t.get('reentry')}
+          'reentry': t.get('reentry'), 'usbPower': power}
+
+
+def has_define(path, name):
+  return bool(re.search(rf'^\s*#\s*define\s+{name}\b', (ROOT / path).read_text(), re.M))
 
 
 def define(path, name):
@@ -183,10 +199,16 @@ def cmake_var(path, name):
 
 
 def port_sources(port, bdir):
-  """(CMSIS device header, the SDK's flash linker script, FLASH_BASE, where the BIN starts in flash) of a port
-  the HIL supports, read from the CMake files the HIL's build uses."""
-  if not (ROOT / f'ports/{port}/CMakeLists.txt').is_file():
-    raise Refused(f'ports/{port} has no cmake build, which is what the HIL builds')
+  """(CMSIS device header, the bootloader's linker script, FLASH_BASE, where the BIN starts in flash, RAM origin) of
+  a port the HIL supports, read from the CMake files the HIL's build uses."""
+  if port == 'stm32f3':
+    ld = cmake_script(f'ports/{port}/CMakeLists.txt')
+    mcus = set(re.findall(r'\bSTM32F3\d\dx[A-Z]\b', cb.code_lines(ROOT / bdir / 'board.cmake')))
+    if len(mcus) != 1:
+      raise Refused(f'{bdir}/board.cmake: expected one STM32F3 device define, found {sorted(mcus)}')
+    header = f'{cmake_var(f"ports/{port}/family.cmake", "ST_CMSIS")}/Include/{mcus.pop().lower()}.h'
+    flash_base, ram = ld_memory(ld, 'FLASH')[0], ld_memory(ld, 'RAM')[0]
+    return header, ld, flash_base, flash_base, ram
   if port != 'mimxrt10xx':
     raise Refused(f'ports/{port}: the HIL runner has no source facts for this port')
   sdk = cmake_var(f'ports/{port}/family.cmake', 'SDK_DIR')
@@ -201,7 +223,67 @@ def port_sources(port, bdir):
   flash_base = vals['_flash_base']
   # family.cmake FLASH_FCFB_ADDR: the BIN starts at the FCB, 0x400 into flash on RT1010 (IMXRT1010RM Table 9-8)
   bin_base = flash_base + (vals['_fcfb_origin'] & 0xFFF)
-  return f'{sdk}/devices/{mcu}/{mcu}.h', f'{sdk}/devices/{mcu}/gcc/{mcu}xxxxx_flexspi_nor.ld', flash_base, bin_base
+  return (f'{sdk}/devices/{mcu}/{mcu}.h', ld, flash_base, bin_base,
+          ram_origin(f'{sdk}/devices/{mcu}/gcc/{mcu}xxxxx_flexspi_nor.ld'))
+
+
+def cmake_script(path):
+  """The one linker script a port's CMakeLists.txt passes with --script=${CMAKE_CURRENT_LIST_DIR}/..."""
+  hits = re.findall(r'--script=\$\{CMAKE_CURRENT_LIST_DIR\}/([\w./-]+\.ld)(?=["\s)])', cb.code_lines(ROOT / path))
+  if len(hits) != 1:
+    raise Refused(f'{path}: expected one --script=${{CMAKE_CURRENT_LIST_DIR}}/<script>.ld, found {hits}')
+  return f'{Path(path).parent}/{hits[0]}'
+
+
+def ld_text(ld):
+  return re.sub(r'/\*.*?\*/', ' ', (ROOT / ld).read_text(), flags=re.S)
+
+
+def ld_expr(expr, what):
+  """A sum or difference of literals, each with an optional K or M suffix, e.g. 40K - 4; nothing else."""
+  term = r'(0x[0-9a-fA-F]+|\d+)([KM]?)'
+  if not re.fullmatch(rf'\s*{term}(\s*[+-]\s*{term})*\s*', expr):
+    raise Refused(f'{what}: {expr!r} is not a sum of literals')
+  v = 0
+  for sign, n, unit in re.findall(rf'([+-]?)\s*{term}', expr):
+    v += (-1 if sign == '-' else 1) * int(n, 0) * {'': 1, 'K': 1 << 10, 'M': 1 << 20}[unit]
+  return v
+
+
+def ld_memory(ld, region):
+  """(ORIGIN, LENGTH) of a MEMORY region."""
+  hits = re.findall(rf'^\s*{region}\s*\(\w+\)\s*:\s*ORIGIN\s*=\s*([^,]+),\s*LENGTH\s*=\s*([^\n]+?)\s*$', ld_text(ld), re.M)
+  if len(hits) != 1:
+    raise Refused(f'{ld}: expected one {region} memory region, found {len(hits)}')
+  return ld_expr(hits[0][0], f'{ld} {region} ORIGIN'), ld_expr(hits[0][1], f'{ld} {region} LENGTH')
+
+
+def ld_symbol(ld, name, depth=0):
+  """A symbol the script assigns once: a literal sum, ORIGIN(R) + LENGTH(R), or another such symbol."""
+  hits = re.findall(rf'(?<![\w.]){name}\s*(<<|>>|[-+*/|&]?)=(?!=)\s*([^;]+);', ld_text(ld))
+  if len(hits) != 1 or hits[0][0]:
+    raise Refused(f'{ld}: expected one plain {name} = ...;, found {[op + "=" for op, _ in hits]}')
+  rhs = hits[0][1].strip()
+  if re.fullmatch(r'[A-Za-z_]\w*', rhs) and depth < 2:
+    return ld_symbol(ld, rhs, depth + 1)
+  m = re.fullmatch(r'ORIGIN\((\w+)\)\s*\+\s*LENGTH\(\1\)', rhs)
+  if m:
+    return sum(ld_memory(ld, m.group(1)))
+  return ld_expr(rhs, f'{ld} {name}')
+
+
+def vector_count(header):
+  """NUMBER_OF_INT_VECTORS, else the 16 system vectors plus IRQ 0 to the highest IRQn_Type value."""
+  if has_define(header, 'NUMBER_OF_INT_VECTORS'):
+    return num(define(header, 'NUMBER_OF_INT_VECTORS'), 'NUMBER_OF_INT_VECTORS')
+  text = re.sub(r'/\*.*?\*/|//[^\n]*', ' ', (ROOT / header).read_text(), flags=re.S)
+  enums = re.findall(r'typedef\s+enum\s*\{([^}]*)\}\s*IRQn_Type\s*;', text)
+  items = [i.strip() for i in enums[0].split(',') if i.strip()] if len(enums) == 1 else []
+  vals = [re.fullmatch(r'\w+\s*=\s*(-?\d+)', i) for i in items]
+  irqs = [int(v.group(1)) for v in vals] if items and all(vals) else []
+  if not irqs or max(irqs) < 0:
+    raise Refused(f'{header}: neither NUMBER_OF_INT_VECTORS nor one IRQn_Type enum of NAME = decimal entries')
+  return 16 + max(irqs) + 1
 
 
 def source_facts(board):
@@ -212,8 +294,8 @@ def source_facts(board):
     raise Refused(f'{bdir} does not exist')
   if board.get('flasher') == 'esptool':
     return esp_source_facts(board, bdir)
-  header, ld, flash_base, bin_base = port_sources(port, bdir)
-  if re.search(r'^\s*#\s*define\s+BOARD_FLASH_APP_START\b', (ROOT / f'{bdir}/board.h').read_text(), re.M):
+  header, ld, flash_base, bin_base, ram = port_sources(port, bdir)
+  if has_define(f'{bdir}/board.h', 'BOARD_FLASH_APP_START'):
     raise Refused(f'{bdir}/board.h overrides BOARD_FLASH_APP_START; the runner reads the port default only')
   facts = {
     'flashBase': flash_base,
@@ -225,16 +307,19 @@ def source_facts(board):
     'pid': num(define(f'{bdir}/board.h', 'USB_PID'), 'USB_PID'),
     'boardId': define(f'{bdir}/board.h', 'UF2_BOARD_ID').strip('"'),
     'family': int(cmake_var(f'ports/{port}/family.cmake', 'UF2_FAMILY_ID'), 16),
-    'vectors': num(define(header, 'NUMBER_OF_INT_VECTORS'), 'NUMBER_OF_INT_VECTORS'),
-    'ram': ram_origin(ld),
+    'vectors': vector_count(header),
+    'ram': ram,
     'dblTapDelayMs': num(define('src/board_api.h', 'TINYUF2_DBL_TAP_DELAY'), 'TINYUF2_DBL_TAP_DELAY'),
   }
-  reg = define(f'ports/{port}/boards.h', 'TINYUF2_DBL_TAP_REG')
-  m = re.fullmatch(r'(\w+)->(\w+)\[(\d+)\]', reg)
-  if not m:
-    raise Refused(f'TINYUF2_DBL_TAP_REG {reg!r} is not PERIPH->ARRAY[N]')
-  base, offset, step = register_layout(header, m.group(1), m.group(2))
-  facts['dblTapReg'] = base + offset + step * int(m.group(3))
+  if has_define(f'ports/{port}/boards.h', 'TINYUF2_DBL_TAP_REG'):
+    reg = define(f'ports/{port}/boards.h', 'TINYUF2_DBL_TAP_REG')
+    m = re.fullmatch(r'(\w+)->(\w+)\[(\d+)\]', reg)
+    if not m:
+      raise Refused(f'TINYUF2_DBL_TAP_REG {reg!r} is not PERIPH->ARRAY[N]')
+    base, offset, step = register_layout(header, m.group(1), m.group(2))
+    facts['dblTapReg'] = base + offset + step * int(m.group(3))
+  else:   # board_api.h's default: the word the bootloader's linker script places
+    facts['dblTapReg'] = ld_symbol(ld, '_board_dfu_dbl_tap')
   facts['dblTapMagic'] = 0xf01669ef   # board_api.h DBL_TAP_MAGIC at TINYUF2_DBL_TAP_REG_SIZE 32
   if 'TINYUF2_DBL_TAP_REG_SIZE' in (ROOT / f'ports/{port}/boards.h').read_text():
     raise Refused(f'ports/{port} overrides TINYUF2_DBL_TAP_REG_SIZE: the magic would need its shift')
@@ -547,6 +632,10 @@ def stopped_before_target(code, out, probe):
   return bool(no_probe) or died_at_probe_connect(code, out, probe)
 
 
+def jlink_failure(code, out, probe):
+  return {'tail': out.strip().splitlines()[-5:], 'beforeTarget': stopped_before_target(code, out, probe)}
+
+
 def judge_jlink_target(code, out, board, hex_path):
   """The tinyuf2-jlink transcript, through CMake and Ninja: JLinkExe can exit 0 with every command FAILED (no probe
   with the serial), so success is read from the transcript: this HEX downloaded, programmed or already matching,
@@ -556,8 +645,7 @@ def judge_jlink_target(code, out, board, hex_path):
                 r'0x[0-9A-F]+: (Skipped\. Contents already match|\d+ ranges? affected \(\d+ bytes\))$(?:\n.*)*?\nO\.K\.$',
                 judged, re.M)
   if code or not m or 'Script processing completed.' not in judged or re.search(JLINK_ERRORS + '|FAILED', judged):
-    raise StepFail(f'tinyuf2-jlink failed (exit {code})', {'tail': out.strip().splitlines()[-5:],
-                                                           'beforeTarget': stopped_before_target(code, out, board['probe'])})
+    raise StepFail(f'tinyuf2-jlink failed (exit {code})', jlink_failure(code, out, board['probe']))
   return {'flashDownload': m[1]}
 
 
@@ -577,8 +665,9 @@ class Probe:
     self.retried = []
 
   def run(self, commands, judge=True):
-    """One JLinkExe session. judge=False is for a command that resets the target, which may drop the
-    connection mid-transaction: its exit is recorded, and the caller's observation is the evidence."""
+    """One JLinkExe session. judge=False is for a last `w4` that resets the target, which may drop the
+    connection mid-transaction: only its issue on a connected target is judged (J-Link's "Writing VALUE ->
+    ADDR" with no failure before it), and the caller's observation is the evidence."""
     script = self.dir / f'jlink-{time.monotonic_ns()}.jlink'
     script.write_text('\n'.join(list(commands) + ['exit']) + '\n')
     cmd = ['JLinkExe', '-USB', self.b['probe'], '-device', self.b['device'], '-if', self.b['if'], '-speed',
@@ -593,8 +682,13 @@ class Probe:
     judged = re.sub(BENIGN[self.b['device']], '', out) if self.b['device'] in BENIGN else out
     # a crash fails even a reset session (judge=False): its commands may not have run
     if code < 0 or judge and (code or re.search(JLINK_ERRORS, judged)):
-      raise StepFail(f'JLinkExe failed (exit {code})', {'tail': out.strip().splitlines()[-5:],
-                                                        'beforeTarget': stopped_before_target(code, out, self.b['probe'])})
+      raise StepFail(f'JLinkExe failed (exit {code})', jlink_failure(code, out, self.b['probe']))
+    if not judge and commands[-1].startswith('w4 '):
+      _, addr, value = commands[-1].split()
+      head, issued, _ = judged.partition(f'Writing {value} -> {addr}')
+      if not issued or re.search(JLINK_ERRORS, head):
+        raise StepFail(f'the reset write was not issued on a connected target (exit {code})',
+                       jlink_failure(code, out, self.b['probe']))
     return out
 
   def mem32(self, addrs):
@@ -743,6 +837,89 @@ def block_device(usb_path):
     if f'/{usb_path}:' in os.path.realpath(blk):
       return f'/dev/{blk.name}'
   return None
+
+
+def hub_location(serial):
+  """uhubctl's location (the sysfs name) of the one USB hub with this serial: it follows the hub when it is
+  plugged elsewhere."""
+  hits = []
+  for d in Path('/sys/bus/usb/devices').iterdir():
+    try:
+      if (d / 'bDeviceClass').read_text().strip() == '09' and (d / 'serial').read_text().strip() == serial:
+        hits.append(d.name)
+    except OSError:
+      continue
+  if len(hits) != 1:
+    raise StepFail(f'{len(hits)} USB hubs with serial {serial}: {hits}')
+  return hits[0]
+
+
+def port_dir(cfg):
+  hub = hub_location(cfg['hub'])
+  return Path('/sys/bus/usb/devices') / hub / f'{hub}:1.0' / f'{hub}-port{cfg["port"]}'
+
+
+class PortPower:
+  """The roster's usbPower (SKILL.md Roster): while DFU is awaited, the hub port's sysfs `disable` is written 1 then 0
+  once the port sat in state "default" for STUCK s of this wait, at most once per GAP s."""
+  STUCK, GAP, OFF, TIMEOUT = 2.0, 10.0, 1, 15
+  RESTORED = {True: 'restored', False: 'NOT restored', None: 'not attempted: a cycle child survived'}
+  # each write and its read-back in a bounded child: both take the hub's lock and talk to the hub
+  SET = 'echo "$2" > "$1" && [ "$(cat "$1")" = "$2" ]'
+
+  def __init__(self, cfg, log):
+    self.cfg, self.log, self.since, self.last, self.cycles = cfg, log, None, None, []
+
+  def start(self):
+    """A new wait: what the port did between waits was not observed."""
+    self.since = None
+
+  def poll(self):
+    if not self.cfg:
+      return
+    port = port_dir(self.cfg)
+    try:
+      state = (port / 'state').read_text().strip()
+    except OSError as e:
+      raise StepFail(f'cannot read {port / "state"}: {e}')
+    now = time.monotonic()
+    if state != 'default':
+      self.since = None
+    elif self.since is None:
+      self.since = now
+    if self.since is None or now - self.since < self.STUCK or self.last is not None and now - self.last < self.GAP:
+      return
+    self.since, disable, done = None, port / 'disable', False
+    try:
+      off = self.set(disable, '1')
+      if off:
+        time.sleep(self.OFF)
+      on = self.set(disable, '0')
+      done = off and on
+    finally:
+      self.last = time.monotonic()
+      if not done:   # an interruption or failure past the off write must not leave the port without VBUS
+        restored = self.restore(disable)
+        with open(self.log, 'a') as f:
+          f.write(f'# power-cycle of {port} failed; power-on {self.RESTORED[restored]}\n')
+    if not done:
+      raise StepFail(f'could not power-cycle {port}', {'off': off, 'on': on, 'restored': restored})
+    self.cycles.append(port.name)
+
+  def restore(self, disable):
+    """Power on after a failed cycle: True or False as the write and read-back went, None when a cycle child an
+    interruption or timeout left behind survives SIGKILL, since it could still write after the restore."""
+    ours = [p for p in CHILDREN if list(p.args[:3]) == ['sh', '-c', self.SET] and p.args[3:5] == ['sh', str(disable)]]
+    if any([reap(p) for p in ours]):
+      return None
+    try:
+      return self.set(disable, '0')
+    except StepFail:
+      return False
+
+  def set(self, disable, value):
+    code, out = spawn(['sh', '-c', self.SET, 'sh', disable, value], self.log, self.TIMEOUT)
+    return code == 0 and not out.strip()
 
 
 def wait_for(fn, timeout, what, fail=None):
@@ -1084,6 +1261,8 @@ def hand_off(fh, board, detail, survivors=()):
     pid = None
   if pid == 0:
     try:
+      for sig in (signal.SIGTERM, signal.SIGINT):   # before the ack: the caller may be killed right after it
+        signal.signal(sig, signal.SIG_IGN)
       os.close(r)
       os.setsid()
       holder_record(fh, board, detail, survivors)
@@ -1253,6 +1432,7 @@ class Battery:
     self.b, self.f, self.dir, self.fail_at, self.commissioning = board, facts, workdir, fail_at, commissioning
     self.log = workdir / 'hil.log'
     self.probe = Probe(board, workdir, self.log)
+    self.power = PortPower(board.get('usbPower'), self.log)
     self.steps, self.usb_path, self.touched, self.at = [], None, False, 'setup'
     # where CURRENT.UF2 starts and the flash size INFO_UF2.TXT reports
     self.app_start, self.dfu_flash = facts.get('appStart'), facts['flashSize']
@@ -1303,9 +1483,11 @@ class Battery:
       raise StepFail(f'flash inputs changed {when}: {changed}', ev or {})
 
   def dfu_after_install(self, version):
-    """DFU after an install: J-Link's download erased the bootloader's whole 64 KiB block on the bench, the app start
-    with it (SKILL.md Limits), so DFU comes up; should enumeration time out instead, as when a valid app boots, the
-    board's commissioned retained-register re-entry brings DFU up. Any other failure fails as it is."""
+    """DFU after an install: on the RT boards J-Link's download erased the bootloader's whole 64 KiB block on the
+    bench, the app start with it (SKILL.md Limits), so DFU comes up; should enumeration time out instead, as when a
+    valid app boots (the F303's install keeps the app; there the verify session's reset may land in TinyUF2's
+    double-tap window instead, SKILL.md Limits), the board's commissioned retained-register re-entry brings DFU up.
+    Any other failure fails as it is."""
     try:
       return self.dfu(version)
     except NotEnumerated as e:
@@ -1333,7 +1515,8 @@ class Battery:
 
   def dfu(self, version):
     f = self.f
-    path = wait_for(lambda: usb_device(f['vid'], f['pid'], self.b['uid']), USB_TIMEOUT,
+    self.power.start()
+    path = wait_for(lambda: self.power.poll() or usb_device(f['vid'], f['pid'], self.b['uid']), USB_TIMEOUT,
                     f'{f["vid"]:04x}:{f["pid"]:04x} serial {self.b["uid"]}', NotEnumerated)
     if self.usb_path and path != self.usb_path:
       raise StepFail('came back on another USB port', {'usb': path, 'expected': self.usb_path})
@@ -1441,7 +1624,8 @@ class Battery:
     return {'pass': True, 'state': 'blinky copied', 'evidence': ev}
 
   def report_fields(self):
-    return {'jlinkRetried': self.probe.retried}   # the cleanup's retries land here too: the same list
+    # the cleanup's retries and cycles land here too: the same lists
+    return {'jlinkRetried': self.probe.retried, **({'portCycles': self.power.cycles} if self.power.cfg else {})}
 
   def install(self, files):
     """The record's tinyuf2-jlink target, then the BIN verified at its flash address in a session of the runner's."""
@@ -1692,6 +1876,13 @@ def check_pyusb():
 
 def check_flasher(board):
   check_esptool() if board['flasher'] == 'esptool' else check_jlink()
+  if board.get('usbPower'):
+    try:
+      disable = port_dir(board['usbPower']) / 'disable'
+    except StepFail as e:
+      raise Refused(f'{board["name"]}: usbPower: {e}')
+    if not os.access(disable, os.W_OK):
+      raise Refused(f'{board["name"]}: usbPower: {disable} is not writable (SKILL.md, Commissioning: Port power)')
 
 
 def reentry_decision(row):
