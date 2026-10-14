@@ -19,11 +19,6 @@ on:
       toolchain_version:
         required: false
         type: string
-      release-names:
-        description: "'make' renames release files to make's <name>-<board>.<ext>"
-        required: false
-        type: string
-        default: 'cmake'
 
 jobs:
   board:
@@ -89,11 +84,6 @@ jobs:
           else
             UPDATE_UF2=${{ env.BIN_PATH }}/apps/update-tinyuf2.uf2
             if [[ ${{ inputs.build-system }} == make ]]; then
-              UPDATE_UF2=${{ env.BIN_PATH }}/apps/update-tinyuf2-${{ matrix.board }}.uf2
-            elif [[ ${{ inputs.release-names }} == make ]]; then
-              for f in $(find ${{ env.BIN_PATH }} -type f); do
-                mv $f ${f%.*}-${{ matrix.board }}.${f##*.}
-              done
               UPDATE_UF2=${{ env.BIN_PATH }}/apps/update-tinyuf2-${{ matrix.board }}.uf2
             fi
             [ -f $UPDATE_UF2 ] && cp $UPDATE_UF2 update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2

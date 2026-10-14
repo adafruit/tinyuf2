@@ -40,7 +40,7 @@ def ci_jobs():
     toolchain = re.search(r"toolchain:\s*'([^']+)'", code)
     if not toolchain or 'build_util.yml' not in code:
       continue
-    ports = re.findall(r"^\s*-\s*'(\w+)'", code, re.M) or re.findall(r"^\s*(?:-\s*)?port:\s*'(\w+)'", code, re.M)
+    ports = re.findall(r"^\s*-\s*'(\w+)'", code, re.M) or re.findall(r"^\s*port:\s*'(\w+)'", code, re.M)
     backend = 'idf' if toolchain.group(1) == 'esp-idf' else re.search(r"build-system:\s*'(\w+)'", code).group(1)
     for port in ports:
       if re.search(r'^\s*if:\s*false', code, re.M):

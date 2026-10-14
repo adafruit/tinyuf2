@@ -93,21 +93,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Alphabetical order by family; ports released from make builds before keep make's file names
-        include:
-          - port: 'maxim'
-          - port: 'mimxrt10xx'
-            release-names: 'make'
-          - port: 'stm32f3'
-            release-names: 'make'
-          - port: 'stm32f4'
-          - port: 'stm32h5'
+        port:
+          # Alphabetical order by family
+          - 'maxim'
+          - 'mimxrt10xx'
+          - 'stm32f3'
+          - 'stm32f4'
+          - 'stm32h5'
     with:
       port: ${{ matrix.port }}
       boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)[matrix.port].board) }}
       build-system: 'cmake'
       toolchain: 'arm-gcc'
-      release-names: ${{ matrix.release-names || 'cmake' }}
 
   # ---------------------------------------
   # Build ESP
