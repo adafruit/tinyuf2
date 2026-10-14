@@ -1261,6 +1261,8 @@ def hand_off(fh, board, detail, survivors=()):
     pid = None
   if pid == 0:
     try:
+      for sig in (signal.SIGTERM, signal.SIGINT):   # before the ack: the caller may be killed right after it
+        signal.signal(sig, signal.SIG_IGN)
       os.close(r)
       os.setsid()
       holder_record(fh, board, detail, survivors)
