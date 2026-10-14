@@ -31,7 +31,7 @@ An agent that reports `buildOk` and `notes` (agentrc's `code-writer`) maps the J
 ## Judgment
 
 - **Selection is the script's**, first match per path, and `paths[].reason` says why. A mixed change takes the union, and an uncovered path fails it whatever else built. The policy behind the rules:
-  - A change to a port, board, app or dependency builds the boards that compile it: a board's own files that board; other port files the port's `REPRESENTATIVES` (rig boards first, both ESP32-S2 and -S3, both i.MX RT10xx and RT1170); an app or dependency the representatives of the ports whose CI backend compiles it.
+  - A change to a port, board, app or dependency builds the boards that compile it: a board's own files that board; other port files the port's `REPRESENTATIVES` (rig boards first, every ESP32 target the port's boards use, both i.MX RT10xx and RT1170); an app or dependency the representatives of the ports whose CI backend compiles it.
   - Shared code (`src/`, `lib/`, the shared build files) and anything unclassified builds every port's representatives, plus the ghostfat self-test when a ghostfat input changed.
   - A change to how boards build (this script, `build.yml`, `build_util.yml`, `ci_set_matrix.py`, `.github/actions/`) runs the contract's own tests and one smoke build per backend, and a change to this script the HIL battery on every roster board, since the HIL runner imports it; no firmware build verifies workflow syntax or orchestration. A change to the contract's tests runs the tests only.
   - CodeQL's make build of feather_stm32f405_express counts as coverage for the make files it reads.

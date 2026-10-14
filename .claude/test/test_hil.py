@@ -331,11 +331,13 @@ def partition_table(rows):
   return body + b'\xeb\xeb' + b'\xff' * 14 + ht.hashlib.md5(body).digest() + b'\xff' * 32
 
 
-def idf_build(root, parts=S3_PARTS, flash_args=None, sdk=None):
-  """A synthetic IDF build of the S3 DevKitC as the port's CMakeLists lays it out, and its record row."""
+def idf_build(root, parts=S3_PARTS, flash_args=None, sdk=None, board=S3, device='esp32s3',
+              board_id='ESP32S3-DevKitC-v1.0', family=0xc47e5767):
+  """A synthetic IDF build of the S3 DevKitC (or another board) as the port's CMakeLists lays it out, and its
+  record row."""
   (root / '_bin').mkdir(parents=True)
   files = {'_bin/bootloader.bin': b'\xe9' + b'\0' * 0x5000,
-           '_bin/tinyuf2.bin': b'\xe9' + b'TinyUF2 Bootloader 1.0\r\nBoard-ID: ESP32S3-DevKitC-v1.0\r\n' + b'\0' * 0x100,
+           '_bin/tinyuf2.bin': b'\xe9' + b'TinyUF2 Bootloader 1.0\r\nBoard-ID: ' + board_id.encode() + b'\r\n' + b'\0' * 0x100,
            '_bin/partition-table.bin': partition_table(parts), '_bin/ota_data_initial.bin': b'\xff' * 0x2000,
            '_bin/flash_args': flash_args or ('--flash-mode dio --flash-freq 80m --flash-size 8MB\n0x0 bootloader/bootloader.bin\n'
                                              '0x410000 tinyuf2.bin\n0x8000 partition_table/partition-table.bin\n'
@@ -343,26 +345,27 @@ def idf_build(root, parts=S3_PARTS, flash_args=None, sdk=None):
            'sdkconfig': sdk or ('CONFIG_IDF_TARGET="esp32s3"\nCONFIG_ESPTOOLPY_FLASHMODE="dio"\nCONFIG_ESPTOOLPY_FLASHFREQ="80m"\n'
                                 'CONFIG_ESPTOOLPY_FLASHSIZE="8MB"\nCONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-8MB.csv"\n'
                                 'CONFIG_PARTITION_TABLE_OFFSET=0x8000\n'),
-           '_bin/apps/dfu_runtime.uf2': ht.pack_uf2([(256 * i, bytes([i]) * 256) for i in range(3)], 0xc47e5767),
-           '_bin/apps/blinky.uf2': ht.pack_uf2([(256 * i, bytes([0xb0 + i]) * 256) for i in range(2)], 0xc47e5767)}
+           '_bin/apps/dfu_runtime.uf2': ht.pack_uf2([(256 * i, bytes([i]) * 256) for i in range(3)], family),
+           '_bin/apps/blinky.uf2': ht.pack_uf2([(256 * i, bytes([0xb0 + i]) * 256) for i in range(2)], family)}
   (root / '_bin' / 'apps').mkdir()
   for rel in ht.cb.FLASH['esptool'][1]:   # what the flash target reads, as the build leaves it
     files[rel] = files['_bin/' + Path(rel).name]
     (root / rel).parent.mkdir(parents=True, exist_ok=True)
   for rel, data in files.items():
     (root / rel).write_bytes(data if isinstance(data, bytes) else data.encode())
-  return {'board': S3, 'status': 'ok', 'backend': 'idf', 'buildDir': str(root),
+  return {'board': board, 'status': 'ok', 'backend': 'idf', 'buildDir': str(root),
           'sha256': {rel: ht.sha256(root / rel) for rel in files},
-          'flash': {'target': 'flash', 'flasher': {'name': 'esptool', 'uid': 'cp2102n', 'device': 'esp32s3'},
+          'flash': {'target': 'flash', 'flasher': {'name': 'esptool', 'uid': 'cp2102n', 'device': device},
                     'inputs': list(ht.cb.FLASH['esptool'][1])}}
 
 
-class Esp(Tmp):
-  """The S3 DevKitC entry: esptool by the CP2102N's serial, facts from the IDF port's own files."""
+class EspCase(Tmp):
+  """An esptool roster entry (`roster` overrides to s3_roster, board `name`) with its IDF record checks."""
+  name, roster = S3, {}
 
   def setUp(self):
     super().setUp()
-    self.board = self.load(s3_roster(self.tmp), S3)
+    self.board = self.load(s3_roster(self.tmp, **self.roster), self.name)
     self.facts = ht.source_facts(self.board)
     self.now = {'head': 'h', 'submodules': {}, 'deps': {}, 'dirty': False}
 
@@ -376,6 +379,10 @@ class Esp(Tmp):
     with mock.patch.object(ht.cb, 'identity', lambda ports: self.now), \
          mock.patch.object(ht.cb, 'ci_idf_version', lambda: 'v6.1'):
       return ht.verify_record(rec, self.board, self.facts, self.tmp / 'run')
+
+
+class Esp(EspCase):
+  """The S3 DevKitC entry: esptool by the CP2102N's serial, facts from the IDF port's own files."""
 
   def test_the_facts_come_from_the_idf_port(self):
     f = self.facts
@@ -472,6 +479,50 @@ class Esp(Tmp):
         row = idf_build(Path(tempfile.mkdtemp(dir=self.tmp)) / 'b')
         row['flash'] = flash and dict(row['flash'], **flash)
         self.verify(self.record(row))
+
+
+P4 = 'espressif_p4_function_ev'
+P4_PARTS = S3_PARTS[:5] + [('ffat', 1, 0x81, 0x450000, 0xbb0000)]
+P4_FLASH_ARGS = ('--flash-mode dio --flash-freq 80m --flash-size 16MB\n0x2000 bootloader/bootloader.bin\n'
+                 '0x410000 tinyuf2.bin\n0x8000 partition_table/partition-table.bin\n0xe000 ota_data_initial.bin\n')
+P4_SDK = ('CONFIG_IDF_TARGET="esp32p4"\nCONFIG_ESPTOOLPY_FLASHMODE="dio"\nCONFIG_ESPTOOLPY_FLASHFREQ="80m"\n'
+          'CONFIG_ESPTOOLPY_FLASHSIZE="16MB"\nCONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-16MB.csv"\n'
+          'CONFIG_PARTITION_TABLE_OFFSET=0x8000\n')
+
+
+class EspP4(EspCase):
+  """The P4 Function EV entry: its 2nd-stage bootloader sits at 0x2000, below the partition table."""
+  name = P4
+  roster = {'name': P4, 'uid': '30EDA0E0C902', 'flasher': {'name': 'esptool', 'uid': 'cp2102n', 'args': '--chip esp32p4'}}
+
+  def build(self, root, flash_args=P4_FLASH_ARGS):
+    return idf_build(root, P4_PARTS, flash_args, P4_SDK, board=P4, device='esp32p4', board_id='ESP32P4-FunctionEV-v1.4',
+                     family=0x3d308e94)
+
+  def test_the_facts_come_from_the_idf_port(self):
+    f = self.facts
+    self.assertEqual((f['flashSize'], f['partitionCsv'], f['partitions']), (0x1000000, 'partitions-16MB.csv', P4_PARTS))
+    self.assertEqual((f['vid'], f['pid'], f['boardId'], f['family']),
+                     (0x239a, 0x00a5, 'ESP32P4-FunctionEV-v1.4', 0x3d308e94))
+    self.assertEqual(self.board['device'], 'esp32p4')
+
+  def test_the_layout_names_what_an_install_writes_and_what_is_preserved(self):
+    lay = self.board['regions']
+    self.assertEqual(lay['install'], {'bootloader.bin': (0x2000, 0x8000), 'partition-table.bin': (0x8000, 0x9000),
+                                      'ota_data_initial.bin': (0xe000, 0x10000), 'tinyuf2.bin': (0x410000, 0x450000)})
+    self.assertEqual(lay['preserved'], {'nvs': (0x9000, 0xe000), 'ota_1': (0x210000, 0x410000),
+                                        'ffat': (0x450000, 0x1000000)})
+
+  def test_an_idf_record_gives_the_four_segments_at_their_regions(self):
+    files, _ = self.verify(self.record(self.build(self.tmp / 'b')))
+    self.assertEqual([(off, p.name) for off, p in files['segments']],
+                     [(0x2000, 'bootloader.bin'), (0x8000, 'partition-table.bin'), (0xe000, 'ota_data_initial.bin'),
+                      (0x410000, 'tinyuf2.bin')])
+
+  def test_a_bootloader_at_the_s3_offset_is_refused(self):
+    row = self.build(self.tmp / 'b', P4_FLASH_ARGS.replace('0x2000 bootloader', '0x0 bootloader'))
+    with self.assertRaisesRegex(ht.Refused, 'bootloader.bin .* is not at the start of its region \\[0x2000,0x8000\\)'):
+      self.verify(self.record(row))
 
 
 FAKE_ESP = textwrap.dedent('''

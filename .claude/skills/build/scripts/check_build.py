@@ -48,10 +48,10 @@ BACKENDS = {
   'stm32h7': 'make',
   'stm32l4': 'make',
 }
-# Boards that stand in for their port: rig boards first; espressif covers both IDF targets,
+# Boards that stand in for their port: rig boards first; espressif covers every IDF target,
 # mimxrt10xx both the RT10xx and RT1170 boot layouts.
 REPRESENTATIVES = {
-  'espressif': ['espressif_esp32s3_devkitm_1', 'espressif_esp32s2_devkitc_1'],
+  'espressif': ['espressif_esp32s3_devkitm_1', 'espressif_esp32s2_devkitc_1', 'espressif_p4_function_ev'],
   'kinetis_k32l2': ['frdm_k32l2b'],
   'lpc55': ['lpcxpresso55s69'],
   'maxim': ['max32666fthr'],
@@ -761,9 +761,10 @@ def idf_step_writes_no_input(cmd, root, chip):
         argv[1:] == ['-E', 'echo_append'] or argv[1:3] == ['-E', 'echo'] and len(argv) == 4 or
         argv[1:3] in (['-E', 'make_directory'], ['-E', 'touch']) and len(argv) == 4 and writes(argv[3]) or
         argv[1:3] == ['-E', 'copy'] and len(argv) == 5 and writes(argv[4], '_bin')) or \
-      re.fullmatch(py + r' \S*/partition_table/check_sizes\.py --offset', head) and tail[1:] in (
-        ['partition', '--type', 'app', str(root / 'partition_table/partition-table.bin'), str(root / 'tinyuf2.bin')],
-        ['bootloader', '0x0', str(root / 'bootloader/bootloader.bin')]) or \
+      re.fullmatch(py + r' \S*/partition_table/check_sizes\.py --offset', head) and (
+        tail[1:] == ['partition', '--type', 'app', str(root / 'partition_table/partition-table.bin'), str(root / 'tinyuf2.bin')] or
+        len(tail) == 4 and tail[1] == 'bootloader' and re.fullmatch(r'0x[0-9a-f]+', tail[2]) and
+        tail[3] == str(root / 'bootloader/bootloader.bin')) or \
       re.fullmatch(py + r' \S*/lib/uf2/utils/uf2conv\.py --carray', head) and \
       tail == ['-o', str(root / 'apps/update_tinyuf2/bootloader_bin.c'), str(root / 'tinyuf2.bin')] and writes(tail[1]) or \
       argv == ['bash', str(postbuild)] and cwd == root and writes(root / 'combined.bin') and postbuild.is_file() and \

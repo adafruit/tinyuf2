@@ -69,7 +69,15 @@ uf2conv.py firmware.bin -c -b 0x00 -f 0xbfdd4eee
 uf2conv.py firmware.bin -c -b 0x00 -f ESP32S3
 uf2conv.py firmware.bin -c -b 0x00 -f 0xc47e5767
 
+uf2conv.py firmware.bin -c -b 0x00 -f 0x3d308e94   # ESP32P4
+
 ```
+
+## ESP32-P4
+
+- TinyUF2 runs on the USB 2.0 OTG High-Speed controller (`BOARD_TUD_RHPORT` 1), e.g. the USB 2.0 Type-C port of the ESP32-P4-Function-EV-Board. It is tested at high speed only; enumeration through a full-speed-only host or hub is unverified.
+- ESP32-P4 chip revisions below v3.0 and v3.x need separate images (`CONFIG_ESP32P4_SELECTS_REV_LESS_V3`). A board selects its revision in its `sdkconfig`, which `family.cmake` also passes to the standalone applications so their images boot on the same chip. `espressif_p4_function_ev` targets the ESP32-P4-Function-EV-Board (chip below v3.0, tested on chip v0.1 and v1.0), not the ESP32-P4X-Function-EV-Board (chip v3.1+).
+- The 2nd stage bootloader sits at 0x2000, leaving 24 KiB before the partition table.
 
 ## 2nd Stage Bootloader
 

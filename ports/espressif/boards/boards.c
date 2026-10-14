@@ -29,7 +29,6 @@
 #include "hal/gpio_ll.h"
 
 #include "esp_private/usb_phy.h"
-#include "soc/usb_pins.h"
 
 #include "soc/usb_periph.h"
 #include "esp_private/periph_ctrl.h"
@@ -44,6 +43,11 @@
 #include "driver/gpio.h"
 
 #include "board_api.h"
+
+#if CONFIG_IDF_TARGET_ESP32P4
+#include "soc/lp_system_reg.h"
+#include "esp_rom_sys.h"
+#endif
 
 #ifndef BUILD_NO_TINYUSB
 #include "tusb.h"
@@ -260,19 +264,35 @@ void board_init(void) {
   esp_timer_create(&periodic_timer_args, &timer_hdl);
 }
 
+#if CONFIG_IDF_TARGET_ESP32P4 && !defined(BUILD_NO_TINYUSB)
+// A software restart leaves OTG HS attached: detach first, or the host keeps talking to a device that stopped answering
+static void usb_disconnect_shutdown_handler(void) {
+  tud_disconnect();
+  esp_rom_delay_us(20000);
+}
+#endif
+
 static usb_phy_handle_t phy_hdl;
 void board_dfu_init(void) {
   // Configure USB PHY
   usb_phy_config_t phy_conf = {
     .controller = USB_PHY_CTRL_OTG,
+#if BOARD_TUD_RHPORT == 1
+    .target = USB_PHY_TARGET_UTMI, // OTG HS
+#else
     .target = USB_PHY_TARGET_INT,
+#endif
     .otg_mode = USB_OTG_MODE_DEVICE,
     // https://github.com/hathach/tinyusb/issues/2943#issuecomment-2601888322
     // Set speed to undefined (auto-detect) to avoid timinng/racing issue with S3 with host such as macOS
     .otg_speed = USB_PHY_SPEED_UNDEFINED,
   };
 
-  usb_new_phy(&phy_conf, &phy_hdl);
+  ESP_ERROR_CHECK(usb_new_phy(&phy_conf, &phy_hdl));
+
+#if CONFIG_IDF_TARGET_ESP32P4 && !defined(BUILD_NO_TINYUSB)
+  esp_register_shutdown_handler(usb_disconnect_shutdown_handler);
+#endif
 }
 
 void board_reset(void) {
@@ -351,6 +371,7 @@ void board_timer_stop(void) {
 
 #if CONFIG_IDF_TARGET_ESP32S3
 #include "hal/usb_serial_jtag_ll.h"
+#include "soc/usb_pins.h"
 
 static void hw_cdc_reset_handler(void *arg) {
   portBASE_TYPE xTaskWoken = 0;
@@ -437,7 +458,11 @@ static void IRAM_ATTR usb_persist_shutdown_handler(void) {
   }
 #endif
 
+#if CONFIG_IDF_TARGET_ESP32P4
+  REG_SET_BIT(LP_SYSTEM_REG_SYS_CTRL_REG, LP_SYSTEM_REG_FORCE_DOWNLOAD_BOOT);
+#else
   REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
+#endif
 }
 
 // Invoked when cdc when line state changed e.g connected/disconnected

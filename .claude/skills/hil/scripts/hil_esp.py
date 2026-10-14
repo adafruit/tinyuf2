@@ -11,8 +11,8 @@ from pathlib import Path
 from check_build import FLASH, HIL_APP, IDF_CONFIG
 
 # 2nd-stage bootloader offset per chip, independent of the build: the ROM loads it from here (IDF v6.1
-# esp_rom/esp32s3/esp_rom_caps.h ESP_ROM_BOOTLOADER_OFFSET_FLASH, esptool 5.2.0 targets/esp32s3.py; no checked TRM states it)
-BOOTLOADER_OFFSET = {'esp32s3': 0x0}
+# esp_rom/<chip>/esp_rom_caps.h ESP_ROM_BOOTLOADER_OFFSET_FLASH, esptool 5.2.0 targets/<chip>.py; no checked TRM states it)
+BOOTLOADER_OFFSET = {'esp32s3': 0x0, 'esp32p4': 0x2000}
 PARTITION_TABLE = (0x8000, 0x1000)   # ports/espressif/sdkconfig.defaults CONFIG_PARTITION_TABLE_OFFSET; one sector
 APP, DATA = 0x00, 0x01
 SUBTYPE = {(APP, 'factory'): 0x00, (APP, 'ota_0'): 0x10, (APP, 'ota_1'): 0x11, (DATA, 'ota'): 0x00,

@@ -29,9 +29,11 @@
 #include "esp_timer.h"
 #include "esp_private/system_internal.h"
 #include "esp_private/usb_phy.h"
+#include "esp_rom_sys.h"
 
 #include "board_api.h"
 #include "dfu_runtime.h"
+#include "tusb.h"
 
 // Espressif glue for the DFU runtime example, without the bootloader's boards component
 
@@ -70,12 +72,16 @@ void board_usb_init(void) {
   // same PHY setup as TinyUF2's boards.c board_dfu_init()
   usb_phy_config_t const phy_conf = {
     .controller = USB_PHY_CTRL_OTG,
+#if BOARD_TUD_RHPORT == 1
+    .target = USB_PHY_TARGET_UTMI, // OTG HS
+#else
     .target = USB_PHY_TARGET_INT,
+#endif
     .otg_mode = USB_OTG_MODE_DEVICE,
     // https://github.com/hathach/tinyusb/issues/2943#issuecomment-2601888322
     .otg_speed = USB_PHY_SPEED_UNDEFINED,
   };
-  usb_new_phy(&phy_conf, &phy_hdl);
+  ESP_ERROR_CHECK(usb_new_phy(&phy_conf, &phy_hdl));
 }
 
 uint8_t board_usb_get_serial(uint8_t serial_id[16]) {
@@ -88,6 +94,11 @@ void board_reboot_to_bootloader(void) {
   // the call makes the link keep esp_reset_reason_set_hint() (ports/espressif/README.md)
   (void) esp_reset_reason();
   esp_reset_reason_set_hint((esp_reset_reason_t) APP_REQUEST_UF2_RESET_HINT);
+#if CONFIG_IDF_TARGET_ESP32P4
+  // as TinyUF2's boards.c: a software restart leaves OTG HS attached
+  tud_disconnect();
+  esp_rom_delay_us(20000);
+#endif
   esp_restart();
 }
 
