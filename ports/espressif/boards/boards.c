@@ -406,7 +406,7 @@ static void usb_switch_to_cdc_jtag(void) {
 
   // Force the host to re-enumerate (BUS_RESET)
   gpio_config_t dp_dm_conf = {
-      .pin_bit_mask = (1ULL << USBPHY_DM_NUM) | (1ULL < USBPHY_DP_NUM),
+      .pin_bit_mask = (1ULL << USBPHY_DM_NUM) | (1ULL << USBPHY_DP_NUM),
       .mode = GPIO_MODE_OUTPUT_OD,
       .pull_up_en = GPIO_PULLUP_DISABLE,
       .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -418,6 +418,10 @@ static void usb_switch_to_cdc_jtag(void) {
 
   // Initialize CDC+JTAG ISR to listen for BUS_RESET
   usb_serial_jtag_ll_phy_enable_external(false);
+  // gpio_config() turned off the D+ pull-up via the pull override; restore it, a CPU reset won't
+  const usb_serial_jtag_pull_override_vals_t pull_conf = {.dp_pu = 1, .dm_pu = 0, .dp_pd = 0, .dm_pd = 0};
+  usb_serial_jtag_ll_phy_enable_pull_override(&pull_conf);
+  usb_serial_jtag_ll_phy_disable_pull_override();
   usb_serial_jtag_ll_disable_intr_mask(USB_SERIAL_JTAG_LL_INTR_MASK);
   usb_serial_jtag_ll_clr_intsts_mask(USB_SERIAL_JTAG_LL_INTR_MASK);
   usb_serial_jtag_ll_ena_intr_mask(USB_SERIAL_JTAG_INTR_BUS_RESET);
