@@ -1,15 +1,29 @@
 #------------------------------------
 # Application
-# This file is meant to be include by add_subdirectory() in the root CMakeLists.txt
+# Standalone project, built by the port's family_add_app(SELF_UPDATE) or directly with -DBOARD= -DBOOTLOADER_BIN=
 #------------------------------------
-cmake_minimum_required(VERSION 3.17)
+cmake_minimum_required(VERSION 3.20)
+
+include(${CMAKE_CURRENT_LIST_DIR}/../../ports/family_support.cmake)
+
+project(update-tinyuf2 C ASM)
+set(CMAKE_EXECUTABLE_SUFFIX .elf)
+
+if (NOT DEFINED BOOTLOADER_BIN)
+  message(FATAL_ERROR "BOOTLOADER_BIN (the bootloader's tinyuf2.bin) not specified")
+endif ()
 
 include(${FAMILY_PATH}/app.cmake)
 
-# Generate bootloader_bin.c
+add_compile_definitions(
+  TINYUF2_SELF_UPDATE
+  BUILD_NO_TINYUSB
+  BUILD_APPLICATION
+  )
+
 add_custom_command(OUTPUT bootloader_bin.c
-  COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} --carray -o ${CMAKE_CURRENT_BINARY_DIR}/bootloader_bin.c $<TARGET_FILE_DIR:tinyuf2>/tinyuf2.bin
-  DEPENDS tinyuf2
+  COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} --carray -o ${CMAKE_CURRENT_BINARY_DIR}/bootloader_bin.c ${BOOTLOADER_BIN}
+  DEPENDS ${BOOTLOADER_BIN} ${UF2CONV_PY}
   )
 
 add_executable(update-tinyuf2
@@ -18,14 +32,8 @@ add_executable(update-tinyuf2
   ${FAMILY_PATH}/board_flash.c
   ${CMAKE_CURRENT_BINARY_DIR}/bootloader_bin.c
   )
-
 target_include_directories(update-tinyuf2 PUBLIC
   ${TOP}/src
-  )
-target_compile_definitions(update-tinyuf2 PUBLIC
-  TINYUF2_SELF_UPDATE
-  BUILD_NO_TINYUSB
-  BUILD_APPLICATION
   )
 
 family_configure_app(update-tinyuf2)

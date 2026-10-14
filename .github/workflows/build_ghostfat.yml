@@ -18,34 +18,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build
+      - name: Build and execute native self-test
         run: |
-          make -C ports/test_ghostfat/ BOARD=${{ matrix.board }} all
+          cmake -B build -G Ninja -DBOARD=${{ matrix.board }} ports/test_ghostfat
+          cmake --build build --target selftest
 
-      - name: Decompress known good filesystem image
+      - name: Compress (double) newly generated self-test image
         run: |
-          # NOTE: test_huge's knowngood.img file starts as 1.5 GiB
-          #       Compressing once with GZip results gives 85 MiB
-          #       Compressing it a second time gives 10 MiB ...
-          #       Therefore, store known good images double-compressed...
-          cp ./boards/${{ matrix.board }}/knowngood.img.gz.gz ./_build/${{ matrix.board }}/
-          gzip --decompress ./_build/${{ matrix.board }}/knowngood.img.gz.gz
-          gzip --decompress ./_build/${{ matrix.board }}/knowngood.img.gz
-        working-directory: ports/test_ghostfat
-
-      - name: Execute native self-test
-        run: |
-          chmod +x ./tinyuf2-${{ matrix.board }}.elf
-          ./tinyuf2-${{ matrix.board }}.elf
-
-          # Compress (double) newly generated self-test images
           mv ghostfat.img ghostfat_${{ matrix.board }}.img
           gzip --keep ghostfat_${{ matrix.board }}.img
           gzip --keep --force --best ghostfat_${{ matrix.board }}.img.gz
-        working-directory: ports/test_ghostfat/_build/${{ matrix.board }}
+        working-directory: build
 
       - name: Save newly generated self-test images as CI artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ghostfat_${{ matrix.board }}_image
-          path: ./ports/test_ghostfat/_build/${{ matrix.board }}/ghostfat_${{ matrix.board }}.img.gz.gz
+          path: ./build/ghostfat_${{ matrix.board }}.img.gz.gz

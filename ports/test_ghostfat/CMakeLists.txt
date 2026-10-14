@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.17)
+cmake_minimum_required(VERSION 3.20)
 include(${CMAKE_CURRENT_LIST_DIR}/../family_support.cmake)
 
 project(tinyuf2)
@@ -43,4 +43,16 @@ add_custom_target(mk-knowngood
   COMMAND gzip ${CMAKE_BINARY_DIR}/knowngood.img
   COMMAND gzip --force --best ${CMAKE_BINARY_DIR}/knowngood.img.gz
   COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/knowngood.img.gz.gz ${CMAKE_CURRENT_LIST_DIR}/boards/${BOARD}/knowngood.img.gz.gz
+  )
+
+# native self-test: the generated image must match the board's known-good one, which it never rewrites.
+# Known-good images are stored double-compressed: huge's is 1.5 GiB raw, 85 MiB gzipped once, 10 MiB twice.
+add_custom_target(selftest
+  DEPENDS tinyuf2
+  COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_LIST_DIR}/boards/${BOARD}/knowngood.img.gz.gz knowngood.img.gz.gz
+  COMMAND gzip -df knowngood.img.gz.gz
+  COMMAND gzip -df knowngood.img.gz
+  COMMAND $<TARGET_FILE:tinyuf2>
+  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+  VERBATIM
   )

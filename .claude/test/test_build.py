@@ -41,7 +41,7 @@ def ci_jobs():
     if not toolchain or 'build_util.yml' not in code:
       continue
     ports = re.findall(r"^\s*-\s*'(\w+)'", code, re.M) or re.findall(r"^\s*port:\s*'(\w+)'", code, re.M)
-    backend = 'idf' if toolchain.group(1) == 'esp-idf' else re.search(r"build-system:\s*'(\w+)'", code).group(1)
+    backend = 'idf' if toolchain.group(1) == 'esp-idf' else 'cmake'
     for port in ports:
       if re.search(r'^\s*if:\s*false', code, re.M):
         disabled.add(port)
@@ -70,8 +70,16 @@ class TablesMatchTheTree(unittest.TestCase):
     for port, boards in cb.REPRESENTATIVES.items():
       for b in boards:
         self.assertTrue((ROOT / 'ports' / port / 'boards' / b).is_dir(), f'{port}/{b}')
-    for backend, board in cb.SMOKE.items():
-      self.assertEqual(cb.BACKENDS[cb.port_of(board)], backend)
+    for backend in ('cmake', 'idf'):
+      self.assertEqual(cb.BACKENDS[cb.port_of(cb.SMOKE[backend])], backend)
+
+  def test_make_smoke_is_build_ymls_make_smoke_job(self):
+    text = (ROOT / '.github' / 'workflows' / 'build.yml').read_text()
+    job = text.split('\n  make-smoke:\n', 1)[1].split('\n\n  # ', 1)[0]
+    self.assertEqual(cb.MAKE_SMOKE, dict(re.findall(r"port:\s*'(\w+)',\s*board:\s*'(\w+)'", job)))
+    for port, board in cb.MAKE_SMOKE.items():
+      self.assertTrue((ROOT / 'ports' / port / 'Makefile').is_file(), port)
+      self.assertEqual(cb.port_of(board), port)
 
   def test_espressif_representatives_cover_every_idf_target(self):
     target = lambda b: re.search(r'IDF_TARGET "(\w+)"', (ROOT / 'ports/espressif/boards' / b / 'board.cmake').read_text())[1]
@@ -94,9 +102,25 @@ class Selection(unittest.TestCase):
                      ('board', 'select', [('stm32f411ce_blackpill', 'cmake')], False, False))
 
   def test_build_file_the_backend_never_reads_is_uncovered(self):
-    for path in ('ports/stm32f4/boards/stm32f411ce_blackpill/board.mk', 'ports/stm32f4/apps/self_update/Makefile',
-                 'ports/mimxrt10xx/CMakeLists.txt'):
+    for path in ('ports/stm32f4/boards/stm32f411ce_blackpill/board.mk', 'ports/espressif/Makefile'):
       self.assertEqual(classify(path)[:2], ('other-backend', 'gap'), path)
+
+  def test_shared_make_file_selects_every_make_smoke_board(self):
+    for path in ('ports/make.mk', 'ports/rules.mk'):
+      rule, effect, boards, _, _ = classify(path)
+      self.assertEqual((rule, effect), ('make-shared', 'select'), path)
+      self.assertEqual(boards, sorted((b, 'make') for b in cb.MAKE_SMOKE.values()), path)
+
+  def test_make_app_the_make_smoke_board_does_not_build_is_uncovered(self):
+    # factory_test_metro_sd's Makefile builds for metro_m7_1011_sd only, make-smoke builds metro_m7_1011
+    self.assertEqual(classify('ports/mimxrt10xx/apps/factory_test_metro_sd/Makefile')[:2], ('port-app', 'gap'))
+    self.assertEqual(classify('ports/mimxrt10xx/apps/factory_test/Makefile')[:3],
+                     ('make-smoke', 'select', [('metro_m7_1011', 'make')]))
+
+  def test_make_file_of_a_make_smoke_port_selects_its_make_build(self):
+    for path in ('ports/stm32f4/apps/self_update/Makefile', 'ports/stm32f4/port.mk',
+                 'ports/stm32f4/boards/feather_stm32f405_express/board.mk'):
+      self.assertEqual(classify(path)[:3], ('make-smoke', 'select', [('feather_stm32f405_express', 'make')]), path)
 
   def test_make_files_codeql_builds_select_its_make_build(self):
     for path in ('ports/stm32f4/Makefile', 'ports/stm32f4/port.mk',
@@ -106,14 +130,14 @@ class Selection(unittest.TestCase):
   def test_port_file_selects_its_representatives(self):
     rule, effect, boards, _, _ = classify('ports/mimxrt10xx/board_flash.c')
     self.assertEqual((rule, effect), ('port', 'select'))
-    self.assertEqual(boards, [('imxrt1064_evk', 'make'), ('imxrt1170_evk', 'make')])
+    self.assertEqual(boards, [('imxrt1064_evk', 'cmake'), ('imxrt1170_evk', 'cmake')])
 
   def test_app_selects_the_boards_that_build_it(self):
-    self.assertEqual(classify('ports/mimxrt10xx/apps/factory_test/main.c')[2], [('metro_m7_1011', 'make')])
-    # dfu_runtime, built for every board, includes it too: the port's representatives join the factory tests' boards
-    self.assertEqual(classify('ports/mimxrt10xx/apps/app.mk')[2],
-                     [('imxrt1064_evk', 'make'), ('imxrt1170_evk', 'make'), ('metro_m7_1011', 'make'),
-                      ('metro_m7_1011_sd', 'make')])
+    self.assertEqual(classify('ports/mimxrt10xx/apps/factory_test/main.c')[2], [('metro_m7_1011', 'cmake')])
+    self.assertEqual(classify('ports/mimxrt10xx/apps/dfu_runtime/board_dfu_runtime.c')[2],
+                     [('imxrt1064_evk', 'cmake'), ('imxrt1170_evk', 'cmake')])
+    # a make file of a make-smoke port: make-smoke's board, which builds every app
+    self.assertEqual(classify('ports/mimxrt10xx/apps/app.mk')[:3], ('make-smoke', 'select', [('metro_m7_1011', 'make')]))
 
   def test_app_nothing_builds_is_uncovered(self):
     self.assertEqual(classify('ports/lpc55/apps/erase_firmware/Makefile')[:2], ('port-app', 'gap'))
@@ -122,14 +146,14 @@ class Selection(unittest.TestCase):
 
   def test_top_level_app_selects_ports_whose_backend_compiles_it(self):
     ports = {cb.port_of(b) for b, _ in classify('apps/blinky/src/blinky.c')[2]}
-    self.assertEqual(ports, {'espressif', 'maxim', 'stm32f4', 'stm32h5'})
+    self.assertEqual(ports, {'espressif', 'maxim', 'mimxrt10xx', 'stm32f4', 'stm32h5'})
 
   def test_dependency_selects_the_ports_get_deps_names(self):
     self.assertEqual(classify('lib/mcu/st/cmsis_device_f4/x.h')[2], [('feather_stm32f405_express', 'cmake')])
-    self.assertEqual(classify('lib/sct_neopixel/x.c')[2], [('lpcxpresso55s69', 'make')])
+    self.assertEqual(classify('lib/sct_neopixel/x.c')[2], [('lpcxpresso55s69', 'cmake')])
 
   def test_unbuilt_ports_are_uncovered(self):
-    for path in ('ports/template_port/boards.c', 'ports/ch32v20x/boards.c'):
+    for path in ('ports/template_port/boards.c',):
       self.assertEqual(classify(path)[:2], ('unbuilt-port', 'gap'), path)
 
   def test_ghostfat_inputs(self):
@@ -301,9 +325,9 @@ class HilSelection(unittest.TestCase):
     self.assertEqual([u['target'] for u in h['uncovered']], ['stm32f4'])
 
   def test_a_build_gap_stays_uncovered_beside_a_runner_change(self):
-    h = self.hil('ports/ch32v20x/board_flash.c', '.claude/skills/hil/scripts/hil_test.py')
+    h = self.hil('ports/template_port/boards.c', '.claude/skills/hil/scripts/hil_test.py')
     self.assertEqual(h['boards'], ['lpcxpresso55s69'])
-    self.assertEqual([u['target'] for u in h['uncovered']], ['ports/ch32v20x/board_flash.c'])
+    self.assertEqual([u['target'] for u in h['uncovered']], ['ports/template_port/boards.c'])
 
   def test_a_port_change_reaches_roster_boards_that_are_not_its_representative(self):
     self.roster.write_text(json.dumps({'boards': [{'name': 'stm32f401_blackpill'}]}))
@@ -364,7 +388,7 @@ class HilSelection(unittest.TestCase):
   def test_an_app_source_is_uncovered_since_the_battery_runs_no_app(self):
     self.roster.write_text(json.dumps({'boards': [{'name': 'imxrt1060_evk'}]}))
     app, shared = 'ports/mimxrt10xx/apps/factory_test/main.c', 'apps/blinky/src/blinky.c'
-    self.assertEqual(sorted(cb.select([app])['boards']), [('metro_m7_1011', 'make')])   # its build is unchanged
+    self.assertEqual(sorted(cb.select([app])['boards']), [('metro_m7_1011', 'cmake')])   # its build is unchanged
     h = self.hil(app, shared)
     self.assertEqual((h['full'], h['boards']), (False, []))
     self.assertEqual([u['target'] for u in h['uncovered']], [shared, app])
@@ -492,7 +516,6 @@ class Verdict(unittest.TestCase):
   def test_backend_override_needs_board_and_shared_and_a_cmake_build(self):
     for argv, error in ((['--board', 'imxrt1060_evk', '--backend', 'cmake'], '--backend needs --board and --shared'),
                         (['--scope', 'src', '--shared', '--backend', 'cmake'], '--backend needs --board and --shared'),
-                        (['--board', 'lpcxpresso55s69', '--shared', '--backend', 'cmake'], 'ports/lpc55 has no cmake build'),
                         (['--board', 'espressif_esp32s3_devkitm_1', '--shared', '--backend', 'cmake'],
                          'ports/espressif has no cmake build')):
       with self.subTest(argv), contextlib.redirect_stdout(io.StringIO()) as out, \
@@ -600,11 +623,12 @@ class BuildBoard(unittest.TestCase):
       rec = cb.build_board('lpcxpresso55s69', 'make', self.args, {})
     self.assertEqual(rec['status'], 'failed')
     self.assertIn('update-tinyuf2-lpcxpresso55s69.uf2', rec['firstError'])
-    self.assertTrue((self.build_dir / f'cmake-build-agent-{cb.os.getpid()}-lpcxpresso55s69').is_dir())
+    # make is not lpc55's CI backend: the root is named for it
+    self.assertTrue((self.build_dir / f'cmake-build-agent-{cb.os.getpid()}-lpcxpresso55s69-make').is_dir())
 
   def test_shared_root_is_rebuilt_from_clean_and_kept(self):
     self.args.shared = True
-    root = self.build_dir / 'cmake-build-lpcxpresso55s69'
+    root = self.build_dir / 'cmake-build-lpcxpresso55s69-make'
     root.mkdir()
     (root / 'stale.o').write_text('old configuration')
     run, _ = self.fake_make(lambda cmd: LPC55_ARTIFACTS if 'copy-artifact' in cmd else [])
@@ -871,24 +895,23 @@ class HilRecord(unittest.TestCase):
 
 class Ghostfat(unittest.TestCase):
   @staticmethod
-  def fake_ghostfat_make(cmd, log, verbose, cwd=None):
-    log.write_text('built')
-    root = Path(next(str(c) for c in cmd if str(c).startswith('BUILD_ROOT='))[len('BUILD_ROOT='):])
-    work = root / 'ports' / cb.GHOSTFAT
-    (work / 'obj').mkdir(parents=True)
-    for f in ('obj/ghostfat.o', 'tinyuf2-4k.elf', 'knowngood.img'):
-      (work / f).write_text('x')
+  def fake_selftest(cmd, log, verbose, cwd=None):
+    """Configure passes; the selftest target leaves build files and fails its comparison."""
+    root = Path(cmd[cmd.index('-B') + 1] if '-B' in cmd else cmd[cmd.index('--build') + 1])
+    (root / 'CMakeFiles').mkdir(exist_ok=True)
+    (root / 'tinyuf2').write_text('x')
+    if 'selftest' in cmd:
+      log.write_text('comparing against known good disk image\nFAIL: (-10) FILES_NOT_IDENTICAL\n')
+      return 1
     return 0
 
-  def test_a_damaged_known_good_image_is_an_error_and_keeps_only_the_log(self):
+  def test_a_failed_comparison_fails_and_keeps_only_the_log(self):
     with build_tmpdir() as tmp, mock.patch.object(cb, 'BUILD_DIR', Path(tmp)), \
          mock.patch.object(cb, 'boards_of', lambda port: ['4k']), \
-         mock.patch.object(cb, 'run', self.fake_ghostfat_make), \
-         mock.patch.object(cb.gzip, 'open', side_effect=EOFError('truncated')):
+         mock.patch.object(cb, 'run', self.fake_selftest):
       [rec] = cb.run_ghostfat(False)
       root = Path(tmp) / f'cmake-build-agent-{cb.os.getpid()}-ghostfat-4k'
-      self.assertEqual(rec['status'], 'error')
-      self.assertIn('truncated', rec['firstError'])
+      self.assertEqual((rec['status'], rec['firstError']), ('failed', 'FAIL: (-10) FILES_NOT_IDENTICAL'))
       self.assertEqual([p.name for p in root.iterdir()], ['check_build.log'])
 
 
@@ -947,8 +970,16 @@ class BackendCommands(unittest.TestCase):
     self.assertLessEqual({'_bin/combined.bin', '_bin/apps/update-tinyuf2.uf2'},
                          names('espressif', 'espressif_esp32s3_devkitm_1', 'idf'))
     self.assertNotIn('_bin/apps/update-tinyuf2-swan_r5.uf2', names('stm32l4', 'swan_r5', 'make'))
-    # mimxrt10xx copies its self-update image to ARTIFACT_PATH instead of building apps/self_update
-    self.assertIn('_bin/apps/update-tinyuf2.uf2', names('mimxrt10xx', 'imxrt1060_evk', 'cmake'))
+    # mimxrt10xx copies its self-update image to ARTIFACT_PATH instead of building apps/self_update;
+    # its board-conditional apps are expected on their boards only
+    rt = {'_bin/tinyuf2.bin', '_bin/tinyuf2.hex', '_bin/apps/update-tinyuf2.uf2', '_bin/apps/blinky.uf2',
+          '_bin/apps/erase_firmware.uf2', '_bin/apps/dfu_runtime.uf2'}
+    self.assertEqual(names('mimxrt10xx', 'metro_m7_1011', 'cmake'),
+                     rt | {'_bin/apps/esp32programmer.uf2', '_bin/apps/factory_test.uf2'})
+    self.assertEqual(names('mimxrt10xx', 'metro_m7_1011_sd', 'cmake'), rt | {'_bin/apps/factory_test_metro_sd.uf2'})
+    self.assertEqual(names('mimxrt10xx', 'imxrt1060_evk', 'cmake'), rt)
+    self.assertEqual(names('stm32f3', 'stm32f303disco', 'cmake'),
+                     {'_bin/tinyuf2.bin', '_bin/tinyuf2.hex', '_bin/apps/update-tinyuf2.uf2'})
 
 
 class FirstError(unittest.TestCase):

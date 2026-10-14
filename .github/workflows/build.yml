@@ -11,6 +11,9 @@ on:
       - '.github/workflows/build.yml'
       - '.github/workflows/build_util.yml'
       - '.github/workflows/build_ghostfat.yml'
+      - '.github/workflows/ci_set_matrix.py'
+      - 'cmake/**'
+      - 'CMakeLists.txt'
   pull_request:
     branches: [ master ]
     paths:
@@ -22,6 +25,9 @@ on:
       - '.github/workflows/build.yml'
       - '.github/workflows/build_util.yml'
       - '.github/workflows/build_ghostfat.yml'
+      - '.github/workflows/ci_set_matrix.py'
+      - 'cmake/**'
+      - 'CMakeLists.txt'
   repository_dispatch:
   release:
     types:
@@ -57,29 +63,6 @@ jobs:
           echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
 
   # ---------------------------------------
-  # Build ARM
-  # ---------------------------------------
-  arm-make:
-    needs: set-matrix
-    uses: ./.github/workflows/build_util.yml
-    strategy:
-      fail-fast: false
-      matrix:
-        port:
-        # Alphabetical order
-        - 'kinetis_k32l2'
-        - 'lpc55'
-        - 'mimxrt10xx'
-        - 'stm32f3'
-        - 'stm32h7'
-        - 'stm32l4'
-    with:
-      port: ${{ matrix.port }}
-      boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)[matrix.port].board) }}
-      build-system: 'make'
-      toolchain: 'arm-gcc'
-
-  # ---------------------------------------
   # Build ARM with CMake
   # ---------------------------------------
   arm-cmake:
@@ -91,15 +74,78 @@ jobs:
         port:
           # Alphabetical order by family
           - 'maxim'
-          # - 'stm32f303disco' # overflows flash
           - 'stm32f4'
           - 'stm32h5'
     with:
       port: ${{ matrix.port }}
       boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)[matrix.port].board) }}
-      build-system: 'cmake'
       toolchain: 'arm-gcc'
 
+  # Ports released from make builds before: their release zips keep make's file names
+  arm-cmake-make-names:
+    needs: set-matrix
+    uses: ./.github/workflows/build_util.yml
+    strategy:
+      fail-fast: false
+      matrix:
+        port:
+          # Alphabetical order by family
+          - 'kinetis_k32l2'
+          - 'lpc55'
+          - 'mimxrt10xx'
+          - 'stm32f3'
+          - 'stm32h7'
+          - 'stm32l4'
+    with:
+      port: ${{ matrix.port }}
+      boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)[matrix.port].board) }}
+      toolchain: 'arm-gcc'
+      release-names: 'make'
+
+  # ---------------------------------------
+  # Make still builds one board per port with a Makefile (no release assets)
+  # ---------------------------------------
+  make-smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { port: 'kinetis_k32l2', board: 'frdm_k32l2b' }
+          - { port: 'lpc55', board: 'lpcxpresso55s69' }
+          - { port: 'mimxrt10xx', board: 'metro_m7_1011' }
+          - { port: 'stm32f3', board: 'stm32f303disco' }
+          - { port: 'stm32f4', board: 'feather_stm32f405_express' }
+          - { port: 'stm32h5', board: 'stm32h563_nucleo' }
+          - { port: 'stm32h7', board: 'daisy_seed' }
+          - { port: 'stm32l4', board: 'swan_r5' }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Fetch tags
+        run: git fetch --tags
+
+      - name: Setup Toolchain
+        uses: ./.github/actions/setup_toolchain
+        with:
+          toolchain: 'arm-gcc'
+
+      - name: Get Dependencies
+        run: python tools/get_deps.py --board ${{ matrix.board }}
+
+      - name: Build
+        run: |
+          set -e
+          make -j$(nproc) -C ports/${{ matrix.port }} BOARD=${{ matrix.board }} all self-update
+          make -C ports/${{ matrix.port }} BOARD=${{ matrix.board }} copy-artifact
+          for app in ports/${{ matrix.port }}/apps/*/; do
+            if [ -f "$app/Makefile" ] && [ "$(basename $app)" != self_update ]; then
+              make -j$(nproc) -C $app BOARD=${{ matrix.board }} all
+            fi
+          done
 
   # ---------------------------------------
   # Build ESP
@@ -111,7 +157,6 @@ jobs:
     with:
       port: 'espressif'
       boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)['espressif'].board) }}
-      build-system: 'make'
       toolchain: 'esp-idf'
       toolchain_version: 'v6.1'
 
@@ -119,7 +164,6 @@ jobs:
   # Build RISC-V
   # ---------------------------------------
   riscv:
-    if: false
     needs: set-matrix
     uses: ./.github/workflows/build_util.yml
     strategy:
@@ -131,7 +175,6 @@ jobs:
     with:
       port: ${{ matrix.port }}
       boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)[matrix.port].board) }}
-      build-system: 'make'
       toolchain: 'riscv-gcc'
 
   # ---------------------------------------

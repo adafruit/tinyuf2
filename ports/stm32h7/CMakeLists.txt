@@ -1,0 +1,28 @@
+cmake_minimum_required(VERSION 3.20)
+
+include(${CMAKE_CURRENT_LIST_DIR}/../family_support.cmake)
+
+project(tinyuf2 C ASM)
+set(CMAKE_EXECUTABLE_SUFFIX .elf)
+
+#------------------------------------
+# TinyUF2
+#------------------------------------
+add_executable(tinyuf2
+  board_flash.c
+  board_hmi.c
+  board_irq.c
+  boards.c
+  ${TOP}/lib/tinyusb/src/portable/synopsys/dwc2/dcd_dwc2.c
+  ${TOP}/lib/tinyusb/src/portable/synopsys/dwc2/dwc2_common.c
+  )
+family_add_linker_scripts(tinyuf2)
+
+family_configure_tinyuf2(tinyuf2 OPT_MCU_STM32H7)
+family_flash_jlink(tinyuf2)
+family_flash_stlink(tinyuf2)
+
+#------------------------------------
+# Application
+#------------------------------------
+family_add_app(erase_firmware ${TOP}/apps/erase_firmware)

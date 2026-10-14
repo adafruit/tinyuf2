@@ -1,6 +1,17 @@
-cmake_minimum_required(VERSION 3.17)
+#------------------------------------
+# Application
+# Standalone project, built by the port's family_add_app() or directly with -DBOARD=
+#------------------------------------
+cmake_minimum_required(VERSION 3.20)
 
-include(${CMAKE_CURRENT_LIST_DIR}/../../app.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/../../../family_support.cmake)
+
+project(dfu_runtime C ASM)
+set(CMAKE_EXECUTABLE_SUFFIX .elf)
+
+include(${FAMILY_PATH}/app.cmake)
+
+add_compile_definitions(BUILD_APPLICATION)
 
 set(app_src ${TOP}/apps/dfu_runtime/src)
 

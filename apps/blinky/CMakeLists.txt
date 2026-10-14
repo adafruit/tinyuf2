@@ -1,22 +1,27 @@
 #------------------------------------
 # Application
-# This file is meant to be include by add_subdirectory() in the root CMakeLists.txt
+# Standalone project, built by the port's family_add_app() or directly with -DBOARD=
 #------------------------------------
-cmake_minimum_required(VERSION 3.17)
+cmake_minimum_required(VERSION 3.20)
+
+include(${CMAKE_CURRENT_LIST_DIR}/../../ports/family_support.cmake)
+
+project(blinky C ASM)
+set(CMAKE_EXECUTABLE_SUFFIX .elf)
 
 include(${FAMILY_PATH}/app.cmake)
+
+add_compile_definitions(
+  BUILD_APPLICATION
+  BUILD_NO_TINYUSB
+  )
 
 add_executable(blinky
   src/blinky.c
   ${FAMILY_PATH}/boards.c
-#  ${FAMILY_PATH}/board_flash.c
   )
 target_include_directories(blinky PUBLIC
   ${TOP}/src
-  )
-target_compile_definitions(blinky PUBLIC
-  BUILD_APPLICATION
-  BUILD_NO_TINYUSB
   )
 
 family_configure_app(blinky)

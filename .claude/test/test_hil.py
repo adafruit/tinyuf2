@@ -89,7 +89,7 @@ def roster(tmp, **over):
 HELPER = Path('test/hil/helper/hil_lock.py')   # under TINYUSB_DIR
 
 
-# lpc55 has no cmake build, so the runner reads no facts for it; most tests keep its layout as synthetic facts
+# the runner reads no source facts for lpc55; most tests keep its layout as synthetic facts
 LPC_FACTS = {'flashBase': 0, 'binBase': 0, 'appStart': 0x10000, 'flashSize': 0x98000, 'vid': 0x1fc9, 'pid': 0x0094,
              'boardId': 'LPC55S69-Xpresso-revA', 'family': 0x2abc77ec, 'vectors': 76, 'ram': 0x20000000,
              'dblTapDelayMs': 500, 'dblTapReg': 0x4002C05C, 'dblTapMagic': 0xF01669EF}
@@ -273,8 +273,8 @@ class Rt1060(Tmp):
 
 
 class SourceFacts(unittest.TestCase):
-  def test_a_port_without_a_cmake_build_has_no_facts(self):
-    with self.assertRaisesRegex(ht.Refused, 'ports/lpc55 has no cmake build'):
+  def test_a_port_the_runner_has_no_facts_for_is_refused(self):
+    with self.assertRaisesRegex(ht.Refused, 'ports/lpc55: the HIL runner has no source facts'):
       ht.source_facts({'port': 'lpc55', 'name': BOARD})
 
   def test_rt1060_facts_come_from_the_source(self):

@@ -185,8 +185,6 @@ def cmake_var(path, name):
 def port_sources(port, bdir):
   """(CMSIS device header, the SDK's flash linker script, FLASH_BASE, where the BIN starts in flash) of a port
   the HIL supports, read from the CMake files the HIL's build uses."""
-  if not (ROOT / f'ports/{port}/CMakeLists.txt').is_file():
-    raise Refused(f'ports/{port} has no cmake build, which is what the HIL builds')
   if port != 'mimxrt10xx':
     raise Refused(f'ports/{port}: the HIL runner has no source facts for this port')
   sdk = cmake_var(f'ports/{port}/family.cmake', 'SDK_DIR')
