@@ -2446,6 +2446,14 @@ class BatteryRun(Tmp):
            self.assertRaisesRegex(ht.StepFail, 'reset write was not issued'):
         f3.run(aircr, judge=False)
 
+  def test_an_f411_session_connects_as_its_core_and_others_as_the_roster_device(self):
+    for device, want in (('stm32f411ve', 'Cortex-M4'), ('stm32f303vc', 'stm32f303vc')):
+      probe = ht.Probe({'probe': '1', 'device': device, 'if': 'SWD', 'speed': '4000'}, self.tmp, None)
+      seen = []
+      with self.subTest(device), mock.patch.object(ht, 'spawn', lambda cmd, *a, **k: seen.append(cmd) or (0, 'ok')):
+        probe.run(['h'])
+      self.assertEqual(seen[0][seen[0].index('-device') + 1], want)
+
   def test_a_failed_reset_fails_the_session(self):
     out = 'J-Link>r\nResetTarget failed (-1).\nFailed to halt CPU.\nJ-Link>g\n\n****** Error: CPU is not halted\n'
     probe = ht.Probe({'probe': '1', 'device': 'd', 'if': 'SWD', 'speed': '4000'}, self.tmp, None)

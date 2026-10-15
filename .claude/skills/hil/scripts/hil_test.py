@@ -77,6 +77,10 @@ _RESET_VECTOR_NOTE = r'(?m)^Could not find valid reset vector\.\nTarget halted o
 _F3_UNPROTECT_NOTE = (r'(?m)^Active write protection detected\.\nDevice will be unsecured now\.\nFailed to unlock device\.\n'
                       r'Can not attach to CPU\. Trying connect under reset\.$')
 BENIGN = {'MIMXRT1062xxx6A': _RESET_VECTOR_NOTE, 'MIMXRT1011DAE5A': _RESET_VECTOR_NOTE, 'stm32f303vc': _F3_UNPROTECT_NOTE}
+# The device a runner session connects as, where the roster device's own connect disturbs the target: J-Link's
+# stm32f411ve connect removes the write protection TinyUF2 sets at every boot by resetting the chip (bench
+# 2026-10-15, SKILL.md Limits), so runner sessions use the bare core; the flash target keeps the device.
+SESSION_DEVICE = {'stm32f411ve': 'Cortex-M4'}
 
 
 class Refused(Exception):
@@ -676,7 +680,8 @@ class Probe:
     ADDR" with no failure before it), and the caller's observation is the evidence."""
     script = self.dir / f'jlink-{time.monotonic_ns()}.jlink'
     script.write_text('\n'.join(list(commands) + ['exit']) + '\n')
-    cmd = ['JLinkExe', '-USB', self.b['probe'], '-device', self.b['device'], '-if', self.b['if'], '-speed',
+    device = SESSION_DEVICE.get(self.b['device'], self.b['device'])
+    cmd = ['JLinkExe', '-USB', self.b['probe'], '-device', device, '-if', self.b['if'], '-speed',
            self.b['speed'], '-autoconnect', '1', '-NoGui', '1', '-ExitOnError', '1', '-CommandFile', script]
     code, out = spawn(cmd, self.log, PROBE_TIMEOUT)
     if died_at_probe_connect(code, out, self.b['probe']):
