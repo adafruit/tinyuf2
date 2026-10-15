@@ -55,6 +55,10 @@
 #include "hal/usb_wrap_ll.h"
 #endif
 
+#if BOARD_USB_FS_PHY_SWAP && !(CONFIG_IDF_TARGET_ESP32P4 && BOARD_TUD_RHPORT == 0)
+#error "BOARD_USB_FS_PHY_SWAP needs ESP32-P4 OTG FS (BOARD_TUD_RHPORT 0)"
+#endif
+
 #ifndef BUILD_NO_TINYUSB
 #include "tusb.h"
 #endif
@@ -280,7 +284,7 @@ static void usb_disconnect_shutdown_handler(void) {
 
 static usb_phy_handle_t phy_hdl;
 void board_dfu_init(void) {
-#if CONFIG_IDF_TARGET_ESP32P4 && BOARD_USB_FS_PHY_SWAP
+#if BOARD_USB_FS_PHY_SWAP
   // Disconnect Serial/JTAG before moving USB-C's GPIO24/25 to the FS OTG controller.
   usb_serial_jtag_ll_phy_enable_pad(false);
   vTaskDelay(pdMS_TO_TICKS(100));
@@ -294,7 +298,8 @@ void board_dfu_init(void) {
     .target = USB_PHY_TARGET_INT,
 #endif
     .otg_mode = USB_OTG_MODE_DEVICE,
-#if CONFIG_IDF_TARGET_ESP32P4 && BOARD_USB_FS_PHY_SWAP
+#if CONFIG_IDF_TARGET_ESP32P4 && BOARD_TUD_RHPORT == 0
+    // usb_new_phy() moves a P4 device with undefined speed onto the HS UTMI PHY
     .otg_speed = USB_PHY_SPEED_FULL,
 #else
     // https://github.com/hathach/tinyusb/issues/2943#issuecomment-2601888322
@@ -305,8 +310,8 @@ void board_dfu_init(void) {
 
   ESP_ERROR_CHECK(usb_new_phy(&phy_conf, &phy_hdl));
 
-#if CONFIG_IDF_TARGET_ESP32P4 && BOARD_USB_FS_PHY_SWAP
-  // FSLS0 is GPIO24/25. IDF 6.1 includes the upstream PHY-selector fix.
+#if BOARD_USB_FS_PHY_SWAP
+  // usb_new_phy() leaves OTG FS on FSLS1 (GPIO26/27); FSLS0 is GPIO24/25
   usb_wrap_ll_phy_select(&USB_WRAP, 0);
 #endif
 
@@ -315,7 +320,7 @@ void board_dfu_init(void) {
 #endif
 }
 
-#if CONFIG_IDF_TARGET_ESP32P4 && BOARD_USB_FS_PHY_SWAP && !defined(BUILD_NO_TINYUSB)
+#if BOARD_USB_FS_PHY_SWAP && !defined(BUILD_NO_TINYUSB)
 static void usb_restore_serial_jtag(void) {
   tud_disconnect();
   vTaskDelay(pdMS_TO_TICKS(100));
@@ -326,7 +331,7 @@ static void usb_restore_serial_jtag(void) {
 #endif
 
 void board_reset(void) {
-#if CONFIG_IDF_TARGET_ESP32P4 && BOARD_USB_FS_PHY_SWAP && !defined(BUILD_NO_TINYUSB)
+#if BOARD_USB_FS_PHY_SWAP && !defined(BUILD_NO_TINYUSB)
   // Restore ROM's USB routing before starting an application with Serial/JTAG.
   usb_restore_serial_jtag();
   esp_rom_software_reset_system();
@@ -489,7 +494,6 @@ static void usb_switch_to_cdc_jtag(void) {
 #endif
 
 // Copied from Arduino's esp32-hal-tinyusb.c with usb_persist_mode = RESTART_BOOTLOADER, and usb_persist_enabled = false
-#if !(CONFIG_IDF_TARGET_ESP32P4 && BOARD_USB_FS_PHY_SWAP)
 static void IRAM_ATTR usb_persist_shutdown_handler(void) {
   // USB CDC Download: RESTART_BOOTLOADER
 #if CONFIG_IDF_TARGET_ESP32S2
@@ -505,7 +509,6 @@ static void IRAM_ATTR usb_persist_shutdown_handler(void) {
   REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
 #endif
 }
-#endif
 
 // Invoked when cdc when line state changed e.g connected/disconnected
 // Use to reset to bootrom when disconnect with 1200 bps
@@ -519,10 +522,10 @@ void tud_cdc_line_state_cb(uint8_t instance, bool dtr, bool rts) {
 
     if (coding.bit_rate == 1200) {
       printf("Touch1200: Reset to bootrom\n");
-#if CONFIG_IDF_TARGET_ESP32P4 && BOARD_USB_FS_PHY_SWAP
-      // A full system reset lets ROM reinitialize Serial/JTAG for recovery uploads.
+#if BOARD_USB_FS_PHY_SWAP
+      // Unlike esp_restart()'s CPU-only reset, this lets ROM reinitialize Serial/JTAG for uploads.
       usb_restore_serial_jtag();
-      REG_SET_BIT(LP_SYSTEM_REG_SYS_CTRL_REG, LP_SYSTEM_REG_FORCE_DOWNLOAD_BOOT);
+      usb_persist_shutdown_handler();
       esp_rom_software_reset_system();
 #else
       // copied from Arduino's usb_persist_restart()

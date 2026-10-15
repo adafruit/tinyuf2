@@ -387,13 +387,6 @@ static inline __attribute__((always_inline)) void neopixel_pin_write(uint32_t nu
 #endif
 
 static void board_neopixel_set(uint32_t num_pin, uint8_t const rgb[]) {
-#if !CONFIG_IDF_TARGET_ESP32P4
-  // WS2812B should be
-  uint32_t const time0  = ns2cycle(NEOPIXEL_T0H_NS);
-  uint32_t const time1  = ns2cycle(800);
-  uint32_t const period = ns2cycle(1250);
-#endif
-
   uint8_t pixels[3*NEOPIXEL_NUMBER];
   for(uint32_t i=0; i<NEOPIXEL_NUMBER; i++) {
     // Note: WS2812 color order is GRB
@@ -408,6 +401,11 @@ static void board_neopixel_set(uint32_t num_pin, uint8_t const rgb[]) {
     ESP_LOGW(TAG, "NeoPixel transmission failed");
   }
 #else
+  // WS2812B should be
+  uint32_t const time0  = ns2cycle(NEOPIXEL_T0H_NS);
+  uint32_t const time1  = ns2cycle(800);
+  uint32_t const period = ns2cycle(1250);
+
   neopixel_pin_begin(num_pin);
 
   uint32_t cyc = 0;

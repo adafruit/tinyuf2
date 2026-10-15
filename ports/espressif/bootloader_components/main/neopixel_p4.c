@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Based on ESP-IDF v5.4.3 hal/rmt_hal.c and esp_driver_rmt/src/rmt_private.h.
- * Pulse durations match led_strip/src/led_strip_rmt_encoder.c (WS2812).
+ * WS2812 pulse durations from led_strip 2.x led_strip_rmt_encoder.c.
  */
 
 #include "neopixel_p4.h"
