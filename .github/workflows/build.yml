@@ -71,7 +71,6 @@ jobs:
         port:
         # Alphabetical order
         - 'kinetis_k32l2'
-        - 'lpc55'
         - 'stm32h7'
         - 'stm32l4'
     with:
@@ -91,6 +90,7 @@ jobs:
       matrix:
         port:
           # Alphabetical order by family
+          - 'lpc55'
           - 'maxim'
           - 'mimxrt10xx'
           - 'stm32f3'

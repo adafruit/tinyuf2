@@ -37,7 +37,7 @@ BUILD_DIR = ROOT / 'cmake-build'
 BACKENDS = {
   'espressif': 'idf',
   'kinetis_k32l2': 'make',
-  'lpc55': 'make',
+  'lpc55': 'cmake',
   'maxim': 'cmake',
   'mimxrt10xx': 'cmake',
   'stm32f3': 'cmake',
@@ -87,8 +87,8 @@ NOTHING = ('.claude/', '.github/', '.idea/', 'tools/codespell/', 'tools/gen_boar
            'ports/build_all.py', 'CLAUDE.md', 'AGENTS.md', '.agents', 'LICENSE', '.gitignore', '.gitmodules',
            '.pre-commit-config.yaml', '.codespellrc', '.clang-format')
 CODEQL = '.github/workflows/codeql-buildscript.sh'
-# one board per backend for a change to how boards build; lpc55 also runs make's self-update and apps
-SMOKE = {'make': 'lpcxpresso55s69', 'cmake': 'feather_stm32f405_express', 'idf': 'espressif_esp32s3_devkitm_1'}
+# one board per backend for a change to how boards build
+SMOKE = {'make': 'frdm_k32l2b', 'cmake': 'feather_stm32f405_express', 'idf': 'espressif_esp32s3_devkitm_1'}
 
 
 # What a roster flasher runs to install TinyUF2: the build's own flash target, and the build-tree files that
