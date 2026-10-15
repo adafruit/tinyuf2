@@ -93,11 +93,17 @@ HELPER = Path('test/hil/helper/hil_lock.py')   # under TINYUSB_DIR
 LPC_FACTS = {'flashBase': 0, 'binBase': 0, 'appStart': 0x10000, 'flashSize': 0x98000, 'vid': 0x1fc9, 'pid': 0x0094,
              'boardId': 'LPC55S69-Xpresso-revA', 'family': 0x2abc77ec, 'vectors': 76, 'ram': 0x20000000,
              'dblTapDelayMs': 500, 'dblTapReg': 0x4002C05C, 'dblTapMagic': 0xF01669EF}
+# stm32h563_nucleo's source facts, which StlinkSourceFacts checks against the source: the pre-commit job does not fetch
+# the stm32h5 CMSIS header its vector count needs
+H563_FACTS = {'flashBase': 0x08000000, 'binBase': 0x08000000, 'appStart': 0x08008000, 'flashSize': 0x200000,
+              'vid': 0x239a, 'pid': 0x0163, 'boardId': 'STM32H563-Nucleo', 'family': 0x4e8f1c5d, 'vectors': 147,
+              'ram': 0x20000000, 'dblTapDelayMs': 500, 'dblTapReg': 0x2009FFFC, 'dblTapMagic': 0xF01669EF}
+SYNTHETIC_FACTS = {'lpc55': LPC_FACTS, 'stm32h5': H563_FACTS}
 real_source_facts = ht.source_facts
 
 
 def source_facts(board):
-  return dict(LPC_FACTS) if board['port'] == 'lpc55' else real_source_facts(board)
+  return dict(SYNTHETIC_FACTS[board['port']]) if board['port'] in SYNTHETIC_FACTS else real_source_facts(board)
 
 
 class Tmp(unittest.TestCase):
@@ -2641,6 +2647,322 @@ class Main(Tmp):
     r = json.loads(out.getvalue().splitlines()[-1])
     self.assertEqual((code, r['pass'], r['results'][0]['ran']), (2, False, False))
     self.assertTrue(Path(r['reportPath']).is_file())
+
+
+H563 = {'port': 'stm32h5', 'name': 'stm32h563_nucleo', 'device': 'stm32h563zi', 'flasher': 'stlink'}
+CUBE_CONNECT = ('ST-LINK SN  : 0023\nST-LINK FW  : V3J16M9\nBoard       : NUCLEO-H563ZI\nVoltage     : 3.26V\n'
+                'SWD freq    : 8000 KHz\nConnect mode: Hot Plug\nReset mode  : Software reset\nDevice ID   : {dev}\n'
+                'Revision ID : Rev Z\nDevice name : STM32H56x/573\nNVM size    : {nvm}\nDevice type : MCU\n'
+                'Device CPU  : Cortex-M33\nBL Version  : 0xE3\nSFSP Version: v2.2.0\nDebug in Low Power mode enabled\n')
+
+
+def stlink_target(error='', start='Start operation achieved successfully\n', nvm='2 MBytes'):
+  """tinyuf2-stlink's transcript through CMake and Ninja, as the bench recorded it on stm32h563_nucleo (v2.23.0)."""
+  return ('[1/1] cd /b && STM32_Programmer_CLI --connect port=swd sn=0023 --write /b/tinyuf2.hex --go\n'
+          '      -------------------------------------------------------------------\n'
+          '                        \x1b[01;34mSTM32CubeProgrammer v2.23.0\x1b[0m\n' +
+          CUBE_CONNECT.format(dev='0x484', nvm=nvm).replace('Hot Plug', 'Normal') +
+          'Opening and parsing file: tinyuf2.hex\nMemory Programming ...\n  File          : tinyuf2.hex\n'
+          '  Size          : 15.17 KB \n  Address       : 0x08000000\nErasing memory corresponding to segment 0:\n'
+          'Erasing internal memory sectors [0 1]\nDownload in Progress:\n[==================================================] 100% \n'
+          f'{error}File download complete\nTime elapsed during download operation: 00:00:00.120\nRUNNING Program ... \n'
+          f'  Address:      : 0x8000000\nApplication is running, Please Hold on...\n{start}')
+
+
+class FakeCube:
+  """STM32_Programmer_CLI -script, answering each operation in the shape the bench recorded (v2.23.0)."""
+
+  def __init__(self, dev='0x484', nvm='2 MBytes'):
+    self.dev, self.nvm, self.scripts, self.mem, self.flash = dev, nvm, [], {}, {}
+    self.r0, self.pc, self.sp, self.vtor = 5, 0x08008400, 0x20001000, 0x08008000
+    self.on_reset, self.break_op = None, None
+
+  def run(self, script):
+    lines = Path(script).read_text().splitlines()
+    self.scripts.append(lines[1:])
+    out = '=== Script Manager BEGIN ===\n'
+    for i, line in enumerate(lines, 1):
+      out += f'Operation [{i}]: {line} \n'
+      if self.break_op and self.break_op(line):
+        return 1, out + 'Error: failed to read the requested memory content\n'
+      if i == 1:
+        out += CUBE_CONNECT.format(dev=self.dev, nvm=self.nvm)
+      elif line == '-halt':
+        out += 'Core halted\n'
+      elif line == '-run':
+        out += 'Core run\n'
+      elif line.startswith('#Delay('):
+        out += f'The system go to sleep for {line[7:-1]} ms.\n'
+      elif line == '-coreReg':
+        self.r0 += 7
+        out += (f'R0       = 0x{self.r0:08X}\nR1       = 0x00000001\nSP       = 0x{self.sp:08X}\nLR       = 0x08002DA5\n'
+                f'PC       = 0x{self.pc:08X}\nXPSR     = 0x01000000\nMSP      = 0x{self.sp:08X}\nPSP      = 0x00000000\n')
+      elif line.startswith('-r32 '):
+        a = int(line.split()[1], 16)
+        v = self.vtor if a == ht.SCB_VTOR else self.mem.get(a, 0)
+        out += f'Reading 32-bit memory content\n  Size          : 4 Bytes\n  Address:      : 0x{a:08X}\n0x{a:08X} : {v:08X}\n'
+      elif line.startswith('-w32 '):
+        _, a, v, *nv = line.split()
+        out += f'Write 32-bit data\nw @{a.lower()}:  {v.lower()}\nDownloading...\n32-bit data download complete\n'
+        if int(a, 16) == ht.SCB_AIRCR and self.on_reset:
+          self.on_reset()
+        else:
+          self.mem[int(a, 16)] = int(v, 16)
+      elif line.startswith('-u '):
+        _, a, n, path = line.split()
+        Path(path).write_bytes(self.flash.get(int(a, 16), b'')[:int(n, 16)])
+        out += f'UPLOADING ...\n  File          : {Path(path).name}\n  Size          : {int(n, 16)} Bytes\nData read successfully\n'
+      elif line == '-rst':
+        out += 'MCU Reset\nSoftware reset is performed\n'
+    return 0, out + 'Device is disconnected\n=== Script Manager END === \n'
+
+
+class Stlink(Tmp):
+  """The ST-LINK probe sessions over a fake CLI: the plumbing, not the rig."""
+
+  def setUp(self):
+    super().setUp()
+    self.cube = FakeCube()
+    self.board = {'name': 'stm32h563_nucleo', 'probe': '0023', 'device': 'stm32h563zi', 'flasher': 'stlink'}
+    self.probe = ht.StlinkProbe(self.board, self.tmp, self.tmp / 'log')
+    self.answer = None
+    p = mock.patch.object(ht, 'spawn', lambda cmd, log, timeout, cwd=None: self.answer(cmd) if self.answer else
+                          self.cube.run(cmd[2]))
+    p.start()
+    self.addCleanup(p.stop)
+
+  def test_a_session_connects_hotplug_to_the_roster_probe_and_returns_each_operation(self):
+    self.cube.mem[0x2009FFFC] = 0xF01669EF
+    self.assertEqual(self.probe.mem32([0x2009FFFC, ht.SCB_VTOR]), {0x2009FFFC: 0xF01669EF, ht.SCB_VTOR: 0x08008000})
+    script = next(self.tmp.glob('stlink-*.prg')).read_text().splitlines()
+    self.assertEqual(script, ['-c port=SWD sn=0023 mode=HOTPLUG', '-r32 0x2009FFFC 1', f'-r32 0x{ht.SCB_VTOR:08X} 1'])
+    self.assertEqual(self.probe.write32(0x20000FFC, 0x12345678), '0x12345678')
+    self.assertEqual(self.cube.scripts[-1], ['-halt', '-w32 0x20000FFC 0x12345678', '-r32 0x20000FFC 1', '-run'])
+
+  def test_a_session_fails_unless_the_transcript_shows_the_roster_chip_and_every_operation(self):
+    ok, broken = self.cube.run, FakeCube()
+    broken.break_op = lambda line: line == '-run'
+    for what, answer in (
+        ('another family', lambda cmd: FakeCube(dev='0x480').run(cmd[2])),
+        ('another size', lambda cmd: FakeCube(nvm='1 MBytes').run(cmd[2])),
+        ('exit 0 with an error line', lambda cmd: (0, ok(cmd[2])[1].replace('Core run', 'Error: x'))),
+        ('a nonzero exit', lambda cmd: (1, ok(cmd[2])[1])),
+        ('no script end', lambda cmd: (0, ok(cmd[2])[1].replace('=== Script Manager END ===', ''))),
+        ('an operation missing', lambda cmd: (0, ok(cmd[2])[1].replace('Operation [3]: -run', 'x'))),
+        ('no halt result', lambda cmd: (0, ok(cmd[2])[1].replace('Core halted', ''))),
+        ('no run result', lambda cmd: (0, ok(cmd[2])[1].replace('Core run', ''))),
+        ('a failed operation', lambda cmd: broken.run(cmd[2]))):
+      with self.subTest(what):
+        self.answer = answer
+        with self.assertRaisesRegex(ht.StepFail, 'STM32_Programmer_CLI failed') as e:
+          self.probe.run(['-halt', '-run'])
+        self.assertFalse(e.exception.evidence['beforeTarget'])
+
+  def test_every_operation_kind_needs_its_success_line(self):
+    ok = self.cube.run
+    ops = ['-halt', '-coreReg', '-r32 0x2009FFFC 1', '-w32 0x20000FFC 0x00000001', f'-u 0x08000000 0x10 {self.tmp / "u.bin"}',
+           '#Delay(10)', '-rst', '-run']
+    self.assertEqual(len(self.probe.run(ops)), len(ops))
+    for line in ('Core halted', 'XPSR     = 0x', 'Reading 32-bit memory content', '32-bit data download complete',
+                 'Data read successfully', 'The system go to sleep for', 'Software reset is performed', 'Core run'):
+      with self.subTest(line):
+        self.answer = lambda cmd, line=line: (0, ok(cmd[2])[1].replace(line, ''))
+        with self.assertRaisesRegex(ht.StepFail, 'STM32_Programmer_CLI failed'):
+          self.probe.run(ops)
+
+  def test_only_an_unknown_probe_serial_is_recognised_as_before_the_target(self):
+    self.answer = lambda cmd: (1, '=== Script Manager BEGIN ===\nOperation [1]: -c port=SWD sn=0023 mode=HOTPLUG \n'
+                                  'Error: Serial number not found. Wrong parameter: sn=0023\n')
+    with self.assertRaises(ht.StepFail) as e:
+      self.probe.run(['-halt'])
+    self.assertTrue(e.exception.evidence['beforeTarget'])
+
+  def test_reads_must_give_exactly_one_value_and_writes_must_read_back(self):
+    ok = self.cube.run
+    self.answer = lambda cmd: (0, ok(cmd[2])[1].replace('0x2009FFFC : 00000000', 'x'))
+    with self.assertRaisesRegex(ht.StepFail, 'no single value'):
+      self.probe.mem32([0x2009FFFC])
+    self.answer = lambda cmd: (0, ok(cmd[2])[1].replace('0x2009FFFC : 00000000', '0x2009FFFC : 00000000\n0x2009FFFC : 00000001'))
+    with self.assertRaisesRegex(ht.StepFail, 'no single value'):
+      self.probe.mem32([0x2009FFFC])
+    self.answer = lambda cmd: (0, ok(cmd[2])[1].replace('0x20000FFC : 00000001', '0x20000FFC : 00000000'))
+    with self.assertRaisesRegex(ht.StepFail, 'reads back 00000000'):
+      self.probe.write32(0x20000FFC, 1)
+
+  def test_the_flash_target_is_judged_from_its_transcript(self):
+    self.assertEqual(ht.judge_stlink_target(0, stlink_target(), self.board),
+                     {'flashDownload': 'File download complete', 'erasedSectors': ['0', '1']})
+    for what, out, code in (('no start', stlink_target(start=''), 0), ('an error', stlink_target(error='Error: x\n'), 0),
+                            ('another part', stlink_target(nvm='1 MBytes'), 0), ('a nonzero exit', stlink_target(), 1)):
+      with self.subTest(what), self.assertRaisesRegex(ht.StepFail, 'tinyuf2-stlink failed'):
+        ht.judge_stlink_target(code, out, self.board)
+
+  def test_any_programmer_cli_is_a_probe_user(self):
+    proc = self.tmp / 'proc'
+    for pid, argv in (('101', b'/home/u/bin/STM32_Programmer_CLI\0-script\0x.prg\0'), ('102', b'JLinkExe\0-USB\0000023\0'),
+                      ('103', b'python3\0STM32_Programmer_CLI.txt\0')):
+      (proc / pid).mkdir(parents=True)
+      (proc / pid / 'cmdline').write_bytes(argv)
+    real = ht.Path
+    with mock.patch.object(ht, 'Path', lambda *a: real(proc) if a == ('/proc',) else real(*a)):
+      self.assertEqual(ht.probe_users(self.board), [101])
+
+
+class StlinkBatteryRun(Tmp):
+  """StlinkBattery.run end to end over the fake CLI and a fake drive."""
+
+  def setUp(self):
+    super().setUp()
+    cfg = self.tmp / 'local.json'
+    cfg.write_text(json.dumps({'boards': [{'name': 'stm32h563_nucleo', 'uid': 'UID', 'flasher': {
+      'name': 'stlink', 'uid': '0023', 'args': '-device stm32h563zi'}, 'tinyuf2': {'reentry': 'retained-register'}}]}))
+    board = self.load(cfg, 'stm32h563_nucleo')
+    self.bat = bat = ht.StlinkBattery(board, ht.source_facts(board), self.tmp)
+    cube, f = FakeCube(), bat.f
+    self.cube, self.present = cube, [True]
+    bin_path = bootloader_bin(self.tmp / 'c.bin', board_id=b'STM32H563-Nucleo')
+    cube.flash[f['binBase']] = bin_path.read_bytes()
+
+    def reset():   # DFU only with the magic retained
+      self.present[0] = cube.mem.pop(f['dblTapReg'], None) == f['dblTapMagic']
+    cube.on_reset = reset
+    build = self.tmp / 'build'
+    build.mkdir()
+    (build / 'tinyuf2.hex').write_text(':00000001FF\n')
+    self.files = {'bin': bin_path, 'hex': build / 'tinyuf2.hex',
+                  'flash': {'root': build, 'binding': {'target': 'tinyuf2-stlink'},
+                            'sha256': {'tinyuf2.hex': ht.sha256(build / 'tinyuf2.hex')}, 'ninja': None}}
+
+    def spawn(cmd, log, timeout, cwd=None):
+      if cmd[0] == 'cmake':
+        cube.scripts.append(['target ' + cmd[-1]])
+        return 0, stlink_target()
+      if cmd[0] == 'mcopy':
+        self.present[0] = False
+        cube.flash[f['appStart']] = bat.fix['image']
+        cube.pc, cube.vtor = bat.fix['handler'], f['appStart']
+        return 0, ''
+      return cube.run(cmd[2]) if cmd[0] == ht.STM32_PROGRAMMER_CLI else (0, '')
+
+    def fat_read(dev, name, length, log, offset=0):
+      if name == 'INFO_UF2.TXT':
+        data = (f'TinyUF2 Bootloader v1\r\nModel: x\r\nBoard-ID: {f["boardId"]}\r\nDate: d\r\n'
+                f'Flash Size: 0x{f["flashSize"]:08X} bytes').encode()
+      else:
+        data = ht.make_uf2(bat.fix['image'], f['appStart'], f['family'], self.tmp / 'cur')[1].read_bytes()[:length]
+      return {'entries': {'CURRENT.UF2': [9, f['flashSize'] // 256 * 512]}, 'data': data, 'size': len(data)}
+    (self.tmp / 'cur').mkdir()
+    clock = [0.0]
+    for p in (mock.patch.object(ht.cb, 'flash_ready', lambda *a: None),
+              mock.patch.object(ht, 'usb_device', lambda *a: '1-2' if self.present[0] else None),
+              mock.patch.object(ht, 'block_device', lambda p: '/dev/sdz'),
+              mock.patch.object(ht, 'check_exclusive', lambda d: None),
+              mock.patch.object(ht, 'fat_read', fat_read),
+              mock.patch.object(ht, 'spawn', spawn),
+              mock.patch.object(ht.time, 'sleep', lambda s: clock.__setitem__(0, clock[0] + s)),
+              mock.patch.object(ht.time, 'monotonic', lambda: clock[0] + 1e-3)):
+      p.start()
+      self.addCleanup(p.stop)
+
+  def test_every_step_passes_with_each_probe_session_one_script(self):
+    self.bat.run(self.files, 'v1')
+    self.assertEqual([x['step'] for x in self.bat.steps if x['pass']], list(ht.STEPS['stlink']))
+    s = self.cube.scripts
+    self.assertEqual(s[0], ['target tinyuf2-stlink'])
+    self.assertEqual((s[1][0], s[1][2]), ('-halt', '-rst'))
+    self.assertRegex(s[1][1], r'^-u 0x08000000 0x5824 \S+readback-\d+\.bin$')
+    self.assertEqual(self.bat.steps[0]['evidence'],
+                     {'flashDownload': 'File download complete', 'erasedSectors': ['0', '1'], 'verified': True})
+    observe = next(x for x in s if '-coreReg' in x)
+    self.assertEqual(observe[:5], ['-halt', '-run', f'#Delay({2 * self.bat.f["dblTapDelayMs"] + 200})', '-halt', '-coreReg'])
+    self.assertEqual(observe.count('-coreReg'), 2)
+    self.assertIn([f'-w32 0x{ht.SCB_AIRCR:08X} 0x{ht.AIRCR_SYSRESETREQ:08X} -nv'], s)
+    ev = self.bat.steps[-1]['evidence']
+    self.assertTrue(ev['dfuCameUp'] and ev['magicConsumed'] and ev['appIntact'])
+
+  def test_an_install_whose_bin_does_not_read_back_fails(self):
+    self.cube.flash[self.bat.f['binBase']] = b'\xff' * 0x5824
+    with self.assertRaisesRegex(ht.StepFail, 'does not read back'):
+      self.bat.run(self.files, 'v1')
+    self.assertEqual(self.bat.steps[-1]['step'], 'install')
+
+  def test_an_app_image_that_does_not_read_back_fails_app_ran(self):
+    spawn = ht.spawn
+
+    def corrupt(cmd, *a, **k):
+      out = spawn(cmd, *a, **k)
+      if cmd[0] == 'mcopy':
+        self.cube.flash[self.bat.f['appStart']] = bytes(len(self.bat.fix['image']))
+      return out
+    with mock.patch.object(ht, 'spawn', corrupt), self.assertRaisesRegex(ht.StepFail, 'fixture image does not read back'):
+      self.bat.run(self.files, 'v1')
+    self.assertEqual(self.bat.steps[-1]['step'], 'app-ran')
+
+  def test_a_reset_write_not_reported_done_fails(self):
+    run = self.cube.run
+    self.cube.run = lambda script: (lambda r: (r[0], r[1].replace('w @0xe000ed0c:  0x05fa0004', 'x')
+                                               if '-nv' in Path(script).read_text() else r[1]))(run(script))
+    with self.assertRaisesRegex(ht.StepFail, 'reset write was not reported done'):
+      self.bat.sysreset()
+
+
+H563_HEADER = 'lib/mcu/st/cmsis_device_h5/Include/stm32h563xx.h'
+
+
+class StlinkSourceFacts(unittest.TestCase):
+  def test_stm32h563_nucleo_facts_come_from_the_source_and_the_link_defsyms(self):
+    with mock.patch.object(ht, 'vector_count', return_value=H563_FACTS['vectors']) as count:
+      f = ht.source_facts(H563)
+    count.assert_called_once_with(H563_HEADER)
+    # __ram_size 640K: _board_dfu_dbl_tap = _estack, the last word of SRAM3
+    self.assertEqual(f, H563_FACTS)
+
+  @unittest.skipUnless((ROOT / H563_HEADER).is_file(), f'{H563_HEADER} not fetched (tools/get_deps.py stm32h5)')
+  def test_stm32h563_vector_count_comes_from_its_cmsis_header(self):
+    self.assertEqual(ht.vector_count(H563_HEADER), H563_FACTS['vectors'])
+
+  def test_a_change_to_how_the_defsyms_reach_the_link_is_refused(self):
+    files = {k: (ROOT / k).read_text() for k in ('ports/stm32h5/family.cmake', 'ports/stm32h5/linker/stm32h5_boot.ld',
+                                                 'ports/stm32h5/boards/stm32h563_nucleo/board.cmake')}
+    fam, ld, _ = files
+
+    def defsyms(**edits):
+      t = tempfile.TemporaryDirectory()
+      self.addCleanup(t.cleanup)
+      for rel, text in files.items():
+        (Path(t.name) / rel).parent.mkdir(parents=True, exist_ok=True)
+        (Path(t.name) / rel).write_text(edits.get(rel, lambda x: x)(text))
+      with mock.patch.object(ht, 'ROOT', Path(t.name)), mock.patch.object(ht.cb, 'ROOT', Path(t.name)):
+        return ht.defsyms('stm32h5', 'ports/stm32h5/boards/stm32h563_nucleo', 'ports/stm32h5/linker/stm32h5_boot.ld')
+    self.assertEqual(defsyms(), {'__flash_boot_size': 32 * 1024, '__ram_size': 640 * 1024})
+    ram = '-Wl,--defsym=__ram_size=${LD_RAM_SIZE}'
+    for what, rel, edit in (
+        ('another defsym', fam, lambda x: x.replace(ram, '-Wl,--defsym=__ram_size=64K')),
+        ('an extra defsym', fam, lambda x: x.replace(ram, ram + ' -Wl,--defsym=__x=1')),
+        ('an unconditional set', fam, lambda x: x + '\nset(LD_RAM_SIZE 64K)\n'),
+        ('no script default', ld, lambda x: x.replace('__ram_size = DEFINED(__ram_size) ? __ram_size : 32K;', '__ram_size = 32K;')),
+        ('a second assignment', ld, lambda x: x + '\n__flash_boot_size += 1K;\n')):
+      with self.subTest(what), self.assertRaisesRegex(ht.Refused, 'does not reach'):
+        defsyms(**{rel: edit})
+
+  def test_flash_size_from_the_cmsis_register_read_is_the_roster_device_flash(self):
+    with self.assertRaisesRegex(ht.Refused, 'BOARD_FLASH_SIZE'):
+      ht.source_facts(dict(H563, device='unknown'))
+
+
+class StlinkRoster(Tmp):
+  def test_an_stlink_entry_needs_a_device_with_limits_and_a_chip_identity(self):
+    def entry(device):
+      cfg = self.tmp / 'local.json'
+      cfg.write_text(json.dumps({'boards': [{'name': 'stm32h563_nucleo', 'uid': 'U', 'flasher': {
+        'name': 'stlink', 'uid': '0023', 'args': f'-device {device}'}}]}))
+      return cfg
+    b = self.load(entry('stm32h563zi'), 'stm32h563_nucleo')
+    self.assertEqual((b['flasher'], b['install'], b['app']), ('stlink', (0x08000000, 0x08008000), (0x08008000, 0x08200000)))
+    with mock.patch.dict(ht.FLASH_LIMITS, {'stm32h503rb': (0x08000000, 0x08020000)}):
+      for device, err in (('stm32h503rb', 'no chip identity'), ('stm32h573ii', 'no programming limits')):
+        with self.subTest(device), self.assertRaisesRegex(ht.Refused, err):
+          ht.load_board(entry(device), 'stm32h563_nucleo')
 
 
 if __name__ == '__main__':

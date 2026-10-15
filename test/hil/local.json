@@ -35,6 +35,12 @@
       "uid": "3A002A001051363332383332",
       "flasher": {"name": "jlink", "uid": "000770880814", "args": "-device stm32f411ve"},
       "tinyuf2": {"lock": "stm32f411disco", "reentry": "retained-register"}
+    },
+    {
+      "name": "stm32h563_nucleo",
+      "uid": "620041000751323237363130",
+      "flasher": {"name": "stlink", "uid": "002300273232510239353236", "args": "-device stm32h563zi"},
+      "tinyuf2": {"lock": "stm32h563nucleo", "reentry": "retained-register"}
     }
   ]
 }
