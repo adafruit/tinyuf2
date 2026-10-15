@@ -2161,6 +2161,12 @@ class BatteryRun(Tmp):
       self.addCleanup(p.stop)
     return bat, rig
 
+  def test_the_f411_install_verify_waits_out_the_option_byte_rewrite_before_its_halt(self):
+    bat, rig = self.battery()
+    bat.b['device'] = 'stm32f411ve'
+    bat.install(self.files)
+    self.assertEqual(rig.scripts[1][:2], ['sleep 1000', 'h'])
+
   def test_every_step_passes_and_resumes_only_after_a_halt(self):
     bat, rig = self.battery()
     bat.run(self.files, 'v1')

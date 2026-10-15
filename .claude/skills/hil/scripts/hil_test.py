@@ -81,6 +81,10 @@ BENIGN = {'MIMXRT1062xxx6A': _RESET_VECTOR_NOTE, 'MIMXRT1011DAE5A': _RESET_VECTO
 # stm32f411ve connect removes the write protection TinyUF2 sets at every boot by resetting the chip (bench
 # 2026-10-15, SKILL.md Limits), so runner sessions use the bare core; the flash target keeps the device.
 SESSION_DEVICE = {'stm32f411ve': 'Cortex-M4'}
+# ms the install's verify session waits before its halt, an empirical allowance: right after the flash target's unlock
+# the core could not be halted, inferred to be TinyUF2's boot rewriting its option bytes (stm32f411ve, bench
+# 2026-10-15: failed at once, held from 200 ms on; no documented option-byte rewrite time)
+INSTALL_SETTLE_MS = {'stm32f411ve': 1000}
 
 
 class Refused(Exception):
@@ -1643,7 +1647,9 @@ class Battery:
     fl = files['flash']
     ev = self.flash_target(fl, ['cmake', '--build', fl['root'], '--target', fl['binding']['target']], PROBE_TIMEOUT,
                            lambda code, out: judge_jlink_target(code, out, self.b, files['hex']))
-    self.probe.run(['h', f'verifybin {files["bin"]},{self.f["binBase"]:#x}', 'r', 'g'])
+    settle = INSTALL_SETTLE_MS.get(self.b['device'])
+    verify = ['h', f'verifybin {files["bin"]},{self.f["binBase"]:#x}', 'r', 'g']
+    self.probe.run(([f'sleep {settle}'] if settle else []) + verify)
     return dict(ev, verified=True)
 
   def after_copy(self):
