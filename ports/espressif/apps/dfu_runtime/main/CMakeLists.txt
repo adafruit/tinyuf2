@@ -12,7 +12,6 @@ idf_component_register(SRCS
     ${tusb_src}/tusb.c
     ${tusb_src}/common/tusb_fifo.c
     ${tusb_src}/device/usbd.c
-    ${tusb_src}/device/usbd_control.c
     ${tusb_src}/class/dfu/dfu_rt_device.c
     ${tusb_src}/portable/synopsys/dwc2/dcd_dwc2.c
     ${tusb_src}/portable/synopsys/dwc2/dwc2_common.c
