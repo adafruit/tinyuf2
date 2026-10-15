@@ -95,7 +95,7 @@ class Selection(unittest.TestCase):
 
   def test_build_file_the_backend_never_reads_is_uncovered(self):
     for path in ('ports/stm32f4/boards/stm32f411ce_blackpill/board.mk', 'ports/stm32f4/apps/self_update/Makefile',
-                 'ports/mimxrt10xx/apps/app.mk', 'ports/espressif/Makefile', 'ports/lpc55/CMakeLists.txt'):
+                 'ports/mimxrt10xx/apps/app.mk', 'ports/espressif/Makefile', 'ports/lpc55/Makefile'):
       self.assertEqual(classify(path)[:2], ('other-backend', 'gap'), path)
 
   def test_shared_make_file_selects_make_ports_and_the_codeql_build(self):
@@ -121,7 +121,7 @@ class Selection(unittest.TestCase):
                      [('imxrt1064_evk', 'cmake'), ('imxrt1170_evk', 'cmake')])
 
   def test_app_nothing_builds_is_uncovered(self):
-    self.assertEqual(classify('ports/lpc55/apps/erase_firmware/Makefile')[:2], ('port-app', 'gap'))
+    self.assertEqual(classify('ports/stm32l4/apps/erase_firmware/Makefile')[:2], ('port-app', 'gap'))
     self.assertEqual(classify('ports/espressif/apps/erase_firmware/main/CMakeLists.txt')[:2], ('port-app', 'gap'))
     self.assertEqual(classify('ports/espressif/apps/blinky/main/CMakeLists.txt')[:2], ('port-app', 'select'))
 
@@ -132,7 +132,7 @@ class Selection(unittest.TestCase):
   def test_dependency_selects_the_ports_get_deps_names(self):
     self.assertEqual(classify('lib/mcu/st/cmsis_device_f4/x.h')[2],
                      [('feather_stm32f405_express', 'cmake'), ('stm32f411ve_discovery', 'cmake')])
-    self.assertEqual(classify('lib/sct_neopixel/x.c')[2], [('lpcxpresso55s69', 'make')])
+    self.assertEqual(classify('lib/sct_neopixel/x.c')[2], [('lpcxpresso55s69', 'cmake')])
 
   def test_unbuilt_ports_are_uncovered(self):
     for path in ('ports/template_port/boards.c', 'ports/ch32v20x/boards.c'):
@@ -663,11 +663,11 @@ class BuildBoard(unittest.TestCase):
       rec = cb.build_board('lpcxpresso55s69', 'make', self.args, {})
     self.assertEqual(rec['status'], 'failed')
     self.assertIn('update-tinyuf2-lpcxpresso55s69.uf2', rec['firstError'])
-    self.assertTrue((self.build_dir / f'cmake-build-agent-{cb.os.getpid()}-lpcxpresso55s69').is_dir())
+    self.assertTrue((self.build_dir / f'cmake-build-agent-{cb.os.getpid()}-lpcxpresso55s69-make').is_dir())
 
   def test_shared_root_is_rebuilt_from_clean_and_kept(self):
     self.args.shared = True
-    root = self.build_dir / 'cmake-build-lpcxpresso55s69'
+    root = self.build_dir / 'cmake-build-lpcxpresso55s69-make'
     root.mkdir()
     (root / 'stale.o').write_text('old configuration')
     run, _ = self.fake_make(lambda cmd: LPC55_ARTIFACTS if 'copy-artifact' in cmd else [])

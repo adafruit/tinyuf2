@@ -43,8 +43,12 @@
 // Enable Device stack
 #define CFG_TUD_ENABLED          1
 
-#ifndef BOARD_TUD_RHPORT
-#define BOARD_TUD_RHPORT         0
+#include "board.h"
+
+#if BOARD_TUD_RHPORT == 1
+#define CFG_TUD_MAX_SPEED        OPT_MODE_HIGH_SPEED
+#else
+#define CFG_TUD_MAX_SPEED        OPT_MODE_FULL_SPEED
 #endif
 
 // can be defined by compiler in DEBUG build
@@ -59,7 +63,12 @@
  * - CFG_TUSB_MEM SECTION : __attribute__ (( section(".usb_ram") ))
  * - CFG_TUSB_MEM_ALIGN   : __attribute__ ((aligned(4)))
  */
+#if BOARD_TUD_RHPORT == 1
+// USB1 can only DMA to/from USB SRAM (0x40100000)
+#define CFG_TUSB_MEM_SECTION      __attribute__((section("m_usb_global")))
+#else
 #define CFG_TUSB_MEM_SECTION      __attribute__((section(".data")))
+#endif
 #define CFG_TUSB_MEM_ALIGN        __attribute__((aligned(64)))
 
 //--------------------------------------------------------------------
