@@ -29,6 +29,12 @@
       "uid": "250039001657344232383020",
       "flasher": {"name": "jlink", "uid": "000771261572", "args": "-device stm32f303vc"},
       "tinyuf2": {"reentry": "retained-register", "usbPower": {"hub": "PA40004", "port": 3}}
+    },
+    {
+      "name": "stm32f411ve_discovery",
+      "uid": "3A002A001051363332383332",
+      "flasher": {"name": "jlink", "uid": "000770880814", "args": "-device stm32f411ve"},
+      "tinyuf2": {"lock": "stm32f411disco"}
     }
   ]
 }

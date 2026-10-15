@@ -43,8 +43,10 @@ import hil_esp as esp  # noqa: E402
 # Table 3-1) holding the EVK's 8 MiB IS25WP064A (EVK hardware user's guide 2.7). MIMXRT1011: FlexSPI XIP at
 # 0x60000000 (IMXRT1010RM Table 3-1) holding the Metro M7 1011's W25Q64JV (Metro M7 RT1011 SD revA schematic), 8 MiB.
 # STM32F303VC: 256 KiB main flash at 0x08000000 (RM0316 Rev 10 Table 2); option bytes at 0x1FFFF800 stay outside.
+# STM32F411VE: 512 KiB main flash at 0x08000000 (RM0383 Rev 4 Table 4); option bytes at 0x1FFFC000 stay outside.
 FLASH_LIMITS = {'LPC55S69_M33_0': (0, 0x9D800), 'MIMXRT1062xxx6A': (0x60000000, 0x60800000),
-                'MIMXRT1011DAE5A': (0x60000000, 0x60800000), 'stm32f303vc': (0x08000000, 0x08040000)}
+                'MIMXRT1011DAE5A': (0x60000000, 0x60800000), 'stm32f303vc': (0x08000000, 0x08040000),
+                'stm32f411ve': (0x08000000, 0x08080000)}
 STEPS = {'jlink': ('install', 'dfu', 'copy', 'app-ran', 'reenter')}
 STEPS['esptool'] = STEPS['jlink'] + ('recopy',)
 REENTRY = {'jlink': ('retained-register',), 'esptool': ('dfu-detach',)}
@@ -198,14 +200,18 @@ def cmake_var(path, name):
   return v
 
 
+STM32_SERIES = {'stm32f3': 'STM32F3', 'stm32f4': 'STM32F4'}
+
+
 def port_sources(port, bdir):
   """(CMSIS device header, the bootloader's linker script, FLASH_BASE, where the BIN starts in flash, RAM origin) of
   a port the HIL supports, read from the CMake files the HIL's build uses."""
-  if port == 'stm32f3':
+  if port in STM32_SERIES:
     ld = cmake_script(f'ports/{port}/CMakeLists.txt')
-    mcus = set(re.findall(r'\bSTM32F3\d\dx[A-Z]\b', cb.code_lines(ROOT / bdir / 'board.cmake')))
+    series = STM32_SERIES[port]
+    mcus = set(re.findall(rf'\b{series}\d\dx[A-Z]\b', cb.code_lines(ROOT / bdir / 'board.cmake')))
     if len(mcus) != 1:
-      raise Refused(f'{bdir}/board.cmake: expected one STM32F3 device define, found {sorted(mcus)}')
+      raise Refused(f'{bdir}/board.cmake: expected one {series} device define, found {sorted(mcus)}')
     header = f'{cmake_var(f"ports/{port}/family.cmake", "ST_CMSIS")}/Include/{mcus.pop().lower()}.h'
     flash_base, ram = ld_memory(ld, 'FLASH')[0], ld_memory(ld, 'RAM')[0]
     return header, ld, flash_base, flash_base, ram

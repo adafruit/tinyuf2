@@ -178,6 +178,14 @@ class Roster(Tmp):
     self.assertEqual((f3['reentry'], f3['usbPower'], f3['install'], f3['app']),
                      ('retained-register', {'hub': 'PA40004', 'port': 3}, (0x08000000, 0x08004000), (0x08004000, 0x08040000)))
     self.assertIsNone(b['usbPower'])
+    f4 = self.load(ROOT / 'test' / 'hil' / 'local.json', 'stm32f411ve_discovery')
+    self.assertEqual((f4['lock'], f4['usbPower'], f4['install'], f4['app']),
+                     ('stm32f411disco', None, (0x08000000, 0x08010000), (0x08010000, 0x08080000)))
+    facts = ht.source_facts(f4)
+    for what, over in (('flash past the F411VE\'s 512 KiB', {'flashSize': 0x100000}),
+                       ('flash below 0x08000000', {'flashBase': 0x07FF0000})):
+      with self.subTest(what), self.assertRaisesRegex(ht.Refused, 'leaves the stm32f411ve flash'):
+        ht.apply_layout(dict(f4), dict(facts, **over))
 
 
 class PortPowerCase(Tmp):
@@ -414,6 +422,23 @@ class SourceFacts(unittest.TestCase):
                      (0x08000000, 0x08000000, 0x08004000, 0x40000, 0xcafe, 0xffff, 'STM32F303-Discovery-MB1035D'))
     # _board_dfu_dbl_tap = _estack, the last word of the 40K SRAM; FPU_IRQn = 81 is the highest IRQ
     self.assertEqual((f['dblTapReg'], f['ram'], f['vectors'], f['family']), (0x20009FFC, 0x20000000, 98, 0x6b846188))
+
+  def test_stm32f411ve_discovery_facts_come_from_the_source(self):
+    f = ht.source_facts({'port': 'stm32f4', 'name': 'stm32f411ve_discovery'})
+    self.assertEqual((f['flashBase'], f['binBase'], f['appStart'], f['flashSize'], f['vid'], f['pid'], f['boardId']),
+                     (0x08000000, 0x08000000, 0x08010000, 0x80000, 0x239a, 0x005d, 'STM32F411-Discovery-revA'))
+    # _board_dfu_dbl_tap = _estack, the last word of the boot script's 64K RAM; SPI5_IRQn = 85 is the highest IRQ
+    self.assertEqual((f['dblTapReg'], f['ram'], f['vectors'], f['family']), (0x2000FFFC, 0x20000000, 102, 0x57755a57))
+
+  def test_an_stm32_board_needs_exactly_one_device_define_of_its_series(self):
+    real = ht.cb.code_lines
+    for port, board, text in (('stm32f4', 'stm32f411ve_discovery', 'STM32F411xE STM32F407xG'),
+                              ('stm32f4', 'stm32f411ve_discovery', 'STM32F303xC'),
+                              ('stm32f3', 'stm32f303disco', 'STM32F411xE')):
+      fake = lambda path, text=text: text if Path(path).name == 'board.cmake' else real(path)
+      with self.subTest(port=port, text=text), mock.patch.object(ht.cb, 'code_lines', side_effect=fake), \
+           self.assertRaisesRegex(ht.Refused, f'expected one {port.upper()} device define'):
+        ht.source_facts({'port': port, 'name': board})
 
   def test_linker_values_are_literal_sums_and_symbols_resolve_once(self):
     t = tempfile.TemporaryDirectory()
