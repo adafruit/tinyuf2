@@ -786,7 +786,7 @@ def chip_reported(out, board):
   return bool(re.search(rf'^Device ID\s*: {dev}$', out, re.M) and re.search(rf'^NVM size\s*: {nvm}$', out, re.M))
 
 
-def stlink_failure(code, out):
+def stlink_failure(out):
   """A session recognised as ending before any target connect: no ST-LINK with the serial (bench: "Error: Serial
   number not found", before any device line). Any other failure may have reached the target."""
   before = re.search(r'^Error: Serial number not found', out, re.M) and not re.search(r'^Device ID', out, re.M)
@@ -800,7 +800,7 @@ def judge_stlink_target(code, out, board):
   m = re.search(r'^Opening and parsing file: tinyuf2\.hex$(?:\n.*)*?\nErasing internal memory sectors? \[?([\d ]+)\]?$'
                 r'(?:\n.*)*?\nFile download complete$(?:\n.*)*?\nStart operation achieved successfully$', out, re.M)
   if code or not m or not chip_reported(out, board) or re.search(r'^Error', out, re.M):
-    raise StepFail(f'tinyuf2-stlink failed (exit {code})', stlink_failure(code, out))
+    raise StepFail(f'tinyuf2-stlink failed (exit {code})', stlink_failure(out))
   return {'flashDownload': 'File download complete', 'erasedSectors': m[1].split()}
 
 
@@ -826,29 +826,30 @@ class StlinkProbe:
        re.search(r'^Error', out, re.M) or not chip_reported(parts[3] if len(parts) > 3 else '', self.b) or \
        '=== Script Manager END ===' not in parts[-1] or \
        any(STLINK_DONE[re.split(r'[ (]', op)[0]] not in body for op, body in zip(ops, parts[6::3])):
-      raise StepFail(f'STM32_Programmer_CLI failed (exit {code})', stlink_failure(code, out))
+      raise StepFail(f'STM32_Programmer_CLI failed (exit {code})', stlink_failure(out))
     return parts[6::3]
 
   def mem32(self, addrs):
-    vals = {}
-    for a, body in zip(addrs, self.run([f'-r32 0x{a:08X} 1' for a in addrs])):
-      m = re.findall(rf'^0x{a:08X} : ([0-9A-F]{{8}})$', body, re.M)
-      if len(m) != 1:
-        raise StepFail(f'-r32 gave no value for {a:#x}')
-      vals[a] = int(m[0], 16)
-    return vals
+    return {a: r32_value(body, a) for a, body in zip(addrs, self.run([f'-r32 0x{a:08X} 1' for a in addrs]))}
 
   def write32(self, addr, value):
     """Halt, write, read back, resume: only the read-back proves the write."""
-    body = self.run(['-halt', f'-w32 0x{addr:08X} 0x{value:08X}', f'-r32 0x{addr:08X} 1', '-run'])[2]
-    m = re.findall(rf'^0x{addr:08X} : ([0-9A-F]{{8}})$', body, re.M)
-    if len(m) != 1 or int(m[0], 16) != value:
-      raise StepFail(f'{addr:#010x} reads back {m[0] if len(m) == 1 else "nothing"}, not {value:#010x}')
+    got = r32_value(self.run(['-halt', f'-w32 0x{addr:08X} 0x{value:08X}', f'-r32 0x{addr:08X} 1', '-run'])[2], addr)
+    if got != value:
+      raise StepFail(f'{addr:#010x} reads back {got:08X}, not {value:#010x}')
     return hex(value)
 
-  def upload(self, body, path, want):
-    """Whether an `-u` operation read back exactly `want`."""
-    return 'Data read successfully' in body and path.is_file() and path.read_bytes() == want
+
+def r32_value(body, addr):
+  m = re.findall(rf'^0x{addr:08X} : ([0-9A-F]{{8}})$', body, re.M)
+  if len(m) != 1:
+    raise StepFail(f'-r32 gave no single value for {addr:#x}')
+  return int(m[0], 16)
+
+
+def uploaded(path, want):
+  """Whether an `-u` operation's file holds exactly `want`."""
+  return path.is_file() and path.read_bytes() == want
 
 
 def core_regs(body):
@@ -1858,7 +1859,8 @@ class StlinkBattery(Battery):
                            lambda code, out: judge_stlink_target(code, out, self.b))
     want = Path(files['bin']).read_bytes()
     path, op = self.readback(self.f['binBase'], want)
-    if not self.probe.upload(self.probe.run(['-halt', f'{op} {path}', '-rst'])[1], path, want):
+    self.probe.run(['-halt', f'{op} {path}', '-rst'])
+    if not uploaded(path, want):
       raise StepFail('the BIN does not read back from its flash address', ev)
     return dict(ev, verified=True)
 
@@ -1866,7 +1868,7 @@ class StlinkBattery(Battery):
     """SYSRESETREQ without the CLI's read-back, which the reset would fail (bench: `-nv` writes and exits 0, the host
     sees the device re-enumerate); issued only once the write is reported done."""
     body = self.probe.run([f'-w32 0x{SCB_AIRCR:08X} 0x{AIRCR_SYSRESETREQ:08X} -nv'])[0]
-    if f'w @0x{SCB_AIRCR:08x}:  0x{AIRCR_SYSRESETREQ:08x}' not in body or '32-bit data download complete' not in body:
+    if f'w @0x{SCB_AIRCR:08x}:  0x{AIRCR_SYSRESETREQ:08x}' not in body:
       raise StepFail('the reset write was not reported done', {'tail': body.strip().splitlines()[-3:]})
     return body
 
@@ -1875,14 +1877,14 @@ class StlinkBattery(Battery):
     f = self.f
     want = Path(app_bin).read_bytes()
     path, op = self.readback(f['appStart'], want)
-    out = self.probe.run(['-halt', '-run', f'#Delay({2 * f["dblTapDelayMs"] + 200})', '-halt', '-coreReg',
-                          f'-r32 0x{SCB_VTOR:08X} 1', '-run', '#Delay(10)', '-halt', '-coreReg', f'{op} {path}', '-run'])
-    vtor = re.findall(rf'^0x{SCB_VTOR:08X} : ([0-9A-F]{{8}})$', out[5], re.M)
-    if len(vtor) != 1:
-      raise StepFail('no VTOR read in the transcript')
-    if not self.probe.upload(out[10], path, want):
+    vtor = f'-r32 0x{SCB_VTOR:08X} 1'
+    ops = ['-halt', '-run', f'#Delay({2 * f["dblTapDelayMs"] + 200})', '-halt', '-coreReg', vtor, '-run', '#Delay(10)',
+           '-halt', '-coreReg', f'{op} {path}', '-run']
+    out = self.probe.run(ops)
+    if not uploaded(path, want):
       raise StepFail('the fixture image does not read back from the app start')
-    return self.app_evidence(core_regs(out[4]), core_regs(out[9]), int(vtor[0], 16))
+    first, second = (core_regs(body) for o, body in zip(ops, out) if o == '-coreReg')
+    return self.app_evidence(first, second, r32_value(out[ops.index(vtor)], SCB_VTOR))
 
 
 def nonce_block(nonce):

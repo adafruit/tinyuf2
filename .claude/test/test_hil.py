@@ -2643,7 +2643,6 @@ class Main(Tmp):
     self.assertTrue(Path(r['reportPath']).is_file())
 
 
-
 H563 = {'port': 'stm32h5', 'name': 'stm32h563_nucleo', 'device': 'stm32h563zi', 'flasher': 'stlink'}
 CUBE_CONNECT = ('ST-LINK SN  : 0023\nST-LINK FW  : V3J16M9\nBoard       : NUCLEO-H563ZI\nVoltage     : 3.26V\n'
                 'SWD freq    : 8000 KHz\nConnect mode: Hot Plug\nReset mode  : Software reset\nDevice ID   : {dev}\n'
@@ -2735,7 +2734,8 @@ class Stlink(Tmp):
     self.assertEqual(self.cube.scripts[-1], ['-halt', '-w32 0x20000FFC 0x12345678', '-r32 0x20000FFC 1', '-run'])
 
   def test_a_session_fails_unless_the_transcript_shows_the_roster_chip_and_every_operation(self):
-    ok = self.cube.run
+    ok, broken = self.cube.run, FakeCube()
+    broken.break_op = lambda line: line == '-run'
     for what, answer in (
         ('another family', lambda cmd: FakeCube(dev='0x480').run(cmd[2])),
         ('another size', lambda cmd: FakeCube(nvm='1 MBytes').run(cmd[2])),
@@ -2745,8 +2745,7 @@ class Stlink(Tmp):
         ('an operation missing', lambda cmd: (0, ok(cmd[2])[1].replace('Operation [3]: -run', 'x'))),
         ('no halt result', lambda cmd: (0, ok(cmd[2])[1].replace('Core halted', ''))),
         ('no run result', lambda cmd: (0, ok(cmd[2])[1].replace('Core run', ''))),
-        ('a failed operation', lambda cmd: FakeCube.run(mock.Mock(**{**vars(FakeCube()), 'break_op': lambda l: l == '-run',
-                                                                     'scripts': []}), cmd[2]))):
+        ('a failed operation', lambda cmd: broken.run(cmd[2]))):
       with self.subTest(what):
         self.answer = answer
         with self.assertRaisesRegex(ht.StepFail, 'STM32_Programmer_CLI failed') as e:
@@ -2775,10 +2774,10 @@ class Stlink(Tmp):
   def test_reads_must_give_exactly_one_value_and_writes_must_read_back(self):
     ok = self.cube.run
     self.answer = lambda cmd: (0, ok(cmd[2])[1].replace('0x2009FFFC : 00000000', 'x'))
-    with self.assertRaisesRegex(ht.StepFail, 'no value'):
+    with self.assertRaisesRegex(ht.StepFail, 'no single value'):
       self.probe.mem32([0x2009FFFC])
     self.answer = lambda cmd: (0, ok(cmd[2])[1].replace('0x2009FFFC : 00000000', '0x2009FFFC : 00000000\n0x2009FFFC : 00000001'))
-    with self.assertRaisesRegex(ht.StepFail, 'no value'):
+    with self.assertRaisesRegex(ht.StepFail, 'no single value'):
       self.probe.mem32([0x2009FFFC])
     self.answer = lambda cmd: (0, ok(cmd[2])[1].replace('0x20000FFC : 00000001', '0x20000FFC : 00000000'))
     with self.assertRaisesRegex(ht.StepFail, 'reads back 00000000'):
@@ -2910,9 +2909,8 @@ class StlinkSourceFacts(unittest.TestCase):
     self.assertEqual((f['dblTapReg'], f['ram'], f['vectors']), (0x2009FFFC, 0x20000000, 147))
 
   def test_a_change_to_how_the_defsyms_reach_the_link_is_refused(self):
-    files = {'ports/stm32h5/family.cmake': None, 'ports/stm32h5/linker/stm32h5_boot.ld': None,
-             'ports/stm32h5/boards/stm32h563_nucleo/board.cmake': None}
-    files = {k: (ROOT / k).read_text() for k in files}
+    files = {k: (ROOT / k).read_text() for k in ('ports/stm32h5/family.cmake', 'ports/stm32h5/linker/stm32h5_boot.ld',
+                                                 'ports/stm32h5/boards/stm32h563_nucleo/board.cmake')}
     fam, ld, _ = files
 
     def defsyms(**edits):
