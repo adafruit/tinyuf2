@@ -44,12 +44,15 @@ import hil_esp as esp  # noqa: E402
 # 0x60000000 (IMXRT1010RM Table 3-1) holding the Metro M7 1011's W25Q64JV (Metro M7 RT1011 SD revA schematic), 8 MiB.
 # STM32F303VC: 256 KiB main flash at 0x08000000 (RM0316 Rev 10 Table 2); option bytes at 0x1FFFF800 stay outside.
 # STM32F411VE: 512 KiB main flash at 0x08000000 (RM0383 Rev 4 Table 4); option bytes at 0x1FFFC000 stay outside.
+# STM32H563ZI: 2 MiB main flash, banks at 0x08000000 and 0x08100000 (RM0481 Rev 5 Table 51); OTP at 0x08FFF000 and
+# system memory at 0x0BF80000 stay outside, and its option bytes have no memory address (RM0481 7.4.1).
 FLASH_LIMITS = {'LPC55S69_M33_0': (0, 0x9D800), 'MIMXRT1062xxx6A': (0x60000000, 0x60800000),
                 'MIMXRT1011DAE5A': (0x60000000, 0x60800000), 'stm32f303vc': (0x08000000, 0x08040000),
-                'stm32f411ve': (0x08000000, 0x08080000)}
+                'stm32f411ve': (0x08000000, 0x08080000), 'stm32h563zi': (0x08000000, 0x08200000)}
 STEPS = {'jlink': ('install', 'dfu', 'copy', 'app-ran', 'reenter')}
+STEPS['stlink'] = STEPS['jlink']
 STEPS['esptool'] = STEPS['jlink'] + ('recopy',)
-REENTRY = {'jlink': ('retained-register',), 'esptool': ('dfu-detach',)}
+REENTRY = {'jlink': ('retained-register',), 'stlink': ('retained-register',), 'esptool': ('dfu-detach',)}
 REENTRY_METHODS = sorted({m for v in REENTRY.values() for m in v})
 PROTECTED = {'hil_test.py', 'pool_check'}   # tinyusb hil_lock.PROTECTED_REASONS, checked at load
 HOLDER_ROLE = 'cleanup-holder'
@@ -65,6 +68,15 @@ ESP_SESSION = Path(__file__).resolve().parent / 'esp_session.py'
 USB_DFU = Path(__file__).resolve().parent / 'usb_dfu.py'
 NONCE_MAGIC, NONCE_BLOCK = b'TUF2NONC', 256   # apps/dfu_runtime/src/dfu_runtime.h
 JLINK_IF, JLINK_SPEED = 'SWD', '4000'
+STM32_PROGRAMMER_CLI = 'STM32_Programmer_CLI'
+# what STM32CubeProgrammer prints at every connect to the roster's device: its Device ID and NVM size (bench, v2.23.0);
+# 0x484 names the H56x/573 family only, so the size pins the part
+STLINK_CHIPS = {'stm32h563zi': ('0x484', '2 MBytes')}
+ANSI = re.compile(r'\x1b\[[0-9;]*m')
+# each script operation's success line, by its first word (bench, v2.23.0)
+STLINK_DONE = {'-halt': 'Core halted', '-run': 'Core run', '-rst': 'Software reset is performed',
+               '-coreReg': 'XPSR     = 0x', '-r32': 'Reading 32-bit memory content', '-w32': '32-bit data download complete',
+               '-u': 'Data read successfully', '#Delay': 'The system go to sleep for'}
 CMAKE_RECORD_FILES = ('_bin/tinyuf2.bin', '_bin/apps/blinky.uf2')   # besides the flash target's inputs
 JLINK_ERRORS = (r'Verify failed|Could not|Cannot connect|ERROR|ResetTarget failed|Failed to halt|CPU is not halted|'
                 r'Failed to unlock|Can not attach')
@@ -119,8 +131,8 @@ def load_board(config, name):
   fl, t = b.get('flasher') or {}, b.get('tinyuf2') or {}
   m = re.fullmatch(cb.FLASHER_ARGS.get(fl.get('name'), r'(?!)'), fl.get('args') or '')
   if not isinstance(fl.get('uid'), str) or not m:
-    raise Refused(f'{name}: flasher must be jlink with args exactly "-device NAME", or esptool with args exactly '
-                  f'"--chip CHIP", with a string uid')
+    raise Refused(f'{name}: flasher must be jlink or stlink with args exactly "-device NAME", or esptool with args '
+                  f'exactly "--chip CHIP", with a string uid')
   if not isinstance(b.get('uid'), str) or not b['uid']:
     raise Refused(f'{name}: uid (the bootloader USB serial) is required')
   lock = t.get('lock', name)   # tinyusb's name for the board when it differs: both runners take one lock
@@ -135,6 +147,8 @@ def load_board(config, name):
       raise Refused(f'{name}: esptool is supported for espressif chips {sorted(esp.BOOTLOADER_OFFSET)} only')
   elif m.group(1) not in FLASH_LIMITS:
     raise Refused(f'{name}: no programming limits known for J-Link device {m.group(1)}')
+  elif fl['name'] == 'stlink' and m.group(1) not in STLINK_CHIPS:
+    raise Refused(f'{name}: no chip identity known for ST-LINK device {m.group(1)}')
   power = t.get('usbPower')
   if power is not None:
     if not (isinstance(power, dict) and set(power) == {'hub', 'port'} and isinstance(power['hub'], str) and
@@ -204,18 +218,23 @@ def cmake_var(path, name):
   return v
 
 
+STM32_DEVICE = {'stm32f3': ('STM32F3', r'STM32F3\d\dx[A-Z]'), 'stm32f4': ('STM32F4', r'STM32F4\d\dx[A-Z]'),
+                'stm32h5': ('STM32H5', r'STM32H5\d\dxx')}
+
+
 def port_sources(port, bdir):
-  """(CMSIS device header, the bootloader's linker script, FLASH_BASE, where the BIN starts in flash, RAM origin) of
-  a port the HIL supports, read from the CMake files the HIL's build uses."""
-  if port in ('stm32f3', 'stm32f4'):
+  """(CMSIS device header, the bootloader's linker script, FLASH_BASE, where the BIN starts in flash, RAM origin, the
+  link's --defsym values) of a port the HIL supports, read from the CMake files the HIL's build uses."""
+  if port in STM32_DEVICE:
     ld = cmake_script(f'ports/{port}/CMakeLists.txt')
-    series = port.upper()
-    mcus = set(re.findall(rf'\b{series}\d\dx[A-Z]\b', cb.code_lines(ROOT / bdir / 'board.cmake')))
+    series, form = STM32_DEVICE[port]
+    mcus = set(re.findall(rf'\b{form}\b', cb.code_lines(ROOT / bdir / 'board.cmake')))
     if len(mcus) != 1:
       raise Refused(f'{bdir}/board.cmake: expected one {series} device define, found {sorted(mcus)}')
     header = f'{cmake_var(f"ports/{port}/family.cmake", "ST_CMSIS")}/Include/{mcus.pop().lower()}.h'
-    flash_base, ram = ld_memory(ld, 'FLASH')[0], ld_memory(ld, 'RAM')[0]
-    return header, ld, flash_base, flash_base, ram
+    syms = defsyms(port, bdir, ld) if port == 'stm32h5' else {}
+    flash_base, ram = ld_memory(ld, 'FLASH', syms)[0], ld_memory(ld, 'RAM', syms)[0]
+    return header, ld, flash_base, flash_base, ram, syms
   if port != 'mimxrt10xx':
     raise Refused(f'ports/{port}: the HIL runner has no source facts for this port')
   sdk = cmake_var(f'ports/{port}/family.cmake', 'SDK_DIR')
@@ -231,7 +250,30 @@ def port_sources(port, bdir):
   # family.cmake FLASH_FCFB_ADDR: the BIN starts at the FCB, 0x400 into flash on RT1010 (IMXRT1010RM Table 9-8)
   bin_base = flash_base + (vals['_fcfb_origin'] & 0xFFF)
   return (f'{sdk}/devices/{mcu}/{mcu}.h', ld, flash_base, bin_base,
-          ram_origin(f'{sdk}/devices/{mcu}/gcc/{mcu}xxxxx_flexspi_nor.ld'))
+          ram_origin(f'{sdk}/devices/{mcu}/gcc/{mcu}xxxxx_flexspi_nor.ld'), {})
+
+
+# the stm32h5 link's --defsym symbols, each from the board's set() of this variable
+DEFSYMS = {'__flash_boot_size': 'LD_FLASH_BOOT_SIZE', '__ram_size': 'LD_RAM_SIZE'}
+
+
+def defsyms(port, bdir, ld):
+  """The values family.cmake passes the linker for DEFSYMS, from the board.cmake's one set() each, in the exact
+  forms the port uses: one `-Wl,--defsym=SYM=${VAR}` each, the script's one `SYM = DEFINED(SYM) ? SYM : <default>;`,
+  and family.cmake setting a variable only for Debug builds, which a HIL record (MinSizeRel) is not."""
+  fam = cb.code_lines(ROOT / f'ports/{port}/family.cmake')
+  text, syms = ld_text(ld), {}
+  for sym, var in DEFSYMS.items():
+    sets = re.findall(rf'\bset\s*\(\s*{var}\b', fam, re.I)
+    debug = re.findall(rf'if\s*\(\s*CMAKE_BUILD_TYPE\s+STREQUAL\s+"Debug"\s*\)\s*set\s*\(\s*{var}\s+\w+\s*\)\s*endif\s*\(\s*\)',
+                       fam, re.I)
+    if fam.count('--defsym=') != len(DEFSYMS) or fam.count(f'-Wl,--defsym={sym}=${{{var}}}') != 1 or \
+       len(sets) != len(debug) or \
+       len(re.findall(rf'(?<![\w.]){sym}\s*(<<|>>|[-+*/|&]?)=(?!=)', text)) != 1 or \
+       len(re.findall(rf'(?<![\w.]){sym}\s*=\s*DEFINED\(\s*{sym}\s*\)\s*\?\s*{sym}\s*:\s*\w+\s*;', text)) != 1:
+      raise Refused(f'ports/{port}: {sym} does not reach {ld} as -Wl,--defsym={sym}=${{{var}}} over a DEFINED() default')
+    syms[sym] = ld_expr(cmake_var(f'{bdir}/board.cmake', var), f'{bdir}/board.cmake {var}')
+  return syms
 
 
 def cmake_script(path):
@@ -242,8 +284,14 @@ def cmake_script(path):
   return f'{Path(path).parent}/{hits[0]}'
 
 
-def ld_text(ld):
-  return re.sub(r'/\*.*?\*/', ' ', (ROOT / ld).read_text(), flags=re.S)
+def ld_text(ld, syms=None):
+  """The script without comments; with `syms`, each one's DEFINED() default dropped and its uses replaced by its
+  value (defsyms checked the form)."""
+  text = re.sub(r'/\*.*?\*/', ' ', (ROOT / ld).read_text(), flags=re.S)
+  for sym, v in (syms or {}).items():
+    text = re.sub(rf'(?<![\w.]){sym}\s*=\s*DEFINED\([^;]*;', ' ', text)
+    text = re.sub(rf'(?<![\w.]){sym}(?!\w)', hex(v), text)
+  return text
 
 
 def ld_expr(expr, what):
@@ -257,25 +305,26 @@ def ld_expr(expr, what):
   return v
 
 
-def ld_memory(ld, region):
+def ld_memory(ld, region, syms=None):
   """(ORIGIN, LENGTH) of a MEMORY region."""
-  hits = re.findall(rf'^\s*{region}\s*\(\w+\)\s*:\s*ORIGIN\s*=\s*([^,]+),\s*LENGTH\s*=\s*([^\n]+?)\s*$', ld_text(ld), re.M)
+  hits = re.findall(rf'^\s*{region}\s*\(\w+\)\s*:\s*ORIGIN\s*=\s*([^,]+),\s*LENGTH\s*=\s*([^\n]+?)\s*$', ld_text(ld, syms),
+                    re.M)
   if len(hits) != 1:
     raise Refused(f'{ld}: expected one {region} memory region, found {len(hits)}')
   return ld_expr(hits[0][0], f'{ld} {region} ORIGIN'), ld_expr(hits[0][1], f'{ld} {region} LENGTH')
 
 
-def ld_symbol(ld, name, depth=0):
+def ld_symbol(ld, name, depth=0, syms=None):
   """A symbol the script assigns once: a literal sum, ORIGIN(R) + LENGTH(R), or another such symbol."""
-  hits = re.findall(rf'(?<![\w.]){name}\s*(<<|>>|[-+*/|&]?)=(?!=)\s*([^;]+);', ld_text(ld))
+  hits = re.findall(rf'(?<![\w.]){name}\s*(<<|>>|[-+*/|&]?)=(?!=)\s*([^;]+);', ld_text(ld, syms))
   if len(hits) != 1 or hits[0][0]:
     raise Refused(f'{ld}: expected one plain {name} = ...;, found {[op + "=" for op, _ in hits]}')
   rhs = hits[0][1].strip()
   if re.fullmatch(r'[A-Za-z_]\w*', rhs) and depth < 2:
-    return ld_symbol(ld, rhs, depth + 1)
+    return ld_symbol(ld, rhs, depth + 1, syms)
   m = re.fullmatch(r'ORIGIN\((\w+)\)\s*\+\s*LENGTH\(\1\)', rhs)
   if m:
-    return sum(ld_memory(ld, m.group(1)))
+    return sum(ld_memory(ld, m.group(1), syms))
   return ld_expr(rhs, f'{ld} {name}')
 
 
@@ -301,15 +350,17 @@ def source_facts(board):
     raise Refused(f'{bdir} does not exist')
   if board.get('flasher') == 'esptool':
     return esp_source_facts(board, bdir)
-  header, ld, flash_base, bin_base, ram = port_sources(port, bdir)
+  header, ld, flash_base, bin_base, ram, syms = port_sources(port, bdir)
   if has_define(f'{bdir}/board.h', 'BOARD_FLASH_APP_START'):
     raise Refused(f'{bdir}/board.h overrides BOARD_FLASH_APP_START; the runner reads the port default only')
+  size = define(f'{bdir}/board.h', 'BOARD_FLASH_SIZE')
+  floor, ceiling = FLASH_LIMITS.get(board.get('device'), (0, 0))
   facts = {
     'flashBase': flash_base,
     'binBase': bin_base,
-    'appStart': flash_addr(define(f'ports/{port}/boards.h', 'BOARD_FLASH_APP_START'), flash_base,
-                           'BOARD_FLASH_APP_START'),
-    'flashSize': product(define(f'{bdir}/board.h', 'BOARD_FLASH_SIZE'), 'BOARD_FLASH_SIZE'),
+    'appStart': app_start(port, flash_base, syms),
+    # FLASH_SIZE is CMSIS's read of the chip's size register: the roster device's flash, which INFO_UF2.TXT reports
+    'flashSize': ceiling - floor if size == 'FLASH_SIZE' and ceiling else product(size, 'BOARD_FLASH_SIZE'),
     'vid': num(define(f'{bdir}/board.h', 'USB_VID'), 'USB_VID'),
     'pid': num(define(f'{bdir}/board.h', 'USB_PID'), 'USB_PID'),
     'boardId': define(f'{bdir}/board.h', 'UF2_BOARD_ID').strip('"'),
@@ -326,11 +377,24 @@ def source_facts(board):
     base, offset, step = register_layout(header, m.group(1), m.group(2))
     facts['dblTapReg'] = base + offset + step * int(m.group(3))
   else:   # board_api.h's default: the word the bootloader's linker script places
-    facts['dblTapReg'] = ld_symbol(ld, '_board_dfu_dbl_tap')
+    facts['dblTapReg'] = ld_symbol(ld, '_board_dfu_dbl_tap', syms=syms)
   facts['dblTapMagic'] = 0xf01669ef   # board_api.h DBL_TAP_MAGIC at TINYUF2_DBL_TAP_REG_SIZE 32
   if 'TINYUF2_DBL_TAP_REG_SIZE' in (ROOT / f'ports/{port}/boards.h').read_text():
     raise Refused(f'ports/{port} overrides TINYUF2_DBL_TAP_REG_SIZE: the magic would need its shift')
   return facts
+
+
+def app_start(port, flash_base, syms):
+  """BOARD_FLASH_APP_START: a literal or FLASH_BASE + literal, or the stm32h5 form, the flash base plus the link's
+  __flash_boot_size."""
+  expr = define(f'ports/{port}/boards.h', 'BOARD_FLASH_APP_START')
+  if not re.fullmatch(r'\(\s*BOARD_FLASH_ADDR_ZERO\s*\+\s*\(uint32_t\)\s*__flash_boot_size\s*\)', expr):
+    return flash_addr(expr, flash_base, 'BOARD_FLASH_APP_START')
+  zero = num(define(f'ports/{port}/boards.h', 'BOARD_FLASH_ADDR_ZERO'), 'BOARD_FLASH_ADDR_ZERO')
+  if '__flash_boot_size' not in syms or zero != flash_base:
+    raise Refused(f'ports/{port}: BOARD_FLASH_APP_START {expr!r} needs the link\'s __flash_boot_size and '
+                  f'BOARD_FLASH_ADDR_ZERO at the flash base')
+  return zero + syms['__flash_boot_size']
 
 
 def esp_source_facts(board, bdir):
@@ -715,6 +779,85 @@ class Probe:
     if not m or int(m.group(1), 16) != value:
       raise StepFail(f'{addr:#010x} reads back {m.group(1) if m else "nothing"}, not {value:#010x}')
     return hex(value)
+
+
+def chip_reported(out, board):
+  dev, nvm = STLINK_CHIPS[board['device']]
+  return bool(re.search(rf'^Device ID\s*: {dev}$', out, re.M) and re.search(rf'^NVM size\s*: {nvm}$', out, re.M))
+
+
+def stlink_failure(code, out):
+  """A session recognised as ending before any target connect: no ST-LINK with the serial (bench: "Error: Serial
+  number not found", before any device line). Any other failure may have reached the target."""
+  before = re.search(r'^Error: Serial number not found', out, re.M) and not re.search(r'^Device ID', out, re.M)
+  return {'tail': out.strip().splitlines()[-5:], 'beforeTarget': bool(before)}
+
+
+def judge_stlink_target(code, out, board):
+  """The tinyuf2-stlink transcript, through CMake and Ninja (bench, STM32CubeProgrammer v2.23.0): the roster's chip,
+  the HEX downloaded and the start command's success, with no error line; the binding fixed the command."""
+  out = ANSI.sub('', out)
+  m = re.search(r'^Opening and parsing file: tinyuf2\.hex$(?:\n.*)*?\nErasing internal memory sectors? \[?([\d ]+)\]?$'
+                r'(?:\n.*)*?\nFile download complete$(?:\n.*)*?\nStart operation achieved successfully$', out, re.M)
+  if code or not m or not chip_reported(out, board) or re.search(r'^Error', out, re.M):
+    raise StepFail(f'tinyuf2-stlink failed (exit {code})', stlink_failure(code, out))
+  return {'flashDownload': 'File download complete', 'erasedSectors': m[1].split()}
+
+
+class StlinkProbe:
+  """One STM32CubeProgrammer CLI connection per session: a script that connects to the roster's ST-LINK without a
+  reset (HOTPLUG), then runs `ops` in order. The CLI stops at the first failed operation and exits 1 (bench, v2.23.0);
+  success is read from the transcript too: the roster's chip, every operation echoed in order with its success line,
+  no error line, the script's end."""
+
+  def __init__(self, board, workdir, log):
+    self.b, self.dir, self.log = board, workdir, log
+    self.retried = []   # the report's jlinkRetried: a CLI session is never retried
+
+  def run(self, ops):
+    """Each operation's output, in order."""
+    script = self.dir / f'stlink-{time.monotonic_ns()}.prg'
+    lines = [f'-c port=SWD sn={self.b["probe"]} mode=HOTPLUG', *ops]
+    script.write_text('\n'.join(lines) + '\n')
+    code, out = spawn([STM32_PROGRAMMER_CLI, '-script', script], self.log, PROBE_TIMEOUT)
+    out = ANSI.sub('', out)
+    parts = re.split(r'(?m)^Operation \[(\d+)\]: (.*?) *$', out)
+    if code or list(zip(parts[1::3], parts[2::3])) != [(str(i), x) for i, x in enumerate(lines, 1)] or \
+       re.search(r'^Error', out, re.M) or not chip_reported(parts[3] if len(parts) > 3 else '', self.b) or \
+       '=== Script Manager END ===' not in parts[-1] or \
+       any(STLINK_DONE[re.split(r'[ (]', op)[0]] not in body for op, body in zip(ops, parts[6::3])):
+      raise StepFail(f'STM32_Programmer_CLI failed (exit {code})', stlink_failure(code, out))
+    return parts[6::3]
+
+  def mem32(self, addrs):
+    vals = {}
+    for a, body in zip(addrs, self.run([f'-r32 0x{a:08X} 1' for a in addrs])):
+      m = re.findall(rf'^0x{a:08X} : ([0-9A-F]{{8}})$', body, re.M)
+      if len(m) != 1:
+        raise StepFail(f'-r32 gave no value for {a:#x}')
+      vals[a] = int(m[0], 16)
+    return vals
+
+  def write32(self, addr, value):
+    """Halt, write, read back, resume: only the read-back proves the write."""
+    body = self.run(['-halt', f'-w32 0x{addr:08X} 0x{value:08X}', f'-r32 0x{addr:08X} 1', '-run'])[2]
+    m = re.findall(rf'^0x{addr:08X} : ([0-9A-F]{{8}})$', body, re.M)
+    if len(m) != 1 or int(m[0], 16) != value:
+      raise StepFail(f'{addr:#010x} reads back {m[0] if len(m) == 1 else "nothing"}, not {value:#010x}')
+    return hex(value)
+
+  def upload(self, body, path, want):
+    """Whether an `-u` operation read back exactly `want`."""
+    return 'Data read successfully' in body and path.is_file() and path.read_bytes() == want
+
+
+def core_regs(body):
+  def one(name):
+    m = re.findall(rf'^{name}\s*= 0x([0-9A-F]{{8}})$', body, re.M)
+    if len(m) != 1:
+      raise StepFail(f'no single {name} in the -coreReg output')
+    return int(m[0], 16)
+  return {'pc': one('PC'), 'r0': one('R0'), 'msp': one('MSP'), 'ipsr': one('XPSR') & 0x1FF}
 
 
 def esp_port(uid):
@@ -1192,17 +1335,20 @@ def manual_holder(helper, board, reason):
 
 def probe_users(board):
   """Processes using this board's probe: for J-Link one opened by serial (a JLinkExe or GDB server from an
-  earlier session), for esptool any process holding the bridge's tty open."""
+  earlier session), for ST-LINK any STM32CubeProgrammer CLI (its script names the probe, not its command line), for
+  esptool any process holding the bridge's tty open."""
   if board['flasher'] == 'esptool':
     return tty_users(esp_port(board['probe']))
-  probe, users = board['probe'], []
+  probe, users = board['probe'].encode(), []
   for d in Path('/proc').iterdir():
     try:
       cmd = (d / 'cmdline').read_bytes().split(b'\0')
     except OSError:
       continue
-    if d.name.isdigit() and int(d.name) != os.getpid() and any(b'JLink' in c for c in cmd[:1]) and \
-       any(probe.encode() in c for c in cmd):
+    if not d.name.isdigit() or int(d.name) == os.getpid():
+      continue
+    if board['flasher'] == 'stlink' and Path(cmd[0].decode(errors='replace')).name == STM32_PROGRAMMER_CLI or \
+       board['flasher'] == 'jlink' and any(b'JLink' in c for c in cmd[:1]) and any(probe in c for c in cmd):
       users.append(int(d.name))
   return users
 
@@ -1507,9 +1653,8 @@ class Battery:
   def retained_reentry(self, version, claim):
     f = self.f
     self.probe.write32(f['dblTapReg'], f['dblTapMagic'])
-    # SYSRESETREQ may drop the debug connection mid-write: its exit is not judged, enumeration is;
     # no probe session opens again until DFU is observed
-    tail = self.probe.run([f'w4 {SCB_AIRCR:08X} {AIRCR_SYSRESETREQ:08X}'], judge=False)
+    tail = self.sysreset()
     ev = dict(self.dfu(version), dfuCameUp=True, resetTail=tail.strip().splitlines()[-3:], claim=claim)
     try:
       left = self.probe.mem32([f['dblTapReg']])[f['dblTapReg']]
@@ -1520,6 +1665,11 @@ class Battery:
     if left:
       raise StepFail('the double-tap register was not consumed', ev)
     return ev
+
+  def sysreset(self):
+    """SYSRESETREQ from the probe. It may drop the debug connection mid-write: its exit is not judged, its issue is;
+    the caller's observation is the evidence."""
+    return self.probe.run([f'w4 {SCB_AIRCR:08X} {AIRCR_SYSRESETREQ:08X}'], judge=False)
 
   def dfu(self, version):
     f = self.f
@@ -1662,7 +1812,12 @@ class Battery:
     m = re.search(rf'^{SCB_VTOR:08X} = ([0-9A-F]{{8}})', out, re.M)
     if not m:
       raise StepFail('no VTOR read in the transcript')
-    vtor = int(m.group(1), 16)
+    return self.app_evidence(first, second, int(m.group(1), 16))
+
+  def app_evidence(self, first, second, vtor):
+    """The fixture's two samples: the counter moving, PC at its handler in thread mode, VTOR and MSP from its vector
+    table; its image was verified in the same session."""
+    f = self.f
     ev = {'pc': hex(first['pc']), 'ipsr': first['ipsr'], 'vtor': hex(vtor), 'msp': hex(first['msp']),
           'r0': [hex(first['r0']), hex(second['r0'])], 'verifybin': True,
           'scope': 'executes through bootloader handoff after the observed reset; upload-triggered run unverified'}
@@ -1678,11 +1833,56 @@ class Battery:
     arms the magic itself for its double-tap window (src/main.c), so a session that reset twice would
     re-enter DFU with no magic written; USB is watched past that window before any probe reconnects."""
     f = self.f
-    self.probe.run([f'w4 {SCB_AIRCR:08X} {AIRCR_SYSRESETREQ:08X}'], judge=False)
+    self.sysreset()
     watch = 2 * f['dblTapDelayMs'] / 1000 + USB_TIMEOUT
     stays_away(lambda: usb_device(f['vid'], f['pid'], self.b['uid']), watch, 'the reset without the magic entered DFU',
                {'controlBootedApp': False})
     return {'control': self.observe_app(app_bin), 'controlWatchedS': watch, 'controlBootedApp': True}
+
+
+class StlinkBattery(Battery):
+  """The J-Link battery's steps on an ST-LINK board, each probe session one STM32CubeProgrammer script."""
+
+  def __init__(self, board, facts, workdir, fail_at=None, commissioning=False):
+    super().__init__(board, facts, workdir, fail_at, commissioning)
+    self.probe = StlinkProbe(board, workdir, self.log)
+
+  def readback(self, addr, want):
+    return self.dir / f'readback-{time.monotonic_ns()}.bin', f'-u 0x{addr:08X} {len(want):#x}'
+
+  def install(self, files):
+    """The record's tinyuf2-stlink target, then the BIN read back from its flash address in a session of the runner's,
+    which ends in a system reset (bench: the core runs after `-rst`)."""
+    fl = files['flash']
+    ev = self.flash_target(fl, ['cmake', '--build', fl['root'], '--target', fl['binding']['target']], PROBE_TIMEOUT,
+                           lambda code, out: judge_stlink_target(code, out, self.b))
+    want = Path(files['bin']).read_bytes()
+    path, op = self.readback(self.f['binBase'], want)
+    if not self.probe.upload(self.probe.run(['-halt', f'{op} {path}', '-rst'])[1], path, want):
+      raise StepFail('the BIN does not read back from its flash address', ev)
+    return dict(ev, verified=True)
+
+  def sysreset(self):
+    """SYSRESETREQ without the CLI's read-back, which the reset would fail (bench: `-nv` writes and exits 0, the host
+    sees the device re-enumerate); issued only once the write is reported done."""
+    body = self.probe.run([f'-w32 0x{SCB_AIRCR:08X} 0x{AIRCR_SYSRESETREQ:08X} -nv'])[0]
+    if f'w @0x{SCB_AIRCR:08x}:  0x{AIRCR_SYSRESETREQ:08x}' not in body or '32-bit data download complete' not in body:
+      raise StepFail('the reset write was not reported done', {'tail': body.strip().splitlines()[-3:]})
+    return body
+
+  def observe_app(self, app_bin):
+    """observe_app's session as one script: two halts in one connection, the image read back in it."""
+    f = self.f
+    want = Path(app_bin).read_bytes()
+    path, op = self.readback(f['appStart'], want)
+    out = self.probe.run(['-halt', '-run', f'#Delay({2 * f["dblTapDelayMs"] + 200})', '-halt', '-coreReg',
+                          f'-r32 0x{SCB_VTOR:08X} 1', '-run', '#Delay(10)', '-halt', '-coreReg', f'{op} {path}', '-run'])
+    vtor = re.findall(rf'^0x{SCB_VTOR:08X} : ([0-9A-F]{{8}})$', out[5], re.M)
+    if len(vtor) != 1:
+      raise StepFail('no VTOR read in the transcript')
+    if not self.probe.upload(out[10], path, want):
+      raise StepFail('the fixture image does not read back from the app start')
+    return self.app_evidence(core_regs(out[4]), core_regs(out[9]), int(vtor[0], 16))
 
 
 def nonce_block(nonce):
@@ -1836,7 +2036,7 @@ class EspBattery(Battery):
                                      claim='a fresh copy boots the app after re-entry'))
 
 
-BATTERIES = {'jlink': Battery, 'esptool': EspBattery}
+BATTERIES = {'jlink': Battery, 'stlink': StlinkBattery, 'esptool': EspBattery}
 
 
 TERM_SIGNALS = {signal.SIGTERM, signal.SIGINT}
@@ -1865,6 +2065,11 @@ def check_jlink():
     raise Refused('JLinkExe must be on PATH')
 
 
+def check_stlink():
+  if shutil.which(STM32_PROGRAMMER_CLI) is None:
+    raise Refused(f'{STM32_PROGRAMMER_CLI} must be on PATH')
+
+
 def check_esptool():
   import importlib.metadata
   try:
@@ -1885,7 +2090,7 @@ def check_pyusb():
 
 
 def check_flasher(board):
-  check_esptool() if board['flasher'] == 'esptool' else check_jlink()
+  {'esptool': check_esptool, 'stlink': check_stlink}.get(board['flasher'], check_jlink)()
   if board.get('usbPower'):
     try:
       disable = port_dir(board['usbPower']) / 'disable'
@@ -1916,7 +2121,7 @@ def reentry_decision(row):
 def admit_record(record_path, board, facts, workdir):
   """A build record the battery and restore may install, with what they need on this host."""
   files, fw = verify_record(record_path, board, facts, workdir)
-  if board['flasher'] == 'jlink':
+  if board['flasher'] in ('jlink', 'stlink'):
     data = parse_hex(files['hex'])
     check_ranges(data, [board['install']], FLASH_LIMITS[board['device']], files['hex'])
     if not hex_matches_bin(data, files['bin'], facts['binBase']):
