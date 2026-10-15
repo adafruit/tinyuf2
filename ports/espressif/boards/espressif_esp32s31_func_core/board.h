@@ -25,12 +25,6 @@
 #ifndef ESPRESSIF_ESP32S31_FUNC_CORE_H_
 #define ESPRESSIF_ESP32S31_FUNC_CORE_H_
 
-// ESP32-S31-Function-CoreBoard-1 (ESP32-S31-WROOM-3)
-// - Boot button: GPIO61 (download strapping pin, same role as GPIO0 on S2/S3)
-// - Addressable RGB LED: GPIO60
-// - USB 2.0 OTG High-Speed: dedicated USB_DP/USB_DM pins (no GPIO matrix)
-// - USB Serial/JTAG: GPIO33/34, Type-C connector
-
 //--------------------------------------------------------------------+
 // Button
 //--------------------------------------------------------------------+
@@ -39,10 +33,6 @@
 // is on e.g RGB = Purple. GPIO61 is the download strapping pin: holding it
 // while reset runs the 1st stage ROM bootloader instead
 #define PIN_BUTTON_UF2        61
-
-// GPIO that implement 1-bit memory with RC components which hold the
-// pin value long enough for double reset detection.
-// #define PIN_DOUBLE_RESET_RC
 
 //--------------------------------------------------------------------+
 // LED

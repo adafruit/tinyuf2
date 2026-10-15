@@ -17,7 +17,6 @@
 #include "esp_rom_gpio.h"
 #include "esp_cpu.h"
 #include "hal/gpio_hal.h"
-#include "soc/gpio_reg.h"
 
 // Specific board header specified with -DBOARD=
 #include "board.h"
@@ -359,15 +358,9 @@ static void neopixel_pin_end(uint32_t num_pin) {
   (void) num_pin;
 }
 
-// Store to W1TS/W1TC directly: gpio_ll_set_level() may call into ROM (CONFIG_HAL_GPIO_USE_ROM_IMPL),
-// which alone stretches T0H past the WS2812 0/1 threshold
+// gpio_ll_set_level() only take 6 cycles, while GPIO_OUTPUT_SET() take 40 cycles to set/clear
 static inline __attribute__((always_inline)) void neopixel_pin_write(uint32_t num_pin, bool high) {
-  uint32_t const pin_mask = 1u << (num_pin % 32);
-  if (high) {
-    REG_WRITE((num_pin < 32) ? GPIO_OUT_W1TS_REG : GPIO_OUT1_W1TS_REG, pin_mask);
-  } else {
-    REG_WRITE((num_pin < 32) ? GPIO_OUT_W1TC_REG : GPIO_OUT1_W1TC_REG, pin_mask);
-  }
+  gpio_ll_set_level(&GPIO, num_pin, high);
 }
 #endif
 
