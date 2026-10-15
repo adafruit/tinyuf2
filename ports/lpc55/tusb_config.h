@@ -43,7 +43,6 @@
 // Enable Device stack
 #define CFG_TUD_ENABLED          1
 
-// BOARD_TUD_RHPORT: 0 is USB0 Full Speed, 1 is USB1 High Speed
 #include "board.h"
 
 #if BOARD_TUD_RHPORT == 1
@@ -66,7 +65,7 @@
  */
 #if BOARD_TUD_RHPORT == 1
 // USB1 can only DMA to/from USB SRAM (0x40100000)
-#define CFG_TUD_MEM_SECTION       __attribute__((section("m_usb_global")))
+#define CFG_TUSB_MEM_SECTION      __attribute__((section("m_usb_global")))
 #else
 #define CFG_TUSB_MEM_SECTION      __attribute__((section(".data")))
 #endif

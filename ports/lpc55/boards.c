@@ -257,23 +257,28 @@ void board_init(void)
 }
 
 #if !defined(BUILD_NO_TINYUSB) && BOARD_TUD_RHPORT == 1
-// CLOCK_EnableUsbhs0PhyPllClock() of the pinned SDK powers the PLL without the > 15 us
-// regulator settling time of UM11126 45.3 "Initial configuration"
+// CLOCK_EnableUsbhs0PhyPllClock() of the pinned SDK plus the > 15 us PLL regulator settling time
+// of UM11126 45.3 "Initial configuration", which that SDK version lacks
 static void usb1_phy_pll_init(void)
 {
   POWER_DisablePD(kPDRUNCFG_PD_XTAL32M);
   POWER_DisablePD(kPDRUNCFG_PD_LDOXO32M);
+  POWER_DisablePD(kPDRUNCFG_PD_FRO32K);
+  POWER_DisablePD(kPDRUNCFG_PD_XTAL32K);
+  POWER_DisablePD(kPDRUNCFG_PD_USB1_PHY);
   POWER_DisablePD(kPDRUNCFG_PD_LDOUSBHS);
 
-  // wait for PHY power up, as the SDK helper does
+  // wait to make sure PHY power is fully up
   for (volatile uint32_t i = 100000U; i > 0; i--) {}
 
-  SYSCON->AHBCLKCTRLSET[2] = SYSCON_AHBCLKCTRL2_ANALOG_CTRL(1) | SYSCON_AHBCLKCTRL2_USB1_PHY(1);
+  SYSCON->AHBCLKCTRLSET[2] = SYSCON_AHBCLKCTRL2_ANALOG_CTRL(1);
+  SYSCON->AHBCLKCTRLSET[2] = SYSCON_AHBCLKCTRL2_USB1_PHY(1);
+
   USBPHY->CTRL_CLR = USBPHY_CTRL_SFTRST_MASK;
 
   // PLL_DIV_SEL 6: 480 MHz from the 16 MHz XTAL32M
   _Static_assert(BOARD_XTAL0_CLK_HZ == 16000000U, "PLL_DIV_SEL assumes a 16 MHz crystal");
-  USBPHY->PLL_SIC = (USBPHY->PLL_SIC & ~USBPHY_PLL_SIC_PLL_DIV_SEL_MASK) | USBPHY_PLL_SIC_PLL_DIV_SEL(6U);
+  USBPHY->PLL_SIC     = (USBPHY->PLL_SIC & ~USBPHY_PLL_SIC_PLL_DIV_SEL(0x7)) | USBPHY_PLL_SIC_PLL_DIV_SEL(6U);
   USBPHY->PLL_SIC_SET = USBPHY_PLL_SIC_SET_PLL_REG_ENABLE_MASK;
   USBPHY->PLL_SIC_CLR = (1UL << 16U); // PLL_BYPASS
 
@@ -282,7 +287,9 @@ static void usb1_phy_pll_init(void)
 
   USBPHY->PLL_SIC_SET = USBPHY_PLL_SIC_SET_PLL_POWER_MASK;
   USBPHY->PLL_SIC_SET = USBPHY_PLL_SIC_SET_PLL_EN_USB_CLKS_MASK;
+
   USBPHY->CTRL_CLR = USBPHY_CTRL_CLR_CLKGATE_MASK;
+  USBPHY->PWD_SET  = 0x0;
 }
 #endif
 
@@ -312,9 +319,7 @@ void board_dfu_init(void)
   /* disable usb0 host clock */
   CLOCK_DisableClock(kCLOCK_Usbhsl0);
   CLOCK_EnableUsbfs0DeviceClock(kCLOCK_UsbfsSrcFro, CLOCK_GetFreq(kCLOCK_FroHf)); /* enable USB Device clock */
-  #endif
-
-  #if BOARD_TUD_RHPORT == 1
+  #elif BOARD_TUD_RHPORT == 1
   // USB1_VBUS is a dedicated pin, no IOCON setup
   POWER_DisablePD(kPDRUNCFG_PD_USB1_PHY); /*< Turn on USB1 Phy */
 
