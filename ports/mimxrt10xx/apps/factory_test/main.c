@@ -50,6 +50,7 @@ static const float DC_INPUT_MAX_VOLTS = 13.0f;
 bool testpins(uint8_t a, uint8_t b, uint8_t *allpins, uint8_t num_allpins);
 void test_print_adc(void);
 static bool test_board(void);
+static const uint32_t WIFI_IDLE_SCAN_INTERVAL_MS = 120000;
 static uint32_t next_scan = 5000;
 static bool serial_connected = false;
 
@@ -105,9 +106,9 @@ void demo_service(void) {
 void loop(void) {
   bool connected = tud_cdc_connected();
   if (connected && !serial_connected) {
-    Serial_printf("\r\nHello from your Metro M7 AirLift!\r\n");
-    Serial_printf("Watch the red LED blink and the NeoPixel swirl.\r\n");
-    Serial_printf("Nearby Wi-Fi networks are listed every 30 seconds.\r\n");
+    Serial_printf("\n\rHello from your Metro M7 AirLift!\n\r");
+    Serial_printf("Watch the red LED blink and the NeoPixel swirl.\n\r");
+    Serial_printf("Nearby Wi-Fi networks are listed every 2 minutes.\n\r");
     next_scan = millis() + 5000;
   }
   serial_connected = connected;
@@ -124,10 +125,10 @@ void loop(void) {
   if (!test) {
     demo_service();
     if ((int32_t)(millis() - next_scan) >= 0) {
-      Serial_printf("\r\nScanning nearby Wi-Fi networks...\r\n");
+      Serial_printf("\n\rScanning nearby Wi-Fi networks...\n\r");
       int networks = wifi_scan();
-      if (networks == 0) Serial_printf("No named networks found. Trying again in 30 seconds.\r\n");
-      next_scan = millis() + 30000;
+      if (networks == 0) Serial_printf("No named networks found. Trying again in 2 minutes.\n\r");
+      next_scan = millis() + WIFI_IDLE_SCAN_INTERVAL_MS;
     }
     return;
   }
@@ -152,20 +153,21 @@ void loop(void) {
   GPIO_PinWrite(ESP32_RESET_PORT, ESP32_RESET_PIN, 1);
   pinMode(13, OUTPUT);
   if (gpio_passed) {
-    Serial_printf("WiFi scan required for factory pass...\r\n");
+    Serial_printf("WiFi scan required for factory pass...\n\r");
+    delay(100);
     int networks = wifi_scan();
     if (networks > 0) {
-      Serial_printf("WIFI SCAN OK\r\n");
-      Serial_printf("*** TEST OK! ***\r\n");
+      Serial_printf("WIFI SCAN OK\n\r");
+      Serial_printf("*** TEST OK! ***\n\r");
     } else {
-      Serial_printf("WiFi FAILED: no valid SSIDs detected.\r\n");
+      Serial_printf("WiFi FAILED: no valid SSIDs detected.\n\r");
     }
   }
-  next_scan = millis() + 30000;
+  next_scan = millis() + WIFI_IDLE_SCAN_INTERVAL_MS;
 }
 
 static bool test_board(void) {
-  Serial_printf("\n\r\n\rHello Metro M7 iMX RT1011 Test! %lu\n\r", millis());
+  Serial_printf("\n\n\r\rHello Metro M7 iMX RT1011 Test! %lu\n\r", millis());
 
   if (!testpins(0, 2, all_pins, sizeof(all_pins)))
     return false;
@@ -191,14 +193,24 @@ static bool test_board(void) {
 
   // test_print_adc();
   // Test 5V
-  int five_mV = (float)analogRead(AD1) * 2.0 * 3.3 * 1000 / 4095.0;
+  int five_raw = analogRead(AD1);
+  if (five_raw < 0) {
+    Serial_printf("5V ADC failed\n\r");
+    return false;
+  }
+  int five_mV = (float)five_raw * 2.0 * 3.3 * 1000 / 4095.0;
   Serial_printf("5V out = %d\n\r", (int)five_mV);
   if (abs(five_mV - 5000) > 500) {
     Serial_printf("5V power supply reading wrong?");
     return false;
   }
   // Accept the fixture's 9V or 12V DC supply, with measurement tolerance.
-  float dc_input_volts = (float)analogRead(AD0) * 11.0f * 3.3f / 4095.0f;
+  int dc_raw = analogRead(AD0);
+  if (dc_raw < 0) {
+    Serial_printf("DC input ADC failed\n\r");
+    return false;
+  }
+  float dc_input_volts = (float)dc_raw * 11.0f * 3.3f / 4095.0f;
   Serial_printf("DC input = %d mV\n\r", (int)(dc_input_volts * 1000.0f));
   if (dc_input_volts < DC_INPUT_MIN_VOLTS || dc_input_volts > DC_INPUT_MAX_VOLTS) {
     Serial_printf("DC input power supply reading wrong?");
@@ -318,7 +330,7 @@ void test_print_adc(void) {
       uint16_t value = analogRead(adc_pins[i]);
       printf("%u\t", value);
     }
-    printf("\r\n");
+    printf("\n\r");
 
     delay(1000);
   }
