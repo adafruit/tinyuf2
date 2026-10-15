@@ -72,7 +72,7 @@ void board_usb_init(void) {
   // same PHY setup as TinyUF2's boards.c board_dfu_init()
   usb_phy_config_t const phy_conf = {
     .controller = USB_PHY_CTRL_OTG,
-#if BOARD_TUD_RHPORT == 1
+#if BOARD_TUD_RHPORT == 1 || CONFIG_IDF_TARGET_ESP32S31
     .target = USB_PHY_TARGET_UTMI, // OTG HS
 #else
     .target = USB_PHY_TARGET_INT,
@@ -86,7 +86,7 @@ void board_usb_init(void) {
 
 uint8_t board_usb_get_serial(uint8_t serial_id[16]) {
   // factory MAC, as TinyUF2 reports it
-  esp_efuse_mac_get_default(serial_id);
+  esp_read_mac(serial_id, ESP_MAC_EFUSE_FACTORY);
   return 6;
 }
 

@@ -316,8 +316,8 @@ void board_app_jump(void) {
 }
 
 uint8_t board_usb_get_serial(uint8_t serial_id[16]) {
-  // use factory default MAC as serial ID
-  esp_efuse_mac_get_default(serial_id);
+  // use factory MAC as serial ID; esp_efuse_mac_get_default() gives the 8-byte EUI-64 on 802.15.4 targets
+  esp_read_mac(serial_id, ESP_MAC_EFUSE_FACTORY);
   return 6;
 }
 
