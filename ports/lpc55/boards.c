@@ -89,6 +89,7 @@ static uint8_t const _led_tricolor[3][2] = LED_TRICOLOR_GPIO;
 #define NO_CACHE        0xffffffff
 
 #define FLASH_PAGE_SIZE 512
+#define FLASH_WORD_SIZE 16 // ECC unit: reading an erased word fails with an ECC error
 #define FILESYSTEM_BLOCK_SIZE 256
 
 static flash_config_t _flash_config;
@@ -113,19 +114,29 @@ void board_flash_read(uint32_t addr, void* buffer, uint32_t len)
   FLASH_Read(&_flash_config, addr, buffer, len);
 }
 
+// Not FLASH_VerifyProgram(): on a mismatch the revision 0A ROM re-reads the same chunk forever (#500)
+static bool flash_page_matches_cache(void)
+{
+  uint8_t buf[FLASH_WORD_SIZE];
+
+  for (uint32_t offset = 0; offset < FLASH_PAGE_SIZE; offset += sizeof(buf)) {
+    if (FLASH_Read(&_flash_config, _flash_page_addr + offset, buf, sizeof(buf)) != kStatus_Success ||
+        memcmp(buf, _flash_cache + offset, sizeof(buf)) != 0) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 void board_flash_flush(void)
 {
-  status_t status;
-  uint32_t failedAddress, failedData;
-
   if ( _flash_page_addr == NO_CACHE ) return;
 
-  status = FLASH_VerifyProgram(&_flash_config, _flash_page_addr, FLASH_PAGE_SIZE, (const uint8_t *)_flash_cache, &failedAddress, &failedData);
-
-  if (status != kStatus_Success) {
+  if (!flash_page_matches_cache()) {
     TU_LOG1("Erase and Write at address = 0x%08lX\r\n",_flash_page_addr);
-    status = FLASH_Erase(&_flash_config, _flash_page_addr, FLASH_PAGE_SIZE, kFLASH_ApiEraseKey);
-    status = FLASH_Program(&_flash_config, _flash_page_addr, _flash_cache, FLASH_PAGE_SIZE);
+    FLASH_Erase(&_flash_config, _flash_page_addr, FLASH_PAGE_SIZE, kFLASH_ApiEraseKey);
+    FLASH_Program(&_flash_config, _flash_page_addr, _flash_cache, FLASH_PAGE_SIZE);
   }
 
   _flash_page_addr = NO_CACHE;
@@ -134,14 +145,15 @@ void board_flash_flush(void)
 bool board_flash_write(uint32_t addr, void const* data, uint32_t len)
 {
   uint32_t newAddr = addr & ~(FLASH_PAGE_SIZE - 1);
-  int32_t status;
 
   if (newAddr != _flash_page_addr) {
     board_flash_flush();
     _flash_page_addr = newAddr;
-    status = FLASH_Read(&_flash_config, newAddr, _flash_cache, FLASH_PAGE_SIZE);
-    if (status != kStatus_Success) {
-      TU_LOG1("Flash read error at address = 0x%08lX\r\n", _flash_page_addr);
+    // per word: a failed read leaves the cache holding the previous page's bytes
+    for (uint32_t offset = 0; offset < FLASH_PAGE_SIZE; offset += FLASH_WORD_SIZE) {
+      if (FLASH_Read(&_flash_config, newAddr + offset, _flash_cache + offset, FLASH_WORD_SIZE) != kStatus_Success) {
+        memset(_flash_cache + offset, 0xFF, FLASH_WORD_SIZE);
+      }
     }
   }
   memcpy(_flash_cache + (addr & (FLASH_PAGE_SIZE - 1)), data, len);
