@@ -736,6 +736,7 @@ class HilRecord(unittest.TestCase):
     self.roster.write_text(json.dumps({'boards': [
       {'name': 'metro_m7_1011', 'uid': 'U', 'flasher': {'name': 'jlink', 'uid': '000801012283', 'args': '-device MIMXRT1011DAE5A'}},
       {'name': 'espressif_esp32s3_devkitc_1', 'uid': 'M', 'flasher': {'name': 'esptool', 'uid': 'b1', 'args': '--chip esp32s3'}},
+      {'name': 'stm32h563_nucleo', 'uid': 'S', 'flasher': {'name': 'stlink', 'uid': '0023ab', 'args': '-device stm32h563zi'}},
       {'name': 'lpcxpresso55s69', 'uid': 'L', 'flasher': {'name': 'openocd', 'uid': 'x', 'args': '-f a.cfg'}}]}))
     self.config = str(self.roster.relative_to(ROOT))
 
@@ -744,6 +745,11 @@ class HilRecord(unittest.TestCase):
     (root / 'tinyuf2.jlink').write_text(script or f'halt\nloadfile {root / "tinyuf2.hex"}\nr\ngo\nexit')
     line = (f'cd {root} && JLinkExe -device MIMXRT1011DAE5A {options} -if {interface} -JTAGConf -1,-1 -speed auto '
             f'-CommandFile {root / "tinyuf2.jlink"}')
+    return lambda d, args: subprocess.CompletedProcess(args, 0, f'arm-none-eabi-gcc ...\n{line}\n', '')
+
+  def stlink_tree(self, root, connect='port=swd sn=0023ab', image=None, go='--go'):
+    root.mkdir(parents=True, exist_ok=True)
+    line = f'cd {root} && /home/u/bin/STM32_Programmer_CLI --connect {connect} --write {image or root / "tinyuf2.hex"} {go}'
     return lambda d, args: subprocess.CompletedProcess(args, 0, f'arm-none-eabi-gcc ...\n{line}\n', '')
 
   def idf_tree(self, root, chip='esp32s3', extra='', args_file='flash_args'):
@@ -762,6 +768,8 @@ class HilRecord(unittest.TestCase):
     self.assertEqual(cb.roster_flasher(self.config, 'metro_m7_1011'),
                      ({'name': 'jlink', 'uid': '000801012283', 'device': 'MIMXRT1011DAE5A'},
                       ['JLINK_OPTION=-USB 000801012283 -ExitOnError 1 -NoGui 1']))
+    self.assertEqual(cb.roster_flasher(self.config, 'stm32h563_nucleo'),
+                     ({'name': 'stlink', 'uid': '0023ab', 'device': 'stm32h563zi'}, ['STLINK_SERIAL=0023ab']))
     self.assertEqual(cb.roster_flasher(self.config, 'espressif_esp32s3_devkitc_1'),
                      ({'name': 'esptool', 'uid': 'b1', 'device': 'esp32s3'}, []))   # the tty is chosen at flash time
     for board, err in (('lpcxpresso55s69', 'no HIL flash target'), ('imxrt1060_evk', 'not on')):
@@ -781,6 +789,21 @@ class HilRecord(unittest.TestCase):
                        ('a second image', dict(script=f'halt\nloadfile {root / "tinyuf2.hex"}\nloadfile /tmp/o.hex\nr\ngo\nexit'))):
       with self.subTest(what), self.assertRaisesRegex(cb.Fail, 'does not flash'):
         cb.flash_binding(flasher, root, self.jlink_tree(root, **tree))
+
+  def test_the_generated_stlink_target_must_name_the_roster_probe_and_the_build_hex(self):
+    flasher = {'name': 'stlink', 'uid': '0023ab', 'device': 'stm32h563zi'}
+    root = self.tmp / 's'
+    out = cb.flash_binding(flasher, root, self.stlink_tree(root))
+    self.assertEqual((out['target'], out['inputs']), ('tinyuf2-stlink', ['tinyuf2.hex']))
+    for what, tree in (('no probe serial', dict(connect='port=swd')),
+                       ('another probe', dict(connect='port=swd sn=1')),
+                       ('another connect mode', dict(connect='port=swd sn=0023ab mode=UR')),
+                       ('the ELF', dict(image=root / 'tinyuf2.elf')),
+                       ('another image', dict(image=self.tmp / 'other.hex')),
+                       ('no start', dict(go='')),
+                       ('a second write', dict(go=f'--go --write {self.tmp / "o.hex"}'))):
+      with self.subTest(what), self.assertRaisesRegex(cb.Fail, 'does not flash'):
+        cb.flash_binding(flasher, root, self.stlink_tree(root, **tree))
 
   def test_the_idf_flash_target_must_write_flash_args_for_the_roster_chip(self):
     flasher = {'name': 'esptool', 'uid': 'b1', 'device': 'esp32s3'}

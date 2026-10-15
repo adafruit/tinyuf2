@@ -94,14 +94,14 @@ SMOKE = {'make': 'frdm_k32l2b', 'cmake': 'feather_stm32f405_express', 'idf': 'es
 
 # What a roster flasher runs to install TinyUF2: the build's own flash target, and the build-tree files that
 # target reads, which a HIL record pins so the runner can check them before it flashes.
-FLASH = {'jlink': ('tinyuf2-jlink', ('tinyuf2.jlink', 'tinyuf2.hex')),
+FLASH = {'jlink': ('tinyuf2-jlink', ('tinyuf2.jlink', 'tinyuf2.hex')), 'stlink': ('tinyuf2-stlink', ('tinyuf2.hex',)),
          'esptool': ('flash', ('flash_args', 'bootloader/bootloader.bin', 'partition_table/partition-table.bin',
                                'ota_data_initial.bin', 'tinyuf2.bin'))}
 # a roster flasher's args, whose one group is the device or chip its flash target must name
-FLASHER_ARGS = {'jlink': r'-device (\S+)', 'esptool': r'--chip (\w+)'}
+FLASHER_ARGS = {'jlink': r'-device (\S+)', 'stlink': r'-device (\S+)', 'esptool': r'--chip (\w+)'}
 NINJA_STEP = re.compile(r'\[\d+/\d+\] ')   # ninja's progress prefix
 # configure variables that select a probe or port: a HIL record sets them from the roster, never from -D
-SELECTION = ('JLINK_OPTION', 'OPENOCD_SERIAL', 'OPENOCD_OPTION', 'ESPPORT')
+SELECTION = ('JLINK_OPTION', 'STLINK_SERIAL', 'OPENOCD_SERIAL', 'OPENOCD_OPTION', 'ESPPORT')
 
 
 class Fail(Exception):
@@ -753,12 +753,13 @@ def roster_flasher(config, board):
     raise Fail(f'cannot read {board} from {config}: {e}')
   form = FLASHER_ARGS.get(name)
   if form is None:
-    raise Fail(f'{board}: flasher {name!r} has no HIL flash target (jlink or esptool)')
+    raise Fail(f'{board}: flasher {name!r} has no HIL flash target (jlink, stlink or esptool)')
   m = re.fullmatch(form, fargs)
   if not m or not re.fullmatch(r'[\w-]+', uid):
     raise Fail(f'{board}: flasher args {fargs!r} or uid {uid!r} is not the roster form')
   flasher = {'name': name, 'uid': uid, 'device': m[1]}
-  return flasher, [f'JLINK_OPTION=-USB {uid} -ExitOnError 1 -NoGui 1'] if name == 'jlink' else []
+  defines = {'jlink': [f'JLINK_OPTION=-USB {uid} -ExitOnError 1 -NoGui 1'], 'stlink': [f'STLINK_SERIAL={uid}']}
+  return flasher, defines.get(name, [])
 
 
 def flash_binding(flasher, root, ninja):
@@ -767,7 +768,7 @@ def flash_binding(flasher, root, ninja):
   build's environment."""
   target, inputs = FLASH[flasher['name']]
   r = ninja(root, ['-t', 'commands', target])
-  tool = 'JLinkExe' if flasher['name'] == 'jlink' else 'run_serial_tool.cmake'
+  tool = {'jlink': 'JLinkExe', 'stlink': 'STM32_Programmer_CLI'}.get(flasher['name'], 'run_serial_tool.cmake')
   cmds = [l for l in r.stdout.splitlines() if tool in l] if r.returncode == 0 else []
   ok = len(cmds) == 1
   if ok and flasher['name'] == 'jlink':
@@ -777,6 +778,12 @@ def flash_binding(flasher, root, ninja):
       '-device', flasher['device'], '-USB', flasher['uid'], '-ExitOnError', '1', '-NoGui', '1', '-if', 'swd',
       '-JTAGConf', '-1,-1', '-speed', 'auto', '-CommandFile', str(root / inputs[0])] and \
       (root / inputs[0]).is_file() and (root / inputs[0]).read_text() == f'halt\nloadfile {root / inputs[1]}\nr\ngo\nexit'
+  elif ok and flasher['name'] == 'stlink':
+    # the device is the roster's to name: the CLI identifies the chip itself, which the runner checks every session
+    cd, _, cmd = cmds[0].partition(' && ')
+    argv = shlex.split(cmd)
+    ok = cd == f'cd {root}' and Path(argv[0]).name == 'STM32_Programmer_CLI' and argv[1:] == [
+      '--connect', 'port=swd', f'sn={flasher["uid"]}', '--write', str(root / inputs[0]), '--go']
   elif ok:
     argv = shlex.split(cmds[0].partition(' && ')[2])
     defs = dict(v.split('=', 1) for k, v in zip(argv[1:-2], argv[2:-2]) if k == '-D' and '=' in v)
