@@ -11,7 +11,7 @@ set(CMAKE_EXECUTABLE_SUFFIX .elf)
 add_executable(tinyuf2
   board_flash.c
   boards.c
-  ${TOP}/lib/tinyusb/src/portable/nxp/khci/dcd_khci.c
+  ${TOP}/lib/tinyusb/src/portable/chipidea/ci_fs/dcd_ci_fs.c
   )
 target_link_options(tinyuf2 PUBLIC
   "LINKER:--script=${MCU_DIR}/gcc/${LD_FNAME}"

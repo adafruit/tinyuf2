@@ -46,7 +46,11 @@ int main(void) {
   board_timer_start(1);
 
   board_usb_init();
-  tud_init(BOARD_TUD_RHPORT);
+  const tusb_rhport_init_t dev_init = {
+    .role = TUSB_ROLE_DEVICE,
+    .speed = TUD_OPT_HIGH_SPEED ? TUSB_SPEED_HIGH : TUSB_SPEED_FULL
+  };
+  tusb_init(BOARD_TUD_RHPORT, &dev_init);
 
   while (1) {
     // bounded wait so an RTOS port still reaches the reboot check when the bus goes quiet

@@ -30,7 +30,6 @@ list(APPEND srcs
   ${tusb_src}/common/tusb_fifo.c
   # device
   ${tusb_src}/device/usbd.c
-  ${tusb_src}/device/usbd_control.c
   ${tusb_src}/class/cdc/cdc_device.c
   ${tusb_src}/class/hid/hid_device.c
   ${tusb_src}/class/msc/msc_device.c

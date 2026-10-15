@@ -114,7 +114,6 @@ SRC_C += \
 	$(TINYUSB_DIR)/tusb.c \
 	$(TINYUSB_DIR)/common/tusb_fifo.c \
 	$(TINYUSB_DIR)/device/usbd.c \
-	$(TINYUSB_DIR)/device/usbd_control.c \
 	$(TINYUSB_DIR)/class/cdc/cdc_device.c \
 	$(TINYUSB_DIR)/class/dfu/dfu_rt_device.c \
 	$(TINYUSB_DIR)/class/hid/hid_device.c \
