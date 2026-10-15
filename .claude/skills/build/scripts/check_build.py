@@ -50,7 +50,7 @@ BACKENDS = {
 # mimxrt10xx both the RT10xx and RT1170 boot layouts.
 REPRESENTATIVES = {
   'espressif': ['espressif_esp32s3_devkitm_1', 'espressif_esp32s2_devkitc_1', 'espressif_p4_function_ev',
-                'espressif_esp32s31_func_coreboard'],
+                'espressif_esp32s31_func_core'],
   'kinetis_k32l2': ['frdm_k32l2b'],
   'lpc55': ['lpcxpresso55s69'],
   'maxim': ['max32666fthr'],

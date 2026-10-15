@@ -22,8 +22,8 @@
  * SOFTWARE.
  */
 
-#ifndef ESPRESSIF_ESP32S31_FUNC_COREBOARD_H_
-#define ESPRESSIF_ESP32S31_FUNC_COREBOARD_H_
+#ifndef ESPRESSIF_ESP32S31_FUNC_CORE_H_
+#define ESPRESSIF_ESP32S31_FUNC_CORE_H_
 
 // ESP32-S31-Function-CoreBoard-1 (ESP32-S31-WROOM-3)
 // - Boot button: GPIO61 (download strapping pin, same role as GPIO0 on S2/S3)
