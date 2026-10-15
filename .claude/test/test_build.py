@@ -130,7 +130,8 @@ class Selection(unittest.TestCase):
     self.assertEqual(ports, {'espressif', 'maxim', 'mimxrt10xx', 'stm32f3', 'stm32f4', 'stm32h5'})
 
   def test_dependency_selects_the_ports_get_deps_names(self):
-    self.assertEqual(classify('lib/mcu/st/cmsis_device_f4/x.h')[2], [('feather_stm32f405_express', 'cmake')])
+    self.assertEqual(classify('lib/mcu/st/cmsis_device_f4/x.h')[2],
+                     [('feather_stm32f405_express', 'cmake'), ('stm32f411ve_discovery', 'cmake')])
     self.assertEqual(classify('lib/sct_neopixel/x.c')[2], [('lpcxpresso55s69', 'make')])
 
   def test_unbuilt_ports_are_uncovered(self):

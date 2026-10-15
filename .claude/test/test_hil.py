@@ -179,8 +179,8 @@ class Roster(Tmp):
                      ('retained-register', {'hub': 'PA40004', 'port': 3}, (0x08000000, 0x08004000), (0x08004000, 0x08040000)))
     self.assertIsNone(b['usbPower'])
     f4 = self.load(ROOT / 'test' / 'hil' / 'local.json', 'stm32f411ve_discovery')
-    self.assertEqual((f4['lock'], f4['usbPower'], f4['install'], f4['app']),
-                     ('stm32f411disco', None, (0x08000000, 0x08010000), (0x08010000, 0x08080000)))
+    self.assertEqual((f4['lock'], f4['reentry'], f4['usbPower'], f4['install'], f4['app']),
+                     ('stm32f411disco', 'retained-register', None, (0x08000000, 0x08010000), (0x08010000, 0x08080000)))
     facts = ht.source_facts(f4)
     for what, over in (('flash past the F411VE\'s 512 KiB', {'flashSize': 0x100000}),
                        ('flash below 0x08000000', {'flashBase': 0x07FF0000})):
