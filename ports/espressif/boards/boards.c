@@ -31,7 +31,9 @@
 #include "esp_private/usb_phy.h"
 
 #include "esp_private/periph_ctrl.h"
+#if CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
 #include "hal/usb_wrap_ll.h"
+#endif
 
 #include "esp_partition.h"
 #include "esp_ota_ops.h"
@@ -276,7 +278,7 @@ void board_dfu_init(void) {
   // Configure USB PHY
   usb_phy_config_t phy_conf = {
     .controller = USB_PHY_CTRL_OTG,
-#if BOARD_TUD_RHPORT == 1
+#if BOARD_TUD_RHPORT == 1 || CONFIG_IDF_TARGET_ESP32S31
     .target = USB_PHY_TARGET_UTMI, // OTG HS
 #else
     .target = USB_PHY_TARGET_INT,

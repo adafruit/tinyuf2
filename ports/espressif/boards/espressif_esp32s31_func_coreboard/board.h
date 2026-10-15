@@ -36,8 +36,8 @@
 //--------------------------------------------------------------------+
 
 // Enter UF2 mode if GPIO is pressed while 2nd stage bootloader indicator
-// is on e.g RGB = Purple. If it is GPIO0, user should not hold this while
-// reset since that will instead run the 1st stage ROM bootloader
+// is on e.g RGB = Purple. GPIO61 is the download strapping pin: holding it
+// while reset runs the 1st stage ROM bootloader instead
 #define PIN_BUTTON_UF2        61
 
 // GPIO that implement 1-bit memory with RC components which hold the
