@@ -40,7 +40,7 @@
 
 // Enable this for more reliable connection require esptool.py default reset option "--before default_reset"
 // i.e "--before no_reset" should not be include in the esptool.py command
-#define ESP32_DTR_RTS_BOOT_RESET_SUPPORT    0
+#define ESP32_DTR_RTS_BOOT_RESET_SUPPORT    1
 
 // optional API, not included in board_api.h
 int board_uart_read(uint8_t* buf, int len);
@@ -105,6 +105,16 @@ void esp32_manual_enter_dfu(void) {
 int main(void) {
   board_init();
 
+  // The fixture connects UART D0/D1 to D2/D3 for the GPIO loopback test.
+  // Release their startup trace outputs so they cannot drive the ESP32 UART.
+  gpio_pin_config_t input_config = { kGPIO_DigitalInput, 0, kGPIO_NoIntmode };
+  GPIO_PinInit(GPIO1, 13, &input_config);
+  IOMUXC_SetPinConfig(IOMUXC_GPIO_13_GPIOMUX_IO13, 0x00B0U);
+  IOMUXC_SetPinMux(IOMUXC_GPIO_13_GPIOMUX_IO13, 0);
+  GPIO_PinInit(GPIO1, 12, &input_config);
+  IOMUXC_SetPinConfig(IOMUXC_GPIO_12_GPIOMUX_IO12, 0x00B0U);
+  IOMUXC_SetPinMux(IOMUXC_GPIO_12_GPIOMUX_IO12, 0);
+
   gpio_pin_config_t pin_config = { kGPIO_DigitalOutput, 1, kGPIO_NoIntmode };
 
   // ESP GPIO0
@@ -119,7 +129,11 @@ int main(void) {
 
   board_uart_init(115200);
   board_usb_init();
-  tud_init(BOARD_TUD_RHPORT);
+  const tusb_rhport_init_t dev_init = {
+    .role = TUSB_ROLE_DEVICE,
+    .speed = TUD_OPT_HIGH_SPEED ? TUSB_SPEED_HIGH : TUSB_SPEED_FULL
+  };
+  tusb_init(BOARD_TUD_RHPORT, &dev_init);
 
   board_timer_start(1);
 
@@ -132,7 +146,9 @@ int main(void) {
     uint32_t count;
 
     // UART -> USB
-    count = (uint32_t)board_uart_read(serial_buf, sizeof(serial_buf));
+    // Leave UART bytes queued until the USB transmit FIFO has room for them.
+    count = tu_min32(tud_cdc_write_available(), sizeof(serial_buf));
+    count = (uint32_t)board_uart_read(serial_buf, count);
     if (count) {
       board_led_write(0xff);
 
@@ -143,10 +159,11 @@ int main(void) {
     }
 
     // USB -> UART
-    while (tud_cdc_available()) {
+    if (tud_cdc_available()) {
       board_led_write(0xff);
 
-      count = tud_cdc_read(serial_buf, sizeof(serial_buf));
+      // Service USB and UART receive between full-speed USB packet-sized writes.
+      count = tud_cdc_read(serial_buf, 64);
       board_uart_write(serial_buf, count);
 
       board_led_write(0);

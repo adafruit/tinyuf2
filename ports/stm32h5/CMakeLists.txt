@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.17)
+cmake_minimum_required(VERSION 3.20)
 
 include(${CMAKE_CURRENT_LIST_DIR}/../family_support.cmake)
 
@@ -12,6 +12,7 @@ add_executable(tinyuf2
   board_flash.c
   boards.c
   ${TOP}/lib/tinyusb/src/portable/st/stm32_fsdev/dcd_stm32_fsdev.c
+  ${TOP}/lib/tinyusb/src/portable/st/stm32_fsdev/fsdev_common.c
   )
 target_link_options(tinyuf2 PUBLIC
   "LINKER:--script=${CMAKE_CURRENT_LIST_DIR}/linker/stm32h5_boot.ld"
@@ -24,6 +25,6 @@ family_flash_stlink(tinyuf2)
 #------------------------------------
 # Application
 #------------------------------------
-add_subdirectory(${TOP}/apps/self_update ${CMAKE_BINARY_DIR}/apps/self_update)
-add_subdirectory(${TOP}/apps/blinky ${CMAKE_BINARY_DIR}/apps/blinky)
-add_subdirectory(${TOP}/apps/erase_firmware ${CMAKE_BINARY_DIR}/apps/erase_firmware)
+family_add_app(update-tinyuf2 ${TOP}/apps/self_update SELF_UPDATE)
+family_add_app(blinky ${TOP}/apps/blinky)
+family_add_app(erase_firmware ${TOP}/apps/erase_firmware)

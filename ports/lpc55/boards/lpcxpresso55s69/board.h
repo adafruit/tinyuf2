@@ -56,6 +56,9 @@
 // USB UF2
 //--------------------------------------------------------------------+
 
+// USB1 High Speed on P9
+#define BOARD_TUD_RHPORT  1
+
 #define USB_VID           0x1fc9
 #define USB_PID           0x0094
 #define USB_MANUFACTURER  "NXP"

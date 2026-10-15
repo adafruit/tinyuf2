@@ -22,6 +22,8 @@ on:
 
 jobs:
   board:
+    # a pull request's selection can leave a port no boards, and an empty matrix is an error
+    if: fromJSON(inputs.boards)[0] != null
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -55,10 +57,13 @@ jobs:
             cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=MinSizeRel -DBOARD=${{ matrix.board }} ports/${{ inputs.port }}
             cmake --build build
           else
-            make -C ports/${{ inputs.port }} BOARD=${{ matrix.board }} all self-update copy-artifact
-            if [ -d "ports/${{ inputs.port }}/apps" ]; then
-              for app in ports/${{ inputs.port }}/apps/*/; do if [ $app != 'apps/self_update/' ]; then make -C $app BOARD=${{ matrix.board }} all; fi done
-            fi
+            make -j$(nproc) -C ports/${{ inputs.port }} BOARD=${{ matrix.board }} all self-update
+            make -C ports/${{ inputs.port }} BOARD=${{ matrix.board }} copy-artifact
+            for app in ports/${{ inputs.port }}/apps/*/; do
+              if [ -f "$app/Makefile" ] && [ "$(basename $app)" != self_update ]; then
+                make -j$(nproc) -C $app BOARD=${{ matrix.board }} all
+              fi
+            done
           fi
 
       - name: Build using ESP-IDF docker
@@ -79,11 +84,11 @@ jobs:
             [ -f ${{ env.BIN_PATH }}/combined-ota.bin ] && cp ${{ env.BIN_PATH }}/combined-ota.bin combined-ota.bin
             cp ${{ env.BIN_PATH }}/apps/update-tinyuf2.uf2 update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
           else
-            if [[ ${{ inputs.build-system }} == cmake ]]; then
-              [ -f ${{ env.BIN_PATH }}/apps/update-tinyuf2.uf2 ] && cp ${{ env.BIN_PATH }}/apps/update-tinyuf2.uf2 update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
-            else
-              [ -f ${{ env.BIN_PATH }}/apps/update-tinyuf2-${{ matrix.board }}.uf2] && cp ${{ env.BIN_PATH }}/apps/update-tinyuf2-${{ matrix.board }}.uf2 update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
+            UPDATE_UF2=${{ env.BIN_PATH }}/apps/update-tinyuf2.uf2
+            if [[ ${{ inputs.build-system }} == make ]]; then
+              UPDATE_UF2=${{ env.BIN_PATH }}/apps/update-tinyuf2-${{ matrix.board }}.uf2
             fi
+            [ -f $UPDATE_UF2 ] && cp $UPDATE_UF2 update-tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.uf2
             zip -jr tinyuf2-${{ matrix.board }}-${{ github.event.release.tag_name }}.zip ${{ env.BIN_PATH }}
           fi
 

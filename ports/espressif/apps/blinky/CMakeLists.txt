@@ -9,6 +9,7 @@ set(EXTRA_COMPONENT_DIRS "../../boards" "../../components")
 set(SDKCONFIG ${CMAKE_BINARY_DIR}/sdkconfig)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+idf_build_set_property(DEPENDENCIES_LOCK ${CMAKE_BINARY_DIR}/dependencies.lock) # keep the source tree clean
 
 add_compile_definitions(
   BUILD_APPLICATION

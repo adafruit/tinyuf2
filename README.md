@@ -1,6 +1,6 @@
 # TinyUF2 Bootloader
 
-[![Build Status](https://github.com/adafruit/tinyuf2/workflows/Build/badge.svg)](https://github.com/adafruit/tinyuf2/actions)[![License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
+[![License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)[![Build Status](https://github.com/adafruit/tinyuf2/workflows/Build/badge.svg)](https://github.com/adafruit/tinyuf2/actions)![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/adafruit/tinyuf2?utm_source=oss&utm_medium=github&utm_campaign=adafruit%2Ftinyuf2&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)[![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
 
 This repo is cross-platform UF2 Bootloader projects for MCUs based on [TinyUSB](https://github.com/hathach/tinyusb)
 
@@ -77,6 +77,15 @@ Then compile with `all` target:
 ```
 make BOARD=feather_stm32f405_express all
 ```
+
+Every port also builds with CMake, the way CI builds it (Espressif uses ESP-IDF's, see its README):
+
+```
+cmake -B build -G Ninja -DBOARD=feather_stm32f405_express ports/stm32f4
+cmake --build build
+```
+
+The bootloader images land in `ports/<port>/_bin/<board>`. Each application the port supports (self-update, blinky, ...) is built as its own CMake project in `build/apps/<app>`, its UF2 in `_bin/<board>/apps`. Flash with targets such as `tinyuf2-jlink`, `tinyuf2-stlink` or `<app>-uf2`.
 
 ### Flash
 

@@ -10,13 +10,16 @@ set(SDKCONFIG_DEFAULTS ${CMAKE_CURRENT_LIST_DIR}/sdkconfig.defaults ${CMAKE_CURR
 set(SDKCONFIG ${CMAKE_BINARY_DIR}/sdkconfig)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+idf_build_set_property(DEPENDENCIES_LOCK ${CMAKE_BINARY_DIR}/dependencies.lock) # keep the source tree clean
 idf_build_set_property(EXTRA_CMAKE_ARGS -DBOARD=${BOARD}) # Pass BOARD to bootloader
 
 execute_process(COMMAND git describe --dirty --always --tags
+                WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
                 OUTPUT_VARIABLE GIT_VERSION)
 string(STRIP ${GIT_VERSION} GIT_VERSION)
 
 execute_process(COMMAND bash "-c" "git submodule status ${TOP}/lib/tinyusb | cut -d\" \" -f3,4 | paste -s -d\" \" -"
+                WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
                 OUTPUT_VARIABLE GIT_SUBMODULE_VERSIONS)
 
 string(REPLACE ../ "" GIT_SUBMODULE_VERSIONS ${GIT_SUBMODULE_VERSIONS})
@@ -35,7 +38,7 @@ project(tinyuf2)
 file(WRITE ${CMAKE_BINARY_DIR}/tinyuf2.postbuild.sh
   "#!/bin/bash\n"
   "echo \"Creating combined.bin\"\n"
-  "esptool.py --chip ${IDF_TARGET} merge_bin --output combined.bin $(tr '\\n' ' ' < ${CMAKE_BINARY_DIR}/flash_args)\n"
+  "esptool --chip ${IDF_TARGET} merge-bin --output combined.bin $(tr '\\n' ' ' < ${CMAKE_BINARY_DIR}/flash_args)\n"
 )
 
 # check if board is 4MB flash and create combined-ota.bin
@@ -45,7 +48,7 @@ if(NOT MATCH_INDEX EQUAL -1)
   file(APPEND ${CMAKE_BINARY_DIR}/tinyuf2.postbuild.sh
     "echo \"Creating combined-ota.bin\"\n"
     "gen_esp32part.py ${CMAKE_CURRENT_LIST_DIR}/partitions-4MB.csv ${CMAKE_BINARY_DIR}/partition_table/partitions-table-ota.bin\n"
-    "esptool.py --chip ${IDF_TARGET} merge_bin --output combined-ota.bin $(tr '\\n' ' ' < ${CMAKE_BINARY_DIR}/flash_args | sed 's/partition-table.bin/partitions-table-ota.bin/g')\n"
+    "esptool --chip ${IDF_TARGET} merge-bin --output combined-ota.bin $(tr '\\n' ' ' < ${CMAKE_BINARY_DIR}/flash_args | sed 's/partition-table.bin/partitions-table-ota.bin/g')\n"
     "cp ${CMAKE_BINARY_DIR}/partition_table/partitions-table-ota.bin ${ARTIFACT_PATH}/partitions-table-ota.bin\n"
     "cp combined-ota.bin ${ARTIFACT_PATH}/combined-ota.bin\n"
     )
@@ -73,9 +76,24 @@ add_custom_command(TARGET app POST_BUILD
 add_custom_target(combined-flash
   DEPENDS tinyuf2.elf
   COMMAND ${CMAKE_COMMAND} -E echo "Flashing combined.bin"
-  COMMAND esptool.py --chip ${IDF_TARGET} write_flash 0x0 combined.bin
+  COMMAND esptool --chip ${IDF_TARGET} write-flash 0x0 combined.bin
   VERBATIM
   )
+
+# tinyuf2.bin must fit the factory (uf2) partition: IDF's app_check_size only warns while ota_0 is large enough
+partition_table_get_partition_info(UF2_PARTITION_OFFSET "--partition-type app --partition-subtype factory" "offset")
+if (UF2_PARTITION_OFFSET)
+  partition_table_add_check_size_target(tinyuf2_check_size
+    DEPENDS gen_project_binary
+    BINARY_PATH ${CMAKE_BINARY_DIR}/tinyuf2.bin
+    PARTITION_TYPE app
+    PARTITION_SUBTYPE factory
+    )
+else ()
+  # fail the build, not configure, so menuconfig can still fix the partition table
+  fail_at_build_time(tinyuf2_check_size "${PARTITION_CSV_PATH} has no factory app partition for tinyuf2")
+endif ()
+add_dependencies(app tinyuf2_check_size)
 
 #------------------------------
 # External project (update_tinyuf2, blinky etc ...)
@@ -83,7 +101,7 @@ add_custom_target(combined-flash
 
 # Post build: generate bootloader_bin.c for update-tinyuf2 and combined.bin
 add_custom_command(TARGET app POST_BUILD
-  COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} --carray -o ${CMAKE_CURRENT_LIST_DIR}/apps/update_tinyuf2/main/bootloader_bin.c ${CMAKE_BINARY_DIR}/tinyuf2.bin
+  COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} --carray -o ${CMAKE_BINARY_DIR}/apps/update_tinyuf2/bootloader_bin.c ${CMAKE_BINARY_DIR}/tinyuf2.bin
   )
 
 externalproject_add(update-tinyuf2
@@ -91,10 +109,10 @@ externalproject_add(update-tinyuf2
   BINARY_DIR ${CMAKE_BINARY_DIR}/apps/update_tinyuf2
   # Modifying the list separator for the arguments, as such, we won't need to manually
   # replace the new separator by the default ';' in the subproject
-  CMAKE_ARGS -DBOARD=${BOARD}
+  CMAKE_ARGS -DBOARD=${BOARD} -DARTIFACT_PATH=${ARTIFACT_PATH}
   INSTALL_COMMAND ""
   BUILD_ALWAYS 1
-  DEPENDS tinyuf2.elf
+  DEPENDS app # app post-build generates bootloader_bin.c
   )
 
 externalproject_add(blinky
@@ -102,7 +120,15 @@ externalproject_add(blinky
   BINARY_DIR ${CMAKE_BINARY_DIR}/apps/blinky
   # Modifying the list separator for the arguments, as such, we won't need to manually
   # replace the new separator by the default ';' in the subproject
-  CMAKE_ARGS -DBOARD=${BOARD}
+  CMAKE_ARGS -DBOARD=${BOARD} -DARTIFACT_PATH=${ARTIFACT_PATH}
+  INSTALL_COMMAND ""
+  BUILD_ALWAYS 1
+  )
+
+externalproject_add(dfu_runtime
+  SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/apps/dfu_runtime
+  BINARY_DIR ${CMAKE_BINARY_DIR}/apps/dfu_runtime
+  CMAKE_ARGS -DBOARD=${BOARD} -DARTIFACT_PATH=${ARTIFACT_PATH}
   INSTALL_COMMAND ""
   BUILD_ALWAYS 1
   )

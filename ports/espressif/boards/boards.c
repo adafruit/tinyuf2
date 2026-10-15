@@ -29,10 +29,11 @@
 #include "hal/gpio_ll.h"
 
 #include "esp_private/usb_phy.h"
-#include "soc/usb_pins.h"
 
-#include "soc/usb_periph.h"
 #include "esp_private/periph_ctrl.h"
+#if CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
+#include "hal/usb_wrap_ll.h"
+#endif
 
 #include "esp_partition.h"
 #include "esp_ota_ops.h"
@@ -43,6 +44,11 @@
 #include "driver/gpio.h"
 
 #include "board_api.h"
+
+#if CONFIG_IDF_TARGET_ESP32P4 || CONFIG_IDF_TARGET_ESP32S31
+#include "soc/lp_system_reg.h"
+#include "esp_rom_sys.h"
+#endif
 
 #ifndef BUILD_NO_TINYUSB
 #include "tusb.h"
@@ -259,19 +265,35 @@ void board_init(void) {
   esp_timer_create(&periodic_timer_args, &timer_hdl);
 }
 
+#if (CONFIG_IDF_TARGET_ESP32P4 || CONFIG_IDF_TARGET_ESP32S31) && !defined(BUILD_NO_TINYUSB)
+// A software restart leaves OTG HS attached: detach first, or the host keeps talking to a device that stopped answering
+static void usb_disconnect_shutdown_handler(void) {
+  tud_disconnect();
+  esp_rom_delay_us(20000);
+}
+#endif
+
 static usb_phy_handle_t phy_hdl;
 void board_dfu_init(void) {
   // Configure USB PHY
   usb_phy_config_t phy_conf = {
     .controller = USB_PHY_CTRL_OTG,
+#if BOARD_TUD_RHPORT == 1 || CONFIG_IDF_TARGET_ESP32S31
+    .target = USB_PHY_TARGET_UTMI, // OTG HS
+#else
     .target = USB_PHY_TARGET_INT,
+#endif
     .otg_mode = USB_OTG_MODE_DEVICE,
     // https://github.com/hathach/tinyusb/issues/2943#issuecomment-2601888322
     // Set speed to undefined (auto-detect) to avoid timinng/racing issue with S3 with host such as macOS
     .otg_speed = USB_PHY_SPEED_UNDEFINED,
   };
 
-  usb_new_phy(&phy_conf, &phy_hdl);
+  ESP_ERROR_CHECK(usb_new_phy(&phy_conf, &phy_hdl));
+
+#if (CONFIG_IDF_TARGET_ESP32P4 || CONFIG_IDF_TARGET_ESP32S31) && !defined(BUILD_NO_TINYUSB)
+  esp_register_shutdown_handler(usb_disconnect_shutdown_handler);
+#endif
 }
 
 void board_reset(void) {
@@ -294,8 +316,8 @@ void board_app_jump(void) {
 }
 
 uint8_t board_usb_get_serial(uint8_t serial_id[16]) {
-  // use factory default MAC as serial ID
-  esp_efuse_mac_get_default(serial_id);
+  // use factory MAC as serial ID; esp_efuse_mac_get_default() gives the 8-byte EUI-64 on 802.15.4 targets
+  esp_read_mac(serial_id, ESP_MAC_EFUSE_FACTORY);
   return 6;
 }
 
@@ -350,6 +372,7 @@ void board_timer_stop(void) {
 
 #if CONFIG_IDF_TARGET_ESP32S3
 #include "hal/usb_serial_jtag_ll.h"
+#include "soc/usb_pins.h"
 
 static void hw_cdc_reset_handler(void *arg) {
   portBASE_TYPE xTaskWoken = 0;
@@ -367,8 +390,10 @@ static void hw_cdc_reset_handler(void *arg) {
 
 static void usb_switch_to_cdc_jtag(void) {
   // Disable USB-OTG
-  periph_module_reset(PERIPH_USB_MODULE);
-  periph_module_disable(PERIPH_USB_MODULE);
+  PERIPH_RCC_ATOMIC() {
+    usb_wrap_ll_reset_register();
+    usb_wrap_ll_enable_bus_clock(false);
+  }
 
   // Switch to hardware CDC+JTAG
   CLEAR_PERI_REG_MASK(RTC_CNTL_USB_CONF_REG,
@@ -382,7 +407,7 @@ static void usb_switch_to_cdc_jtag(void) {
 
   // Force the host to re-enumerate (BUS_RESET)
   gpio_config_t dp_dm_conf = {
-      .pin_bit_mask = (1ULL << USBPHY_DM_NUM) | (1ULL < USBPHY_DP_NUM),
+      .pin_bit_mask = (1ULL << USBPHY_DM_NUM) | (1ULL << USBPHY_DP_NUM),
       .mode = GPIO_MODE_OUTPUT_OD,
       .pull_up_en = GPIO_PULLUP_DISABLE,
       .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -394,6 +419,10 @@ static void usb_switch_to_cdc_jtag(void) {
 
   // Initialize CDC+JTAG ISR to listen for BUS_RESET
   usb_serial_jtag_ll_phy_enable_external(false);
+  // gpio_config() turned off the D+ pull-up via the pull override; restore it, a CPU reset won't
+  const usb_serial_jtag_pull_override_vals_t pull_conf = {.dp_pu = 1, .dm_pu = 0, .dp_pd = 0, .dm_pd = 0};
+  usb_serial_jtag_ll_phy_enable_pull_override(&pull_conf);
+  usb_serial_jtag_ll_phy_disable_pull_override();
   usb_serial_jtag_ll_disable_intr_mask(USB_SERIAL_JTAG_LL_INTR_MASK);
   usb_serial_jtag_ll_clr_intsts_mask(USB_SERIAL_JTAG_LL_INTR_MASK);
   usb_serial_jtag_ll_ena_intr_mask(USB_SERIAL_JTAG_INTR_BUS_RESET);
@@ -428,11 +457,17 @@ static void usb_switch_to_cdc_jtag(void) {
 static void IRAM_ATTR usb_persist_shutdown_handler(void) {
   // USB CDC Download: RESTART_BOOTLOADER
 #if CONFIG_IDF_TARGET_ESP32S2
-  periph_module_reset(PERIPH_USB_MODULE);
-  periph_module_enable(PERIPH_USB_MODULE);
+  PERIPH_RCC_ATOMIC() {
+    usb_wrap_ll_reset_register();
+    usb_wrap_ll_enable_bus_clock(true);
+  }
 #endif
 
+#if CONFIG_IDF_TARGET_ESP32P4 || CONFIG_IDF_TARGET_ESP32S31
+  REG_SET_BIT(LP_SYSTEM_REG_SYS_CTRL_REG, LP_SYSTEM_REG_FORCE_DOWNLOAD_BOOT);
+#else
   REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
+#endif
 }
 
 // Invoked when cdc when line state changed e.g connected/disconnected

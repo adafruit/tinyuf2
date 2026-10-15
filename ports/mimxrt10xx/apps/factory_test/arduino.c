@@ -147,6 +147,10 @@ int analogRead(uint32_t pinnum)
   if (! pindeets) return -1;
   if (! pindeets->adc) return -1;
 
+  // Board startup may mux an analog pin to a peripheral output (A0 is TRACE_CLK).
+  // Release it as an input before sampling the external voltage.
+  pinMode(pinnum, INPUT);
+
   if (!pindeets->adc_inited)
   {
     if (!adc_hw_inited)
@@ -177,8 +181,16 @@ int analogRead(uint32_t pinnum)
   };
   ADC_SetChannelConfig(pindeets->adc, ADC_CHANNEL_GROUP, &config);
 
+  uint32_t started = millis();
   while (0U == ADC_GetChannelStatusFlags(pindeets->adc, ADC_CHANNEL_GROUP))
   {
+    if (millis() - started >= 100) {
+      Serial_printf("ADC conversion timeout on pin %lu\n\r", (unsigned long)pinnum);
+      return -1;
+    }
+    fflush(stdout);
+    tud_task();
+    tud_cdc_write_flush();
   }
 
   // value is 12-bit resolution

@@ -160,9 +160,7 @@ void board_flash_init(void) {
 }
 
 uint32_t board_flash_size(void) {
-  // TODO currently limit at 8MB since the CURRENT.UF2 can occupies all 32MB virtual disk
-  const uint32_t max_size = 8 * 1024 * 1024;
-  return (BOARD_FLASH_SIZE < max_size) ? BOARD_FLASH_SIZE : max_size;
+  return BOARD_FLASH_UF2_SIZE;
 }
 
 void board_flash_read(uint32_t addr, void *buffer, uint32_t len) {
@@ -240,14 +238,92 @@ bool board_flash_write(uint32_t addr, const void *src, uint32_t len) {
 void board_flash_erase_app(void) {
   TUF2_LOG1("Erase whole chip\r\n");
 
+  // Erase requests are handled before board_flash_init(). Initialize the ROM
+  // configuration here as well, without writing the image before the erase.
+#ifdef USE_BLHOST
+  ROM_API_Init();
+  flash_cfg = flash_nor_config_copy;
+#else
+  flash_cfg = flash_nor_config;
+#endif
+
   // Perform chip erase first
-  ROM_FLEXSPI_NorFlash_Init(FLEXSPI_INSTANCE, &flash_cfg);
-  ROM_FLEXSPI_NorFlash_EraseAll(FLEXSPI_INSTANCE, &flash_cfg);
+  status_t status = ROM_FLEXSPI_NorFlash_Init(FLEXSPI_INSTANCE, &flash_cfg);
+  if (status != kStatus_Success) {
+    TUF2_LOG1("Flash init failed: status = %ld!\r\n", status);
+    while (1) {}
+  }
+
+  status = ROM_FLEXSPI_NorFlash_EraseAll(FLEXSPI_INSTANCE, &flash_cfg);
+  if (status != kStatus_Success) {
+    TUF2_LOG1("Chip erase failed: status = %ld!\r\n", status);
+    while (1) {}
+  }
+
+  // Read every flash word after discarding cached contents.
+  SCB_InvalidateDCache_by_Addr((uint32_t*) FLASH_BASE, BOARD_FLASH_SIZE);
+  volatile uint32_t const* flash = (volatile uint32_t const*) FLASH_BASE;
+  for (uint32_t i = 0; i < BOARD_FLASH_SIZE / sizeof(uint32_t); ++i) {
+    if (flash[i] != 0xffffffff) {
+      TUF2_LOG1("Chip erase verification failed at 0x%08lX!\r\n", FLASH_BASE + i * sizeof(uint32_t));
+      while (1) {}
+    }
+  }
+  _flash_page_addr = FLASH_CACHE_INVALID_ADDR;
+  TUF2_LOG1("Whole-chip erase verified.\r\n");
 
   // Re-write bootloader to flash after chip erase (only when running from RAM)
   TUF2_LOG1("Erase app firmware: ");
   write_tinyuf2_to_flash();
+
+  SCB_InvalidateDCache_by_Addr((uint32_t*) FLASH_BASE, BOARD_BOOT_LENGTH);
+#ifdef USE_BLHOST
+  // RT1176 constructs its flash headers separately from the loaded image.
+  if (memcmp((void const*) FLASH_FCFB_ADDR, &flash_nor_config_copy, sizeof(flexspi_nor_config_t)) != 0 ||
+      memcmp((void const*) FLASH_IVT_ADDR, &image_vector_table, sizeof(ivt)) != 0 ||
+      memcmp((void const*) (FLASH_IVT_ADDR + sizeof(ivt)), &g_boot_data_copy, sizeof(BOOT_DATA_T)) != 0) {
+    TUF2_LOG1("TinyUF2 header verification failed!\r\n");
+    while (1) {}
+  }
+  uint32_t const image_address = FLASH_IVT_ADDR + (uint32_t) _ivt_length;
+  void const* image_data = _interrupts_origin;
+#else
+  uint32_t const image_address = FLASH_FCFB_ADDR;
+  void const* image_data = &flash_nor_config;
+#endif
+  uint32_t const image_length = FLASH_BASE + BOARD_BOOT_LENGTH - image_address;
+  if (memcmp((void const*) image_address, image_data, image_length) != 0) {
+    TUF2_LOG1("TinyUF2 installation verification failed!\r\n");
+    while (1) {}
+  }
+  TUF2_LOG1("TinyUF2 installation verified.\r\n");
 }
+
+#if defined(MIMXRT1011_SERIES)
+// The factory tester (PID5600 Metro M7 Brains) patches this initializer in the SDP-loaded
+// image, at __DATA_ROM + (&tester_erase_request - __DATA_RAM), to request a verified chip erase.
+// Keep its name and .data placement: the tester derives that address from the ELF.
+volatile uint32_t tester_erase_request = 0x13579BDF;
+extern uint8_t __DATA_ROM[], __DATA_RAM[];
+
+// Runs before check_dfu_mode(), so an existing app cannot start first
+void board_init2(void) {
+  if (tester_erase_request != DBL_TAP_MAGIC_ERASE_APP) {
+    return;
+  }
+
+  // Only reached when the tester uploaded this image over SDP with the erase request patched in.
+  // The image copy is what gets installed to flash: clear it so the erase stays one-shot
+  uintptr_t const offset = (uintptr_t) &tester_erase_request - (uintptr_t) __DATA_RAM;
+  *((volatile uint32_t*) ((uintptr_t) __DATA_ROM + offset)) = 0;
+  tester_erase_request = 0;
+  TINYUF2_DBL_TAP_REG = 0;
+
+  indicator_set(STATE_WRITING_STARTED);
+  board_flash_erase_app();
+  indicator_set(STATE_WRITING_FINISHED);
+}
+#endif
 
 bool board_flash_protect_bootloader(bool protect) {
   // TODO implement later

@@ -29,3 +29,12 @@ repos:
       (?x)^(
         lib/
       )
+
+- repo: local
+  hooks:
+  - id: claude-tests
+    name: agent skill script tests
+    entry: python3 -m unittest discover -s .claude/test -p 'test_*.py'
+    language: system
+    pass_filenames: false
+    files: ^(\.claude/|\.github/workflows/|ports/|test/hil/|tools/get_deps\.py$)

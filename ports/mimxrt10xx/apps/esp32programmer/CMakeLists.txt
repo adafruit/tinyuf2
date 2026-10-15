@@ -1,10 +1,17 @@
 #------------------------------------
 # Application
-# This file is meant to be include by add_subdirectory() in the root CMakeLists.txt
+# Standalone project, built by the port's family_add_app() or directly with -DBOARD=
 #------------------------------------
-cmake_minimum_required(VERSION 3.17)
+cmake_minimum_required(VERSION 3.20)
 
-include(${CMAKE_CURRENT_LIST_DIR}/../../app.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/../../../family_support.cmake)
+
+project(esp32programmer C ASM)
+set(CMAKE_EXECUTABLE_SUFFIX .elf)
+
+include(${FAMILY_PATH}/app.cmake)
+
+add_compile_definitions(BUILD_APPLICATION)
 
 add_executable(esp32programmer
   main.c
@@ -19,3 +26,5 @@ target_include_directories(esp32programmer PUBLIC
 
 family_configure_app(esp32programmer)
 family_add_tinyusb(esp32programmer OPT_MCU_MIMXRT1XXX)
+family_gen_uf2(esp32programmer ${UF2_FAMILY_ID})
+family_flash_uf2(esp32programmer ${UF2_FAMILY_ID})

@@ -50,6 +50,11 @@ if (NOT DEFINED JLINK_IF)
   set(JLINK_IF swd)
 endif ()
 
+# TUF2_LOG and CFG_TUSB_DEBUG level, off by default as in make
+if (NOT DEFINED LOG)
+  set(LOG 0)
+endif ()
+
 #-------------------------------------------------------------
 # FAMILY and BOARD
 #-------------------------------------------------------------
@@ -76,7 +81,9 @@ endif ()
 set(FAMILY_PATH ${TOP}/ports/${FAMILY} CACHE INTERNAL "FAMILY_PATH")
 set(BOARD_PATH ${TOP}/ports/${FAMILY}/boards/${BOARD} CACHE INTERNAL "BOARD_PATH")
 
-set(ARTIFACT_PATH ${FAMILY_PATH}/_bin/${BOARD})
+if (NOT DEFINED ARTIFACT_PATH)
+  set(ARTIFACT_PATH ${FAMILY_PATH}/_bin/${BOARD})
+endif ()
 execute_process(COMMAND mkdir -p ${ARTIFACT_PATH})
 execute_process(COMMAND mkdir -p ${ARTIFACT_PATH}/apps)
 
@@ -96,7 +103,58 @@ function(family_gen_bin_hex TARGET)
   add_custom_command(TARGET ${TARGET} POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -Obinary $<TARGET_FILE:${TARGET}> $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin
     COMMAND ${CMAKE_OBJCOPY} -Oihex $<TARGET_FILE:${TARGET}> $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.hex
+    BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}.bin ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}.hex
     VERBATIM)
+endfunction()
+
+# Build an application as its own CMake project (ExternalProject), as make builds each app with its own
+# flags: the app's defines then also reach the board library it compiles.
+# SELF_UPDATE passes the bootloader binary as BOOTLOADER_BIN, BOARDS limits the app to those boards.
+function(family_add_app NAME SOURCE_DIR)
+  cmake_parse_arguments(ARG "SELF_UPDATE" "" "BOARDS" ${ARGN})
+  if (DEFINED ARG_BOARDS AND NOT BOARD IN_LIST ARG_BOARDS)
+    return()
+  endif ()
+  include(ExternalProject)
+
+  set(APP_ARGS
+    -DBOARD=${BOARD}
+    -DFAMILY=${FAMILY}
+    -DTOOLCHAIN=${TOOLCHAIN}
+    -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+    -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+    -DARTIFACT_PATH=${ARTIFACT_PATH}
+    -DPython_EXECUTABLE=${Python_EXECUTABLE}
+    )
+  foreach (VAR LOG LOGGER CFLAGS_CLI TRACE_ETM LTO_ON)
+    if (DEFINED ${VAR})
+      # LIST_SEPARATOR below turns | back into ; so a list value stays one argument
+      string(REPLACE ";" "|" VALUE "${${VAR}}")
+      list(APPEND APP_ARGS "-D${VAR}=${VALUE}")
+    endif ()
+  endforeach ()
+
+  if (ARG_SELF_UPDATE)
+    list(APPEND APP_ARGS -DBOOTLOADER_BIN=${CMAKE_CURRENT_BINARY_DIR}/tinyuf2.bin)
+    set(APP_DEPENDS DEPENDS tinyuf2)
+  endif ()
+
+  set(APP_BINARY_DIR ${CMAKE_BINARY_DIR}/apps/${NAME})
+  ExternalProject_Add(${NAME}
+    SOURCE_DIR ${SOURCE_DIR}
+    BINARY_DIR ${APP_BINARY_DIR}
+    CMAKE_ARGS ${APP_ARGS}
+    LIST_SEPARATOR |
+    INSTALL_COMMAND ""
+    BUILD_ALWAYS 1
+    ${APP_DEPENDS}
+    )
+
+  # the app's uf2 flash target, from its own project
+  add_custom_target(${NAME}-uf2
+    DEPENDS ${NAME}
+    COMMAND ${CMAKE_COMMAND} --build ${APP_BINARY_DIR} --target ${NAME}-uf2
+    )
 endfunction()
 
 function(family_add_default_warnings TARGET)
@@ -141,6 +199,7 @@ function(family_configure_common TARGET)
   string(REPLACE "-" "_" BOARD_UPPER ${BOARD_UPPER})
   target_compile_definitions(${TARGET} PUBLIC
     BOARD_${BOARD_UPPER}
+    TUF2_LOG=${LOG}
   )
 
   # compile define from command line
@@ -190,12 +249,10 @@ function(family_add_tinyusb TARGET OPT_MCU)
   # Add TinyUSB sources, include and common define
   tinyusb_target_add(${TARGET})
   target_compile_definitions(${TARGET} PUBLIC CFG_TUSB_MCU=${OPT_MCU})
-  if (DEFINED LOG)
-    target_compile_definitions(${TARGET} PUBLIC CFG_TUSB_DEBUG=${LOG})
-    if (LOG STREQUAL "4") # no inline for debug level 4
-      target_compile_definitions(${TARGET} PUBLIC TU_ATTR_ALWAYS_INLINE=)
-    endif ()
-  endif()
+  target_compile_definitions(${TARGET} PUBLIC CFG_TUSB_DEBUG=${LOG})
+  if (LOG STREQUAL "4") # no inline for debug level 4
+    target_compile_definitions(${TARGET} PUBLIC TU_ATTR_ALWAYS_INLINE=)
+  endif ()
 endfunction()
 
 function(family_configure_tinyuf2 TARGET OPT_MCU)
@@ -207,7 +264,7 @@ function(family_configure_tinyuf2 TARGET OPT_MCU)
   family_add_tinyusb(${TARGET} ${OPT_MCU})
 
   # Add uf2 version
-  execute_process(COMMAND ${GIT_EXECUTABLE} describe --dirty --always --tags OUTPUT_VARIABLE GIT_VERSION)
+  execute_process(COMMAND ${GIT_EXECUTABLE} describe --dirty --always --tags WORKING_DIRECTORY ${TOP} OUTPUT_VARIABLE GIT_VERSION)
   string(STRIP ${GIT_VERSION} GIT_VERSION)
   cmake_print_variables(GIT_VERSION)
   target_compile_definitions(${TARGET} PUBLIC
@@ -219,6 +276,7 @@ function(family_configure_tinyuf2 TARGET OPT_MCU)
   add_custom_command(TARGET ${TARGET} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin ${ARTIFACT_PATH}/${TARGET}.bin
     COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.hex ${ARTIFACT_PATH}/${TARGET}.hex
+    BYPRODUCTS ${ARTIFACT_PATH}/${TARGET}.bin ${ARTIFACT_PATH}/${TARGET}.hex
     VERBATIM)
 
 endfunction()
@@ -228,6 +286,7 @@ function(family_gen_uf2 TARGET FAMILY_ID)
   add_custom_command(TARGET ${TARGET} POST_BUILD
     COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} -f ${FAMILY_ID} -c -o $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.uf2 $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.hex
     COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.uf2 ${ARTIFACT_PATH}/apps/${TARGET}.uf2
+    BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}.uf2 ${ARTIFACT_PATH}/apps/${TARGET}.uf2
     VERBATIM)
 endfunction()
 
@@ -235,6 +294,7 @@ endfunction()
 function(family_gen_uf2_from_bin TARGET FAMILY_ID BIN_ADDR)
   add_custom_command(TARGET ${TARGET} POST_BUILD
     COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} -f ${FAMILY_ID} -b ${BIN_ADDR} -c -o $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.uf2 $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin
+    BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}.uf2
     VERBATIM)
 endfunction()
 
@@ -244,6 +304,9 @@ endfunction()
 
 # Add flash jlink target, optional parameter is the extension of the binary file
 function(family_flash_jlink TARGET)
+  if (NOT DEFINED JLINK_DEVICE)
+    return()
+  endif ()
   if (NOT DEFINED JLINK_OPTION)
     set(JLINK_OPTION "")
   endif ()
@@ -309,6 +372,16 @@ function(family_flash_stlink TARGET)
   add_custom_target(${TARGET}-stlink
     DEPENDS ${TARGET}
     COMMAND ${STM32_PROGRAMMER_CLI} --connect port=swd --write $<TARGET_FILE:${TARGET}> --go
+    )
+endfunction()
+
+
+# Add flash pyocd target
+function(family_flash_pyocd TARGET)
+  add_custom_target(${TARGET}-pyocd
+    DEPENDS ${TARGET}
+    COMMAND pyocd flash -t ${PYOCD_TARGET} $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.hex
+    COMMAND pyocd reset -t ${PYOCD_TARGET}
     )
 endfunction()
 

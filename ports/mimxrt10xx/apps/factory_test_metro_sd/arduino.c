@@ -155,6 +155,10 @@ int analogRead(uint32_t pinnum)
   if (! pindeets) return -1;
   if (! pindeets->adc) return -1;
 
+  // Board startup may mux an analog pin to a peripheral output (A0 is TRACE_CLK).
+  // Release it as an input before sampling the external voltage.
+  pinMode(pinnum, INPUT);
+
   if (!pindeets->adc_inited)
   {
     if (!adc_hw_inited)

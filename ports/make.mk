@@ -48,9 +48,16 @@ ifeq ($(wildcard $(TOP)/$(BOARD_DIR)/),)
   $(error Invalid BOARD specified)
 endif
 
-# Build directory
-BUILD = _build/$(BOARD)
-BIN = $(TOP)/$(PORT_DIR)/_bin/$(BOARD)
+# Build directory, BUILD_ROOT (an absolute path, one per board) moves the output of this make and its sub-makes out of the source tree
+ifdef BUILD_ROOT
+  BUILD = $(BUILD_ROOT)/$(CURRENT_PATH)
+  BIN = $(BUILD_ROOT)/_bin
+  SELF_BUILD = $(BUILD_ROOT)/$(PORT_DIR)/apps/self_update
+else
+  BUILD = _build/$(BOARD)
+  BIN = $(TOP)/$(PORT_DIR)/_bin/$(BOARD)
+  SELF_BUILD = $(TOP)/$(PORT_DIR)/apps/self_update/_build/$(BOARD)
+endif
 
 # can be set manually by custom build such as flash_nuke
 OUTNAME ?= tinyuf2-$(BOARD)
@@ -107,7 +114,6 @@ SRC_C += \
 	$(TINYUSB_DIR)/tusb.c \
 	$(TINYUSB_DIR)/common/tusb_fifo.c \
 	$(TINYUSB_DIR)/device/usbd.c \
-	$(TINYUSB_DIR)/device/usbd_control.c \
 	$(TINYUSB_DIR)/class/cdc/cdc_device.c \
 	$(TINYUSB_DIR)/class/dfu/dfu_rt_device.c \
 	$(TINYUSB_DIR)/class/hid/hid_device.c \

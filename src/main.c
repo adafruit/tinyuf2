@@ -88,7 +88,11 @@ int main(void) {
   board_flash_init();
   uf2_init();
 
-  tud_init(BOARD_TUD_RHPORT);
+  const tusb_rhport_init_t dev_init = {
+    .role = TUSB_ROLE_DEVICE,
+    .speed = TUD_OPT_HIGH_SPEED ? TUSB_SPEED_HIGH : TUSB_SPEED_FULL
+  };
+  tusb_init(BOARD_TUD_RHPORT, &dev_init);
 
   indicator_set(STATE_USB_UNPLUGGED);
 

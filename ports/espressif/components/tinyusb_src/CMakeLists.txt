@@ -7,8 +7,12 @@ set(tusb_src "${CMAKE_CURRENT_SOURCE_DIR}/../../../../lib/tinyusb/src")
 
 if(target STREQUAL "esp32s3")
   set(tusb_mcu "OPT_MCU_ESP32S3")
+elseif(target STREQUAL "esp32p4")
+  set(tusb_mcu "OPT_MCU_ESP32P4")
 elseif(target STREQUAL "esp32s2")
   set(tusb_mcu "OPT_MCU_ESP32S2")
+elseif(target STREQUAL "esp32s31")
+  set(tusb_mcu "OPT_MCU_ESP32S31")
 else()
   # CONFIG_TINYUSB dependency has been guaranteed by Kconfig logic,
   # So it's not possible that cmake goes here
@@ -28,7 +32,6 @@ list(APPEND srcs
   ${tusb_src}/common/tusb_fifo.c
   # device
   ${tusb_src}/device/usbd.c
-  ${tusb_src}/device/usbd_control.c
   ${tusb_src}/class/cdc/cdc_device.c
   ${tusb_src}/class/hid/hid_device.c
   ${tusb_src}/class/msc/msc_device.c

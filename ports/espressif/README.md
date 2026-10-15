@@ -2,7 +2,7 @@
 
 The project is composed of customizing the 2nd stage bootloader from IDF and UF2 factory application as 3rd stage bootloader.
 
-**Note**: IDF is actively developed and change very often, TinyUF2 is developed and tested with IDF v5.3.2. Should you have a problem please try to change your IDF version.
+**Note**: IDF is actively developed and change very often, TinyUF2 is developed and tested with IDF v6.1. Should you have a problem please try to change your IDF version.
 
 ## Supported Boards
 
@@ -29,10 +29,10 @@ idf.py -DBOARD=adafruit_feather_esp32s2 flash
 or you could also use pre-built binaries from [release page](https://github.com/adafruit/tinyuf2/releases). Extract and run following esptool commands
 
 ```
-esptool.py --chip esp32s2 -p /dev/ttyUSB0  -b 460800 --before=default_reset --after=hard_reset write_flash --flash_mode dio --flash_freq 80m --flash_size 4MB 0x8000 partition-table.bin 0xe000 ota_data_initial.bin 0x1000 bootloader.bin 0x2d0000 tinyuf2.bin
+esptool --chip esp32s2 -p /dev/ttyUSB0 -b 460800 --before default-reset --after hard-reset write-flash --flash-mode dio --flash-freq 80m --flash-size 4MB 0x8000 partition-table.bin 0xe000 ota_data_initial.bin 0x1000 bootloader.bin 0x2d0000 tinyuf2.bin
 ```
 
-Note: you may need to change the `flash_size` and offset of `tinyuf2.bin` if your board is not 4MB.
+Note: you may need to change the `--flash-size` and offset of `tinyuf2.bin` if your board is not 4MB.
 
 ## Usage
 
@@ -69,7 +69,15 @@ uf2conv.py firmware.bin -c -b 0x00 -f 0xbfdd4eee
 uf2conv.py firmware.bin -c -b 0x00 -f ESP32S3
 uf2conv.py firmware.bin -c -b 0x00 -f 0xc47e5767
 
+uf2conv.py firmware.bin -c -b 0x00 -f 0x3d308e94   # ESP32P4
+
 ```
+
+## ESP32-P4
+
+- TinyUF2 runs on the USB 2.0 OTG High-Speed controller (`BOARD_TUD_RHPORT` 1), e.g. the USB 2.0 Type-C port of the ESP32-P4-Function-EV-Board. It is tested at high speed only; enumeration through a full-speed-only host or hub is unverified.
+- ESP32-P4 chip revisions below v3.0 and v3.x need separate images (`CONFIG_ESP32P4_SELECTS_REV_LESS_V3`). A board selects its revision in its `sdkconfig`, which `family.cmake` also passes to the standalone applications so their images boot on the same chip. `espressif_p4_function_ev` targets the ESP32-P4-Function-EV-Board (chip below v3.0, tested on chip v0.1 and v1.0), not the ESP32-P4X-Function-EV-Board (chip v3.1+).
+- The 2nd stage bootloader sits at 0x2000, leaving 24 KiB before the partition table.
 
 ## 2nd Stage Bootloader
 

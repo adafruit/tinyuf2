@@ -62,6 +62,9 @@
 // USB UF2
 //--------------------------------------------------------------------+
 
+// USB0 Full Speed
+#define BOARD_TUD_RHPORT  0
+
 #define USB_VID           0x1fc9
 #define USB_PID           0x0094
 #define USB_MANUFACTURER  "Steiert Solutions"

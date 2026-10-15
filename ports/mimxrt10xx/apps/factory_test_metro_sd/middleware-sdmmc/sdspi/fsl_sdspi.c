@@ -10,6 +10,10 @@
 #include <string.h>
 #include "fsl_sdspi.h"
 
+/* Temporary diagnostic callback; the app owns printing and USB service. */
+extern void sdspi_trace_command(uint8_t command, status_t status,
+                               const uint8_t *response, uint8_t response_length);
+
 //#define SDSPI_DEBUG
 
 #ifdef SDSPI_DEBUG
@@ -328,7 +332,7 @@ static status_t SDSPI_SendCommand(sdspi_host_t *host, uint32_t command, uint32_t
     uint32_t responseType                       = SDSPI_COMMAND_FORMAT_GET_RESPONSE_TYPE(command);
     uint8_t index                               = (uint8_t)SDSPI_COMMAND_FORMAT_GET_INDEX(command);
 
-    if ((kStatus_Success != SDSPI_WaitReady(host)) && (index != (uint8_t)kSDMMC_GoIdleState))
+    if ((index != (uint8_t)kSDMMC_GoIdleState) && (kStatus_Success != SDSPI_WaitReady(host)))
     {
         return kStatus_SDSPI_WaitReadyFailed;
     }
@@ -400,7 +404,8 @@ static status_t SDSPI_SendCommand(sdspi_host_t *host, uint32_t command, uint32_t
         else if ((responseType == (uint32_t)kSDSPI_ResponseTypeR3) || (responseType == (uint32_t)kSDSPI_ResponseTypeR7))
         {
             /* Left 4 bytes in response type R3 and R7(total 5 bytes in SPI mode) */
-            if (kStatus_Success != host->exchange(&timingByte, &(response[1U]), 4U))
+            /* Let the host send four dummy 0xFF bytes instead of reading past timingByte. */
+            if (kStatus_Success != host->exchange(NULL, &(response[1U]), 4U))
             {
                 return kStatus_SDSPI_ExchangeFailed;
             }
@@ -457,7 +462,10 @@ static status_t SDSPI_GoIdle(sdspi_card_t *card)
     and the card will be IDLE state. */
     do
     {
-        if ((kStatus_Success == SDSPI_SendCommand(card->host, kSDSPI_CmdGoIdle, 0U, &response)) &&
+        response = 0xFFU;
+        status_t commandStatus = SDSPI_SendCommand(card->host, kSDSPI_CmdGoIdle, 0U, &response);
+        sdspi_trace_command(0U, commandStatus, &response, 1U);
+        if ((kStatus_Success == commandStatus) &&
             (response == (uint8_t)kSDSPI_R1InIdleStateFlag))
         {
             return kStatus_Success;
@@ -479,7 +487,10 @@ static status_t SDSPI_SendInterfaceCondition(sdspi_card_t *card, uint32_t *flags
     {
         /* CMD8 is used to check if the card accept the current supply voltage and check if
         the card support CMD8 */
-        if (kStatus_Success == SDSPI_SendCommand(card->host, kSDSPI_CmdSendInterfaceCondition, 0x1AAU, response))
+        (void)memset(response, 0xFF, sizeof(response));
+        status_t commandStatus = SDSPI_SendCommand(card->host, kSDSPI_CmdSendInterfaceCondition, 0x1AAU, response);
+        sdspi_trace_command(8U, commandStatus, response, sizeof(response));
+        if (kStatus_Success == commandStatus)
         {
             /* not support CMD8, clear hcs flag */
             if ((response[0U] & (uint8_t)kSDSPI_R1IllegalCommandFlag) != 0U)

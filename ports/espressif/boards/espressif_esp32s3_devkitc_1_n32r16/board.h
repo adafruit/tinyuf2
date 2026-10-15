@@ -22,8 +22,8 @@
  * THE SOFTWARE.
  */
 
-#ifndef SENSEBOX_EYE_ESP32S3_H_
-#define SENSEBOX_EYE_ESP32S3_H_
+#ifndef ESPRESSIF_S3_DEVKITC_N32R16_H_
+#define ESPRESSIF_S3_DEVKITC_N32R16_H_
 
 //--------------------------------------------------------------------+
 // Button
@@ -38,10 +38,12 @@
 // pin value long enough for double reset detection.
 // #define PIN_DOUBLE_RESET_RC
 
-// GPIO connected to Neopixel data
-#define NEOPIXEL_PIN          45
+//--------------------------------------------------------------------+
+// LED
+//--------------------------------------------------------------------+
 
-#define NEOPIXEL_POWER_STATE  1
+// GPIO connected to Neopixel data
+#define NEOPIXEL_PIN          38
 
 // Brightness percentage from 1 to 255
 #define NEOPIXEL_BRIGHTNESS   0x10
@@ -49,21 +51,24 @@
 // Number of neopixels
 #define NEOPIXEL_NUMBER       1
 
+
+// LED for indicator
+// If not defined neopixel will be use for flash writing instead
+// #define LED_PIN               42
+// #define LED_STATE_ON          1
+
 //--------------------------------------------------------------------+
 // USB UF2
 //--------------------------------------------------------------------+
 
-#define USB_VID                  0x303A
-#define USB_PID                  0x82D3
-#define USB_MANUFACTURER         "senseBox"
-#define USB_PRODUCT              "eye ESP32S3"
+#define USB_VID           0x239A
+#define USB_PID           0x00A5    // TODO temporarily shared with S2 saola wrover
+#define USB_MANUFACTURER  "Espressif"
+#define USB_PRODUCT       "ESP32S3 DevKitC 1 N32R16"
 
-#define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
-#define UF2_BOARD_ID             "ESP32S3-senseBox-eye"
-#define UF2_VOLUME_LABEL         "senseBox"
-#define UF2_INDEX_URL            "https://sensebox.de"
-
-// Use favicon
-#define TINYUF2_FAVICON_HEADER   "favicon_sensebox_256.h"
+#define UF2_PRODUCT_NAME  USB_MANUFACTURER " " USB_PRODUCT
+#define UF2_BOARD_ID      "ESP32S3-DevKitC-1-N32R16-v1.1"
+#define UF2_VOLUME_LABEL  "N32R16BOOT"
+#define UF2_INDEX_URL     "https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32s3/esp32-s3-devkitc-1/user_guide_v1.1.html"
 
 #endif

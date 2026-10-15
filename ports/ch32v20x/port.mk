@@ -57,6 +57,7 @@ SRC_C += \
 ifndef BUILD_NO_TINYUSB
 SRC_C += \
   lib/tinyusb/src/portable/st/stm32_fsdev/dcd_stm32_fsdev.c \
+  lib/tinyusb/src/portable/st/stm32_fsdev/fsdev_common.c \
 	lib/tinyusb/src/portable/wch/dcd_ch32_usbfs.c
 endif
 

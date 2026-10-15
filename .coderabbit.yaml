@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+reviews:
+  profile: chill
+  high_level_summary: false
+  in_progress_fortune: false
+  auto_review:
+    auto_pause_after_reviewed_commits: 0
+
+  path_filters:
+    - "!lib/**"
+
+  path_instructions:
+    - path: "src/**"
+      instructions: |
+        Cross-platform bootloader core shared by every port. Check that changes
+        stay port-agnostic: hardware access goes through the board_*() API in
+        src/board_api.h. In ghostfat.c, check the UF2 block checks (magic,
+        flags, family ID) before board_flash_write().
+    - path: "ports/**"
+      instructions: |
+        Port and board code implementing src/board_api.h. Flag anything that
+        can brick a device: erasing or writing the bootloader region outside
+        self-update, a wrong application start address, or jumping to the
+        application without validating it and restoring clocks, interrupts
+        and peripherals left enabled by the bootloader. Linker scripts and
+        board flash or RAM sizes must match the target MCU. Some files are
+        vendor SDK or third-party drivers modified for tinyuf2; review them
+        like local code, but do not ask to match upstream style.
+    - path: "ports/*/boards/**"
+      instructions: |
+        Board definitions. Check that pins, USB VID/PID and board names are
+        consistent with the other files of the same board.

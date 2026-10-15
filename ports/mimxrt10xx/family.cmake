@@ -73,9 +73,9 @@ function(family_add_board_target BOARD_TARGET)
     ${SDK_DIR}/drivers/ocotp/fsl_ocotp.c
     ${SDK_DIR}/drivers/pwm/fsl_pwm.c
     ${SDK_DIR}/drivers/xbara/fsl_xbara.c
-    ${CMAKE_CURRENT_LIST_DIR}/boards/${BOARD}/flash_config.c
-    ${CMAKE_CURRENT_LIST_DIR}/boards/${BOARD}/board/clock_config.c
-    ${CMAKE_CURRENT_LIST_DIR}/boards/${BOARD}/board/pin_mux.c
+    ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/boards/${BOARD}/flash_config.c
+    ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/boards/${BOARD}/board/clock_config.c
+    ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/boards/${BOARD}/board/pin_mux.c
     )
 
   # ROM API is present on most parts except RT1011.
@@ -154,6 +154,7 @@ function(family_gen_bin_hex TARGET)
   add_custom_command(TARGET ${TARGET} POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -Obinary $<TARGET_FILE:${TARGET}> $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin
     COMMAND ${CMAKE_OBJCOPY} -Ibinary -Oihex --change-addresses ${FLASH_FCFB_ADDR} $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.hex
+    BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}.bin ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}.hex
     VERBATIM)
 endfunction()
 

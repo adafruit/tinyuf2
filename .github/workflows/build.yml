@@ -1,27 +1,11 @@
 name: Build
 
 on:
+  # every push to master/main runs pre-commit; set-matrix decides whether it builds
   push:
-    paths:
-      - 'apps/**'
-      - 'lib/**'
-      - 'ports/**'
-      - 'src/**'
-      - '.github/actions/**'
-      - '.github/workflows/build.yml'
-      - '.github/workflows/build_util.yml'
-      - '.github/workflows/build_ghostfat.yml'
+    branches: [ master, main ]
+  # every pull request, whatever its base: the selection decides what it builds
   pull_request:
-    branches: [ master ]
-    paths:
-      - 'apps/**'
-      - 'lib/**'
-      - 'ports/**'
-      - 'src/**'
-      - '.github/actions/**'
-      - '.github/workflows/build.yml'
-      - '.github/workflows/build_util.yml'
-      - '.github/workflows/build_ghostfat.yml'
   repository_dispatch:
   release:
     types:
@@ -32,21 +16,46 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # the claude-tests hook reads lib/uf2's uf2conv.py, the RT1062 SDK source and the STM32F303 and STM32F411 CMSIS headers
+      - name: Fetch test inputs
+        run: |
+          git submodule update --init lib/uf2
+          python3 tools/get_deps.py mimxrt10xx stm32f3 stm32f4
+
+      - name: Run pre-commit
+        uses: pre-commit/action@v3.0.1
+
   set-matrix:
+    needs: pre-commit
     runs-on: ubuntu-latest
     outputs:
       json: ${{ steps.set-matrix-json.outputs.matrix }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # a push compares against the tip it replaced, which may be any number of commits back
+          fetch-depth: ${{ github.event_name == 'push' && '0' || '2' }}
 
-      - name: Run pre-commit
-        uses: pre-commit/action@v3.0.1
-
+      # a pull request builds the boards its change reaches: HEAD is the merge commit, HEAD^1 the base it merges into.
+      # A push builds every board when it changes a build input, else none
       - name: Generate matrix json
         id: set-matrix-json
+        env:
+          BEFORE: ${{ github.event.before }}
         run: |
-          MATRIX_JSON=$(python .github/workflows/ci_set_matrix.py)
+          case "${{ github.event_name }}" in
+            pull_request) ARGS=(--base HEAD^1) ;;
+            push) ARGS=(--push "$BEFORE") ;;
+            *) ARGS=() ;;
+          esac
+          MATRIX_JSON=$(python .github/workflows/ci_set_matrix.py "${ARGS[@]}")
           echo "matrix=$MATRIX_JSON"
           echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
 
@@ -62,9 +71,6 @@ jobs:
         port:
         # Alphabetical order
         - 'kinetis_k32l2'
-        - 'lpc55'
-        - 'mimxrt10xx'
-        - 'stm32f3'
         - 'stm32h7'
         - 'stm32l4'
     with:
@@ -84,8 +90,10 @@ jobs:
       matrix:
         port:
           # Alphabetical order by family
+          - 'lpc55'
           - 'maxim'
-          # - 'stm32f303disco' # overflows flash
+          - 'mimxrt10xx'
+          - 'stm32f3'
           - 'stm32f4'
           - 'stm32h5'
     with:
@@ -93,7 +101,6 @@ jobs:
       boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)[matrix.port].board) }}
       build-system: 'cmake'
       toolchain: 'arm-gcc'
-
 
   # ---------------------------------------
   # Build ESP
@@ -107,7 +114,7 @@ jobs:
       boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)['espressif'].board) }}
       build-system: 'make'
       toolchain: 'esp-idf'
-      toolchain_version: 'v5.3.2'
+      toolchain_version: 'v6.1'
 
   # ---------------------------------------
   # Build RISC-V

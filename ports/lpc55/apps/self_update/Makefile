@@ -15,7 +15,7 @@ include ../../port.mk
 SRC_C += \
 	$(PORT_DIR)/boards.c \
 	apps/self_update/self_update.c \
-	$(CURRENT_PATH)/bootloader_bin.c
+	$(BUILD)/bootloader_bin.c
 
 include ../../../rules.mk
 

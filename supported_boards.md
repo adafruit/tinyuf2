@@ -37,12 +37,14 @@
 | department_of_alchemy_minimain_esp32s2 | Department of Alchemy MiniMain ESP32-S2 | 0x303A:0x8101 | https://github.com/DepartmentOfAlchemy/minimain-esp32-s2 |
 | es3ink | Czech maker ES3ink | 0x239A:0x2031 | https://github.com/dronecz/es3ink |
 | espressif_esp32s2_devkitc_1 | Espressif ESP32S2 DevKitC 1 | 0x303A:0x7008 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-s2-devkitc-1.html |
+| espressif_esp32s31_func_core | Espressif ESP32-S31 Function CoreBoard-1 | 0x239A:0x00A5 | https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32s31/esp32-s31-function-coreboard-1/user_guide.html |
 | espressif_esp32s3_box | Espressif ESP32S3 Box 2.5 | 0x303A:0x7004 | https://github.com/espressif/esp-box |
 | espressif_esp32s3_devkitc_1 | Espressif ESP32S3 DevKitC 1 | 0x239A:0x00A5 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/hw-reference/esp32s3/user-guide-devkitc-1.html |
 | espressif_esp32s3_devkitm_1 | Espressif ESP32S3 DevKitM 1 | 0x239A:0x00A5 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/hw-reference/esp32s3/user-guide-devkitm-1.html |
 | espressif_esp32s3_eye | Espressif ESP32S3 EYE | 0x303A:0x700E | https://github.com/espressif/esp-who/blob/master/docs/en/get-started/ESP32-S3-EYE_Getting_Started_Guide.md |
 | espressif_hmi_1 | Espressif HMI 1 | 0x303A:0x7000 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-esp32-s2-kaluga-1-kit.html |
 | espressif_kaluga_1 | Espressif Kaluga 1 | 0x239A:0x00C7 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-esp32-s2-kaluga-1-kit.html |
+| espressif_p4_function_ev | Espressif ESP32P4 Function EV | 0x239A:0x00A5 | https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32p4/esp32-p4-function-ev-board/index.html |
 | espressif_saola_1_wroom | Espressif Saola 1M WROOM | 0x239A:0x00A7 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-saola-1-v1.2.html |
 | espressif_saola_1_wrover | Espressif Saola 1R WROVER | 0x239A:0x00A5 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-saola-1-v1.2.html |
 | firebeetle2_esp32s3 | DFRobot FireBeetle 2 ESP32-S3 | 0x3343:0x83CF | https://www.dfrobot.com/product-2676.html |
@@ -61,6 +63,7 @@
 | lilygo_ttgo_t8_s2_st7789 | LILYGO TTGO_T8_S2_Display | 0x303A:0x8008 | http://www.lilygo.cn/prod_view.aspx?TypeId=50033&Id=1321&FId=t3:50033:3 |
 | lilygo_ttgo_t8_s2_wroom | LILYGO TTGO_T8_S2_WROOM | 0x303A:0x80EB | http://www.lilygo.cn/prod_view.aspx?TypeId=50063&Id=1320&FId=t3:50063:3 |
 | lilygo_ttgo_t_twr_plus | LilyGO T-TWR Plus | 0x303A:0x8191 | https://www.lilygo.cc/products/t-twr-plus |
+| lilygo_ttgo_tbeam_1w | LilyGO T-Beam 1W | 0x303A:0x8368 | https://lilygo.cc/en-us/products/t-beam-1w |
 | lilygo_ttgo_tbeam_s3 | LilyGO T-Beam Supreme | 0x303A:0x8134 | https://www.lilygo.cc/products/softrf-t-beamsupreme |
 | lilygo_twatch_s3 | LILYGO T-Watch-S3 | 0x303A:0x821D | https://github.com/Xinyuan-LilyGO/TTGO_TWatch_Library/tree/t-watch-s3 |
 | lolin_s2_mini | Lolin S2 Mini | 0x303A:0x80C4 | https://circuitpython.org/board/lolin_s2_mini/ |
@@ -81,7 +84,7 @@
 | muselab_nanoesp32-s2_wrover | Muse Lab nanoESP32-S2 WROVER | 0x303A:0x80B3 | https://github.com/wuxx/nanoESP32-S2 |
 | olimex_esp32s2_devkit_lipo_vB1 | Olimex ESP32S2 DevKit Lipo | 0x15BA:0x28DC | https://www.olimex.com/Products/IoT/ESP32-S2/ESP32-S2-DevKit-Lipo/open-source-hardware |
 | seeed_xiao_esp32s3 | Seeed Studio XIAO ESP32-S3 | 0x2886:0x8056 | https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html |
-| sensebox_eye_esp32s3 | senseBox eye ESP32S3 | 0x303A:0x82D3 | https://sensebox.de |
+| sensebox_mcu_eye | senseBox MCU Eye ESP32S3 | 0x303A:0x82D3 | https://sensebox.de |
 | sensebox_mcu_esp32s2 | senseBox MCU-S2 ESP32S2 | 0x303A:0x81BA | https://sensebox.de |
 | smartbeedesigns_bee_motion_s3 | Smart Bee Designs Bee Motion S3 | 0x303A:0x8115 | N/A |
 | smartbeedesigns_bee_s3 | Smart Bee Designs Bee S3 | 0x303A:0x8112 | N/A |
