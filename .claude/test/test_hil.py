@@ -2911,10 +2911,9 @@ H563_HEADER = 'lib/mcu/st/cmsis_device_h5/Include/stm32h563xx.h'
 
 class StlinkSourceFacts(unittest.TestCase):
   def test_stm32h563_nucleo_facts_come_from_the_source_and_the_link_defsyms(self):
-    headers = []
-    with mock.patch.object(ht, 'vector_count', lambda h: headers.append(h) or H563_FACTS['vectors']):
+    with mock.patch.object(ht, 'vector_count', return_value=H563_FACTS['vectors']) as count:
       f = ht.source_facts(H563)
-    self.assertEqual(headers, [H563_HEADER])
+    count.assert_called_once_with(H563_HEADER)
     # __ram_size 640K: _board_dfu_dbl_tap = _estack, the last word of SRAM3
     self.assertEqual(f, H563_FACTS)
 
