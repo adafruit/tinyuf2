@@ -285,7 +285,7 @@ struct _reent *__getreent(void)
 static inline uint32_t ns2cycle(uint32_t ns) {
   uint32_t tick_per_us;
 
-#if CONFIG_IDF_TARGET_ESP32S3
+#if CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32S31
   tick_per_us = ets_get_cpu_frequency();
 #else // ESP32S2
   extern uint32_t g_ticks_per_us_pro;
@@ -319,9 +319,54 @@ static inline uint8_t color_brightness(uint8_t color, uint8_t brightness) {
   return (uint8_t) ((color*brightness) >> 8);
 }
 
+#if CONFIG_IDF_TARGET_ESP32S31
+#include "hal/dedic_gpio_cpu_ll.h"
+#include "soc/gpio_sig_map.h"
+
+// A GPIO register store stalls this CPU ~350 ns at the bootloader's 80 MHz, which alone reaches the
+// WS2812B-V5 T0H maximum (220-380 ns): drive the pin from dedicated GPIO channel 0, one CSR write per edge.
+// This path measured 0-100 ns above the programmed high time, hence the shorter T0H.
+#define NEOPIXEL_T0H_NS 250
+
+static void neopixel_pin_begin(uint32_t num_pin) {
+  RV_CLEAR_CSR(CSR_GPIO_OUT_USER, 1);
+  esp_rom_gpio_connect_out_signal(num_pin, CORE_GPIO_OUT_PAD_OUT0_IDX, false, false);
+  dedic_gpio_cpu_ll_enable_output(1);
+}
+
+// back to simple GPIO output, whose enable gpio_ll_output_disable() controls
+static void neopixel_pin_end(uint32_t num_pin) {
+  esp_rom_gpio_connect_out_signal(num_pin, SIG_GPIO_OUT_IDX, false, false);
+}
+
+static inline __attribute__((always_inline)) void neopixel_pin_write(uint32_t num_pin, bool high) {
+  (void) num_pin;
+  if (high) {
+    RV_SET_CSR(CSR_GPIO_OUT_USER, 1);
+  } else {
+    RV_CLEAR_CSR(CSR_GPIO_OUT_USER, 1);
+  }
+}
+#else
+#define NEOPIXEL_T0H_NS 400
+
+static void neopixel_pin_begin(uint32_t num_pin) {
+  (void) num_pin;
+}
+
+static void neopixel_pin_end(uint32_t num_pin) {
+  (void) num_pin;
+}
+
+// gpio_ll_set_level() only take 6 cycles, while GPIO_OUTPUT_SET() take 40 cycles to set/clear
+static inline __attribute__((always_inline)) void neopixel_pin_write(uint32_t num_pin, bool high) {
+  gpio_ll_set_level(&GPIO, num_pin, high);
+}
+#endif
+
 static void board_neopixel_set(uint32_t num_pin, uint8_t const rgb[]) {
   // WS2812B should be
-  uint32_t const time0  = ns2cycle(400);
+  uint32_t const time0  = ns2cycle(NEOPIXEL_T0H_NS);
   uint32_t const time1  = ns2cycle(800);
   uint32_t const period = ns2cycle(1250);
 
@@ -333,6 +378,8 @@ static void board_neopixel_set(uint32_t num_pin, uint8_t const rgb[]) {
     pixels[3*i+2] = color_brightness(rgb[2], NEOPIXEL_BRIGHTNESS);
   }
 
+  neopixel_pin_begin(num_pin);
+
   uint32_t cyc = 0;
   for(uint16_t n=0; n<sizeof(pixels); n++) {
     uint8_t const pix = pixels[n];
@@ -341,18 +388,19 @@ static void board_neopixel_set(uint32_t num_pin, uint8_t const rgb[]) {
       uint32_t ccount;
       while( (ccount = esp_cpu_get_cycle_count()) - cyc < period ) {}
 
-      // gpio_ll_set_level() only take 6 cycles, while GPIO_OUTPUT_SET() take 40 cycles to set/clear
-      gpio_ll_set_level(&GPIO, num_pin, 1);
+      neopixel_pin_write(num_pin, true);
 
       cyc = ccount;
       uint32_t const t_hi = (pix & mask) ? time1 : time0;
       while( (ccount = esp_cpu_get_cycle_count()) - cyc < t_hi ) {}
 
-      gpio_ll_set_level(&GPIO, num_pin, 0);
+      neopixel_pin_write(num_pin, false);
     }
   }
 
   while(esp_cpu_get_cycle_count() - cyc < period) {}
+
+  neopixel_pin_end(num_pin);
 }
 #endif
 

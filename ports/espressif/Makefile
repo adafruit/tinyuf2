@@ -14,11 +14,16 @@ SERIAL_OPT = --port $(SERIAL)
 endif
 
 BOARD_CMAKE := $(file < boards/$(BOARD)/board.cmake)
+# Note: esp32s31 must be checked before esp32s3, as the latter is its prefix
+ifneq ($(findstring esp32s31,$(BOARD_CMAKE)),)
+	IDF_TARGET = esp32s31
+else
 ifneq ($(findstring esp32s2,$(BOARD_CMAKE)),)
 	IDF_TARGET = esp32s2
 else
 ifneq ($(findstring esp32s3,$(BOARD_CMAKE)),)
 	IDF_TARGET = esp32s3
+endif
 endif
 endif
 
