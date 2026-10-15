@@ -94,7 +94,7 @@ void board_reboot_to_bootloader(void) {
   // the call makes the link keep esp_reset_reason_set_hint() (ports/espressif/README.md)
   (void) esp_reset_reason();
   esp_reset_reason_set_hint((esp_reset_reason_t) APP_REQUEST_UF2_RESET_HINT);
-#if CONFIG_IDF_TARGET_ESP32P4
+#if CONFIG_IDF_TARGET_ESP32P4 || CONFIG_IDF_TARGET_ESP32S31
   // as TinyUF2's boards.c: a software restart leaves OTG HS attached
   tud_disconnect();
   esp_rom_delay_us(20000);

@@ -265,7 +265,7 @@ void board_init(void) {
   esp_timer_create(&periodic_timer_args, &timer_hdl);
 }
 
-#if CONFIG_IDF_TARGET_ESP32P4 && !defined(BUILD_NO_TINYUSB)
+#if (CONFIG_IDF_TARGET_ESP32P4 || CONFIG_IDF_TARGET_ESP32S31) && !defined(BUILD_NO_TINYUSB)
 // A software restart leaves OTG HS attached: detach first, or the host keeps talking to a device that stopped answering
 static void usb_disconnect_shutdown_handler(void) {
   tud_disconnect();
@@ -291,7 +291,7 @@ void board_dfu_init(void) {
 
   ESP_ERROR_CHECK(usb_new_phy(&phy_conf, &phy_hdl));
 
-#if CONFIG_IDF_TARGET_ESP32P4 && !defined(BUILD_NO_TINYUSB)
+#if (CONFIG_IDF_TARGET_ESP32P4 || CONFIG_IDF_TARGET_ESP32S31) && !defined(BUILD_NO_TINYUSB)
   esp_register_shutdown_handler(usb_disconnect_shutdown_handler);
 #endif
 }
