@@ -8,6 +8,10 @@ from pathlib import Path
 TOP = Path(__file__).parent.parent.parent.resolve()
 GHOSTFAT = 'test_ghostfat'
 CHECK_BUILD = TOP / '.claude' / 'skills' / 'build' / 'scripts' / 'check_build.py'
+# a push to master/main that changes any of these builds every board, independent of the selector it backs up
+BUILD_DIRS = ('apps/', 'lib/', 'ports/', 'src/', 'cmake/', '.github/actions/', '.claude/skills/build/scripts/')
+BUILD_FILES = ('CMakeLists.txt', 'tools/get_deps.py', '.github/workflows/build.yml', '.github/workflows/build_util.yml',
+               '.github/workflows/build_ghostfat.yml', '.github/workflows/ci_set_matrix.py')
 
 
 def full_matrix():
@@ -23,6 +27,11 @@ def full_matrix():
     return matrix
 
 
+def empty_matrix(full):
+    """Every port key with no board, the shape build_util.yml and build_ghostfat.yml skip."""
+    return {p: ({'board': []} if 'board' in v else {}) for p, v in full.items()}
+
+
 def narrow(full, manifest):
     """The full matrix cut to check_build.py --select-only's build.ci; ValueError when unusable."""
     if not isinstance(manifest, dict) or type(manifest.get('version')) is not int or manifest['version'] != 1:
@@ -33,7 +42,7 @@ def narrow(full, manifest):
         raise ValueError('no build.ci in the selection')
     if ci['full']:
         return full
-    matrix = {p: ({'board': []} if 'board' in v else {}) for p, v in full.items()}
+    matrix = empty_matrix(full)
     for port, boards in ci['ports'].items():
         known = full.get(port, {}).get('board')
         if port == GHOSTFAT or known is None or not isinstance(boards, list) or not set(boards) <= set(known):
@@ -53,18 +62,36 @@ def selection(base):
     return json.loads(r.stdout)
 
 
-def set_matrix_json(base=None):
+def push_paths(before, cwd=TOP):
+    """Paths that differ between the tips before and after a push, so a force push counts what it undid too."""
+    r = subprocess.run(['git', 'diff', '--name-only', '--no-renames', '-z', before, 'HEAD', '--'],
+                       cwd=cwd, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise ValueError(f'git diff {before} HEAD exited {r.returncode}: {r.stderr.strip()}')
+    return [p for p in r.stdout.split('\0') if p]
+
+
+def builds_on_push(path):
+    return (path.startswith(BUILD_DIRS) or path in BUILD_FILES) and not path.endswith('.md')
+
+
+def set_matrix_json(base=None, before=None):
     matrix = full_matrix()
-    if base:
-        try:
+    try:
+        if base:
             matrix = narrow(matrix, selection(base))
-        except Exception as e:  # any failure builds everything rather than nothing
-            # the runner reads workflow commands from stderr too, so stdout stays the JSON alone
-            print(f'::warning::build selection unusable ({e}), building the full matrix', file=sys.stderr)
+        elif before and not any(builds_on_push(p) for p in push_paths(before)):
+            matrix = empty_matrix(matrix)
+    except Exception as e:  # any failure builds everything rather than nothing
+        # the runner reads workflow commands from stderr too, so stdout stays the JSON alone
+        print(f'::warning::build selection unusable ({e}), building the full matrix', file=sys.stderr)
     print(json.dumps(matrix))
 
 
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
-    ap.add_argument('--base', help="a pull request's base: build only the boards its change reaches")
-    set_matrix_json(ap.parse_args().base)
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument('--base', help="a pull request's base: build only the boards its change reaches")
+    mode.add_argument('--push', metavar='BEFORE', help='the tip a push replaced: build every board, or none')
+    args = ap.parse_args()
+    set_matrix_json(args.base, args.push)

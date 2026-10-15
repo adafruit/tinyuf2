@@ -1,22 +1,9 @@
 name: Build
 
 on:
+  # every push to master/main runs pre-commit; set-matrix decides whether it builds
   push:
     branches: [ master, main ]
-    paths:
-      - 'apps/**'
-      - 'lib/**'
-      - 'ports/**'
-      - 'src/**'
-      - '.github/actions/**'
-      - '.github/workflows/build.yml'
-      - '.github/workflows/build_util.yml'
-      - '.github/workflows/build_ghostfat.yml'
-      - '.github/workflows/ci_set_matrix.py'
-      - 'cmake/**'
-      - 'CMakeLists.txt'
-      - 'tools/get_deps.py'
-      - '.claude/skills/build/scripts/**'
   # every pull request, whatever its base: the selection decides what it builds
   pull_request:
   repository_dispatch:
@@ -53,13 +40,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          # a push compares against the tip it replaced, which may be any number of commits back
+          fetch-depth: ${{ github.event_name == 'push' && '0' || '2' }}
 
-      # a pull request builds the boards its change reaches: HEAD is the merge commit, HEAD^1 the base it merges into
+      # a pull request builds the boards its change reaches: HEAD is the merge commit, HEAD^1 the base it merges into.
+      # A push builds every board when it changes a build input, else none
       - name: Generate matrix json
         id: set-matrix-json
+        env:
+          BEFORE: ${{ github.event.before }}
         run: |
-          MATRIX_JSON=$(python .github/workflows/ci_set_matrix.py ${{ github.event_name == 'pull_request' && '--base HEAD^1' || '' }})
+          case "${{ github.event_name }}" in
+            pull_request) ARGS=(--base HEAD^1) ;;
+            push) ARGS=(--push "$BEFORE") ;;
+            *) ARGS=() ;;
+          esac
+          MATRIX_JSON=$(python .github/workflows/ci_set_matrix.py "${ARGS[@]}")
           echo "matrix=$MATRIX_JSON"
           echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
 

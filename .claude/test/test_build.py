@@ -252,8 +252,8 @@ class CiSelection(unittest.TestCase):
       self.assertLessEqual(local, covered, path)
 
 
-class ChangedPaths(unittest.TestCase):
-  """--base and --worktree in a scratch repository. Every GIT_* variable is dropped first:
+class ScratchRepo(unittest.TestCase):
+  """A test in a scratch directory, self.repo. Every GIT_* variable is dropped first:
   under pre-commit they point at the real checkout, and git would act on it."""
 
   def setUp(self):
@@ -263,6 +263,17 @@ class ChangedPaths(unittest.TestCase):
     env = mock.patch.dict(os.environ, {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}, clear=True)
     env.start()
     self.addCleanup(env.stop)
+
+  def git(self, *args, cwd=None):
+    return subprocess.run(['git', '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', *args],
+                          cwd=cwd or self.repo, check=True, capture_output=True, text=True).stdout.strip()
+
+
+class ChangedPaths(ScratchRepo):
+  """--base and --worktree in a scratch repository."""
+
+  def setUp(self):
+    super().setUp()
     root = mock.patch.object(cb, 'ROOT', self.repo)
     root.start()
     self.addCleanup(root.stop)
@@ -280,10 +291,6 @@ class ChangedPaths(unittest.TestCase):
     (self.repo / 'g.c').write_text('staged')
     self.git('add', 'g.c')
     (self.repo / 'f.c').write_text('untracked')
-
-  def git(self, *args):
-    subprocess.run(['git', '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', *args],
-                   cwd=self.repo, check=True, capture_output=True)
 
   def test_base_reports_committed_changes_deletions_and_both_sides_of_a_rename(self):
     paths, info = cb.changed_paths(base='master')
@@ -449,17 +456,12 @@ class HilSelection(unittest.TestCase):
       self.assertEqual('hil' in json.loads(out.getvalue()), has)
 
 
-class Identity(unittest.TestCase):
+class Identity(ScratchRepo):
   """A build record names each input it used and whether it has local changes; a dependency is a
   separate git checkout (a symlink in a worktree), so the parent's status cannot see its changes."""
 
   def setUp(self):
-    tmp = tempfile.TemporaryDirectory()
-    self.addCleanup(tmp.cleanup)
-    self.repo = Path(tmp.name)
-    env = mock.patch.dict(os.environ, {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}, clear=True)
-    env.start()
-    self.addCleanup(env.stop)
+    super().setUp()
     self.pin = None
     for patch in (mock.patch.object(cb, 'ROOT', self.repo),
                   mock.patch.object(cb, 'get_deps_table', lambda: {'lib/mcu/dep': (self.pin, ['lpc55']),
@@ -469,15 +471,11 @@ class Identity(unittest.TestCase):
     self.dep = self.repo / 'lib' / 'mcu' / 'dep'
     for repo in (self.repo, self.dep):
       repo.mkdir(parents=True, exist_ok=True)
-      self.git(repo, 'init', '-q', '-b', 'master')
+      self.git('init', '-q', '-b', 'master', cwd=repo)
       (repo / 'x.c').write_text('x')
-      self.git(repo, 'add', 'x.c')
-      self.git(repo, 'commit', '-q', '-m', 'init')
-    self.pin = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=self.dep, capture_output=True, text=True).stdout.strip()
-
-  def git(self, repo, *args):
-    subprocess.run(['git', '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', *args],
-                   cwd=repo, check=True, capture_output=True)
+      self.git('add', 'x.c', cwd=repo)
+      self.git('commit', '-q', '-m', 'init', cwd=repo)
+    self.pin = self.git('rev-parse', 'HEAD', cwd=self.dep)
 
   def test_records_the_used_dependency_commit(self):
     ident = cb.identity({'lpc55'})
@@ -499,7 +497,7 @@ class Identity(unittest.TestCase):
     (self.dep / 'x.c').write_text('changed')
     ident = cb.identity({'lpc55'})
     self.assertEqual((ident['deps']['lib/mcu/dep'], ident['dirtyInputs']), (sha, ['lib/mcu/dep']))
-    self.git(self.dep, 'checkout', '-q', '--', 'x.c')
+    self.git('checkout', '-q', '--', 'x.c', cwd=self.dep)
     (self.dep / 'new.h').write_text('untracked')
     self.assertEqual(cb.identity({'lpc55'})['dirtyInputs'], ['lib/mcu/dep'])
 
