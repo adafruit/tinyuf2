@@ -77,13 +77,9 @@ _RESET_VECTOR_NOTE = r'(?m)^Could not find valid reset vector\.\nTarget halted o
 _F3_UNPROTECT_NOTE = (r'(?m)^Active write protection detected\.\nDevice will be unsecured now\.\nFailed to unlock device\.\n'
                       r'Can not attach to CPU\. Trying connect under reset\.$')
 BENIGN = {'MIMXRT1062xxx6A': _RESET_VECTOR_NOTE, 'MIMXRT1011DAE5A': _RESET_VECTOR_NOTE, 'stm32f303vc': _F3_UNPROTECT_NOTE}
-# The device a runner session connects as, where the roster device's own connect disturbs the target: J-Link's
-# stm32f411ve connect removes the write protection TinyUF2 sets at every boot by resetting the chip (bench
-# 2026-10-15, SKILL.md Limits), so runner sessions use the bare core; the flash target keeps the device.
+# runner sessions connect as the core: J-Link's stm32f411ve connect resets the chip to unprotect it (SKILL.md Limits)
 SESSION_DEVICE = {'stm32f411ve': 'Cortex-M4'}
-# ms the install's verify session waits before its halt, an empirical allowance: right after the flash target's unlock
-# the core could not be halted, inferred to be TinyUF2's boot rewriting its option bytes (stm32f411ve, bench
-# 2026-10-15: failed at once, held from 200 ms on; no documented option-byte rewrite time)
+# ms the install's verify session waits before its halt after the flash target's unlock, empirical (SKILL.md Limits)
 INSTALL_SETTLE_MS = {'stm32f411ve': 1000}
 
 
@@ -208,15 +204,12 @@ def cmake_var(path, name):
   return v
 
 
-STM32_SERIES = {'stm32f3': 'STM32F3', 'stm32f4': 'STM32F4'}
-
-
 def port_sources(port, bdir):
   """(CMSIS device header, the bootloader's linker script, FLASH_BASE, where the BIN starts in flash, RAM origin) of
   a port the HIL supports, read from the CMake files the HIL's build uses."""
-  if port in STM32_SERIES:
+  if port in ('stm32f3', 'stm32f4'):
     ld = cmake_script(f'ports/{port}/CMakeLists.txt')
-    series = STM32_SERIES[port]
+    series = port.upper()
     mcus = set(re.findall(rf'\b{series}\d\dx[A-Z]\b', cb.code_lines(ROOT / bdir / 'board.cmake')))
     if len(mcus) != 1:
       raise Refused(f'{bdir}/board.cmake: expected one {series} device define, found {sorted(mcus)}')
