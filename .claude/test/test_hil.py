@@ -93,11 +93,17 @@ HELPER = Path('test/hil/helper/hil_lock.py')   # under TINYUSB_DIR
 LPC_FACTS = {'flashBase': 0, 'binBase': 0, 'appStart': 0x10000, 'flashSize': 0x98000, 'vid': 0x1fc9, 'pid': 0x0094,
              'boardId': 'LPC55S69-Xpresso-revA', 'family': 0x2abc77ec, 'vectors': 76, 'ram': 0x20000000,
              'dblTapDelayMs': 500, 'dblTapReg': 0x4002C05C, 'dblTapMagic': 0xF01669EF}
+# stm32h563_nucleo's source facts, which StlinkSourceFacts checks against the source: the pre-commit job does not fetch
+# the stm32h5 CMSIS header its vector count needs
+H563_FACTS = {'flashBase': 0x08000000, 'binBase': 0x08000000, 'appStart': 0x08008000, 'flashSize': 0x200000,
+              'vid': 0x239a, 'pid': 0x0163, 'boardId': 'STM32H563-Nucleo', 'family': 0x4e8f1c5d, 'vectors': 147,
+              'ram': 0x20000000, 'dblTapDelayMs': 500, 'dblTapReg': 0x2009FFFC, 'dblTapMagic': 0xF01669EF}
+SYNTHETIC_FACTS = {'lpc55': LPC_FACTS, 'stm32h5': H563_FACTS}
 real_source_facts = ht.source_facts
 
 
 def source_facts(board):
-  return dict(LPC_FACTS) if board['port'] == 'lpc55' else real_source_facts(board)
+  return dict(SYNTHETIC_FACTS[board['port']]) if board['port'] in SYNTHETIC_FACTS else real_source_facts(board)
 
 
 class Tmp(unittest.TestCase):
@@ -2900,13 +2906,21 @@ class StlinkBatteryRun(Tmp):
       self.bat.sysreset()
 
 
+H563_HEADER = 'lib/mcu/st/cmsis_device_h5/Include/stm32h563xx.h'
+
+
 class StlinkSourceFacts(unittest.TestCase):
   def test_stm32h563_nucleo_facts_come_from_the_source_and_the_link_defsyms(self):
-    f = ht.source_facts(H563)
-    self.assertEqual((f['flashBase'], f['binBase'], f['appStart'], f['flashSize'], f['vid'], f['pid'], f['boardId']),
-                     (0x08000000, 0x08000000, 0x08008000, 0x200000, 0x239a, 0x0163, 'STM32H563-Nucleo'))
+    headers = []
+    with mock.patch.object(ht, 'vector_count', lambda h: headers.append(h) or H563_FACTS['vectors']):
+      f = ht.source_facts(H563)
+    self.assertEqual(headers, [H563_HEADER])
     # __ram_size 640K: _board_dfu_dbl_tap = _estack, the last word of SRAM3
-    self.assertEqual((f['dblTapReg'], f['ram'], f['vectors']), (0x2009FFFC, 0x20000000, 147))
+    self.assertEqual(f, H563_FACTS)
+
+  @unittest.skipUnless((ROOT / H563_HEADER).is_file(), f'{H563_HEADER} not fetched (tools/get_deps.py stm32h5)')
+  def test_stm32h563_vector_count_comes_from_its_cmsis_header(self):
+    self.assertEqual(ht.vector_count(H563_HEADER), H563_FACTS['vectors'])
 
   def test_a_change_to_how_the_defsyms_reach_the_link_is_refused(self):
     files = {k: (ROOT / k).read_text() for k in ('ports/stm32h5/family.cmake', 'ports/stm32h5/linker/stm32h5_boot.ld',
