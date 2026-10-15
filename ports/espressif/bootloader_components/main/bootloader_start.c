@@ -17,6 +17,7 @@
 #include "esp_rom_gpio.h"
 #include "esp_cpu.h"
 #include "hal/gpio_hal.h"
+#include "soc/gpio_reg.h"
 
 // Specific board header specified with -DBOARD=
 #include "board.h"
@@ -333,6 +334,12 @@ static void board_neopixel_set(uint32_t num_pin, uint8_t const rgb[]) {
     pixels[3*i+2] = color_brightness(rgb[2], NEOPIXEL_BRIGHTNESS);
   }
 
+  // Store to W1TS/W1TC directly: gpio_ll_set_level() calls into ROM where CONFIG_HAL_GPIO_USE_ROM_IMPL
+  // applies (ESP32-S31), and that call alone stretches T0H past the WS2812 0/1 threshold
+  uint32_t const pin_mask = 1u << (num_pin % 32);
+  uint32_t const set_reg  = (num_pin < 32) ? GPIO_OUT_W1TS_REG : GPIO_OUT1_W1TS_REG;
+  uint32_t const clr_reg  = (num_pin < 32) ? GPIO_OUT_W1TC_REG : GPIO_OUT1_W1TC_REG;
+
   uint32_t cyc = 0;
   for(uint16_t n=0; n<sizeof(pixels); n++) {
     uint8_t const pix = pixels[n];
@@ -341,14 +348,13 @@ static void board_neopixel_set(uint32_t num_pin, uint8_t const rgb[]) {
       uint32_t ccount;
       while( (ccount = esp_cpu_get_cycle_count()) - cyc < period ) {}
 
-      // gpio_ll_set_level() only take 6 cycles, while GPIO_OUTPUT_SET() take 40 cycles to set/clear
-      gpio_ll_set_level(&GPIO, num_pin, 1);
+      REG_WRITE(set_reg, pin_mask);
 
       cyc = ccount;
       uint32_t const t_hi = (pix & mask) ? time1 : time0;
       while( (ccount = esp_cpu_get_cycle_count()) - cyc < t_hi ) {}
 
-      gpio_ll_set_level(&GPIO, num_pin, 0);
+      REG_WRITE(clr_reg, pin_mask);
     }
   }
 
