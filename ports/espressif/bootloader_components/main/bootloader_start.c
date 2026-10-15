@@ -320,9 +320,60 @@ static inline uint8_t color_brightness(uint8_t color, uint8_t brightness) {
   return (uint8_t) ((color*brightness) >> 8);
 }
 
+#if CONFIG_IDF_TARGET_ESP32S31
+#include "hal/dedic_gpio_cpu_ll.h"
+#include "soc/gpio_sig_map.h"
+
+// A GPIO register store stalls this CPU ~350 ns at the bootloader's 80 MHz, which alone reaches the
+// WS2812B-V5 T0H maximum (220-380 ns): drive the pin from dedicated GPIO channel 0, one CSR write per edge.
+// This path measured 0-100 ns above the programmed high time, hence the shorter T0H.
+#define NEOPIXEL_T0H_NS 250
+
+static void neopixel_pin_begin(uint32_t num_pin) {
+  RV_CLEAR_CSR(CSR_GPIO_OUT_USER, 1);
+  esp_rom_gpio_connect_out_signal(num_pin, CORE_GPIO_OUT_PAD_OUT0_IDX, false, false);
+  dedic_gpio_cpu_ll_enable_output(1);
+}
+
+// back to simple GPIO output, whose enable gpio_ll_output_disable() controls
+static void neopixel_pin_end(uint32_t num_pin) {
+  esp_rom_gpio_connect_out_signal(num_pin, SIG_GPIO_OUT_IDX, false, false);
+}
+
+static inline __attribute__((always_inline)) void neopixel_pin_write(uint32_t num_pin, bool high) {
+  (void) num_pin;
+  if (high) {
+    RV_SET_CSR(CSR_GPIO_OUT_USER, 1);
+  } else {
+    RV_CLEAR_CSR(CSR_GPIO_OUT_USER, 1);
+  }
+}
+#else
+#define NEOPIXEL_T0H_NS 400
+
+static void neopixel_pin_begin(uint32_t num_pin) {
+  (void) num_pin;
+}
+
+static void neopixel_pin_end(uint32_t num_pin) {
+  (void) num_pin;
+}
+
+// Store to W1TS/W1TC directly: gpio_ll_set_level() may call into ROM (CONFIG_HAL_GPIO_USE_ROM_IMPL),
+// which alone stretches T0H past the WS2812 0/1 threshold
+static inline __attribute__((always_inline)) void neopixel_pin_write(uint32_t num_pin, bool high) {
+  uint32_t const pin_mask = 1u << (num_pin % 32);
+  if (high) {
+    REG_WRITE((num_pin < 32) ? GPIO_OUT_W1TS_REG : GPIO_OUT1_W1TS_REG, pin_mask);
+  } else {
+    REG_WRITE((num_pin < 32) ? GPIO_OUT_W1TC_REG : GPIO_OUT1_W1TC_REG, pin_mask);
+  }
+}
+#endif
+
 static void board_neopixel_set(uint32_t num_pin, uint8_t const rgb[]) {
   // WS2812B should be
-  uint32_t const time0  = ns2cycle(400);
+  uint32_t const time0  = ns2cycle(NEOPIXEL_T0H_NS);
   uint32_t const time1  = ns2cycle(800);
   uint32_t const period = ns2cycle(1250);
 
@@ -334,11 +385,7 @@ static void board_neopixel_set(uint32_t num_pin, uint8_t const rgb[]) {
     pixels[3*i+2] = color_brightness(rgb[2], NEOPIXEL_BRIGHTNESS);
   }
 
-  // Store to W1TS/W1TC directly: gpio_ll_set_level() calls into ROM where CONFIG_HAL_GPIO_USE_ROM_IMPL
-  // applies (ESP32-S31), and that call alone stretches T0H past the WS2812 0/1 threshold
-  uint32_t const pin_mask = 1u << (num_pin % 32);
-  uint32_t const set_reg  = (num_pin < 32) ? GPIO_OUT_W1TS_REG : GPIO_OUT1_W1TS_REG;
-  uint32_t const clr_reg  = (num_pin < 32) ? GPIO_OUT_W1TC_REG : GPIO_OUT1_W1TC_REG;
+  neopixel_pin_begin(num_pin);
 
   uint32_t cyc = 0;
   for(uint16_t n=0; n<sizeof(pixels); n++) {
@@ -348,17 +395,19 @@ static void board_neopixel_set(uint32_t num_pin, uint8_t const rgb[]) {
       uint32_t ccount;
       while( (ccount = esp_cpu_get_cycle_count()) - cyc < period ) {}
 
-      REG_WRITE(set_reg, pin_mask);
+      neopixel_pin_write(num_pin, true);
 
       cyc = ccount;
       uint32_t const t_hi = (pix & mask) ? time1 : time0;
       while( (ccount = esp_cpu_get_cycle_count()) - cyc < t_hi ) {}
 
-      REG_WRITE(clr_reg, pin_mask);
+      neopixel_pin_write(num_pin, false);
     }
   }
 
   while(esp_cpu_get_cycle_count() - cyc < period) {}
+
+  neopixel_pin_end(num_pin);
 }
 #endif
 
