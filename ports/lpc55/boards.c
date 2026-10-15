@@ -256,27 +256,51 @@ void board_init(void)
   }
 }
 
+#if !defined(BUILD_NO_TINYUSB) && BOARD_TUD_RHPORT == 1
+// CLOCK_EnableUsbhs0PhyPllClock() of the pinned SDK powers the PLL without the > 15 us
+// regulator settling time of UM11126 45.3 "Initial configuration"
+static void usb1_phy_pll_init(void)
+{
+  POWER_DisablePD(kPDRUNCFG_PD_XTAL32M);
+  POWER_DisablePD(kPDRUNCFG_PD_LDOXO32M);
+  POWER_DisablePD(kPDRUNCFG_PD_LDOUSBHS);
+
+  // wait for PHY power up, as the SDK helper does
+  for (volatile uint32_t i = 100000U; i > 0; i--) {}
+
+  SYSCON->AHBCLKCTRLSET[2] = SYSCON_AHBCLKCTRL2_ANALOG_CTRL(1) | SYSCON_AHBCLKCTRL2_USB1_PHY(1);
+  USBPHY->CTRL_CLR = USBPHY_CTRL_SFTRST_MASK;
+
+  // PLL_DIV_SEL 6: 480 MHz from the 16 MHz XTAL32M
+  _Static_assert(BOARD_XTAL0_CLK_HZ == 16000000U, "PLL_DIV_SEL assumes a 16 MHz crystal");
+  USBPHY->PLL_SIC = (USBPHY->PLL_SIC & ~USBPHY_PLL_SIC_PLL_DIV_SEL_MASK) | USBPHY_PLL_SIC_PLL_DIV_SEL(6U);
+  USBPHY->PLL_SIC_SET = USBPHY_PLL_SIC_SET_PLL_REG_ENABLE_MASK;
+  USBPHY->PLL_SIC_CLR = (1UL << 16U); // PLL_BYPASS
+
+  // > 15 us at up to 150 MHz, each iteration takes more than one cycle
+  for (volatile uint32_t i = 15U * 150U; i > 0; i--) {}
+
+  USBPHY->PLL_SIC_SET = USBPHY_PLL_SIC_SET_PLL_POWER_MASK;
+  USBPHY->PLL_SIC_SET = USBPHY_PLL_SIC_SET_PLL_EN_USB_CLKS_MASK;
+  USBPHY->CTRL_CLR = USBPHY_CTRL_CLR_CLKGATE_MASK;
+}
+#endif
+
 void board_dfu_init(void)
 {
+#ifndef BUILD_NO_TINYUSB
+  #if BOARD_TUD_RHPORT == 0
   // USB VBUS
   /* PORT0 PIN22 (coords: 78) is configured as USB0_VBUS */
   IOCON_PinMuxSet(IOCON, 0U, 22U, IOCON_VBUS_CONFIG);
 
-  // USB Controller
   POWER_DisablePD(kPDRUNCFG_PD_USB0_PHY); /*Turn on USB0 Phy */
-  POWER_DisablePD(kPDRUNCFG_PD_USB1_PHY); /*< Turn on USB1 Phy */
 
   /* reset the IP to make sure it's in reset state. */
   RESET_PeripheralReset(kUSB0D_RST_SHIFT_RSTn);
   RESET_PeripheralReset(kUSB0HSL_RST_SHIFT_RSTn);
   RESET_PeripheralReset(kUSB0HMR_RST_SHIFT_RSTn);
-  RESET_PeripheralReset(kUSB1H_RST_SHIFT_RSTn);
-  RESET_PeripheralReset(kUSB1D_RST_SHIFT_RSTn);
-  RESET_PeripheralReset(kUSB1_RST_SHIFT_RSTn);
-  RESET_PeripheralReset(kUSB1RAM_RST_SHIFT_RSTn);
 
-#ifndef BUILD_NO_TINYUSB
-  #if BOARD_TUD_RHPORT == 0
   // Enable USB Clock Adjustments to trim the FRO for the full speed controller
   ANACTRL->FRO192M_CTRL |= ANACTRL_FRO192M_CTRL_USBCLKADJ_MASK;
   CLOCK_SetClkDiv(kCLOCK_DivUsb0Clk, 1, false);
@@ -291,13 +315,40 @@ void board_dfu_init(void)
   #endif
 
   #if BOARD_TUD_RHPORT == 1
+  // USB1_VBUS is a dedicated pin, no IOCON setup
+  POWER_DisablePD(kPDRUNCFG_PD_USB1_PHY); /*< Turn on USB1 Phy */
+
+  /* reset the IP to make sure it's in reset state. */
+  RESET_PeripheralReset(kUSB1H_RST_SHIFT_RSTn);
+  RESET_PeripheralReset(kUSB1D_RST_SHIFT_RSTn);
+  RESET_PeripheralReset(kUSB1_RST_SHIFT_RSTn);
+  RESET_PeripheralReset(kUSB1RAM_RST_SHIFT_RSTn);
+
   CLOCK_EnableClock(kCLOCK_Usbh1);
   /* Put PHY powerdown under software control */
   USBHSH->PORTMODE = USBHSH_PORTMODE_SW_PDCOM_MASK;
   /* According to reference manual, device mode setting has to be set by access usb host register */
   USBHSH->PORTMODE |= USBHSH_PORTMODE_DEV_ENABLE_MASK;
-  /* enable usb1 host clock */
+  /* disable usb1 host clock */
   CLOCK_DisableClock(kCLOCK_Usbh1);
+
+  CLOCK_EnableUsbhs0DeviceClock(kCLOCK_UsbSrcUnused, 0U);
+  usb1_phy_pll_init();
+
+  // Enable all power for normal operation
+  USBPHY->PWD = 0;
+  USBPHY->CTRL_SET = USBPHY_CTRL_SET_ENAUTOCLR_CLKGATE_MASK;
+  USBPHY->CTRL_SET = USBPHY_CTRL_SET_ENAUTOCLR_PHY_PWD_MASK;
+
+  // PHY Tx calibration
+  USBPHY->TX = ((USBPHY->TX & (~(USBPHY_TX_D_CAL_MASK | USBPHY_TX_TXCAL45DM_MASK | USBPHY_TX_TXCAL45DP_MASK))) |
+                (USBPHY_TX_D_CAL(0x05U) | USBPHY_TX_TXCAL45DP(0x0AU) | USBPHY_TX_TXCAL45DM(0x0AU)));
+
+  // USB SRAM defaults to Device memory, which faults on unaligned access: map it as Normal non-cacheable
+  ARM_MPU_SetMemAttr(0, 0x44);
+  ARM_MPU_SetRegion(0, ARM_MPU_RBAR(FSL_FEATURE_USBHSD_USB_RAM_BASE_ADDRESS, ARM_MPU_SH_NON, 0, 1, 1),
+                    ARM_MPU_RLAR(FSL_FEATURE_USBHSD_USB_RAM_BASE_ADDRESS + FSL_FEATURE_USBHSD_USB_RAM - 1, 0));
+  ARM_MPU_Enable(MPU_CTRL_PRIVDEFENA_Msk | MPU_CTRL_HFNMIENA_Msk);
   #endif
 #endif
 
