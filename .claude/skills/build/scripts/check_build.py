@@ -55,7 +55,7 @@ REPRESENTATIVES = {
   'maxim': ['max32666fthr'],
   'mimxrt10xx': ['imxrt1064_evk', 'imxrt1170_evk'],
   'stm32f3': ['stm32f303disco'],
-  'stm32f4': ['feather_stm32f405_express'],
+  'stm32f4': ['stm32f411ve_discovery', 'feather_stm32f405_express'],
   'stm32h5': ['stm32h563_nucleo'],
   'stm32h7': ['daisy_seed'],
   'stm32l4': ['swan_r5'],

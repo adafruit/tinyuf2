@@ -43,8 +43,10 @@ import hil_esp as esp  # noqa: E402
 # Table 3-1) holding the EVK's 8 MiB IS25WP064A (EVK hardware user's guide 2.7). MIMXRT1011: FlexSPI XIP at
 # 0x60000000 (IMXRT1010RM Table 3-1) holding the Metro M7 1011's W25Q64JV (Metro M7 RT1011 SD revA schematic), 8 MiB.
 # STM32F303VC: 256 KiB main flash at 0x08000000 (RM0316 Rev 10 Table 2); option bytes at 0x1FFFF800 stay outside.
+# STM32F411VE: 512 KiB main flash at 0x08000000 (RM0383 Rev 4 Table 4); option bytes at 0x1FFFC000 stay outside.
 FLASH_LIMITS = {'LPC55S69_M33_0': (0, 0x9D800), 'MIMXRT1062xxx6A': (0x60000000, 0x60800000),
-                'MIMXRT1011DAE5A': (0x60000000, 0x60800000), 'stm32f303vc': (0x08000000, 0x08040000)}
+                'MIMXRT1011DAE5A': (0x60000000, 0x60800000), 'stm32f303vc': (0x08000000, 0x08040000),
+                'stm32f411ve': (0x08000000, 0x08080000)}
 STEPS = {'jlink': ('install', 'dfu', 'copy', 'app-ran', 'reenter')}
 STEPS['esptool'] = STEPS['jlink'] + ('recopy',)
 REENTRY = {'jlink': ('retained-register',), 'esptool': ('dfu-detach',)}
@@ -75,6 +77,10 @@ _RESET_VECTOR_NOTE = r'(?m)^Could not find valid reset vector\.\nTarget halted o
 _F3_UNPROTECT_NOTE = (r'(?m)^Active write protection detected\.\nDevice will be unsecured now\.\nFailed to unlock device\.\n'
                       r'Can not attach to CPU\. Trying connect under reset\.$')
 BENIGN = {'MIMXRT1062xxx6A': _RESET_VECTOR_NOTE, 'MIMXRT1011DAE5A': _RESET_VECTOR_NOTE, 'stm32f303vc': _F3_UNPROTECT_NOTE}
+# runner sessions connect as the core: J-Link's stm32f411ve connect resets the chip to unprotect it (SKILL.md Limits)
+SESSION_DEVICE = {'stm32f411ve': 'Cortex-M4'}
+# ms the install's verify session waits before its halt after the flash target's unlock, empirical (SKILL.md Limits)
+INSTALL_SETTLE_MS = {'stm32f411ve': 1000}
 
 
 class Refused(Exception):
@@ -201,11 +207,12 @@ def cmake_var(path, name):
 def port_sources(port, bdir):
   """(CMSIS device header, the bootloader's linker script, FLASH_BASE, where the BIN starts in flash, RAM origin) of
   a port the HIL supports, read from the CMake files the HIL's build uses."""
-  if port == 'stm32f3':
+  if port in ('stm32f3', 'stm32f4'):
     ld = cmake_script(f'ports/{port}/CMakeLists.txt')
-    mcus = set(re.findall(r'\bSTM32F3\d\dx[A-Z]\b', cb.code_lines(ROOT / bdir / 'board.cmake')))
+    series = port.upper()
+    mcus = set(re.findall(rf'\b{series}\d\dx[A-Z]\b', cb.code_lines(ROOT / bdir / 'board.cmake')))
     if len(mcus) != 1:
-      raise Refused(f'{bdir}/board.cmake: expected one STM32F3 device define, found {sorted(mcus)}')
+      raise Refused(f'{bdir}/board.cmake: expected one {series} device define, found {sorted(mcus)}')
     header = f'{cmake_var(f"ports/{port}/family.cmake", "ST_CMSIS")}/Include/{mcus.pop().lower()}.h'
     flash_base, ram = ld_memory(ld, 'FLASH')[0], ld_memory(ld, 'RAM')[0]
     return header, ld, flash_base, flash_base, ram
@@ -670,7 +677,8 @@ class Probe:
     ADDR" with no failure before it), and the caller's observation is the evidence."""
     script = self.dir / f'jlink-{time.monotonic_ns()}.jlink'
     script.write_text('\n'.join(list(commands) + ['exit']) + '\n')
-    cmd = ['JLinkExe', '-USB', self.b['probe'], '-device', self.b['device'], '-if', self.b['if'], '-speed',
+    device = SESSION_DEVICE.get(self.b['device'], self.b['device'])
+    cmd = ['JLinkExe', '-USB', self.b['probe'], '-device', device, '-if', self.b['if'], '-speed',
            self.b['speed'], '-autoconnect', '1', '-NoGui', '1', '-ExitOnError', '1', '-CommandFile', script]
     code, out = spawn(cmd, self.log, PROBE_TIMEOUT)
     if died_at_probe_connect(code, out, self.b['probe']):
@@ -1632,7 +1640,9 @@ class Battery:
     fl = files['flash']
     ev = self.flash_target(fl, ['cmake', '--build', fl['root'], '--target', fl['binding']['target']], PROBE_TIMEOUT,
                            lambda code, out: judge_jlink_target(code, out, self.b, files['hex']))
-    self.probe.run(['h', f'verifybin {files["bin"]},{self.f["binBase"]:#x}', 'r', 'g'])
+    settle = INSTALL_SETTLE_MS.get(self.b['device'])
+    verify = ['h', f'verifybin {files["bin"]},{self.f["binBase"]:#x}', 'r', 'g']
+    self.probe.run(([f'sleep {settle}'] if settle else []) + verify)
     return dict(ev, verified=True)
 
   def after_copy(self):
