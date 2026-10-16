@@ -42,7 +42,7 @@
 // LED
 //--------------------------------------------------------------------+
 
-// GPIO connected to Neopixel data
+// GPIO connected to Neopixel data: GPIO38 on v1.1, GPIO48 on the initial v1.0 board
 #define NEOPIXEL_PIN          38
 
 // Brightness percentage from 1 to 255
