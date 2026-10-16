@@ -1,3 +1,42 @@
+## 3.1.0
+
+- Add async refresh API: `led_strip_refresh_async()` and `led_strip_refresh_async_done()`. Note that the driver has no double buffer yet, so the pixel buffer still has to be swapped manually between frames; the async API mainly allows the wait to be deferred.
+- Support to use custom timing config in RMT backend
+- Support to switch GPIO at runtime in RMT backend
+- SPI backend uses official `SPICOMMON_BUSFLAG_DATA_OUT_INV`, older IDF keeps the GPIO-matrix fallback.
+- Fix IDF 6.1 build by explicitly including `freertos/FreeRTOS.h` and `freertos/task.h` in the SPI backend (espressif/idf-extra-components#870)
+- Fix WS2812 and SK6812 default timings to comply with their datasheet minimum T1H/T1L requirements. (espressif/idf-extra-components#816)
+- Drop support for ESP-IDF v5.0 and v5.1
+
+## 3.0.3
+
+- Support WS2816 with 16-bit color
+
+## 3.0.1
+
+- Support WS2811 bit timing
+
+## 3.0.0
+
+- Discontinued support for ESP-IDF v4.x
+- Added configuration for user-defined color component format
+
+## 2.5.5
+
+- Simplified the led_strip component dependency, the time of full build with ESP-IDF v5.3 can now be shorter.
+
+## 2.5.4
+
+- Inserted extra delay when initialize the SPI LED device, to ensure all LEDs are in the reset state correctly
+
+## 2.5.3
+
+- Extend reset time (280us) to support WS2812B-V5
+
+## 2.5.2
+
+- Added API reference doc (api.md)
+
 ## 2.5.0
 
 - Enabled support for IDF4.4 and above
