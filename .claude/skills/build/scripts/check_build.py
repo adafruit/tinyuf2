@@ -844,10 +844,12 @@ def idf_step_writes_no_input(cmd, root, chip):
            f'cp combined-ota.bin {root / "_bin/combined-ota.bin"}\n')
     text = postbuild.read_text()
     outputs = [root / 'combined.bin']
+    copy_outputs = []
     if text == base + ota:
-      outputs += [root / 'partition_table/partitions-table-ota.bin', root / 'combined-ota.bin',
-                  root / '_bin/partitions-table-ota.bin', root / '_bin/combined-ota.bin']
-    return text in (base, base + ota) and all(writes(p) for p in outputs)
+      copy_outputs = [root / '_bin/partitions-table-ota.bin', root / '_bin/combined-ota.bin']
+      outputs += [root / 'partition_table/partitions-table-ota.bin', root / 'combined-ota.bin'] + copy_outputs
+    return text in (base, base + ota) and all(writes(p) for p in outputs) and \
+      all(not p.is_dir() for p in copy_outputs)
   for seg in cmd.split(' && '):
     if re.search(r'[;|<>&$`(){}\\]', seg):
       return False
