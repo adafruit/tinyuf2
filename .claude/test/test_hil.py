@@ -2215,12 +2215,24 @@ class BatteryRun(Tmp):
 
     def spawn(cmd, *args, **kwargs):
       if cmd[0] == 'mcopy':
-        return rig.spawn(cmd, *args, **kwargs)
+        return 0, ''
       return 1, 'sync: Input/output error\n'
 
     with mock.patch.object(ht, 'spawn', spawn), self.assertRaisesRegex(ht.StepFail, 'sync failed') as e:
       bat.copy(self.tmp / 'app.uf2', 1)
     self.assertEqual(e.exception.evidence['tail'], ['sync: Input/output error'])
+
+  def test_copy_accepts_a_flush_failure_after_the_dfu_device_disconnects(self):
+    bat, rig = self.battery()
+    bat.usb_path = '1-2'
+
+    def spawn(cmd, *args, **kwargs):
+      if cmd[0] == 'mcopy':
+        return rig.spawn(cmd, *args, **kwargs)
+      return 1, 'sync: /dev/sdz: No such file or directory\n'
+
+    with mock.patch.object(ht, 'spawn', spawn):
+      self.assertEqual(bat.copy(self.tmp / 'app.uf2', 1), {'blocks': 1})
 
   def test_the_whole_fixture_is_read_back_including_its_last_partial_block(self):
     bat, _ = self.battery(corrupt=lambda img: img.__setitem__(len(img) - 1, img[-1] ^ 1))

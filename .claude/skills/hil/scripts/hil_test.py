@@ -1713,10 +1713,12 @@ class Battery:
     if code:
       raise StepFail('mcopy failed', {'tail': out.strip().splitlines()[-5:]})
     code, out = spawn(['sync', dev], self.log, 60)
-    if code:
-      raise StepFail('sync failed', {'tail': out.strip().splitlines()[-5:]})
     f = self.f
-    wait_for(lambda: usb_device(f['vid'], f['pid'], self.b['uid']) is None, USB_TIMEOUT, 'the DFU device leaving')
+    disconnected = code and usb_device(f['vid'], f['pid'], self.b['uid']) is None
+    if code and not disconnected:
+      raise StepFail('sync failed', {'tail': out.strip().splitlines()[-5:]})
+    if not disconnected:
+      wait_for(lambda: usb_device(f['vid'], f['pid'], self.b['uid']) is None, USB_TIMEOUT, 'the DFU device leaving')
     return {'blocks': blocks, **({'nonce': nonce.hex()} if nonce else {})}
 
   def run(self, files, version):
