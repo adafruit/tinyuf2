@@ -8,6 +8,8 @@ The project is composed of customizing the 2nd stage bootloader from IDF and UF2
 
 See the board list for this family in [supported_boards.md](../../supported_boards.md#espressif).
 
+See [Metro ESP32-P4](boards/adafruit_metro_esp32p4/README.md) for its USB routing and ADC double-reset hardware requirements.
+
 ## Build & Flash
 
 ### Build
@@ -43,6 +45,7 @@ There are a few ways to enter UF2 mode:
   - Holding `GPIO0` then reset -> ROM bootloader
   - Press reset, see indicator on (purple RGB) then press `GPIO0` -> UF2 bootloader
 - `PIN_DOUBLE_RESET_RC` GPIO is attached to an 100K resistor and 1uF Capacitor to serve as 1-bit memory, which hold the pin value long enough for double reset detection. Simply press double reset to enter UF2
+- `PIN_DOUBLE_RESET_ADC` uses a calibrated ADC reading of an RC marker. Metro ESP32-P4 shares this with its battery divider; it requires the capacitor change described in the board notes above.
 - Request by application using [system reset reason](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/system.html?highlight=esp_reset_reason#reset-reason) with hint of `0x11F2`. Reset reason hint is different than hardware reset source, it is written to RTC's store6 register and hold value through a software reset. Since Espressif only uses an dozen of value in `esp_reset_reason_t`, it is safe to hijack and use *0x11F2* as reset reason to enter UF2 using following snippet.
   ```
   #include "esp_private/system_internal.h"
@@ -60,7 +63,7 @@ There are a few ways to enter UF2 mode:
 
 ## Convert Binary to UF2
 
-To create your own UF2 file, simply use the [Python conversion script](https://github.com/Microsoft/uf2/blob/master/utils/uf2conv.py) on a .bin file, specifying the family id as `ESP32S2`, `ESP32S3` or their magic number as follows. Note you must specify application address of 0x00 with the -b switch, the bootloader will use it as offset to write to ota partition.
+To create your own UF2 file, simply use the [Python conversion script](https://github.com/Microsoft/uf2/blob/master/utils/uf2conv.py) on a .bin file, specifying the family id as `ESP32S2`, `ESP32S3`, `ESP32P4` or their magic number as follows. Note you must specify application address of 0x00 with the -b switch, the bootloader will use it as offset to write to ota partition.
 
 ```
 uf2conv.py firmware.bin -c -b 0x00 -f ESP32S2

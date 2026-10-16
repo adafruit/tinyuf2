@@ -43,6 +43,11 @@
 
 #define CFG_TUD_ENABLED           1
 
+#if CFG_TUSB_MCU == OPT_MCU_ESP32P4 && BOARD_TUD_RHPORT == 0
+// rhport 0 is the P4's OTG FS controller
+#define CFG_TUD_MAX_SPEED         OPT_MODE_FULL_SPEED
+#endif
+
 #ifndef CFG_TUSB_MEM_SECTION
 #define CFG_TUSB_MEM_SECTION
 #endif

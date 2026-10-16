@@ -1,8 +1,11 @@
 include(${CMAKE_CURRENT_LIST_DIR}/boards/${BOARD}/board.cmake)
 
 if(IDF_TARGET STREQUAL "esp32p4")
-  # TinyUF2 and the apps run on OTG HS
-  add_compile_definitions(BOARD_TUD_RHPORT=1)
+  # TinyUF2 and the apps run on OTG HS unless the board routes OTG FS
+  if(NOT DEFINED BOARD_TUD_RHPORT)
+    set(BOARD_TUD_RHPORT 1)
+  endif()
+  add_compile_definitions(BOARD_TUD_RHPORT=${BOARD_TUD_RHPORT})
   # Chip revisions <3.0 and >=3.0 need separate images: standalone apps take the board sdkconfig, which selects one
   set(SDKCONFIG_DEFAULTS ${CMAKE_CURRENT_SOURCE_DIR}/sdkconfig.defaults ${BOARD_PATH}/sdkconfig)
 endif()
