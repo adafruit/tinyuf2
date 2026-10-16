@@ -94,6 +94,7 @@ jobs:
           - 'lpc55'
           - 'maxim'
           - 'mimxrt10xx'
+          - 'samd51'
           - 'stm32f3'
           - 'stm32f4'
           - 'stm32h5'
