@@ -538,7 +538,7 @@ def partition_table(rows):
 
 
 def idf_build(root, parts=S3_PARTS, flash_args=None, sdk=None, board=S3, device='esp32s3',
-              board_id='ESP32S3-DevKitC-v1.0', family=0xc47e5767):
+              board_id='ESP32S3-DevKitC-v1.1', family=0xc47e5767):
   """A synthetic IDF build of the S3 DevKitC (or another board) as the port's CMakeLists lays it out, and its
   record row."""
   (root / '_bin').mkdir(parents=True)
@@ -594,7 +594,7 @@ class Esp(EspCase):
     f = self.facts
     self.assertEqual((f['flashSize'], f['partitionCsv'], f['partitions']), (0x800000, 'partitions-8MB.csv', S3_PARTS))
     self.assertEqual((f['vid'], f['pid'], f['boardId'], f['family'], f['detectionDelayMs']),
-                     (0x239a, 0x00a5, 'ESP32S3-DevKitC-v1.0', 0xc47e5767, 500))
+                     (0x239a, 0x00a5, 'ESP32S3-DevKitC-v1.1', 0xc47e5767, 500))
     self.assertEqual(f['flashCache'], 0x10000)
     self.assertEqual((self.board['flasher'], self.board['probe'], self.board['device']), ('esptool', 'cp2102n', 'esp32s3'))
 
