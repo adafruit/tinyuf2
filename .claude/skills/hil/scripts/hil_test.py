@@ -1712,7 +1712,9 @@ class Battery:
     code, out = spawn(['mcopy', '-o', '-i', dev, uf2, '::APP.UF2'], self.log, 60)
     if code:
       raise StepFail('mcopy failed', {'tail': out.strip().splitlines()[-5:]})
-    spawn(['sync'], self.log, 60)
+    code, out = spawn(['sync', dev], self.log, 60)
+    if code:
+      raise StepFail('sync failed', {'tail': out.strip().splitlines()[-5:]})
     f = self.f
     wait_for(lambda: usb_device(f['vid'], f['pid'], self.b['uid']) is None, USB_TIMEOUT, 'the DFU device leaving')
     return {'blocks': blocks, **({'nonce': nonce.hex()} if nonce else {})}
