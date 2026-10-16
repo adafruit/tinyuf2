@@ -2186,6 +2186,54 @@ class BatteryRun(Tmp):
         self.assertEqual(script[0], 'h', script)
     self.assertIn([f'w4 {ht.SCB_AIRCR:08X} {ht.AIRCR_SYSRESETREQ:08X}'], rig.scripts)
 
+  def test_copy_flushes_only_its_block_device_before_waiting_for_disconnect(self):
+    bat, rig = self.battery()
+    bat.usb_path = '1-2'
+    commands, flushed = [], []
+
+    def spawn(cmd, *args, **kwargs):
+      commands.append(cmd)
+      if cmd[0] == 'mcopy':
+        return rig.spawn(cmd, *args, **kwargs)
+      if cmd == ['sync']:
+        raise ht.StepFail('the fake second device is still blocked')
+      self.assertEqual(cmd, ['sync', '/dev/sdz'])
+      flushed.append(True)
+      return 0, ''
+
+    def usb_device(*args):
+      self.assertTrue(flushed, 'the copy waited for disconnect before its device flush completed')
+      return None
+
+    with mock.patch.object(ht, 'spawn', spawn), mock.patch.object(ht, 'usb_device', usb_device):
+      self.assertEqual(bat.copy(self.tmp / 'app.uf2', 1), {'blocks': 1})
+    self.assertEqual(commands[1], ['sync', '/dev/sdz'])
+
+  def test_copy_fails_when_its_device_flush_fails(self):
+    bat, rig = self.battery()
+    bat.usb_path = '1-2'
+
+    def spawn(cmd, *args, **kwargs):
+      if cmd[0] == 'mcopy':
+        return 0, ''
+      return 1, 'sync: Input/output error\n'
+
+    with mock.patch.object(ht, 'spawn', spawn), self.assertRaisesRegex(ht.StepFail, 'sync failed') as e:
+      bat.copy(self.tmp / 'app.uf2', 1)
+    self.assertEqual(e.exception.evidence['tail'], ['sync: Input/output error'])
+
+  def test_copy_accepts_a_flush_failure_after_the_dfu_device_disconnects(self):
+    bat, rig = self.battery()
+    bat.usb_path = '1-2'
+
+    def spawn(cmd, *args, **kwargs):
+      if cmd[0] == 'mcopy':
+        return rig.spawn(cmd, *args, **kwargs)
+      return 1, 'sync: /dev/sdz: No such file or directory\n'
+
+    with mock.patch.object(ht, 'spawn', spawn):
+      self.assertEqual(bat.copy(self.tmp / 'app.uf2', 1), {'blocks': 1})
+
   def test_the_whole_fixture_is_read_back_including_its_last_partial_block(self):
     bat, _ = self.battery(corrupt=lambda img: img.__setitem__(len(img) - 1, img[-1] ^ 1))
     with self.assertRaisesRegex(ht.StepFail, 'read back the fixture'):
