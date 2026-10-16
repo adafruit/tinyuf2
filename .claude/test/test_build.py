@@ -863,8 +863,16 @@ class HilRecord(unittest.TestCase):
     script = root / 'tinyuf2.postbuild.sh'
     good = ('#!/bin/bash\necho "Creating combined.bin"\n'
             f"esptool --chip esp32s3 merge-bin --output combined.bin $(tr '\\n' ' ' < {root}/flash_args)\n")
+    ota = ('echo "Creating combined-ota.bin"\n'
+           f'gen_esp32part.py {ROOT}/ports/espressif/partitions-4MB.csv {root}/partition_table/partitions-table-ota.bin\n'
+           f"esptool --chip esp32s3 merge-bin --output combined-ota.bin $(tr '\\n' ' ' < {root}/flash_args | "
+           "sed 's/partition-table.bin/partitions-table-ota.bin/g')\n"
+           f'cp {root}/partition_table/partitions-table-ota.bin {root}/_bin/partitions-table-ota.bin\n'
+           f'cp combined-ota.bin {root}/_bin/combined-ota.bin\n')
     self.idf_tree(root)
     script.write_text(good)
+    self.ready(esp, root, self.idf_tree, fresh, [boot_size])
+    script.write_text(good + ota)
     self.ready(esp, root, self.idf_tree, fresh, [boot_size])
     cases = (('a CMake re-run', [f'cd {root} && {cmake} --regenerate-during-build -S/p -B{root}'], [boot_size], good),
              ('an app rebuild', [f'{root}/xtensa-esp32s3-elf-g++ -o tinyuf2.elf'] + fresh, [boot_size], good),
@@ -901,6 +909,13 @@ class HilRecord(unittest.TestCase):
       self.ready(esp, root, self.idf_tree, [post.split(' && cd ')[0], 'FLASH'], [boot_size])
     (root / 'combined.bin').unlink()
     self.ready(esp, root, self.idf_tree, [post.split(' && cd ')[0], 'FLASH'], [boot_size])
+    script.write_text(good + ota)
+    (root / 'combined-ota.bin').symlink_to('tinyuf2.bin')
+    with self.subTest('an OTA image onto the image'), self.assertRaisesRegex(cb.Fail, 'would not run only its flasher'):
+      self.ready(esp, root, self.idf_tree, [post.split(' && cd ')[0], 'FLASH'], [boot_size])
+    (root / 'combined-ota.bin').unlink()
+    self.ready(esp, root, self.idf_tree, [post.split(' && cd ')[0], 'FLASH'], [boot_size])
+    script.write_text(good)
     (root / '_bin').unlink()
     (root / '_bin').mkdir()
     (root / '_bin/image.bin').write_text('x')

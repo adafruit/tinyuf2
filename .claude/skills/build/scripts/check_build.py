@@ -829,6 +829,25 @@ def idf_step_writes_no_input(cmd, root, chip):
   under = lambda p, d='': Path(os.path.realpath(p)).is_relative_to(real / d)   # noqa: E731
   writes = lambda p, d='': under(p, d) and Path(os.path.realpath(p)) not in inputs   # noqa: E731
   postbuild = root / 'tinyuf2.postbuild.sh'
+
+  def safe_postbuild():
+    if not postbuild.is_file():
+      return False
+    base = ('#!/bin/bash\necho "Creating combined.bin"\n'
+            f"esptool --chip {chip} merge-bin --output combined.bin $(tr '\\n' ' ' < {root / 'flash_args'})\n")
+    ota = ('echo "Creating combined-ota.bin"\n'
+           f'gen_esp32part.py {ROOT / "ports/espressif/partitions-4MB.csv"} '
+           f'{root / "partition_table/partitions-table-ota.bin"}\n'
+           f"esptool --chip {chip} merge-bin --output combined-ota.bin $(tr '\\n' ' ' < {root / 'flash_args'} | "
+           "sed 's/partition-table.bin/partitions-table-ota.bin/g')\n"
+           f'cp {root / "partition_table/partitions-table-ota.bin"} {root / "_bin/partitions-table-ota.bin"}\n'
+           f'cp combined-ota.bin {root / "_bin/combined-ota.bin"}\n')
+    text = postbuild.read_text()
+    outputs = [root / 'combined.bin']
+    if text == base + ota:
+      outputs += [root / 'partition_table/partitions-table-ota.bin', root / 'combined-ota.bin',
+                  root / '_bin/partitions-table-ota.bin', root / '_bin/combined-ota.bin']
+    return text in (base, base + ota) and all(writes(p) for p in outputs)
   for seg in cmd.split(' && '):
     if re.search(r'[;|<>&$`(){}\\]', seg):
       return False
@@ -849,10 +868,7 @@ def idf_step_writes_no_input(cmd, root, chip):
         tail[3] == str(root / 'bootloader/bootloader.bin')) or \
       re.fullmatch(py + r' \S*/lib/uf2/utils/uf2conv\.py --carray', head) and \
       tail == ['-o', str(root / 'apps/update_tinyuf2/bootloader_bin.c'), str(root / 'tinyuf2.bin')] and writes(tail[1]) or \
-      argv == ['bash', str(postbuild)] and cwd == root and writes(root / 'combined.bin') and postbuild.is_file() and \
-      postbuild.read_text() == (
-        '#!/bin/bash\necho "Creating combined.bin"\n'
-        f"esptool --chip {chip} merge-bin --output combined.bin $(tr '\\n' ' ' < {root / 'flash_args'})\n")
+      argv == ['bash', str(postbuild)] and cwd == root and safe_postbuild()
     if not ok:
       return False
     if argv[0] == 'cd':
