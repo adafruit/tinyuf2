@@ -977,6 +977,30 @@ class Ghostfat(unittest.TestCase):
       self.assertEqual([p.name for p in root.iterdir()], ['check_build.log'])
 
 
+class ScriptTests(unittest.TestCase):
+  def test_failure_reports_the_test_and_traceback_tail(self):
+    stderr = ('F\n'
+              '======================================================================\n'
+              'FAIL: test_named_failure (test_contract.Contract)\n'
+              '----------------------------------------------------------------------\n'
+              'Traceback (most recent call last):\n'
+              '  File "/repo/test_contract.py", line 7, in test_named_failure\n'
+              '    self.assertEqual(1, 2, "sentinel detail")\n'
+              'AssertionError: 1 != 2 : sentinel detail\n'
+              '\n----------------------------------------------------------------------\n'
+              'Ran 1 test in 0.001s\n'
+              '\nFAILED (failures=1)\n')
+    result = mock.Mock(returncode=1, stderr=stderr)
+    with mock.patch.object(cb.subprocess, 'run', return_value=result):
+      rec = cb.run_tests()
+    self.assertEqual(rec, {
+      'status': 'failed',
+      'summary': 'FAILED (failures=1)',
+      'firstError': ('FAIL: test_named_failure (test_contract.Contract): '
+                     'AssertionError: 1 != 2 : sentinel detail'),
+    })
+
+
 class BackendCommands(unittest.TestCase):
   """Each backend builds into the root it is given and nowhere in the source tree."""
 
