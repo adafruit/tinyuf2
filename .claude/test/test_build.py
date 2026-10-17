@@ -169,10 +169,10 @@ class Selection(unittest.TestCase):
       self.assertEqual(classify(path)[1], 'none', path)
 
   def test_hil_runner_and_roster_select_tests_and_every_roster_board(self):
-    for path in ('.claude/skills/hil/scripts/hil_test.py', 'test/hil/local.json'):
+    for path in ('.claude/skills/hil-contract/scripts/hil_test.py', 'test/hil/local.json'):
       r = cb.classify(path)
       self.assertEqual((r['rule'], r['tests'], r['hil'], r['boards']), ('hil-control', True, True, {}), path)
-    self.assertEqual(cb.classify('.claude/skills/hil/SKILL.md')['effect'], 'none')   # wording costs no hardware
+    self.assertEqual(cb.classify('.claude/skills/hil-contract/SKILL.md')['effect'], 'none')   # wording costs no hardware
     self.assertEqual(classify('.claude/test/test_hil.py'), ('contract-tests', 'select', [], False, True))
 
   def test_core_and_unclassified_select_every_representative(self):
@@ -355,7 +355,7 @@ class HilSelection(unittest.TestCase):
     self.assertEqual((h['boards'], h['uncovered']), ([], []))
 
   def test_a_runner_change_selects_every_roster_board(self):
-    h = self.hil('.claude/skills/hil/scripts/hil_test.py')
+    h = self.hil('.claude/skills/hil-contract/scripts/hil_test.py')
     self.assertEqual((h['full'], h['boards'], h['uncovered']), (True, ['lpcxpresso55s69'], []))
 
   def test_a_change_to_the_build_script_the_runner_imports_selects_every_roster_board(self):
@@ -369,12 +369,12 @@ class HilSelection(unittest.TestCase):
     self.assertNotIn('lpc55', [u['target'] for u in h['uncovered']])
 
   def test_a_port_without_a_roster_board_is_uncovered_even_beside_a_runner_change(self):
-    h = self.hil('ports/stm32f4/board_flash.c', 'ports/lpc55/boards.c', '.claude/skills/hil/scripts/hil_test.py')
+    h = self.hil('ports/stm32f4/board_flash.c', 'ports/lpc55/boards.c', '.claude/skills/hil-contract/scripts/hil_test.py')
     self.assertEqual(h['boards'], ['lpcxpresso55s69'])
     self.assertEqual([u['target'] for u in h['uncovered']], ['stm32f4'])
 
   def test_a_build_gap_stays_uncovered_beside_a_runner_change(self):
-    h = self.hil('ports/ch32v20x/board_flash.c', '.claude/skills/hil/scripts/hil_test.py')
+    h = self.hil('ports/ch32v20x/board_flash.c', '.claude/skills/hil-contract/scripts/hil_test.py')
     self.assertEqual(h['boards'], ['lpcxpresso55s69'])
     self.assertEqual([u['target'] for u in h['uncovered']], ['ports/ch32v20x/board_flash.c'])
 

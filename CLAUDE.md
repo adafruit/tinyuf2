@@ -21,7 +21,7 @@
 ## Build and Validate
 
 - Build contract: `.claude/skills/build/SKILL.md`. It resolves a change to boards and builds each the way CI does, outside the source tree.
-- HIL contract: `.claude/skills/hil/SKILL.md`. Hardware validation comes from its report, never from a build; what no roster board on the host covers is reported pending.
+- HIL contract: `.claude/skills/hil-contract/SKILL.md`. Hardware validation comes from its report, never from a build; what no roster board on the host covers is reported pending.
 - ESP-IDF: the build contract uses CI's docker image; for interactive work, `. "$IDF_PATH/export.sh"` and `idf.py -C ports/espressif -DBOARD=<board> flash monitor`.
 - Before submitting, and again after a rebase: `pre-commit run --all-files`.
 - For code changes: `python3 .claude/skills/build/scripts/check_build.py --base master --worktree`.
