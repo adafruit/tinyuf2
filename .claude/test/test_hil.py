@@ -41,7 +41,7 @@ time.sleep(60)
 def pinned_helper(test, lockdir):
   """lib/agentrc's hil_lock.py, the helper the runner takes its locks through, with its locks under `lockdir`."""
   if not ht.LOCK_HELPER.is_file():
-    test.skipTest('lib/agentrc not checked out: git submodule update --init lib/agentrc')
+    test.fail('lib/agentrc not checked out: git submodule update --init lib/agentrc')
   helper = ht.load_helper()
   helper.BOARD_LOCK_DIR = str(lockdir)
   return helper
@@ -160,7 +160,7 @@ class Roster(Tmp):
 
   def test_a_lock_helper_off_the_contract_is_refused(self):
     if not ht.LOCK_HELPER.is_file():
-      self.skipTest('lib/agentrc not checked out: git submodule update --init lib/agentrc')
+      self.fail('lib/agentrc not checked out: git submodule update --init lib/agentrc')
     text = ht.LOCK_HELPER.read_text()
     for what, old, new in (('cleanup role', "CLEANUP_ROLE = 'cleanup-holder'", "CLEANUP_ROLE = 'other'"),
                            ('protected reasons', "{CI_REASON, 'pool_check'}", '{CI_REASON}'),
