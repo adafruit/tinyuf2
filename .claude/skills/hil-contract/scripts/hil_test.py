@@ -54,7 +54,10 @@ STEPS['stlink'] = STEPS['jlink']
 STEPS['esptool'] = STEPS['jlink'] + ('recopy',)
 REENTRY = {'jlink': ('retained-register',), 'stlink': ('retained-register',), 'esptool': ('dfu-detach',)}
 REENTRY_METHODS = sorted({m for v in REENTRY.values() for m in v})
-PROTECTED = {'hil_test.py', 'pool_check'}   # tinyusb hil_lock.PROTECTED_REASONS, checked at load
+PROTECTED = {'hil_test.py', 'pool_check'}   # hil_lock.PROTECTED_REASONS, checked at load
+# the board-lock helper is the submodule's at its pinned commit, never an operator's installed agentrc
+AGENTRC = 'lib/agentrc'
+LOCK_HELPER = ROOT / AGENTRC / 'skills' / 'hil' / 'scripts' / 'hil_lock.py'
 HOLDER_ROLE = 'cleanup-holder'
 SCB_VTOR, SCB_AIRCR = 0xE000ED08, 0xE000ED0C
 AIRCR_SYSRESETREQ = 0x05FA0004
@@ -83,15 +86,17 @@ JLINK_ERRORS = (r'Verify failed|Could not|Cannot connect|ERROR|ResetTarget faile
 UDEV_RULES = ('/etc/udev/rules.d', '/run/udev/rules.d')
 # J-Link notes that are not failures, per device, each with the line that shows the operation completed
 # (bench: every MIMXRT1062 reset with an invalid app vector, then the reset halts as usual; every MIMXRT1011 reset
-# of a TinyUF2 image, which then boots; STM32F303VC: the connect that removes TinyUF2's write protection, SKILL.md
-# Limits)
+# of a TinyUF2 image, which then boots; STM32F303VC: the connect that removes TinyUF2's write protection,
+# bench-history.md, stm32f303vc)
 _RESET_VECTOR_NOTE = r'(?m)^Could not find valid reset vector\.\nTarget halted on flash header read\.$'
 _F3_UNPROTECT_NOTE = (r'(?m)^Active write protection detected\.\nDevice will be unsecured now\.\nFailed to unlock device\.\n'
                       r'Can not attach to CPU\. Trying connect under reset\.$')
 BENIGN = {'MIMXRT1062xxx6A': _RESET_VECTOR_NOTE, 'MIMXRT1011DAE5A': _RESET_VECTOR_NOTE, 'stm32f303vc': _F3_UNPROTECT_NOTE}
-# runner sessions connect as the core: J-Link's stm32f411ve connect resets the chip to unprotect it (SKILL.md Limits)
+# runner sessions connect as the core: J-Link's stm32f411ve connect resets the chip to unprotect it
+# (bench-history.md, stm32f411ve_discovery)
 SESSION_DEVICE = {'stm32f411ve': 'Cortex-M4'}
-# ms the install's verify session waits before its halt after the flash target's unlock, empirical (SKILL.md Limits)
+# ms the install's verify session waits before its halt after the flash target's unlock, empirical
+# (bench-history.md, stm32f411ve_discovery)
 INSTALL_SETTLE_MS = {'stm32f411ve': 1000}
 
 
@@ -124,10 +129,6 @@ def load_board(config, name):
   if len(boards) != 1:
     raise Refused(f'{config} has {len(boards)} entries named {name!r}')
   b = boards[0]
-  tinyusb = os.environ.get('TINYUSB_DIR')
-  if not (tinyusb and os.path.isabs(tinyusb)):
-    raise Refused('set TINYUSB_DIR to the absolute path of the tinyusb checkout whose test/hil/helper/hil_lock.py '
-                  'owns the board locks')
   fl, t = b.get('flasher') or {}, b.get('tinyuf2') or {}
   m = re.fullmatch(cb.FLASHER_ARGS.get(fl.get('name'), r'(?!)'), fl.get('args') or '')
   if not isinstance(fl.get('uid'), str) or not m:
@@ -158,7 +159,6 @@ def load_board(config, name):
       raise Refused(f'{name}: tinyuf2.usbPower is for J-Link boards only')
   return {'name': name, 'lock': lock, 'uid': b['uid'], 'flasher': fl['name'], 'probe': fl['uid'], 'device': m.group(1),
           'if': JLINK_IF, 'speed': JLINK_SPEED, 'port': port,
-          'helper': os.path.join(tinyusb, 'test', 'hil', 'helper', 'hil_lock.py'),
           'reentry': t.get('reentry'), 'usbPower': power}
 
 
@@ -1012,8 +1012,8 @@ def port_dir(cfg):
 
 
 class PortPower:
-  """The roster's usbPower (SKILL.md Roster): while DFU is awaited, the hub port's sysfs `disable` is written 1 then 0
-  once the port sat in state "default" for STUCK s of this wait, at most once per GAP s."""
+  """The roster's usbPower (SKILL.md Hosts/rosters): while DFU is awaited, the hub port's sysfs `disable` is written 1
+  then 0 once the port sat in state "default" for STUCK s of this wait, at most once per GAP s."""
   STUCK, GAP, OFF, TIMEOUT = 2.0, 10.0, 1, 15
   RESTORED = {True: 'restored', False: 'NOT restored', None: 'not attempted: a cycle child survived'}
   # each write and its read-back in a bounded child: both take the hub's lock and talk to the hub
@@ -1050,7 +1050,7 @@ class PortPower:
       done = off and on
     finally:
       self.last = time.monotonic()
-      if not done:   # an interruption or failure past the off write must not leave the port without VBUS
+      if not done:   # an interruption or failure from the off write on must not leave the port without VBUS
         restored = self.restore(disable)
         with open(self.log, 'a') as f:
           f.write(f'# power-cycle of {port} failed; power-on {self.RESTORED[restored]}\n')
@@ -1095,7 +1095,7 @@ def stays_away(fn, seconds, what, ev):
 
 
 def exclusion_configured(facts, serial):
-  """A udev rule in exactly SKILL.md's form sets UDISKS_IGNORE=1 on this bootloader's VID, PID and
+  """A udev rule in exactly commissioning.md's form sets UDISKS_IGNORE=1 on this bootloader's VID, PID and
   serial, so desktop automount cannot race the raw I/O: any other predicate could keep it from applying
   when the device appears. Checked before any hardware access; the property on the enumerated device
   (check_exclusive) is the proof."""
@@ -1112,8 +1112,9 @@ def exclusion_configured(facts, serial):
           continue
         if rule == want:
           return str(f)
-  raise Refused(f'no udev rule in SKILL.md\'s form sets ENV{{UDISKS_IGNORE}}="1" on idVendor '
-                f'{want[("ATTRS{idVendor}", "==")]}, idProduct {want[("ATTRS{idProduct}", "==")]} and serial {serial}')
+  raise Refused(f'no udev rule in the required form sets ENV{{UDISKS_IGNORE}}="1" on idVendor '
+                f'{want[("ATTRS{idVendor}", "==")]}, idProduct {want[("ATTRS{idProduct}", "==")]} and serial {serial} '
+                '(commissioning.md: 99-tinyuf2-hil.rules)')
 
 
 def udisks_ignored(dev):
@@ -1128,7 +1129,8 @@ def check_exclusive(dev):
   try:
     wait_for(lambda: udisks_ignored(dev), UDEV_TIMEOUT, f'UDISKS_IGNORE=1 on {dev}')
   except StepFail:
-    raise StepFail(f'{dev} has no UDISKS_IGNORE=1: desktop automount could race the raw I/O (SKILL.md, Commissioning)')
+    raise StepFail(f'{dev} has no UDISKS_IGNORE=1: desktop automount could race the raw I/O '
+                   '(commissioning.md: 99-tinyuf2-hil.rules)')
   mounted = [l.split()[0] for l in Path('/proc/mounts').read_text().splitlines()]
   if any(os.path.realpath(m) == dev for m in mounted):
     raise StepFail(f'{dev} is mounted; refusing raw I/O')
@@ -1240,17 +1242,51 @@ def fat_read_main(args):
 
 # ------------------------------------------------------------------ locks
 
-def load_helper(path):
-  spec = importlib.util.spec_from_file_location('tinyusb_hil_lock', path)
-  if not spec or not Path(path).is_file():
+def check_lock_pin():
+  """Refuse unless lib/agentrc is checked out, clean, at the commit HEAD pins."""
+  init = f'git submodule update --init {AGENTRC}'
+  if not LOCK_HELPER.is_file() or not cb.own_checkout(AGENTRC):
+    raise Refused(f'lock helper {LOCK_HELPER} is not checked out: {init}')
+  try:
+    want = cb.git('rev-parse', f'HEAD:{AGENTRC}').strip()
+    have = cb.git_in(AGENTRC, 'rev-parse', 'HEAD').strip()
+  except cb.Fail as e:
+    raise Refused(f'cannot read the {AGENTRC} pin: {e}')
+  if have != want:
+    # submodule update checks out the index's gitlink, so a staged pin change would defeat the hint
+    try:
+      staged = cb.git('rev-parse', f':{AGENTRC}').strip()
+    except cb.Fail as e:
+      raise Refused(f'cannot read the staged {AGENTRC} pin: {e}')
+    if staged != want:
+      raise Refused(f'{AGENTRC} is at {have}; HEAD pins {want} but {staged} is staged: commit or unstage that '
+                    f'{AGENTRC} pin change')
+    raise Refused(f'{AGENTRC} is at {have}; HEAD pins {want}: {init}')
+  try:
+    dirty = cb.dirty_inputs([AGENTRC])
+  except cb.Fail as e:
+    raise Refused(f'cannot read the {AGENTRC} checkout state: {e}')
+  if dirty:
+    raise Refused(f'{AGENTRC} checkout is dirty at the pinned {want}: discard its local changes')
+
+
+def load_helper():
+  check_lock_pin()
+  path = LOCK_HELPER
+  spec = importlib.util.spec_from_file_location('hil_lock', path)
+  if not spec:
     raise Refused(f'lock helper {path} not found')
   mod = importlib.util.module_from_spec(spec)
   try:
     spec.loader.exec_module(mod)
   except Exception as e:
     raise Refused(f'lock helper {path} failed to load: {e}')
-  if set(getattr(mod, 'PROTECTED_REASONS', ())) != PROTECTED or getattr(mod, 'CI_REASON', None) != 'hil_test.py':
-    raise Refused(f'lock helper {path}: protected reasons are not {sorted(PROTECTED)}; recheck this contract')
+  lu = getattr(mod, 'LockUnavailable', None)
+  if getattr(mod, 'PROTECTED_REASONS', None) != PROTECTED or getattr(mod, 'CI_REASON', None) != 'hil_test.py' or \
+     getattr(mod, 'CLEANUP_ROLE', None) != HOLDER_ROLE or not (isinstance(lu, type) and issubclass(lu, RuntimeError)):
+    raise Refused(f'lock helper {path}: protected reasons are not {sorted(PROTECTED)}, its CI reason is not '
+                  f"'hil_test.py', its cleanup role is not {HOLDER_ROLE!r} or it has no LockUnavailable; "
+                  'recheck this contract')
   return mod
 
 
@@ -1309,7 +1345,7 @@ def prove_hold(helper, board, pid, reason=None, role=None):
 
 def recovery_lock(helper, board):
   """An exclusive flock on `<lock file>.recover`, kept until the caller drops it: one recovery per board, so
-  none releases the holder while another is still between its probe sessions. tinyusb's helper lists `*.lock`
+  none releases the holder while another is still between its probe sessions. The lock helper lists `*.lock`
   only, so it never reports this file as a holder."""
   path = helper.lock_path(board) + '.recover'
   try:
@@ -1639,10 +1675,10 @@ class Battery:
 
   def dfu_after_install(self, version):
     """DFU after an install: on the RT boards J-Link's download erased the bootloader's whole 64 KiB block on the
-    bench, the app start with it (SKILL.md Limits), so DFU comes up; should enumeration time out instead, as when a
-    valid app boots (the F303's install keeps the app; there the verify session's reset may land in TinyUF2's
-    double-tap window instead, SKILL.md Limits), the board's commissioned retained-register re-entry brings DFU up.
-    Any other failure fails as it is."""
+    bench, the app start with it (bench-history.md, RT boards), so DFU comes up; should enumeration time out
+    instead, as when a valid app boots (the F303's install keeps the app; there the verify session's reset may land
+    in TinyUF2's double-tap window instead, bench-history.md, stm32f303disco), the board's commissioned
+    retained-register re-entry brings DFU up. Any other failure fails as it is."""
     try:
       return self.dfu(version)
     except NotEnumerated as e:
@@ -2099,11 +2135,12 @@ def check_flasher(board):
     except StepFail as e:
       raise Refused(f'{board["name"]}: usbPower: {e}')
     if not os.access(disable, os.W_OK):
-      raise Refused(f'{board["name"]}: usbPower: {disable} is not writable (SKILL.md, Commissioning: Port power)')
+      raise Refused(f'{board["name"]}: usbPower: {disable} is not writable '
+                  '(commissioning.md: 52-tinyuf2-hil-uhubctl.rules)')
 
 
 def reentry_decision(row):
-  """The re-entry method a commissioning run establishes (SKILL.md, Commissioning), or None: every
+  """The re-entry method a commissioning run establishes (commissioning.md, Re-entry), or None: every
   observation of the tried method held, the board was cleaned up and released, and the run passed or failed
   only at reenter's CURRENT.UF2 readback."""
   cleanup = row.get('cleanup') or {}
@@ -2161,17 +2198,16 @@ def run_board(args, board, facts, helper, workdir):
   files, row['firmware'] = admit_record(args.build_record, board, facts, workdir)
   if board['flasher'] == 'esptool':
     check_pyusb()
-  bypass = os.environ.get('HIL_NO_BOARD_LOCK') == '1'
   # blocked from here until the process exits or becomes the holder (keep_held): a signal acts only
   # inside the battery, and the report and any hold are settled first
   signal.pthread_sigmask(signal.SIG_BLOCK, TERM_SIGNALS)
   try:
     fh = helper.acquire_board_lock(board['lock'])
+  except helper.LockUnavailable as e:
+    raise Refused(f'{board["name"]}: {e}; refusing to run unlocked')
   except RuntimeError as e:
     row.update(locked=True, detail=str(e))
     return deferred(row), 1
-  if fh is None and not bypass:
-    raise Refused(f'{board["name"]}: the lock dir is unusable (tinyusb helper fails open); refusing to run unlocked')
   row['lockBypassed'] = fh is None
   bat = BATTERIES[board['flasher']](board, facts, workdir, args.fail_at, row.get('commissioning', False))
   code = 0
@@ -2275,7 +2311,7 @@ def main(argv=None):
     board = load_board(args.config, args.board)
     facts = source_facts(board)
     apply_layout(board, facts)
-    helper = load_helper(board['helper'])
+    helper = load_helper()
     if args.cmd == 'run':
       row, code = run_board(args, board, facts, helper, run_dir)
       result['results'].append(row)
