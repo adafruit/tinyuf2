@@ -95,7 +95,8 @@ BENIGN = {'MIMXRT1062xxx6A': _RESET_VECTOR_NOTE, 'MIMXRT1011DAE5A': _RESET_VECTO
 # runner sessions connect as the core: J-Link's stm32f411ve connect resets the chip to unprotect it
 # (bench-history.md, stm32f411ve_discovery)
 SESSION_DEVICE = {'stm32f411ve': 'Cortex-M4'}
-# ms the install's verify session waits before its halt after the flash target's unlock, empirical (SKILL.md Limits)
+# ms the install's verify session waits before its halt after the flash target's unlock, empirical
+# (bench-history.md, stm32f411ve_discovery)
 INSTALL_SETTLE_MS = {'stm32f411ve': 1000}
 
 
@@ -1273,7 +1274,7 @@ def load_helper():
   check_lock_pin()
   path = LOCK_HELPER
   spec = importlib.util.spec_from_file_location('hil_lock', path)
-  if not spec or not path.is_file():
+  if not spec:
     raise Refused(f'lock helper {path} not found')
   mod = importlib.util.module_from_spec(spec)
   try:
