@@ -147,6 +147,7 @@ int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset, uint8_t* 
 void tud_msc_write10_complete_cb(uint8_t lun) {
   (void) lun;
   static bool first_write = true;
+  static bool complete = false;
 
   // abort the DFU, uf2 block failed integrity check
   if (_wr_state.aborted) {
@@ -165,6 +166,12 @@ void tud_msc_write10_complete_cb(uint8_t lun) {
 
     // All block of uf2 file is complete --> complete DFU process
     if (_wr_state.numWritten >= _wr_state.numBlocks) {
+      // the host still writes the file's directory entry
+      if (complete) {
+        return;
+      }
+      complete = true;
+
       #if DEBUG_SPEED_TEST
       uint32_t const wr_byte = _wr_state.numWritten*256;
       _write_ms = esp_log_timestamp()-_write_ms;
@@ -174,11 +181,7 @@ void tud_msc_write10_complete_cb(uint8_t lun) {
 
       TUF2_LOG1("Writing finished\r\n");
       indicator_set(STATE_WRITING_FINISHED);
-      board_dfu_complete();
-
-      // board_dfu_complete() should not return
-      // getting here is an indicator of error
-      while (1) {}
+      dfu_complete_later();
     }
   }
 }
