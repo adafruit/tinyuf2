@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Tests of the HIL contract's runner. Stubs prove the plumbing only: every probe and USB path here is
-unverified until a real run on the rig (SKILL.md, commissioning)."""
+unverified until a real run on the rig (commissioning.md)."""
 import contextlib
 import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import signal
 import struct
@@ -1386,6 +1387,31 @@ class Images(Tmp):
     b = self.tmp / 'a.bin'
     b.write_bytes(b'\0junk TinyUF2 Bootloader 0.35.0-1-gabc - tinyusb (x)\r\nModel')
     self.assertEqual(ht.embedded_version(b), '0.35.0-1-gabc - tinyusb (x)')
+
+
+class Citations(unittest.TestCase):
+  CONTRACT = SCRIPT.parent.parent
+  CITE = re.compile(r'\b(SKILL|commissioning|bench-history)\.md(?:[,:]\s+([^,;:)\n]+?)\s*[),;:]| ([A-Z][\w/-]*))')
+
+  def unresolved(self, text):
+    """Citations in text whose label is no heading, bold item label or file name of the page they name."""
+    bad = []
+    for m in self.CITE.finditer(text):
+      page, label = f'{m[1]}.md', (m[2] or m[3]).strip()
+      doc = (self.CONTRACT / page).read_text()
+      labels = {h.strip() for h in re.findall(r'(?m)^#{2,}\s+(.+)$', doc)}
+      labels |= {b.strip().rstrip(':,') for b in re.findall(r'(?m)^\s*(?:[-*]|\d+\.)\s+\*\*(.+?)\*\*', doc)}
+      if label not in labels and not ('.' in label and label in doc):
+        bad.append(f'{page}: {label}')
+    return bad
+
+  def test_every_citation_of_a_contract_page_names_a_section_it_has(self):
+    self.assertEqual(self.unresolved('(SKILL.md, Commissioning) (SKILL.md, Commissioning: Port power) (SKILL.md Roster)'),
+                     ['SKILL.md: Commissioning', 'SKILL.md: Commissioning', 'SKILL.md: Roster'])
+    for f in sorted(self.CONTRACT.rglob('*')):
+      if f.suffix in ('.py', '.md'):
+        with self.subTest(f.relative_to(self.CONTRACT)):
+          self.assertEqual(self.unresolved(f.read_text()), [])
 
 
 class Exclusive(unittest.TestCase):
