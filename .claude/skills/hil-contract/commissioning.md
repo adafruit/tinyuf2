@@ -1,6 +1,6 @@
 # Commissioning a TinyUF2 rig board
 
-Part of the HIL contract (`SKILL.md` beside this file); the lead's only.
+Part of the HIL contract (`SKILL.md` beside this file).
 
 Commissioning is the lead's, never `hil-operator`'s or a review's. It runs under a manual hold, except for the re-entry run, which locks itself. Record each result in the board's commissioning note (agentrc `target-debug` project notes), and `uid`, `lock` and `reentry` in the roster. In this order:
 - **Cabling:** cable the USB port TinyUF2 enumerates on (`BOARD_TUD_RHPORT`). It can differ from the one tinyusb examples use: USB OTG1 on imxrt1060_evk; USB USER (CN3) on stm32f303disco; the USB OTG FS Micro-AB connector, not the ST-LINK one, on stm32f411ve_discovery (UM1842). A DFU device "not seen" with no new device in `dmesg` is a cabling problem first. Keep the probe on a hub apart from the target's (SKILL.md Limits).

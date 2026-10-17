@@ -9,13 +9,13 @@ description: The TinyUF2 HIL contract: its roster, selection, build record, batt
 
 ## Hosts/rosters
 
-- The roster is `test/hil/local.json`, the boards on htpc's bench. On a machine without a board, its run fails at `install`, where J-Link finds no probe with that serial, before anything is written: `cleanup.state` is `untouched` and nothing stays held. ci.lan has no TinyUF2 rig yet (a follow-up). htpc is shared with tinyusb's `test/hil/local.json` (its contract's Hosts/rosters): a rig-wide operation there holds both rosters' lock names first, in the sequence tinyusb's Reservation gives.
+- The roster is `test/hil/local.json`, the boards on htpc's bench; `hostname` says whether you are there. Elsewhere a run fails at `install`, where no probe or bridge with the roster's serial is found, before anything is written: `cleanup.state` is `untouched` and nothing stays held. ci.lan has no TinyUF2 rig yet (a follow-up). htpc is shared with tinyusb's `test/hil/local.json` (its contract's Hosts/rosters): a rig-wide operation there holds both rosters' lock names (`hil` Board locks), in the sequence tinyusb's Reservation gives.
 - `TINYUSB_DIR` must name the tinyusb checkout whose `test/hil/helper/hil_lock.py` owns the board locks; every command refuses without it. Set it in the login profile, which headless sessions (chief, `hil-operator`) inherit.
 
 A roster entry is named by its TinyUF2 board (`ports/<port>/boards/<name>`, which also gives the port) and keeps tinyusb's shape (`name`, `uid`, `flasher {name, uid, args}`), so agentrc's `rtt.py`, `pc_sample.py` and `probe_state.py` resolve the probe with `--hil-config test/hil/local.json --board <name>`. A J-Link entry has `args` exactly `-device <name>`; the runner uses SWD at 4000 kHz, so pass the same to those scripts, `--interface swd --speed 4000`. An ST-LINK entry has `flasher.name` `stlink`, `flasher.uid` the ST-LINK's USB serial and `args` exactly `-device <name>`, a name the runner holds limits and a chip identity for (`FLASH_LIMITS`, `STLINK_CHIPS`); STM32CubeProgrammer takes no device name, so every session checks the Device ID and NVM size it prints. An espressif entry has `flasher.name` `esptool`, `flasher.uid` the USB-UART bridge's serial (`/dev/serial/by-id/*_<flasher.uid>-if*`), `flasher.args` exactly `--chip <chip>`, and the top-level `uid` the chip's factory MAC, which is TinyUF2's USB serial. The roster holds the board's hardware only; layouts come from the candidate's source. The `tinyuf2` block holds:
 - the board lock name (`lock`) when tinyusb names the board differently, as `mimxrt1060_evk` for `imxrt1060_evk`; both runners take that one lock, and the helper's `status`, holder records and the report rows' `lock` show it. It defaults to the board name;
 - the commissioned re-entry path (`reentry`);
-- for a board whose TinyUF2 signals no disconnect when it comes up after a reset, the per-port-power hub port its USB is on (`usbPower`: `{"hub": "<hub USB serial>", "port": N}`; the serial, not the bus location, so a replugged hub is still found). J-Link boards only. While `dfu` waits, the runner power-cycles that port, under the board's own lock (a runner's per-port cycle under the board's lock, a limitation of `hil`'s rig-wide rule: what else a port cycle reaches on a given hub is unverified, Limits), once it has sat connected but unaddressed (sysfs state `default`) for 2 s of that wait, at most once per 10 s, and at no other time: it writes the port's sysfs `disable` 1, then 0 a second later, which the kernel runs under the hub's lock, after any enumeration in progress, disconnecting the child before VBUS goes off. Each write and read-back runs in a bounded child; a cycle that fails or is interrupted after the off write still writes 0, and says in `hil.log` whether that restored power. The report lists the cycles (`portCycles`).
+- for a board whose TinyUF2 signals no disconnect when it comes up after a reset, the per-port-power hub port its USB is on (`usbPower`: `{"hub": "<hub USB serial>", "port": N}`; the serial, not the bus location, so a replugged hub is still found). J-Link boards only. While `dfu` waits, the runner power-cycles that port, under the board's own lock (Limits), once it has sat connected but unaddressed (sysfs state `default`) for 2 s of that wait, at most once per 10 s, and at no other time: it writes the port's sysfs `disable` 1, then 0 a second later, which the kernel runs under the hub's lock, after any enumeration in progress, disconnecting the child before VBUS goes off. Each write and read-back runs in a bounded child; a cycle that fails or is interrupted after the off write still writes 0, and says in `hil.log` whether that restored power. The report lists the cycles (`portCycles`).
 
 The battery runs a board only after commissioning sets `reentry` and confirms `uid`; `install` and `restore` work without `reentry`, for commissioning. Only commissioned roster boards can be offered for a run. Adding a board is commissioning, the lead's (`commissioning.md`), never a review-time or dispatch-time action: the runner refuses a build record from a dirty tree, an uncommitted roster entry included.
 
@@ -42,7 +42,7 @@ The build record is this contract's build receipt: build it on the clean, pinned
 python3 .claude/skills/hil-contract/scripts/hil_test.py run -b <board> --build-record cmake-build/hil/<board>.build.json test/hil/local.json
 ```
 
-Before taking the lock, the run checks the automount exclusion rule, and every span it could write (the HEX the flash target loads, inside the install span and the device's flash limits and laid out as the BIN; the BIN's board id), with the install and app spans taken from the candidate's source. Run it in the background; one board takes about 2 minutes, and the run is complete when it exits: its last stdout line is the report JSON (Results). A run that printed `cleanup.holder.inProcess` true never exits (Recovery): do not wait on it. With several boards, one battery per board, one after another.
+Before taking the lock, the run checks the automount exclusion rule, and every span it could write (the HEX the flash target loads, inside the install span and the device's flash limits and laid out as the BIN; the BIN's board id), with the install and app spans taken from the candidate's source. Run it in the background; one board takes about 2 minutes, and the run is complete when it exits, or when it printed `cleanup.holder.inProcess` true and will not (Recovery): its last stdout line is the report JSON (Results). With several boards, one battery per board, one after another.
 
 The battery's steps on one board, all under one lock. The roster's probe serial selects the board (each probe is wired to one target), so no step identifies the chip:
 1. **install:** the record's `tinyuf2-jlink` target runs (`cmake --build <dir> --target tinyuf2-jlink`) under its build dir's lock, once the files it reads hash as recorded and its dry run shows nothing but the flasher; JLinkExe can exit 0 with every command failed, so the transcript must show the record's HEX downloaded (programmed, or skipped as already matching), `O.K.` and the script completed, with no failure line. The files are hashed again after it, and a session of the runner's verifies the BIN at its flash address (`verifybin`), then resets. The board is touched from the target's start; only a transcript that ends at "Connecting to J-Link ...FAILED", before any target connect, leaves it untouched.
@@ -69,7 +69,7 @@ On an esptool board, each esptool connection is a child of the runner (`esp_sess
 
 ## Reservation
 
-Locks are taken through tinyusb's helper, `$TINYUSB_DIR/test/hil/helper/hil_lock.py`. A board's lock is `<lock>`: its roster `tinyuf2.lock`, else the board name. It is tinyusb's name for the board, so TinyUF2 and tinyusb runs exclude each other; the helper's `hold` and `release` take it and `status` (no board argument) shows it, while `hil_test.py -b` and the probe scripts take the board name.
+Locks are taken through tinyusb's helper, `$TINYUSB_DIR/test/hil/helper/hil_lock.py`, under the board's `<lock>` (Hosts/rosters): `hold` and `release` take it and `status` (no board argument) shows it, while `hil_test.py -b` and the probe scripts take the board name.
 - **The battery locks itself,** as `hil_test.py`, which tinyusb's `release` refuses to kill.
 - **The lock fails closed.** An unusable lock dir refuses the run (exit 2); it never runs unlocked. `HIL_NO_BOARD_LOCK=1` is the bypass (`hil` Board locks); the report then says `lockBypassed: true`.
 - **Manual sessions** (hw-debugger, hw-validator):
@@ -86,13 +86,13 @@ Locks are taken through tinyusb's helper, `$TINYUSB_DIR/test/hil/helper/hil_lock
 
   Manual exits: 0 the operation succeeded (for `install`, DFU came up; for `restore`, DFU left after the blinky copy and stayed away); 1 it failed before writing; 2 refused before any hardware access; 4 a child survived SIGKILL, or an `install` or `restore` failed after it began writing: keep the hold.
 
-  On a refused hold, report the holder from `python3 $TINYUSB_DIR/test/hil/helper/hil_lock.py status` (no board argument; it prints every holder). A holder whose record has `role: cleanup-holder` is a recovery blocker (Recovery, exit 4). Any other `hil_test.py` holder is a battery run; wait for it within the lock-wait budget.
+  On a refused hold, `python3 $TINYUSB_DIR/test/hil/helper/hil_lock.py status` (no board argument; it prints every holder) gives the holder to report. A `role: cleanup-holder` holder is this contract's exit 4 (Recovery); any other `hil_test.py` holder is a battery run (`hil` Board locks: wait within the budget).
 - **Cleanup state** for a hw-validator or hw-debugger dispatch: `restore --under-hold` leaves the board on the record's TinyUF2 with `apps/blinky` copied through it, and its `cleanup.evidence` (DFU left after the copy and stayed away) is the observation that Cleanup records. Blinky running is not checked. Whoever uses the board next flashes it first; tinyusb's HIL does.
-- **Lock-wait budget:** htpc has no CI runner, so it is the dev-bench row of chief's budget, 2 min, unless the dispatch names another.
+- **Lock-wait budget:** htpc has no CI runner, so it is the dev-bench row of chief's budget unless the dispatch names another.
 
 ## Results
 
-The last stdout line is JSON, also written to its `reportPath`; read that path, never an older report. Its fields:
+The last stdout line is JSON, also written to its `reportPath`. Its fields:
 - `pass`, `caveat`;
 - per board: `ran`, `pass`, `locked`, `lockBypassed`, `firmware` (path, sha256, version, build record), `steps[]` (`step`, `pass`, `evidence`, `detail`), `cleanup` (`pass`, `state`, `evidence`, `heldAfter`, `holder`, `survivors`), `jlinkRetried` (J-Link boards only: sessions run again after a crash before the target connect; Limits), and `detail`;
 - `error` on a refusal or an operation failure.
@@ -106,10 +106,10 @@ The last stdout line is JSON, also written to its `reportPath`; read that path, 
 
 A delegated run (`hil-operator`) returns `{pass, results, caveat, wedged}` and, beside them, `reportPaths`:
 - `reportPaths` maps each board to its JSON's `reportPath`, which a recovery dispatch needs.
-- With several boards, the operator runs one battery per board, one after another: `results` holds every board's row, `pass` is true only when every run's is, and `caveat` joins the runs' non-empty caveats.
+- Across several boards (Execution: one battery per board), `results` holds every board's row, `pass` is true only when every run's is, and `caveat` joins the runs' non-empty caveats.
 - A launched run that ended without printing its JSON (killed, crashed) may have programmed the board and left it running a candidate. The operator writes `pass: false`, `caveat: "run ended without a report; board state unknown"` and one row per board, exactly `{board, ran: null, pass: false, locked: false, detail}`, with `detail` naming the exit status, the output tail and `python3 $TINYUSB_DIR/test/hil/helper/hil_lock.py status` at that moment.
-- The operator runs the battery once and returns. It never waits on a lock and never retries: a `locked` row comes back as is.
-- A recovery dispatch names the board, the holder pid and the failed run's `reportPath`. It runs `restore --recover-holder` in the foreground and returns `{pass, results, caveat: "", wedged, exit, error, survivors}`: that JSON's `results`, `error` (`null` when absent) and `survivors` (`[]` when absent), and the exit status. Any exit but 0 is a blocker for the caller. A probe that cannot connect is `needs-user` (the board's recovery note, Recovery).
+- The operator runs the battery once and returns. It never waits on a lock and never retries: a `locked` row comes back as is, and its caller retries under `hil`'s Caller rules, marking a flaky pass `flaky: true`.
+- A recovery dispatch runs the `restore` Recovery names for the state (`--recover-holder` for a cleanup holder, `--under-hold` after a run with no report) in the foreground and returns `{pass, results, caveat: "", wedged, exit, error, survivors}`: that JSON's `results`, `error` (`null` when absent) and `survivors` (`[]` when absent), and the exit status. Any exit but 0 is a blocker for the caller. A probe that cannot connect is `needs-user` (the board's recovery note, Recovery).
 
 ### Verdicts
 
@@ -121,13 +121,9 @@ Each board's row maps onto the `hil` verdicts, except a commissioning run's (`co
 
 `testedHead` is the build record's `input.head`. `regression` is `unknown` unless the battery also ran on the merge base.
 
-### Retries
-
-The caller retries, under `hil`'s Caller rules: `heldAfter` counts as held, and a flaky pass carries `flaky: true`.
-
 ## Recovery
 
-- A board whose run ended without a report gets a manual `restore --under-hold` before its next run, and only once no such process is left on the host. Killing the runner frees its lock but not its children, which `restore` cannot see, and nothing ties a surviving child to the run that died, so the check is host-wide: any other battery, holder or J-Link session also keeps the blocker. Run this as a command of its own, since a shell line carrying the plain name would match itself; none is left when it prints nothing:
+- A board whose run ended without a report gets a manual `restore --under-hold` (a recovery dispatch carrying the board and a record, as for exit 4) before its next run, and only once no such process is left on the host. Killing the runner frees its lock but not its children, which `restore` cannot see, and nothing ties a surviving child to the run that died, so the check is host-wide: any other battery, holder or J-Link session also keeps the blocker. Run this as a command of its own, since a shell line carrying the plain name would match itself; none is left when it prints nothing:
 
   `pgrep -ax JLinkExe; pgrep -ax mcopy; pgrep -af '[h]il_test\.py'; pgrep -af '[e]sp_session\.py'; pgrep -af '[u]sb_dfu\.py'`
 
@@ -138,9 +134,8 @@ Exit 4, a cleanup holder:
 - The board stays held by a detached holder forked from the run: reason `hil_test.py`, `role: cleanup-holder`, with its pid in `cleanup.holder`. It ignores SIGTERM and SIGINT, so a timeout kill cannot free the board; only recovery releases it.
 - If no holder could be forked, `cleanup.holder.inProcess` is set and the runner itself is the holder: it prints the report, closes its stdio and does not exit until recovered, so no completion notice arrives. When a run's notice is overdue, read the task's output: a final JSON line with `cleanup.holder.inProcess` true is this case. Do not wait for its exit.
 - `cleanup.survivors` lists children that outlived SIGKILL (a J-Link, mtools or FAT read stuck on the device), and a flash container that outlived `docker rm -f` (`{"container": "tinyuf2-hil-<board>"}`); recovery refuses while any of them is still alive. A runner killed outright leaves its container to run out; the next install refuses while `docker ps -a` lists it. Each child runs in a session of its own and the kill reaches the whole session, so a JLinkExe that ninja runs in a process group of its own under the flash target is killed and reported too.
-- The holder's record carries `role: cleanup-holder`, which agents treat as a recovery blocker under `hil`, never a run to wait on (tinyusb's `hil_lock.py` still says to wait for it); the board is out of service until recovered.
-- Do not release it by hand, and do not treat it as safe because tinyusb reflashes. The holder may stand for a stuck J-Link or mtools process.
-- Recovery is a separate `hil-operator` dispatch under `hil`'s Board locks scope: the board, its holder pid and the release. After process, probe and host readiness are established, it runs:
+- The holder may stand for a stuck J-Link or mtools process; tinyusb's reflash does not make the board safe, and it is out of service until recovered.
+- Recovery is a separate `hil-operator` dispatch under `hil`'s Board locks scope, carrying the board, its holder pid, the failed run's `reportPath` and the release. After process, probe and host readiness are established, it runs:
 
     `python3 .claude/skills/hil-contract/scripts/hil_test.py restore -b <board> --build-record <record> --recover-holder <pid> --report <reportPath> test/hil/local.json`
 
@@ -150,6 +145,8 @@ Exit 4, a cleanup holder:
 ## Limits
 
 - Covered: imxrt1060_evk, metro_m7_1011, stm32f303disco, stm32f411ve_discovery, stm32h563_nucleo, espressif_esp32s3_devkitc_1 and espressif_p4_function_ev on htpc. Not covered: ports without source facts in the runner, lpc55 among them (no battery, `install` or `restore` for lpcxpresso55s69), espressif chips other than the ESP32-S3 and ESP32-P4, self-update, an interrupted update, malformed UF2 input and the physical double tap.
+- The `usbPower` port cycle (Hosts/rosters) runs under the board's own lock, a limitation of `hil`'s rig-wide rule, not an exemption: what else a cycle of one port reaches on a given hub is unverified. Known so far: hub 5-2 has ganged power, and its own port cycle during one board's enumeration errors reset a neighbour (stm32h563_nucleo, below); a device hung mid-write stalled a J-Link connect on the same hub (below).
+- tinyusb's `hil_lock.py` tells a refused holder to wait for a `role: cleanup-holder` holder; under `hil` it is a recovery blocker (Recovery).
 - esptool boards: the runner needs esptool 5.2.0 and pyusb with libusb-1.0 for its own Python. Re-entry by DFU_DETACH is the only method built; the GPIO0 detection window is not. The bridge's UART carries every esptool session. A helper that survives SIGKILL is handled like a stuck J-Link, but no way to wedge one on the board was found, so that path is unit-tested only. At the end of a UF2 copy TinyUF2 restarts while the host's usb-storage is still talking to it: the host log shows a reset of that device and read errors on its block device. Seen on the S3 and the P4; other ports are unchecked. On the P4, while an esptool session holds the chip, the host log shows a full-speed device on TinyUF2's USB path that never answers its descriptor request (htpc 2026-10-14); the battery passed with it.
 - Every probe and USB path is unverified until commissioning has run on the board, and commissioning is manual.
 - cmake builds pass `TUF2_LOG=0` unless `LOG` is set, as make does, so the HIL image does not log on the board UART.
