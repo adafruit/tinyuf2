@@ -133,11 +133,12 @@ class Roster(Tmp):
     helper = self.tmp / 'hil_lock.py'
     helper.write_text('')
     pin, other = 'a' * 40, 'b' * 40
-    cases = {'off its pin': (other, [], f'lib/agentrc is at {other}; HEAD pins {pin}: git submodule update'),
-             'dirty at its pin': (pin, ['lib/agentrc'], f'lib/agentrc checkout is dirty at the pinned {pin}'),
-             'clean at its pin': (pin, [], None)}
-    for what, (have, dirty, refusal) in cases.items():
-      pinned = {('rev-parse', 'HEAD:lib/agentrc'): pin + '\n'}
+    cases = {'off its pin': (other, pin, [], f'lib/agentrc is at {other}; HEAD pins {pin}: git submodule update'),
+             'off its pin with the pin change staged': (other, other, [], f'but {other} is staged: commit or unstage'),
+             'dirty at its pin': (pin, pin, ['lib/agentrc'], f'lib/agentrc checkout is dirty at the pinned {pin}'),
+             'clean at its pin': (pin, pin, [], None)}
+    for what, (have, staged, dirty, refusal) in cases.items():
+      pinned = {('rev-parse', 'HEAD:lib/agentrc'): pin + '\n', ('rev-parse', ':lib/agentrc'): staged + '\n'}
       checked_out = {('lib/agentrc', 'rev-parse', 'HEAD'): have + '\n'}
       with self.subTest(what), mock.patch.object(ht, 'LOCK_HELPER', helper), \
            mock.patch.object(ht.cb, 'own_checkout', lambda p: p == 'lib/agentrc'), \
@@ -149,6 +150,42 @@ class Roster(Tmp):
             ht.check_lock_pin()
         else:
           ht.check_lock_pin()
+
+  def test_a_git_failure_reading_the_pin_is_refused(self):
+    helper = self.tmp / 'hil_lock.py'
+    helper.write_text('')
+    pin, other = 'a' * 40, 'b' * 40
+
+    def fail(*a):
+      raise ht.cb.Fail('git failed')
+
+    def git_staged_fails(*a):
+      return fail() if a == ('rev-parse', ':lib/agentrc') else pin + '\n'
+
+    cases = {'git': (fail, lambda *a: pin + '\n', lambda p: []),
+             'git_in': (lambda *a: pin + '\n', fail, lambda p: []),
+             'git reading the staged pin': (git_staged_fails, lambda *a: other + '\n', lambda p: []),
+             'dirty_inputs': (lambda *a: pin + '\n', lambda *a: pin + '\n', fail)}
+    for what, (git, git_in, dirty_inputs) in cases.items():
+      with self.subTest(what), mock.patch.object(ht, 'LOCK_HELPER', helper), \
+           mock.patch.object(ht.cb, 'own_checkout', lambda p: True), mock.patch.object(ht.cb, 'git', git), \
+           mock.patch.object(ht.cb, 'git_in', git_in), mock.patch.object(ht.cb, 'dirty_inputs', dirty_inputs), \
+           self.assertRaisesRegex(ht.Refused, 'git failed'):
+        ht.check_lock_pin()
+
+  def test_this_checkout_passes_the_real_pin_check(self):
+    if not ht.LOCK_HELPER.is_file():
+      self.fail('lib/agentrc not checked out: git submodule update --init lib/agentrc')
+    # a git hook exports these, which would point git -C lib/agentrc at the superproject
+    env = {k: v for k, v in os.environ.items() if k not in ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE')}
+    self.enterContext(mock.patch.dict(os.environ, env, clear=True))
+    want = ht.cb.git('rev-parse', 'HEAD:lib/agentrc')
+    # a commit bumping the pin runs this hook with the new pin staged over HEAD's and checked out
+    if ht.cb.git('rev-parse', ':lib/agentrc') != want != ht.cb.git_in('lib/agentrc', 'rev-parse', 'HEAD'):
+      with self.assertRaisesRegex(ht.Refused, 'is staged: commit or unstage'):
+        ht.check_lock_pin()
+    else:
+      ht.check_lock_pin()
 
   def test_the_pinned_lock_helper_checks_its_pin_and_passes_the_contract(self):
     with mock.patch.object(ht, 'check_lock_pin') as pin:
@@ -164,7 +201,9 @@ class Roster(Tmp):
     text = ht.LOCK_HELPER.read_text()
     for what, old, new in (('cleanup role', "CLEANUP_ROLE = 'cleanup-holder'", "CLEANUP_ROLE = 'other'"),
                            ('protected reasons', "{CI_REASON, 'pool_check'}", '{CI_REASON}'),
-                           ('LockUnavailable not a RuntimeError', 'class LockUnavailable(RuntimeError)', 'class LockUnavailable(OSError)')):
+                           ('LockUnavailable not a RuntimeError', 'class LockUnavailable(RuntimeError)', 'class LockUnavailable(OSError)'),
+                           ('LockUnavailable not a class', 'class LockUnavailable(RuntimeError):',
+                            'LockUnavailable = 1\nclass _LockUnavailable(RuntimeError):')):
       self.assertIn(old, text)
       off = self.tmp / 'off.py'
       off.write_text(text.replace(old, new))
@@ -2654,6 +2693,20 @@ class Main(Tmp):
     r = json.loads(out.getvalue().splitlines()[-1])
     self.assertEqual((code, r['pass'], r['results'][0]['ran']), (2, False, False))
     self.assertTrue(Path(r['reportPath']).is_file())
+
+  def test_a_lock_pin_refusal_stops_a_run_before_its_record_and_battery(self):
+    cfg = roster(self.tmp)
+    admit, battery = mock.Mock(), mock.Mock()
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out), mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp), \
+         mock.patch.object(ht, 'check_lock_pin', side_effect=ht.Refused('lib/agentrc is at b; HEAD pins a')), \
+         mock.patch.object(ht, 'admit_record', admit), mock.patch.object(ht.Battery, 'run', battery):
+      code = ht.main(['run', '-b', BOARD, '--build-record', 'r.json', str(cfg)])
+    rows = json.loads(out.getvalue().splitlines()[-1])['results']
+    self.assertEqual((code, [{k: r[k] for k in ('ran', 'pass', 'locked')} for r in rows]),
+                     (2, [{'ran': False, 'pass': False, 'locked': False}]))
+    admit.assert_not_called()
+    battery.assert_not_called()
 
 
 H563 = {'port': 'stm32h5', 'name': 'stm32h563_nucleo', 'device': 'stm32h563zi', 'flasher': 'stlink'}

@@ -1249,6 +1249,14 @@ def check_lock_pin():
   except cb.Fail as e:
     raise Refused(f'cannot read the {AGENTRC} pin: {e}')
   if have != want:
+    # submodule update checks out the index's gitlink, so a staged pin change would defeat the hint
+    try:
+      staged = cb.git('rev-parse', f':{AGENTRC}').strip()
+    except cb.Fail as e:
+      raise Refused(f'cannot read the staged {AGENTRC} pin: {e}')
+    if staged != want:
+      raise Refused(f'{AGENTRC} is at {have}; HEAD pins {want} but {staged} is staged: commit or unstage that '
+                    f'{AGENTRC} pin change')
     raise Refused(f'{AGENTRC} is at {have}; HEAD pins {want}: {init}')
   try:
     dirty = cb.dirty_inputs([AGENTRC])
@@ -1269,9 +1277,9 @@ def load_helper():
     spec.loader.exec_module(mod)
   except Exception as e:
     raise Refused(f'lock helper {path} failed to load: {e}')
+  lu = getattr(mod, 'LockUnavailable', None)
   if set(getattr(mod, 'PROTECTED_REASONS', ())) != PROTECTED or getattr(mod, 'CI_REASON', None) != 'hil_test.py' or \
-     getattr(mod, 'CLEANUP_ROLE', None) != HOLDER_ROLE or \
-     not issubclass(getattr(mod, 'LockUnavailable', type), RuntimeError):
+     getattr(mod, 'CLEANUP_ROLE', None) != HOLDER_ROLE or not (isinstance(lu, type) and issubclass(lu, RuntimeError)):
     raise Refused(f'lock helper {path}: protected reasons are not {sorted(PROTECTED)}, its cleanup role is not '
                   f'{HOLDER_ROLE!r} or it has no LockUnavailable; recheck this contract')
   return mod
