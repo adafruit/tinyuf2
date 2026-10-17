@@ -78,8 +78,8 @@ CORE = ('src/', 'lib/', 'ports/family_support.cmake', 'CMakeLists.txt', 'cmake/'
 # make files every Makefile port includes: read by the make ports' builds and CodeQL's
 MAKE_SHARED = ('ports/make.mk', 'ports/rules.mk')
 CONTRACT_TESTS = ('.claude/test/test_build', '.claude/test/test_hil')
-# the HIL contract's runner and rosters: a change there re-runs the battery on every roster board
-HIL_CONTROL = ('.claude/skills/hil-contract/scripts/', 'test/hil/')
+# the HIL contract's runner, its lock helper's pin and rosters: a change there re-runs the battery on every roster board
+HIL_CONTROL = ('.claude/skills/hil-contract/scripts/', 'test/hil/', 'lib/agentrc')
 # hil_test.py imports these: the identity, artifacts and build dirs the battery trusts
 HIL_IMPORTS = '.claude/skills/build/scripts/'
 BUILD_CONTROL = (HIL_IMPORTS, '.github/workflows/build.yml',

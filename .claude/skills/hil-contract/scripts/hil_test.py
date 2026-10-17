@@ -54,7 +54,10 @@ STEPS['stlink'] = STEPS['jlink']
 STEPS['esptool'] = STEPS['jlink'] + ('recopy',)
 REENTRY = {'jlink': ('retained-register',), 'stlink': ('retained-register',), 'esptool': ('dfu-detach',)}
 REENTRY_METHODS = sorted({m for v in REENTRY.values() for m in v})
-PROTECTED = {'hil_test.py', 'pool_check'}   # tinyusb hil_lock.PROTECTED_REASONS, checked at load
+PROTECTED = {'hil_test.py', 'pool_check'}   # hil_lock.PROTECTED_REASONS, checked at load
+# the board-lock helper is the submodule's at its pinned commit, never an operator's installed agentrc
+AGENTRC = 'lib/agentrc'
+LOCK_HELPER = ROOT / AGENTRC / 'skills' / 'hil' / 'scripts' / 'hil_lock.py'
 HOLDER_ROLE = 'cleanup-holder'
 SCB_VTOR, SCB_AIRCR = 0xE000ED08, 0xE000ED0C
 AIRCR_SYSRESETREQ = 0x05FA0004
@@ -124,10 +127,6 @@ def load_board(config, name):
   if len(boards) != 1:
     raise Refused(f'{config} has {len(boards)} entries named {name!r}')
   b = boards[0]
-  tinyusb = os.environ.get('TINYUSB_DIR')
-  if not (tinyusb and os.path.isabs(tinyusb)):
-    raise Refused('set TINYUSB_DIR to the absolute path of the tinyusb checkout whose test/hil/helper/hil_lock.py '
-                  'owns the board locks')
   fl, t = b.get('flasher') or {}, b.get('tinyuf2') or {}
   m = re.fullmatch(cb.FLASHER_ARGS.get(fl.get('name'), r'(?!)'), fl.get('args') or '')
   if not isinstance(fl.get('uid'), str) or not m:
@@ -158,7 +157,6 @@ def load_board(config, name):
       raise Refused(f'{name}: tinyuf2.usbPower is for J-Link boards only')
   return {'name': name, 'lock': lock, 'uid': b['uid'], 'flasher': fl['name'], 'probe': fl['uid'], 'device': m.group(1),
           'if': JLINK_IF, 'speed': JLINK_SPEED, 'port': port,
-          'helper': os.path.join(tinyusb, 'test', 'hil', 'helper', 'hil_lock.py'),
           'reentry': t.get('reentry'), 'usbPower': power}
 
 
@@ -1240,17 +1238,42 @@ def fat_read_main(args):
 
 # ------------------------------------------------------------------ locks
 
-def load_helper(path):
-  spec = importlib.util.spec_from_file_location('tinyusb_hil_lock', path)
-  if not spec or not Path(path).is_file():
+def check_lock_pin():
+  """Refuse unless lib/agentrc is checked out, clean, at the commit HEAD pins."""
+  init = f'git submodule update --init {AGENTRC}'
+  if not LOCK_HELPER.is_file() or not cb.own_checkout(AGENTRC):
+    raise Refused(f'lock helper {LOCK_HELPER} is not checked out: {init}')
+  try:
+    want = cb.git('rev-parse', f'HEAD:{AGENTRC}').strip()
+    have = cb.git_in(AGENTRC, 'rev-parse', 'HEAD').strip()
+  except cb.Fail as e:
+    raise Refused(f'cannot read the {AGENTRC} pin: {e}')
+  if have != want:
+    raise Refused(f'{AGENTRC} is at {have}; HEAD pins {want}: {init}')
+  try:
+    dirty = cb.dirty_inputs([AGENTRC])
+  except cb.Fail as e:
+    raise Refused(f'cannot read the {AGENTRC} checkout state: {e}')
+  if dirty:
+    raise Refused(f'{AGENTRC} checkout is dirty at the pinned {want}: discard its local changes')
+
+
+def load_helper():
+  check_lock_pin()
+  path = LOCK_HELPER
+  spec = importlib.util.spec_from_file_location('hil_lock', path)
+  if not spec or not path.is_file():
     raise Refused(f'lock helper {path} not found')
   mod = importlib.util.module_from_spec(spec)
   try:
     spec.loader.exec_module(mod)
   except Exception as e:
     raise Refused(f'lock helper {path} failed to load: {e}')
-  if set(getattr(mod, 'PROTECTED_REASONS', ())) != PROTECTED or getattr(mod, 'CI_REASON', None) != 'hil_test.py':
-    raise Refused(f'lock helper {path}: protected reasons are not {sorted(PROTECTED)}; recheck this contract')
+  if set(getattr(mod, 'PROTECTED_REASONS', ())) != PROTECTED or getattr(mod, 'CI_REASON', None) != 'hil_test.py' or \
+     getattr(mod, 'CLEANUP_ROLE', None) != HOLDER_ROLE or \
+     not issubclass(getattr(mod, 'LockUnavailable', type), RuntimeError):
+    raise Refused(f'lock helper {path}: protected reasons are not {sorted(PROTECTED)}, its cleanup role is not '
+                  f'{HOLDER_ROLE!r} or it has no LockUnavailable; recheck this contract')
   return mod
 
 
@@ -1309,7 +1332,7 @@ def prove_hold(helper, board, pid, reason=None, role=None):
 
 def recovery_lock(helper, board):
   """An exclusive flock on `<lock file>.recover`, kept until the caller drops it: one recovery per board, so
-  none releases the holder while another is still between its probe sessions. tinyusb's helper lists `*.lock`
+  none releases the holder while another is still between its probe sessions. The lock helper lists `*.lock`
   only, so it never reports this file as a holder."""
   path = helper.lock_path(board) + '.recover'
   try:
@@ -2161,17 +2184,16 @@ def run_board(args, board, facts, helper, workdir):
   files, row['firmware'] = admit_record(args.build_record, board, facts, workdir)
   if board['flasher'] == 'esptool':
     check_pyusb()
-  bypass = os.environ.get('HIL_NO_BOARD_LOCK') == '1'
   # blocked from here until the process exits or becomes the holder (keep_held): a signal acts only
   # inside the battery, and the report and any hold are settled first
   signal.pthread_sigmask(signal.SIG_BLOCK, TERM_SIGNALS)
   try:
     fh = helper.acquire_board_lock(board['lock'])
+  except helper.LockUnavailable as e:
+    raise Refused(f'{board["name"]}: {e}; refusing to run unlocked')
   except RuntimeError as e:
     row.update(locked=True, detail=str(e))
     return deferred(row), 1
-  if fh is None and not bypass:
-    raise Refused(f'{board["name"]}: the lock dir is unusable (tinyusb helper fails open); refusing to run unlocked')
   row['lockBypassed'] = fh is None
   bat = BATTERIES[board['flasher']](board, facts, workdir, args.fail_at, row.get('commissioning', False))
   code = 0
@@ -2275,7 +2297,7 @@ def main(argv=None):
     board = load_board(args.config, args.board)
     facts = source_facts(board)
     apply_layout(board, facts)
-    helper = load_helper(board['helper'])
+    helper = load_helper()
     if args.cmd == 'run':
       row, code = run_board(args, board, facts, helper, run_dir)
       result['results'].append(row)
