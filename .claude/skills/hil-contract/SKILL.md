@@ -68,7 +68,7 @@ On an esptool board, each esptool connection is a child of the runner (`esp_sess
 
 ## Reservation
 
-Locks are taken through agentrc's `hil` helper, `lib/agentrc/skills/hil/scripts/hil_lock.py`, at the commit the `lib/agentrc` submodule pins (`git submodule update --init lib/agentrc`), never an installed agentrc's copy. `hil_test.py`'s commands refuse before any hardware access while the submodule is missing, checked out at another commit or locally modified; the manual `hold`, `release` and `status` below run the helper directly, with no such check. The lock is the board's `<lock>` (Hosts/rosters): `hold` and `release` take it and `status` (no board argument) shows it, while `hil_test.py -b` and the probe scripts take the board name.
+Locks are taken through agentrc's `hil` helper, `lib/agentrc/skills/hil/scripts/hil_lock.py`, at the commit the `lib/agentrc` submodule pins (`git submodule update --init lib/agentrc`), never an installed agentrc's copy. `hil_test.py`'s `run`, `install` and `restore` refuse before any hardware access while the submodule is missing, checked out at another commit or locally modified; the manual `hold`, `release` and `status` below run the helper directly, with no such check. The lock is the board's `<lock>` (Hosts/rosters): `hold` and `release` take it and `status` (no board argument) shows it, while `hil_test.py -b` and the probe scripts take the board name.
 - **The battery locks itself,** as `hil_test.py`, which the helper's `release` refuses to kill.
 - **The lock fails closed.** An unusable lock dir refuses the run (exit 2); it never runs unlocked. `HIL_NO_BOARD_LOCK=1` is the bypass (`hil` Board locks); the report then says `lockBypassed: true`.
 - **Manual sessions** (hw-debugger, hw-validator):
