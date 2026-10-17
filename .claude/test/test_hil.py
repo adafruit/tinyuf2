@@ -191,9 +191,13 @@ class Roster(Tmp):
         return git_in(*a)
 
     self.enterContext(mock.patch.object(ht.cb, 'git_in', git_in_own_index))
-    want = ht.cb.git('rev-parse', 'HEAD:lib/agentrc')
-    # a commit bumping the pin runs this hook with the new pin staged over HEAD's and checked out
-    if ht.cb.git('rev-parse', ':lib/agentrc') != want != ht.cb.git_in('lib/agentrc', 'rev-parse', 'HEAD'):
+    want, staged = (ht.cb.git('rev-parse', ref).strip() for ref in ('HEAD:lib/agentrc', ':lib/agentrc'))
+    if staged != want:
+      # a commit bumping the pin runs this hook with the new pin staged over HEAD's: the other tests load
+      # whatever is checked out, so that must be the staged pin, clean, or they test the wrong helper
+      have = ht.cb.git_in('lib/agentrc', 'rev-parse', 'HEAD').strip()
+      self.assertEqual((have, ht.cb.dirty_inputs(['lib/agentrc'])), (staged, []),
+                       f'lib/agentrc is not checked out clean at the staged pin {staged}: git submodule update --init lib/agentrc')
       with self.assertRaisesRegex(ht.Refused, 'is staged: commit or unstage'):
         ht.check_lock_pin()
     else:

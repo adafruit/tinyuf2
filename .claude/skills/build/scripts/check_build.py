@@ -636,7 +636,7 @@ def run(cmd, log, verbose, cwd=ROOT):
 
 def check_deps(port):
   """Remedy for a missing submodule or family dependency, None when all are present."""
-  missing = [s for s in ('lib/tinyusb', 'lib/uf2') if not (ROOT / s).is_dir() or not any((ROOT / s).iterdir())]
+  missing = [s for s in ('lib/tinyusb', 'lib/uf2', 'lib/agentrc') if not (ROOT / s).is_dir() or not any((ROOT / s).iterdir())]
   if missing:
     return f'empty submodule {", ".join(missing)}: git submodule update --init {" ".join(missing)}'
   for dep, families in deps_rows().items():
