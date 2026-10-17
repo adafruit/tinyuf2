@@ -177,8 +177,19 @@ class Roster(Tmp):
     if not ht.LOCK_HELPER.is_file():
       self.fail('lib/agentrc not checked out: git submodule update --init lib/agentrc')
     # a git hook exports these, which would point git -C lib/agentrc at the superproject
-    env = {k: v for k, v in os.environ.items() if k not in ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE')}
+    env = {k: v for k, v in os.environ.items() if k not in ('GIT_DIR', 'GIT_WORK_TREE')}
+    if 'GIT_INDEX_FILE' in env:
+      # commit -a and commit <path> run the hook on a temporary index that holds the pin being committed
+      env['GIT_INDEX_FILE'] = str(ht.ROOT / env['GIT_INDEX_FILE'])
     self.enterContext(mock.patch.dict(os.environ, env, clear=True))
+    git_in = ht.cb.git_in
+
+    def git_in_own_index(*a):
+      with mock.patch.dict(os.environ):
+        os.environ.pop('GIT_INDEX_FILE', None)
+        return git_in(*a)
+
+    self.enterContext(mock.patch.object(ht.cb, 'git_in', git_in_own_index))
     want = ht.cb.git('rev-parse', 'HEAD:lib/agentrc')
     # a commit bumping the pin runs this hook with the new pin staged over HEAD's and checked out
     if ht.cb.git('rev-parse', ':lib/agentrc') != want != ht.cb.git_in('lib/agentrc', 'rev-parse', 'HEAD'):
@@ -203,7 +214,11 @@ class Roster(Tmp):
                            ('protected reasons', "{CI_REASON, 'pool_check'}", '{CI_REASON}'),
                            ('LockUnavailable not a RuntimeError', 'class LockUnavailable(RuntimeError)', 'class LockUnavailable(OSError)'),
                            ('LockUnavailable not a class', 'class LockUnavailable(RuntimeError):',
-                            'LockUnavailable = 1\nclass _LockUnavailable(RuntimeError):')):
+                            'LockUnavailable = 1\nclass _LockUnavailable(RuntimeError):'),
+                           ('protected reasons not iterable', "PROTECTED_REASONS = {CI_REASON, 'pool_check'}",
+                            'PROTECTED_REASONS = 1'),
+                           ('protected reasons unhashable', "PROTECTED_REASONS = {CI_REASON, 'pool_check'}",
+                            'PROTECTED_REASONS = [[CI_REASON]]')):
       self.assertIn(old, text)
       off = self.tmp / 'off.py'
       off.write_text(text.replace(old, new))
@@ -2697,14 +2712,16 @@ class Main(Tmp):
   def test_a_lock_pin_refusal_stops_a_run_before_its_record_and_battery(self):
     cfg = roster(self.tmp)
     admit, battery = mock.Mock(), mock.Mock()
+    pin = mock.Mock(side_effect=ht.Refused('lib/agentrc is at b; HEAD pins a'))
     out = io.StringIO()
     with contextlib.redirect_stdout(out), mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp), \
-         mock.patch.object(ht, 'check_lock_pin', side_effect=ht.Refused('lib/agentrc is at b; HEAD pins a')), \
+         mock.patch.object(ht, 'check_lock_pin', pin), \
          mock.patch.object(ht, 'admit_record', admit), mock.patch.object(ht.Battery, 'run', battery):
       code = ht.main(['run', '-b', BOARD, '--build-record', 'r.json', str(cfg)])
-    rows = json.loads(out.getvalue().splitlines()[-1])['results']
-    self.assertEqual((code, [{k: r[k] for k in ('ran', 'pass', 'locked')} for r in rows]),
-                     (2, [{'ran': False, 'pass': False, 'locked': False}]))
+    res = json.loads(out.getvalue().splitlines()[-1])
+    self.assertEqual((code, res['error'], [{k: r[k] for k in ('ran', 'pass', 'locked')} for r in res['results']]),
+                     (2, 'lib/agentrc is at b; HEAD pins a', [{'ran': False, 'pass': False, 'locked': False}]))
+    pin.assert_called_once_with()
     admit.assert_not_called()
     battery.assert_not_called()
 

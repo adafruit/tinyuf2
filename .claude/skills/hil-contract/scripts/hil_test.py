@@ -1278,10 +1278,11 @@ def load_helper():
   except Exception as e:
     raise Refused(f'lock helper {path} failed to load: {e}')
   lu = getattr(mod, 'LockUnavailable', None)
-  if set(getattr(mod, 'PROTECTED_REASONS', ())) != PROTECTED or getattr(mod, 'CI_REASON', None) != 'hil_test.py' or \
+  if getattr(mod, 'PROTECTED_REASONS', None) != PROTECTED or getattr(mod, 'CI_REASON', None) != 'hil_test.py' or \
      getattr(mod, 'CLEANUP_ROLE', None) != HOLDER_ROLE or not (isinstance(lu, type) and issubclass(lu, RuntimeError)):
-    raise Refused(f'lock helper {path}: protected reasons are not {sorted(PROTECTED)}, its cleanup role is not '
-                  f'{HOLDER_ROLE!r} or it has no LockUnavailable; recheck this contract')
+    raise Refused(f'lock helper {path}: protected reasons are not {sorted(PROTECTED)}, its CI reason is not '
+                  f"'hil_test.py', its cleanup role is not {HOLDER_ROLE!r} or it has no LockUnavailable; "
+                  'recheck this contract')
   return mod
 
 
