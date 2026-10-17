@@ -165,6 +165,12 @@
 | teensy40 | PJRC Teensy 4.0 | 0x239A:0x0085 | https://www.pjrc.com/store/teensy40.html |
 | teensy41 | PJRC Teensy 4.1 | 0x239A:0x00AD | https://www.pjrc.com/store/teensy41.html |
 
+## stm32f1
+
+| Board | Name | VID PID | URL |
+| --- | --- | --- | --- |
+| stm32f103_bluepill | STM32 Blue Pill | 0xCAFE:0xFFFF | https://stm32-base.org/boards/STM32F103C8T6-Blue-Pill |
+
 ## stm32f3
 
 | Board | Name | VID PID | URL |
