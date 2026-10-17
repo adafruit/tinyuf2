@@ -171,9 +171,10 @@ def build_file_kind(name):
   return None
 
 
-def read_by_backend(path, backend):
-  """Whether CI's backend for the port reads this build file: a make port never reads CMake
+def read_by_backend(path, port, backends):
+  """Whether the selected backend for the port reads this build file: a make port never reads CMake
   files, a cmake or idf port never reads Makefiles. Sources and headers are read by both."""
+  backend = backends[port]
   kind = build_file_kind(path.rsplit('/', 1)[-1])
   return kind is None or (kind == 'make') == (backend == 'make')
 
@@ -203,23 +204,23 @@ def cmake_apps(port, board):
   return [name for name, _, boards in cmake_app_calls(port) if boards is None or board in boards]
 
 
-def port_app_selection(port, path):
+def port_app_selection(port, path, backends):
   """Boards that compile a change under ports/<port>/apps/: the app's own enabled boards, or for
   a file shared by the port's apps (app.mk) those of every app that includes it; and CI's scope."""
   parts = path.split('/')
   apps_dir = ports_dir(port) / 'apps'
-  if BACKENDS[port] == 'idf':
+  if backends[port] == 'idf':
     if len(parts) >= 4 and parts[3] not in espressif_apps():
       return None, f'ports/espressif/CMakeLists.txt builds no ExternalProject for apps/{parts[3]}', {}
-    return (rep_selection([port], f'builds {"/".join(parts[2:4])}'), f'{port} {"/".join(parts[2:4])}',
+    return (rep_selection([port], f'builds {"/".join(parts[2:4])}', backends), f'{port} {"/".join(parts[2:4])}',
             whole_ports([port]))
-  if BACKENDS[port] == 'cmake':
+  if backends[port] == 'cmake':
     calls = [c for c in cmake_app_calls(port) if c[1].endswith(f'/apps/{parts[3]}')] if len(parts) >= 5 else []
     if not calls:
       return None, f'ports/{port}/CMakeLists.txt adds no app that reads {path}', {}
     boards, ci = {}, {}
     for name, _, enabled in calls:
-      boards.update(rep_selection([port], f'builds {name}') if enabled is None else
+      boards.update(rep_selection([port], f'builds {name}', backends) if enabled is None else
                     {(b, 'cmake'): f'enables {name}' for b in enabled})
       ci = merge_ci(ci, whole_ports([port]) if enabled is None else {port: enabled})
     return boards, f'{port} apps: {", ".join(sorted(c[0] for c in calls))}', ci
@@ -232,19 +233,19 @@ def port_app_selection(port, path):
   for app in apps:
     enabled = app_boards(app)
     if enabled is None:
-      boards.update(rep_selection([port], f'builds apps/{app.name}'))
+      boards.update(rep_selection([port], f'builds apps/{app.name}', backends))
     for b in enabled or []:
-      boards[(b, BACKENDS[port])] = f'enables apps/{app.name}'
+      boards[(b, backends[port])] = f'enables apps/{app.name}'
     ci = merge_ci(ci, whole_ports([port]) if enabled is None else {port: enabled})
   if not boards:
     return None, f'no {port} board builds an app that reads {path}', {}
   return boards, f'{port} apps: {", ".join(sorted(a.name for a in apps))}', ci
 
 
-def ports_using_app(app):
-  """CI-built ports whose build, in the backend CI uses, compiles sources of the top-level apps/<app>."""
+def ports_using_app(app, backends=BACKENDS):
+  """Selected ports whose backend compiles sources of the top-level apps/<app>."""
   hits = []
-  for port, backend in sorted(BACKENDS.items()):
+  for port, backend in sorted(backends.items()):
     kind = 'make' if backend == 'make' else 'cmake'
     ref = re.compile(rf'(?<![\w/])apps/{app}/\S+\.c\b' if kind == 'make' else rf'\$\{{TOP\}}/apps/{app}\b')
     files = [f for f in ports_dir(port).rglob('*') if f.is_file() and build_file_kind(f.name) == kind]
@@ -283,8 +284,8 @@ def deps_families(path):
   return None
 
 
-def rep_selection(ports, why):
-  return {(b, BACKENDS[p]): why for p in ports for b in REPRESENTATIVES[p]}
+def rep_selection(ports, why, backends=BACKENDS):
+  return {(b, backends[p]): why for p in ports for b in REPRESENTATIVES[p]}
 
 
 # CI's scope of a path: FULL, or {port: None for every board | [boards]}. CI builds every board a
@@ -305,7 +306,7 @@ def merge_ci(a, b):
   return out
 
 
-def classify(path):
+def classify(path, backends=BACKENDS):
   """One path's rule: effect none (nothing to build), gap (uncovered), select or core, the boards
   it selects as {(board, backend): reason}, and whether it adds the ghostfat self-test or the
   contract's own tests."""
@@ -335,42 +336,46 @@ def classify(path):
                {(codeql_board, 'make'): 'codeql build'})
   if path.startswith(f'ports/{GHOSTFAT}/') or path == '.github/workflows/build_ghostfat.yml':
     return out('ghostfat', 'select', 'ghostfat self-test input', ghostfat=True)
-  if len(parts) >= 2 and parts[0] == 'ports' and parts[1] in UNBUILT:
+  if len(parts) >= 2 and parts[0] == 'ports' and parts[1] in UNBUILT and parts[1] not in backends:
     return out('unbuilt-port', 'gap', f'ports/{parts[1]}: {UNBUILT[parts[1]][1]}')
-  if len(parts) >= 3 and parts[0] == 'ports' and parts[1] in BACKENDS:
+  if len(parts) >= 3 and parts[0] == 'ports' and parts[1] in backends:
     port = parts[1]
-    if not read_by_backend(path, BACKENDS[port]):
+    if not read_by_backend(path, port, backends):
       if port == codeql_port and parts[2] != 'apps' and (parts[2] != 'boards' or parts[3:4] == [codeql_board]):
         return out('codeql', 'select', f'CodeQL builds {codeql_board} with make on every pull request',
                    {(codeql_board, 'make'): f'reads {path}'})
-      return out('other-backend', 'gap', f'CI builds {port} with {BACKENDS[port]}, which never reads {parts[-1]}')
+      return out('other-backend', 'gap', f'the selected {backends[port]} backend for {port} never reads {parts[-1]}')
     if parts[2] == 'boards' and len(parts) >= 4 and (ports_dir(port) / 'boards' / parts[3]).is_dir():
       return out('board', 'select', f'board {parts[3]} changed',
-                 {(parts[3], BACKENDS[port]): f'{path} is its own'}, ghostfat, ci={port: [parts[3]]})
+                 {(parts[3], backends[port]): f'{path} is its own'}, ghostfat, ci={port: [parts[3]]})
     if parts[2] == 'apps':
-      boards, reason, ci = port_app_selection(port, path)
+      boards, reason, ci = port_app_selection(port, path, backends)
       return out('port-app', 'select' if boards else 'gap', reason, boards, ci=ci)
-    return out('port', 'select', f'{port} port file', rep_selection([port], f'{port} representative'), ghostfat,
+    return out('port', 'select', f'{port} port file', rep_selection([port], f'{port} representative', backends), ghostfat,
                ci=whole_ports([port]))
   if len(parts) >= 2 and parts[0] == 'ports' and len(parts) >= 3 and (ROOT / 'ports' / parts[1]).is_dir():
     raise Fail(f'ports/{parts[1]} has no backend in check_build.py: add it to BACKENDS or UNBUILT')
   if parts[0] == 'apps' and len(parts) >= 2:
-    users = ports_using_app(parts[1])
+    users = ports_using_app(parts[1], backends)
     if not users:
       return out('app', 'gap', f'no CI-built port builds apps/{parts[1]}')
     return out('app', 'select', f'apps/{parts[1]} is built by {", ".join(users)}',
-               rep_selection(users, f'builds apps/{parts[1]}'), ci=whole_ports(users))
+               rep_selection(users, f'builds apps/{parts[1]}', backends), ci=whole_ports(users))
   if path.startswith(('lib/mcu/', 'lib/sct_neopixel')):
     families = deps_families(path)
     if families is not None:
       if not families:
         return out('dep', 'gap', f'{path}: no CI-built port uses this dependency')
-      return out('dep', 'select', f'dependency of {", ".join(families)}', rep_selection(families, f'uses {path}'),
+      families = [p for p in families if p in backends]
+      if not families:
+        return out('dep', 'gap', f'{path}: no selected backend uses this dependency')
+      return out('dep', 'select', f'dependency of {", ".join(families)}',
+                 rep_selection(families, f'uses {path}', backends),
                  ci=whole_ports(families))
   if path in MAKE_SHARED:
-    make_ports = [p for p, be in BACKENDS.items() if be == 'make']
+    make_ports = [p for p, be in backends.items() if be == 'make']
     return out('make-shared', 'select', 'every make port and the CodeQL build read it',
-               {**rep_selection(make_ports, f'make reads {path}'),
+               {**rep_selection(make_ports, f'make reads {path}', backends),
                 (codeql_board, 'make'): f'codeql build reads {path}'}, ci=whole_ports(make_ports))
   if path.startswith(NOTHING):
     return out('nothing', 'none', 'no firmware build reads this path')
@@ -472,10 +477,10 @@ def moved_inputs(before, after):
   return moved | (set(before['missingInputs']) ^ set(after['missingInputs']))
 
 
-def select(paths):
-  records = [classify(p) for p in paths]
+def select(paths, backends=BACKENDS):
+  records = [classify(p, backends) for p in paths]
   full = any(r['effect'] == 'core' for r in records)
-  boards = rep_selection(sorted(REPRESENTATIVES), 'core: shared by every port') if full else {}
+  boards = rep_selection(sorted(backends), 'core: shared by every port', backends) if full else {}
   for r in records:
     for k, why in r['boards'].items():
       boards.setdefault(k, why)
@@ -520,34 +525,26 @@ def hil_selection(sel, config):
   by_port = {}
   for name in roster:
     by_port.setdefault(port_of(name), []).append(name)
-  def kind(parts):   # the HIL builds with cmake whatever CI uses: its build files decide, not CI's
-    if parts[0] == 'ports' and (len(parts) == 2 or parts[1] in BACKENDS):
-      return build_file_kind(parts[-1])
-    return None
-  records = [(r, parts, kind(parts)) for r in sel['records'] for parts in [r['path'].split('/')]]
-  full = any(r['effect'] == 'core' and k != 'make' for r, _, k in records)
+  # The battery builds each non-IDF port with CMake, regardless of the backend CI uses, and keeps
+  # Espressif on IDF. Reuse the build selector so its board, port and build-file rules cannot drift here.
+  hil_backends = {p: ('idf' if backend == 'idf' else 'cmake') for p, backend in BACKENDS.items()
+                  if (ports_dir(p) / 'CMakeLists.txt').is_file()}
+  hil = select([r['path'] for r in sel['records']], hil_backends)
+  full = hil['full']
   boards, uncovered = set(), {}
   if full:
     boards.update(roster)
-    for p in sorted(set(BACKENDS) - set(by_port)):
+    for p in sorted(set(hil_backends) - set(by_port)):
       uncovered[p] = f'core change: no {config} board for {p}'
-  for r, parts, k in records:
+  for r in hil['records']:
+    parts = r['path'].split('/')
     if r['hil']:
       boards.update(roster)
-    elif k == 'make':
+    elif r['rule'] in ('codeql', 'make-shared'):
       uncovered[r['path']] = f'the HIL builds with cmake, which never reads {r["path"]}'
-    # the battery builds no port app, and a core file reaches every roster board above
-    elif k == 'cmake' and len(parts) >= 3 and r['effect'] != 'core' and parts[2] != 'apps':
-      if parts[2] == 'boards' and len(parts) >= 5:
-        own = [parts[3]] if parts[3] in roster else []
-      else:
-        own = by_port.get(parts[1], [])
-      if own:
-        boards.update(own)
-      else:
-        uncovered[r['path']] = f'no {config} board builds {r["path"]}'
     elif r['effect'] == 'gap':   # firmware no build covers is no HIL board's either
-      uncovered[r['path']] = r['reason']
+      uncovered[r['path']] = (f'the HIL builds with cmake, which never reads {r["path"]}'
+                              if r['rule'] == 'other-backend' else r['reason'])
     elif r['rule'] in ('app', 'port-app'):
       app = parts[1] if r['rule'] == 'app' else parts[3] if len(parts) > 3 else None
       ports = {port_of(b) for b, _ in r['boards']} if r['rule'] == 'app' else {parts[1]}
@@ -565,6 +562,8 @@ def hil_selection(sel, config):
       (b, _), = r['boards']
       if b in roster:
         boards.add(b)
+      elif build_file_kind(parts[-1]) == 'cmake':
+        uncovered[r['path']] = f'no {config} board builds {r["path"]}'
       else:
         uncovered[b] = f'{r["path"]}: {b} is not in {config}'
     else:
@@ -573,7 +572,7 @@ def hil_selection(sel, config):
           boards.update(by_port[p])
         else:
           uncovered[p] = f'{r["path"]}: no {config} board for {p}'
-  return {'config': config, 'full': full or any(r['hil'] for r in sel['records']), 'boards': sorted(boards),
+  return {'config': config, 'full': full or any(r['hil'] for r in hil['records']), 'boards': sorted(boards),
           'uncovered': [{'target': t, 'reason': why} for t, why in sorted(uncovered.items())]}
 
 
