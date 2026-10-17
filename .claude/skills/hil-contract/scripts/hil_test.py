@@ -86,13 +86,14 @@ JLINK_ERRORS = (r'Verify failed|Could not|Cannot connect|ERROR|ResetTarget faile
 UDEV_RULES = ('/etc/udev/rules.d', '/run/udev/rules.d')
 # J-Link notes that are not failures, per device, each with the line that shows the operation completed
 # (bench: every MIMXRT1062 reset with an invalid app vector, then the reset halts as usual; every MIMXRT1011 reset
-# of a TinyUF2 image, which then boots; STM32F303VC: the connect that removes TinyUF2's write protection, SKILL.md
-# Limits)
+# of a TinyUF2 image, which then boots; STM32F303VC: the connect that removes TinyUF2's write protection,
+# bench-history.md, stm32f303vc)
 _RESET_VECTOR_NOTE = r'(?m)^Could not find valid reset vector\.\nTarget halted on flash header read\.$'
 _F3_UNPROTECT_NOTE = (r'(?m)^Active write protection detected\.\nDevice will be unsecured now\.\nFailed to unlock device\.\n'
                       r'Can not attach to CPU\. Trying connect under reset\.$')
 BENIGN = {'MIMXRT1062xxx6A': _RESET_VECTOR_NOTE, 'MIMXRT1011DAE5A': _RESET_VECTOR_NOTE, 'stm32f303vc': _F3_UNPROTECT_NOTE}
-# runner sessions connect as the core: J-Link's stm32f411ve connect resets the chip to unprotect it (SKILL.md Limits)
+# runner sessions connect as the core: J-Link's stm32f411ve connect resets the chip to unprotect it
+# (bench-history.md, stm32f411ve_discovery)
 SESSION_DEVICE = {'stm32f411ve': 'Cortex-M4'}
 # ms the install's verify session waits before its halt after the flash target's unlock, empirical (SKILL.md Limits)
 INSTALL_SETTLE_MS = {'stm32f411ve': 1000}
@@ -1010,8 +1011,8 @@ def port_dir(cfg):
 
 
 class PortPower:
-  """The roster's usbPower (SKILL.md Roster): while DFU is awaited, the hub port's sysfs `disable` is written 1 then 0
-  once the port sat in state "default" for STUCK s of this wait, at most once per GAP s."""
+  """The roster's usbPower (SKILL.md Hosts/rosters): while DFU is awaited, the hub port's sysfs `disable` is written 1
+  then 0 once the port sat in state "default" for STUCK s of this wait, at most once per GAP s."""
   STUCK, GAP, OFF, TIMEOUT = 2.0, 10.0, 1, 15
   RESTORED = {True: 'restored', False: 'NOT restored', None: 'not attempted: a cycle child survived'}
   # each write and its read-back in a bounded child: both take the hub's lock and talk to the hub
@@ -1048,7 +1049,7 @@ class PortPower:
       done = off and on
     finally:
       self.last = time.monotonic()
-      if not done:   # an interruption or failure past the off write must not leave the port without VBUS
+      if not done:   # an interruption or failure from the off write on must not leave the port without VBUS
         restored = self.restore(disable)
         with open(self.log, 'a') as f:
           f.write(f'# power-cycle of {port} failed; power-on {self.RESTORED[restored]}\n')
@@ -1093,7 +1094,7 @@ def stays_away(fn, seconds, what, ev):
 
 
 def exclusion_configured(facts, serial):
-  """A udev rule in exactly SKILL.md's form sets UDISKS_IGNORE=1 on this bootloader's VID, PID and
+  """A udev rule in exactly commissioning.md's form sets UDISKS_IGNORE=1 on this bootloader's VID, PID and
   serial, so desktop automount cannot race the raw I/O: any other predicate could keep it from applying
   when the device appears. Checked before any hardware access; the property on the enumerated device
   (check_exclusive) is the proof."""
@@ -1110,8 +1111,9 @@ def exclusion_configured(facts, serial):
           continue
         if rule == want:
           return str(f)
-  raise Refused(f'no udev rule in SKILL.md\'s form sets ENV{{UDISKS_IGNORE}}="1" on idVendor '
-                f'{want[("ATTRS{idVendor}", "==")]}, idProduct {want[("ATTRS{idProduct}", "==")]} and serial {serial}')
+  raise Refused(f'no udev rule in the required form sets ENV{{UDISKS_IGNORE}}="1" on idVendor '
+                f'{want[("ATTRS{idVendor}", "==")]}, idProduct {want[("ATTRS{idProduct}", "==")]} and serial {serial} '
+                '(commissioning.md: 99-tinyuf2-hil.rules)')
 
 
 def udisks_ignored(dev):
@@ -1126,7 +1128,8 @@ def check_exclusive(dev):
   try:
     wait_for(lambda: udisks_ignored(dev), UDEV_TIMEOUT, f'UDISKS_IGNORE=1 on {dev}')
   except StepFail:
-    raise StepFail(f'{dev} has no UDISKS_IGNORE=1: desktop automount could race the raw I/O (SKILL.md, Commissioning)')
+    raise StepFail(f'{dev} has no UDISKS_IGNORE=1: desktop automount could race the raw I/O '
+                   '(commissioning.md: 99-tinyuf2-hil.rules)')
   mounted = [l.split()[0] for l in Path('/proc/mounts').read_text().splitlines()]
   if any(os.path.realpath(m) == dev for m in mounted):
     raise StepFail(f'{dev} is mounted; refusing raw I/O')
@@ -1671,10 +1674,10 @@ class Battery:
 
   def dfu_after_install(self, version):
     """DFU after an install: on the RT boards J-Link's download erased the bootloader's whole 64 KiB block on the
-    bench, the app start with it (SKILL.md Limits), so DFU comes up; should enumeration time out instead, as when a
-    valid app boots (the F303's install keeps the app; there the verify session's reset may land in TinyUF2's
-    double-tap window instead, SKILL.md Limits), the board's commissioned retained-register re-entry brings DFU up.
-    Any other failure fails as it is."""
+    bench, the app start with it (bench-history.md, RT boards), so DFU comes up; should enumeration time out
+    instead, as when a valid app boots (the F303's install keeps the app; there the verify session's reset may land
+    in TinyUF2's double-tap window instead, bench-history.md, stm32f303disco), the board's commissioned
+    retained-register re-entry brings DFU up. Any other failure fails as it is."""
     try:
       return self.dfu(version)
     except NotEnumerated as e:
@@ -2131,11 +2134,12 @@ def check_flasher(board):
     except StepFail as e:
       raise Refused(f'{board["name"]}: usbPower: {e}')
     if not os.access(disable, os.W_OK):
-      raise Refused(f'{board["name"]}: usbPower: {disable} is not writable (SKILL.md, Commissioning: Port power)')
+      raise Refused(f'{board["name"]}: usbPower: {disable} is not writable '
+                  '(commissioning.md: 52-tinyuf2-hil-uhubctl.rules)')
 
 
 def reentry_decision(row):
-  """The re-entry method a commissioning run establishes (SKILL.md, Commissioning), or None: every
+  """The re-entry method a commissioning run establishes (commissioning.md, Re-entry), or None: every
   observation of the tried method held, the board was cleaned up and released, and the run passed or failed
   only at reenter's CURRENT.UF2 readback."""
   cleanup = row.get('cleanup') or {}
