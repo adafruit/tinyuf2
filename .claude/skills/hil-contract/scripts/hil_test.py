@@ -2237,13 +2237,24 @@ def run_board(args, board, facts, helper, workdir):
       if blocker or left <= 0:
         row.update(locked=True, recoveryBlocker=blocker, detail=held)
         return deferred(row), 1
-    with signals(signal.SIG_UNBLOCK):
-      time.sleep(min(LOCK_POLL, left))
+    try:
+      with signals(signal.SIG_UNBLOCK):
+        time.sleep(min(LOCK_POLL, left))
+    except Interrupted as e:   # nothing taken yet: the board's row is a locked one
+      row.update(locked=True, recoveryBlocker=False, detail=f'{held}; {e} while waiting for the lock')
+      return deferred(row), 1
     if time.monotonic() >= deadline:   # no try past the budget, whatever the lock does meanwhile
       row.update(locked=True, recoveryBlocker=False, detail=held)
       return deferred(row), 1
   row['lockBypassed'] = fh is None
-  users = probe_users(board)
+  try:
+    users = probe_users(board)
+  except StepFail as e:   # an esptool board with no bridge tty: not run, nothing touched
+    row['detail'] = f'probe check: {e}'
+    if fh is not None:
+      helper.clear_record(fh)
+      fh.close()
+    return deferred(row), 1
   if users:   # a session from an earlier run, left on this probe: nothing may overlap it (SKILL.md Recovery)
     row.update(probeUsers=users, detail=f'probe {board["probe"]} is still in use by pids {users}; no session may overlap them')
     if fh is not None:
