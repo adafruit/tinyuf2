@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -258,6 +259,9 @@ class Roster(Tmp):
     f4 = self.load(ROOT / 'test' / 'hil' / 'local.json', 'stm32f411ve_discovery')
     self.assertEqual((f4['lock'], f4['reentry'], f4['usbPower'], f4['install'], f4['app']),
                      ('stm32f411disco', 'retained-register', None, (0x08000000, 0x08010000), (0x08010000, 0x08080000)))
+    ci = self.load(ROOT / 'test' / 'hil' / 'ci.json', 'imxrt1064_evk')
+    self.assertEqual((ci['lock'], ci['reentry'], ci['usbPower'], ci['install'], ci['app']),
+                     ('mimxrt1064_evk', 'retained-register', None, (0x70000000, 0x7000C000), (0x7000C000, 0x70400000)))
     facts = ht.source_facts(f4)
     for what, over in (('flash past the F411VE\'s 512 KiB', {'flashSize': 0x100000}),
                        ('flash below 0x08000000', {'flashBase': 0x07FF0000})):
@@ -1813,10 +1817,15 @@ class Locks(Tmp):
 
   def test_cleanup_handoff_keeps_the_board_held_across_exec_and_recovery_can_end_it(self):
     fh = self.helper.acquire_board_lock(BOARD)
-    holder = ht.hand_off(fh, BOARD, 'cleanup failed', [{'pid': 99, 'start': 1, 'cmd': ['mcopy']}])
+    with mock.patch.dict(os.environ, {ht.JOB_TRACKING: 'job-7'}):
+      holder = ht.hand_off(fh, BOARD, 'cleanup failed', [{'pid': 99, 'start': 1, 'cmd': ['mcopy']}])
     self.addCleanup(lambda: _kill(holder['pid']))
     self.assertTrue(holder['ready'])
     self.assertNotIn('inProcess', holder)
+    # the holder is the re-executed `keep-held`, outside the Actions job's process tracking
+    proc = Path('/proc') / str(holder['pid'])
+    ht.wait_for(lambda: b'keep-held' in (proc / 'cmdline').read_bytes(), 5, 'holder exec')
+    self.assertNotIn(ht.JOB_TRACKING.encode(), (proc / 'environ').read_bytes())
     with self.assertRaises(OSError):
       self.helper.flock_nb(BOARD)
     rec = ht.prove_hold(self.helper, BOARD, holder['pid'], reason='hil_test.py', role=ht.HOLDER_ROLE)
@@ -1842,7 +1851,9 @@ class Locks(Tmp):
       return real(*a)
     for what, patch in (('fork fails', mock.patch.object(ht.os, 'fork', side_effect=OSError(11, 'EAGAIN'))),
                         ('pipe fails', mock.patch.object(ht.os, 'pipe', side_effect=OSError(24, 'EMFILE'))),
-                        ('no ack', mock.patch.object(ht, 'holder_record', dies_in_the_child))):
+                        ('no ack', mock.patch.object(ht, 'holder_record', dies_in_the_child)),
+                        # the exec succeeds but the replacement dies at startup: never acknowledged
+                        ('exec dies', mock.patch.object(ht, 'HOLDER_SCRIPT', self.tmp / 'missing.py'))):
       with self.subTest(what):
         fh = self.helper.acquire_board_lock(BOARD)
         with patch:
@@ -1945,7 +1956,7 @@ class RunBoard(Tmp):
       self.helper = pinned_helper(self, self.tmp / 'locks')
     self.board = self.load(roster(self.tmp))
     self.facts = ht.source_facts(self.board)
-    self.args = mock.Mock(build_record='rec.json', fail_at=None, try_reentry=None)
+    self.args = mock.Mock(build_record='rec.json', fail_at=None, try_reentry=None, lock_wait=0)
     for p in (mock.patch.object(ht, 'verify_record', lambda *a: ({'hex': 'x.hex', 'bin': 'x.bin'}, {'version': 'v'})),
               mock.patch.object(ht, 'parse_hex', lambda p: {0: 1}),
               mock.patch.object(ht, 'hex_matches_bin', lambda d, b, base: True),
@@ -2131,6 +2142,68 @@ class RunBoard(Tmp):
     self.addCleanup(held.close)
     row, code, cleaned = self.run_board(lambda *a: self.fail('ran'))
     self.assertEqual((code, row['locked'], row['ran'], cleaned), (1, True, False, []))
+
+  def test_a_held_board_is_tried_again_within_lock_wait(self):
+    held = self.helper.acquire_board_lock(BOARD, reason='someone')
+    self.args.lock_wait = 5
+    threading.Timer(0.1, lambda: (self.helper.clear_record(held), held.close())).start()
+    with mock.patch.object(ht, 'LOCK_POLL', 0.02):
+      row, code, cleaned = self.run_board(lambda bat, f, v: setattr(bat, 'touched', True))
+    self.assertEqual((code, row['locked'], row['pass'], cleaned), (0, False, True, [True]))
+
+  def test_a_signal_during_the_lock_wait_still_gives_a_locked_row(self):
+    held = self.helper.acquire_board_lock(BOARD, reason='someone')
+    self.addCleanup(held.close)
+    self.args.lock_wait = 100
+    signal.signal(signal.SIGTERM, ht.on_signal)
+
+    def signalled(s):
+      os.kill(os.getpid(), signal.SIGTERM)
+      time.sleep(1)
+      self.fail('the signal did not interrupt the wait')
+    with mock.patch.object(ht.time, 'sleep', signalled):
+      row, code, cleaned = self.run_board(lambda *a: self.fail('ran'))
+    self.assertEqual((code, row['ran'], row['locked'], row['recoveryBlocker'], cleaned), (1, False, True, False, []))
+    self.assertIn('interrupted by SIGTERM while waiting for the lock', row['detail'])
+
+  def test_a_failed_probe_check_is_not_run_and_released(self):
+    def no_bridge(board):
+      raise ht.StepFail('0 serial ports for bridge cp2102n: []')
+    with mock.patch.object(ht, 'probe_users', no_bridge):
+      row, code, cleaned = self.run_board(lambda *a: self.fail('ran'))
+    self.assertEqual((code, row['ran'], row['locked'], cleaned), (1, False, False, []))
+    self.assertEqual(row['detail'], 'probe check: 0 serial ports for bridge cp2102n: []')
+    self.assertFalse(self.helper.is_locked(BOARD))
+    self.helper.flock_nb(BOARD).close()
+
+  def test_a_cleanup_holder_is_not_waited_for(self):
+    held = self.helper.acquire_board_lock(BOARD, reason='someone')
+    self.addCleanup(held.close)
+    rec = json.loads(Path(self.helper.lock_path(BOARD)).read_text())
+    Path(self.helper.lock_path(BOARD)).write_text(json.dumps(dict(rec, role=ht.HOLDER_ROLE)))
+    self.args.lock_wait = 100
+    t0 = time.monotonic()
+    row, code, _ = self.run_board(lambda *a: self.fail('ran'))
+    self.assertEqual((code, row['locked'], row['recoveryBlocker']), (1, True, True))
+    self.assertIn(ht.HOLDER_ROLE, row['detail'])
+    self.assertLess(time.monotonic() - t0, 5)
+
+  def test_the_lock_wait_ends_at_its_budget_even_when_the_board_frees_meanwhile(self):
+    held = self.helper.acquire_board_lock(BOARD, reason='someone')
+    self.args.lock_wait = 1
+    threading.Timer(0.5, lambda: (self.helper.clear_record(held), held.close())).start()
+    t0 = time.monotonic()
+    with mock.patch.object(ht, 'LOCK_POLL', 5):   # one sleep, capped to the budget, waking after the release
+      row, code, _ = self.run_board(lambda *a: self.fail('ran'))
+    self.assertEqual((code, row['locked'], row['recoveryBlocker']), (1, True, False))
+    self.assertLess(time.monotonic() - t0, 3)
+
+  def test_a_probe_still_in_use_is_refused_after_the_lock_and_released(self):
+    with mock.patch.object(ht, 'probe_users', lambda b: [101]):
+      row, code, cleaned = self.run_board(lambda *a: self.fail('ran'))
+    self.assertEqual((code, row['ran'], row['probeUsers'], cleaned), (2, False, [101], []))
+    self.assertFalse(self.helper.is_locked(BOARD))
+    self.helper.flock_nb(BOARD).close()
 
   def test_the_board_is_locked_and_reported_under_its_lock_name(self):
     self.board = self.load(roster(self.tmp, tinyuf2={'lock': 'tinyusb_name'}))
@@ -2738,6 +2811,15 @@ class Main(Tmp):
     r = json.loads(out.getvalue().splitlines()[-1])
     self.assertEqual((code, r['pass'], r['results'][0]['ran']), (2, False, False))
     self.assertTrue(Path(r['reportPath']).is_file())
+
+  def test_run_root_places_the_run_directory(self):
+    cfg = roster(self.tmp, flasher={'name': 'jlink', 'uid': '1', 'args': '-device NOPE'})
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out), mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / 'unused'):
+      ht.main(['run', '-b', BOARD, '--build-record', 'r.json', '--run-root', str(self.tmp / 'here'), str(cfg)])
+    r = json.loads(out.getvalue().splitlines()[-1])
+    self.assertEqual(Path(r['reportPath']).parent.parent, self.tmp / 'here')
+    self.assertFalse((self.tmp / 'unused').exists())
 
   def test_a_lock_pin_refusal_stops_a_run_before_its_record_and_battery(self):
     cfg = roster(self.tmp)
