@@ -2249,7 +2249,7 @@ def run_board(args, board, facts, helper, workdir):
   row['lockBypassed'] = fh is None
   try:
     users = probe_users(board)
-  except StepFail as e:   # an esptool board with no bridge tty: not run, nothing touched
+  except StepFail as e:   # an esptool board without exactly one bridge tty: not run, nothing touched
     row['detail'] = f'probe check: {e}'
     if fh is not None:
       helper.clear_record(fh)
