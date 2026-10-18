@@ -119,7 +119,7 @@ A delegated run (`hil-operator`) returns `{pass, results, caveat, wedged}` and, 
 Each board's row maps onto the `hil` verdicts, except a commissioning run's (`commissioning: true`, from `--try-reentry`), which is never validation.
 - `pass`: `ran`, `pass` and `cleanup.pass` all true;
 - `fail`: `ran` and not `pass`, with a failing step, `cleanup.state` other than `untouched`, and that step's `detail`;
-- `not-run`: `ran` false (`locked`, a refusal, or a failed probe check: no esptool bridge with that serial), or a failing step with `cleanup.state` `untouched`, with its `detail`. Nothing was written, so the failure is the rig's: no probe with that serial on this machine, or one unplugged or dead;
+- `not-run`: `ran` false (`locked`, a refusal, or a failed probe check: not exactly one esptool bridge tty with that serial), or a failing step with `cleanup.state` `untouched`, with its `detail`. Nothing was written, so the failure is the rig's: no probe with that serial on this machine, or one unplugged or dead;
 - a blocker, never a `fail` row: exit 4, `ran: null` (no report), a `locked` row with `recoveryBlocker`, a `probeUsers` row, and an abort, which is `ran` and not `pass` with no failing step (an interruption or an unexpected error, named in the board's `detail`).
 
 `testedHead` is the build record's `input.head`. `regression` is `unknown` unless the battery also ran on the merge base.
