@@ -2159,9 +2159,18 @@ class RunBoard(Tmp):
     self.args.lock_wait = 100
     t0 = time.monotonic()
     row, code, _ = self.run_board(lambda *a: self.fail('ran'))
-    self.assertEqual((code, row['locked']), (1, True))
+    self.assertEqual((code, row['locked'], row['recoveryBlocker']), (1, True, True))
     self.assertIn(ht.HOLDER_ROLE, row['detail'])
     self.assertLess(time.monotonic() - t0, 5)
+
+  def test_the_lock_wait_ends_at_its_budget(self):
+    held = self.helper.acquire_board_lock(BOARD, reason='someone')
+    self.addCleanup(held.close)
+    self.args.lock_wait = 1
+    t0 = time.monotonic()
+    row, code, _ = self.run_board(lambda *a: self.fail('ran'))
+    self.assertEqual((code, row['locked'], row['recoveryBlocker']), (1, True, False))
+    self.assertLess(time.monotonic() - t0, 3)
 
   def test_a_probe_still_in_use_is_refused_after_the_lock_and_released(self):
     with mock.patch.object(ht, 'probe_users', lambda b: [101]):

@@ -107,11 +107,10 @@ class Stubbed(unittest.TestCase):
     self.assertTrue((self.out / f'{BOARD}.done').exists())   # finished, with a report and no holder
 
   def test_a_board_held_past_the_wait_is_not_run_and_a_cleanup_holder_a_blocker(self):
-    for holder, want in (('{"pid": 7, "reason": "tinyusb"}', 'not-run'),
-                         ('{"pid": 7, "role": "cleanup-holder"} (recovery blocker)', 'blocker')):
-      with self.subTest(holder):
+    for blocker, want in ((False, 'not-run'), (True, 'blocker')):
+      with self.subTest(want):
         out = self.state / want
-        locked = {'row': {'ran': False, 'locked': True, 'detail': f'board locked: {holder}'}}
+        locked = {'row': {'ran': False, 'locked': True, 'recoveryBlocker': blocker, 'detail': 'board locked: pid 7'}}
         self.assertEqual(self.main('--board', BOARD, battery=locked, out=out), 1 if want == 'not-run' else 2)
         self.assertEqual(self.rows(out)[0]['verdict'], want)
         self.assertEqual((out / f'{BOARD}.done').exists(), want == 'not-run')

@@ -2231,12 +2231,14 @@ def run_board(args, board, facts, helper, workdir):
     except helper.LockUnavailable as e:
       raise Refused(f'{board["name"]}: {e}; refusing to run unlocked')
     except RuntimeError as e:
-      # a cleanup holder never frees on its own (SKILL.md Recovery): no wait
-      if time.monotonic() >= deadline or helper.is_cleanup_holder(helper.read_record(board['lock'])):
-        row.update(locked=True, detail=str(e))
+      # a cleanup holder never frees on its own (SKILL.md Recovery): a blocker, never waited for
+      blocker = helper.is_cleanup_holder(helper.read_record(board['lock']))
+      left = deadline - time.monotonic()
+      if blocker or left <= 0:
+        row.update(locked=True, recoveryBlocker=blocker, detail=str(e))
         return deferred(row), 1
     with signals(signal.SIG_UNBLOCK):
-      time.sleep(LOCK_POLL)
+      time.sleep(min(LOCK_POLL, left))
   row['lockBypassed'] = fh is None
   users = probe_users(board)
   if users:   # a session from an earlier run, left on this probe: nothing may overlap it (SKILL.md Recovery)

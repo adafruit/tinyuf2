@@ -111,8 +111,8 @@ def verdict(code, report, board):
     return 'blocker', f'cleanup failed or no report; board held: {row.get("detail")} {cleanup}'[:400]
   if row.get('probeUsers'):
     return 'blocker', str(row.get('detail'))
-  if row.get('locked'):   # the helper names a cleanup holder a recovery blocker in the row's detail
-    return ('blocker' if 'cleanup-holder' in str(row.get('detail')) else 'not-run'), f'locked: {row.get("detail")}'
+  if row.get('locked'):
+    return ('blocker' if row.get('recoveryBlocker') else 'not-run'), f'locked: {row.get("detail")}'
   if not row.get('ran'):
     return 'not-run', str(row.get('detail') or report.get('error'))
   failed = next((s for s in row.get('steps', []) if not s.get('pass')), None)
