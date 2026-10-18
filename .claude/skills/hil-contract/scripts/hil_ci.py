@@ -75,10 +75,11 @@ def unfinished(state, board):
 
 
 def prune(state, keep, days=PRUNE_DAYS):
-  """Remove the runs under `state` older than `days` whose every started board finished; never `keep`."""
+  """Remove the runs under `state` older than `days` whose every started board finished; never `keep`, nor
+  `orphans`, the run dirs the workflow rescues from a killed run's workspace, which belong to no marker."""
   cutoff = time.time() - days * 86400
   for d in state.iterdir():
-    if d.is_dir() and d != keep and d.stat().st_mtime < cutoff and \
+    if d.is_dir() and d != keep and d.name != 'orphans' and d.stat().st_mtime < cutoff and \
        all(p.with_suffix('.done').exists() for p in d.glob('*.started')):
       shutil.rmtree(d, ignore_errors=True)
 

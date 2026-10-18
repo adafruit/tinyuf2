@@ -37,6 +37,7 @@ jobs:
         id: select
         env:
           BOARD_INPUT: ${{ github.event.inputs.board }}
+        shell: bash   # -o pipefail: a failed selection must not become an empty, skipped rig job through tee
         run: |
           python3 - <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
           import json, os, subprocess, sys
