@@ -88,12 +88,13 @@ JLINK_ERRORS = (r'Verify failed|Could not|Cannot connect|ERROR|ResetTarget faile
 UDEV_RULES = ('/etc/udev/rules.d', '/run/udev/rules.d')
 # J-Link notes that are not failures, per device, each with the line that shows the operation completed
 # (bench: every MIMXRT1062 reset with an invalid app vector, then the reset halts as usual; every MIMXRT1011 reset
-# of a TinyUF2 image, which then boots; STM32F303VC: the connect that removes TinyUF2's write protection,
-# bench-history.md, stm32f303vc)
+# of a TinyUF2 image, which then boots; MIMXRT1064 the same as MIMXRT1062 (bench-history.md, imxrt1064_evk);
+# STM32F303VC: the connect that removes TinyUF2's write protection, bench-history.md, stm32f303vc)
 _RESET_VECTOR_NOTE = r'(?m)^Could not find valid reset vector\.\nTarget halted on flash header read\.$'
 _F3_UNPROTECT_NOTE = (r'(?m)^Active write protection detected\.\nDevice will be unsecured now\.\nFailed to unlock device\.\n'
                       r'Can not attach to CPU\. Trying connect under reset\.$')
-BENIGN = {'MIMXRT1062xxx6A': _RESET_VECTOR_NOTE, 'MIMXRT1011DAE5A': _RESET_VECTOR_NOTE, 'stm32f303vc': _F3_UNPROTECT_NOTE}
+BENIGN = {'MIMXRT1062xxx6A': _RESET_VECTOR_NOTE, 'MIMXRT1011DAE5A': _RESET_VECTOR_NOTE, 'MIMXRT1064xxx6A': _RESET_VECTOR_NOTE,
+          'stm32f303vc': _F3_UNPROTECT_NOTE}
 # runner sessions connect as the core: J-Link's stm32f411ve connect resets the chip to unprotect it
 # (bench-history.md, stm32f411ve_discovery)
 SESSION_DEVICE = {'stm32f411ve': 'Cortex-M4'}
@@ -1423,6 +1424,23 @@ def holder_record(fh, board, detail, survivors):
 
 
 HELD_IN_PROCESS = []
+# the GitHub Actions runner kills every process whose environment carries the job's tracking id when the job
+# ends (actions/runner JobExtension.FinalizeJob), so a holder forked under it would free a board that was
+# never cleaned up: the holder re-executes itself without that variable
+JOB_TRACKING = 'RUNNER_TRACKING_ID'
+HOLDER_SCRIPT = Path(__file__).resolve()
+
+
+def exec_holder(fh, ack):
+  """Replace this process with `hil_test.py keep-held <fd> <ack>`: the same open file description (and its
+  flock) and the acknowledgement pipe passed on, the job tracking variable dropped. The replacement
+  acknowledges only once it runs, so a holder that dies at startup is never acknowledged. Returns only
+  when the exec itself fails, to keep holding in this process."""
+  for fd in (fh.fileno(), ack):
+    os.set_inheritable(fd, True)
+  env = {k: v for k, v in os.environ.items() if k != JOB_TRACKING}
+  with contextlib.suppress(OSError):
+    os.execve(sys.executable, [sys.executable, str(HOLDER_SCRIPT), 'keep-held', str(fh.fileno()), str(ack)], env)
 
 
 def keep_held(fh):
@@ -1459,6 +1477,7 @@ def hand_off(fh, board, detail, survivors=()):
       os.close(r)
       os.setsid()
       holder_record(fh, board, detail, survivors)
+      exec_holder(fh, w)   # the replacement acknowledges once it runs; a failed exec acknowledges here
       os.write(w, b'ok')
       os.close(w)
       keep_held(fh)
@@ -2300,9 +2319,17 @@ def main(argv=None):
   fr.add_argument('--file', required=True)
   fr.add_argument('--length', type=int, required=True)
   fr.add_argument('--offset', type=int, default=0)
+  kh = sub.add_parser('keep-held', help='internal: the re-executed cleanup holder (exec_holder)')
+  kh.add_argument('fd', type=int)
+  kh.add_argument('ack', type=int)
   args = ap.parse_args(argv)
   if args.cmd == 'fat-read':
     return fat_read_main(args)
+  if args.cmd == 'keep-held':
+    fh = os.fdopen(args.fd, 'r+')
+    os.write(args.ack, b'ok')
+    os.close(args.ack)
+    keep_held(fh)
   for sig in TERM_SIGNALS:
     signal.signal(sig, on_signal)
   run_dir = cb.BUILD_DIR / 'hil' / f'run-{time.strftime("%Y%m%d-%H%M%S")}-{os.getpid()}'

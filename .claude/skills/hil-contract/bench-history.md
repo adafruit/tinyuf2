@@ -12,6 +12,24 @@ On metro_m7_1011 (2026-10-13, J-Link V9.84), `tinyuf2-jlink`'s `loadfile` of the
 
 On imxrt1060_evk (2026-10-13), the same target over blinky also reported "1 range affected (65536 bytes)"; from a fresh session after it, blinky's vectors at 0x6000C000-0x6000C00F and 0x6000C200 read 0xFF, while the FCB at 0x60000000 and 0x60010000 kept their data.
 
+## imxrt1064_evk
+
+On imxrt1064_evk (2026-10-18, the ci.lan rig, J-Link V9.78 on an external J-Link, S/N 000725299165, with "an old firmware
+module: V1"; DIGPROG 0x006C0000, the marking that decides the silicon revision not read, the rig being remote, so both
+IMXRT1064CE_A Rev 1.3 and IMXRT1064CE_B Rev 1.1 were checked), `tinyuf2-jlink`'s `loadfile` of the cmake HEX
+([0x70000000, 0x70007134)) reported "1 range affected (65536 bytes)": from a fresh session after it, sentinels at 0x7000BF00
+and 0x7000C000 (the app start) read 0xFF while 0x70010000 kept its data. So every install leaves [0x7000C000, 0x70010000),
+the app's first 16 KiB, erased, as on the RT1060 (an inference from this sample and this HEX). The sentinels had been
+programmed by `loadbin` over [0x7000BF00, 0x70010004) ("1 range affected (131072 bytes)"), which erased the FCB with block
+0: a fresh session then read every flash word, the sentinels included, as 0xFF (no boot image, as on the RT1060), while
+a session whose `loadbin` compare had run ("Contents already match") read them right. The install's reset after the
+download printed "Could not find valid reset vector." then "Target halted on flash header read." (`BENIGN`, the RT1062
+note), and "Invalid flash header detected." at the implicit reset before the download while the FCB was erased. DFU came
+up with serial BAE96FB95AFA6DBB8F00005002001200 (volume RT1064BOOT) at 1-1.2, on the same hub (1-1) as the probe at
+1-1.1: the farm's cabling, which this contract's Limits records. The word at 0x20000FFC (the fixture's stack top, less
+4, in DTCM) took a written value and read it back, then its saved value 0, so DTCM is enabled at the ROM default; the
+FlexRAM fuse itself was not read.
+
 ## stm32f303disco
 
 On stm32f303disco (2026-10-14, J-Link V9.84 on the board's J-Link OB), `tinyuf2-jlink`'s `loadfile` compared [0x08000000, 0x08004000) and reprogrammed only the 2 KiB pages that differed, erasing the rest of such a page past the image (a sentinel at 0x08003F00 read 0xFF from a fresh session after it), while 0x08004000 (the app start) and 0x08004800 kept their data. So an install keeps a valid app. DFU still came up without the fallback in the battery of 2026-10-14: the runner's verify session halted the core in TinyUF2's double-tap wait (`src/main.c`, magic armed), so its reset entered DFU as a double tap, an inference from that trace. When that reset misses the window the app boots, and the retained-register fallback brings DFU up after `dfu`'s 20 s wait.
