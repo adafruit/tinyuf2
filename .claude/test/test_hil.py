@@ -2156,15 +2156,18 @@ class RunBoard(Tmp):
     self.addCleanup(held.close)
     self.args.lock_wait = 100
     signal.signal(signal.SIGTERM, ht.on_signal)
+    real_sleep = time.sleep
 
     def signalled(s):
       os.kill(os.getpid(), signal.SIGTERM)
-      time.sleep(1)
+      real_sleep(1)
       self.fail('the signal did not interrupt the wait')
     with mock.patch.object(ht.time, 'sleep', signalled):
       row, code, cleaned = self.run_board(lambda *a: self.fail('ran'))
     self.assertEqual((code, row['ran'], row['locked'], row['recoveryBlocker'], cleaned), (1, False, True, False, []))
     self.assertIn('interrupted by SIGTERM while waiting for the lock', row['detail'])
+    self.assertTrue(self.helper.is_locked(BOARD))
+    self.assertEqual(self.helper.read_record(BOARD)['reason'], 'someone')
 
   def test_a_failed_probe_check_is_not_run_and_released(self):
     def no_bridge(board):
@@ -2175,6 +2178,14 @@ class RunBoard(Tmp):
     self.assertEqual(row['detail'], 'probe check: 0 serial ports for bridge cp2102n: []')
     self.assertFalse(self.helper.is_locked(BOARD))
     self.helper.flock_nb(BOARD).close()
+
+  def test_a_failed_probe_check_without_the_board_lock_is_not_run(self):
+    def no_bridge(board):
+      raise ht.StepFail('0 serial ports for bridge cp2102n: []')
+    with mock.patch.object(ht, 'probe_users', no_bridge), mock.patch.dict(os.environ, {'HIL_NO_BOARD_LOCK': '1'}):
+      row, code, cleaned = self.run_board(lambda *a: self.fail('ran'))
+    self.assertEqual((code, row['ran'], row['lockBypassed'], cleaned), (1, False, True, []))
+    self.assertEqual(row['detail'], 'probe check: 0 serial ports for bridge cp2102n: []')
 
   def test_a_cleanup_holder_is_not_waited_for(self):
     held = self.helper.acquire_board_lock(BOARD, reason='someone')
