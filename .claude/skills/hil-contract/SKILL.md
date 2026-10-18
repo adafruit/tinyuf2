@@ -9,7 +9,7 @@ description: The TinyUF2 HIL contract: its roster, selection, build record, batt
 
 ## Hosts/rosters
 
-- The roster is `test/hil/local.json`, the boards on htpc's bench; `hostname` says whether you are there. Elsewhere a run fails at `install`, where no probe or bridge with the roster's serial is found, before anything is written: `cleanup.state` is `untouched` and nothing stays held. ci.lan has no TinyUF2 rig yet (a follow-up). htpc is shared with tinyusb's `test/hil/local.json` (its contract's Hosts/rosters): a rig-wide operation there holds both rosters' lock names (`hil` Board locks), tinyusb's under the names and in the sequence its contract's Reservation gives.
+- One roster per host, `<roster>` in the commands below: `test/hil/local.json` on htpc's bench and `test/hil/ci.json` on the ci.lan rig (`hostname` `ci`, where the CI job below runs); `hostname` says which you are on. Elsewhere a run fails at `install`, where no probe or bridge with the roster's serial is found, before anything is written: `cleanup.state` is `untouched` and nothing stays held. Both hosts are shared with tinyusb's rosters (its contract's Hosts/rosters: `test/hil/local.json` on htpc, `test/hil/tinyusb.json` on ci.lan): a rig-wide operation holds both rosters' lock names (`hil` Board locks), tinyusb's under the names and in the sequence its contract's Reservation gives.
 
 A roster entry is named by its TinyUF2 board (`ports/<port>/boards/<name>`, which also gives the port) and keeps tinyusb's shape (`name`, `uid`, `flasher {name, uid, args}`), so agentrc's `rtt.py`, `pc_sample.py` and `probe_state.py` resolve the probe with `--hil-config test/hil/local.json --board <name>`. A J-Link entry has `args` exactly `-device <name>`; the runner uses SWD at 4000 kHz, so pass the same to those scripts, `--interface swd --speed 4000`. An ST-LINK entry has `flasher.name` `stlink`, `flasher.uid` the ST-LINK's USB serial and `args` exactly `-device <name>`, a name the runner holds limits and a chip identity for (`FLASH_LIMITS`, `STLINK_CHIPS`); STM32CubeProgrammer takes no device name, so every session checks the Device ID and NVM size it prints. An espressif entry has `flasher.name` `esptool`, `flasher.uid` the USB-UART bridge's serial (`/dev/serial/by-id/*_<flasher.uid>-if*`), `flasher.args` exactly `--chip <chip>`, and the top-level `uid` the chip's factory MAC, which is TinyUF2's USB serial. The roster holds the board's hardware only; layouts come from the candidate's source. The `tinyuf2` block holds:
 - the board lock name (`lock`) when tinyusb names the board differently, as `mimxrt1060_evk` for `imxrt1060_evk`; both runners take that one lock, and the helper's `status`, holder records and the report rows' `lock` show it. It defaults to the board name;
@@ -20,7 +20,7 @@ The battery runs a board only after commissioning sets `reentry` and confirms `u
 
 ## Selection
 
-`python3 .claude/skills/build/scripts/check_build.py --select-only (--diff-file <file> | --base <ref> [--worktree]) --hil-config test/hil/local.json` adds `hil.{boards, full, uncovered}`. Run the battery when `full` is set or `boards` is non-empty. An empty diff file selects nothing; a caller without the changed-file list passes `--base`. `uncovered` names what no roster board on this host can run; report it, never treat it as covered. An app source (`apps/`, `ports/<port>/apps/`) selects no board and is uncovered, except `dfu_runtime`, which selects the esptool boards of the ports that build it, and leaves uncovered each port that builds it without one (mimxrt10xx today): the battery runs the bootloader with its generated fixture on J-Link and ST-LINK boards and with `dfu_runtime` on esptool boards. The runner, the build scripts it imports, its lock helper's pin and the roster (`.claude/skills/hil-contract/scripts/`, `.claude/skills/build/scripts/`, `lib/agentrc`, `test/hil/*.json`) select every roster board; a wording change to this page selects none.
+`python3 .claude/skills/build/scripts/check_build.py --select-only (--diff-file <file> | --base <ref> [--worktree]) --hil-config <roster>` adds `hil.{boards, full, uncovered}`. Run the battery when `full` is set or `boards` is non-empty. An empty diff file selects nothing; a caller without the changed-file list passes `--base`. `uncovered` names what no roster board on this host can run; report it, never treat it as covered. An app source (`apps/`, `ports/<port>/apps/`) selects no board and is uncovered, except `dfu_runtime`, which selects the esptool boards of the ports that build it, and leaves uncovered each port that builds it without one (mimxrt10xx today): the battery runs the bootloader with its generated fixture on J-Link and ST-LINK boards and with `dfu_runtime` on esptool boards. The runner, the build scripts it imports, its lock helper's pin and the roster (`.claude/skills/hil-contract/scripts/`, `.claude/skills/build/scripts/`, `lib/agentrc`, `test/hil/*.json`) select every roster board; a wording change to this page selects none.
 
 There are no examples or test names to select: a run is the whole battery on one board, and the board is the only selection.
 
@@ -28,7 +28,7 @@ There are no examples or test names to select: a run is the whole battery on one
 
 ```bash
 mkdir -p cmake-build/hil
-python3 .claude/skills/build/scripts/check_build.py --board <board> --backend cmake --shared --hil-config test/hil/local.json > cmake-build/hil/<board>.build.json
+python3 .claude/skills/build/scripts/check_build.py --board <board> --backend cmake --shared --hil-config <roster> > cmake-build/hil/<board>.build.json
 ```
 
 `<board>` is the roster name, the TinyUF2 board name. An espressif board builds without `--backend cmake`. A fresh worktree, a review worktree included, needs CLAUDE.md's worktree setup (submodules and dependency links) before `check_build.py` can build in it.
@@ -38,7 +38,7 @@ The build record is this contract's build receipt: build it on the clean, pinned
 ## Execution
 
 ```bash
-python3 .claude/skills/hil-contract/scripts/hil_test.py run -b <board> --build-record cmake-build/hil/<board>.build.json test/hil/local.json
+python3 .claude/skills/hil-contract/scripts/hil_test.py run -b <board> --build-record cmake-build/hil/<board>.build.json <roster>
 ```
 
 Before taking the lock, the run checks the automount exclusion rule, and every span it could write (the HEX the flash target loads, inside the install span and the device's flash limits and laid out as the BIN; the BIN's board id), with the install and app spans taken from the candidate's source. Run it in the background; one board takes about 2 minutes, and the run is complete when it exits, or when it printed `cleanup.holder.inProcess` true and will not (Recovery): its last stdout line is the report JSON (Results). With several boards, one battery per board, one after another.
@@ -76,8 +76,8 @@ Locks are taken through agentrc's `hil` helper, `lib/agentrc/skills/hil/scripts/
   2. Install a build record's TinyUF2, and restore the board when done:
 
      ```bash
-     python3 .claude/skills/hil-contract/scripts/hil_test.py install -b <board> --build-record <record> --under-hold "<reason>" test/hil/local.json
-     python3 .claude/skills/hil-contract/scripts/hil_test.py restore -b <board> --build-record <record> --under-hold "<reason>" test/hil/local.json
+     python3 .claude/skills/hil-contract/scripts/hil_test.py install -b <board> --build-record <record> --under-hold "<reason>" <roster>
+     python3 .claude/skills/hil-contract/scripts/hil_test.py restore -b <board> --build-record <record> --under-hold "<reason>" <roster>
      ```
 
      `install` is the battery's install step from the record (Execution: a J-Link board runs the record's `tinyuf2-jlink` target, an ST-LINK board its `tinyuf2-stlink`, an esptool board takes the four IDF segments), then waits for DFU; it takes the record the battery takes, admitted the same way, so it needs the automount exclusion rule (`commissioning.md`) and a clean build of HEAD. `--try-reentry <method>`, while the roster's `reentry` is unset, gives DFU's fallback (Execution, dfu) for commissioning; `restore` takes it too. `restore` is the cleanup (Execution, step 6), from a clean build record of HEAD. Both refuse unless the hold is provably yours: the record's reason, a live pid, a FLOCK on the lock file in that pid's own fds, and a failing probe of the flock.
@@ -136,7 +136,7 @@ Exit 4, a cleanup holder:
 - The holder may stand for a stuck J-Link or mtools process; tinyusb's reflash does not make the board safe, and it is out of service until recovered.
 - Recovery is a separate `hil-operator` dispatch under `hil`'s Board locks scope, carrying the board, its holder pid, the failed run's `reportPath` and the release. After process, probe and host readiness are established, it runs:
 
-    `python3 .claude/skills/hil-contract/scripts/hil_test.py restore -b <board> --build-record <record> --recover-holder <pid> --report <reportPath> test/hil/local.json`
+    `python3 .claude/skills/hil-contract/scripts/hil_test.py restore -b <board> --build-record <record> --recover-holder <pid> --report <reportPath> <roster>`
 
     `<record>` is the failed report's `firmware.buildRecord`, or a record rebuilt on the clean HEAD when it no longer verifies. The command proves that pid holds the board as the failed run's cleanup holder and that none of the run's survivors and no J-Link process on the probe is alive, restores the board while the lock stays held, and only then releases the holder. On an esptool board the restore checks the preserved regions against the snapshot in the failed report, and recovery is refused for a touched run without one or one whose regions differ from the checkout's. A candidate whose drive cannot take the blinky copy fails the restore; the board stays held until a record that can restore it is given. A second recovery of the same board while one runs is refused (exit 2).
 - If the probe cannot connect, recovery is the human's: on imxrt1060_evk, serial download mode (BOOT_MODE 01: SW7 OFF OFF OFF ON, inferred from the EVK guide); on espressif_esp32s3_devkitc_1, ROM download mode: hold Boot (SW1, GPIO0 low), press and release RST (SW2, CHIP_PU), then release Boot (DevKitC-1 schematic V1.0; the TRM's strap table also needs GPIO46 low, its default pull-down); on espressif_p4_function_ev, the same with BOOT (SW2, GPIO35 low) and RST (SW1, CHIP_PU) (Function-EV-Board schematic rev 1.4); on stm32h563_nucleo, a power cycle: unplug and replug its STLINK USB (CN1), which powers the board (bench-history.md).
