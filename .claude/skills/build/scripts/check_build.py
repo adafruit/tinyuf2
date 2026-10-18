@@ -100,6 +100,7 @@ FLASH = {'jlink': ('tinyuf2-jlink', ('tinyuf2.jlink', 'tinyuf2.hex')), 'stlink':
 # a roster flasher's args, whose one group is the device or chip its flash target must name
 FLASHER_ARGS = {'jlink': r'-device (\S+)', 'stlink': r'-device (\S+)', 'esptool': r'--chip (\w+)'}
 NINJA_STEP = re.compile(r'\[\d+/\d+\] ')   # ninja's progress prefix
+NINJA_QUERY_TIMEOUT = 30
 # configure variables that select a probe or port: a HIL record sets them from the roster, never from -D
 SELECTION = ('JLINK_OPTION', 'STLINK_SERIAL', 'OPENOCD_SERIAL', 'OPENOCD_OPTION', 'ESPPORT')
 
@@ -715,23 +716,31 @@ def build_idf(board, root, defines, log, verbose, idf_mode, image):
   return not run(idf_docker(root) + [image, 'bash', '-c', inner], log, verbose), []
 
 
-def idf_docker(root, verb='run'):
+def idf_docker(root, verb='run', name=None):
   """`docker run` (or `create`) with the checkout, its git dir and the build dir mounted at their own paths, image
   last."""
   common = Path(git('rev-parse', '--path-format=absolute', '--git-common-dir').strip())
   cmd = ['docker', verb, '--rm', '--user', f'{os.getuid()}:{os.getgid()}', '-e', 'HOME=/tmp', '-w', str(ROOT)]
+  if name:
+    cmd += ['--name', name]
   for m in sorted({ROOT, common, root.parent}):
     cmd += ['-v', f'{m}:{m}']
   return cmd
 
 
-def ninja_in(backend, idf_mode, image, root, args):
+def ninja_in(backend, idf_mode, image, root, args, runner=None, container=None):
   """Runs ninja on `root` with the ninja that built it: the host's, or the IDF image's (whose build log and
-  generator a host ninja would rewrite). Callers bind the build's own backend, mode and image."""
+  generator a host ninja would rewrite). Callers bind the build's own backend, mode and image. A HIL caller may
+  supply its tracked runner and a container name; other callers still bound the query here."""
   cmd = ['ninja', '-C', str(root), *args]
   if backend == 'idf' and idf_mode == 'docker':
-    cmd = idf_docker(root) + [image, *cmd]   # the image's entrypoint sources export.sh, then runs cmd
-  return subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT)
+    cmd = idf_docker(root, name=container) + [image, *cmd]   # the entrypoint sources export.sh, then runs cmd
+  if runner:
+    return runner(cmd)
+  try:
+    return subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT, timeout=NINJA_QUERY_TIMEOUT)
+  except subprocess.TimeoutExpired:
+    raise Fail(f'ninja query timed out after {NINJA_QUERY_TIMEOUT}s')
 
 
 def backend_of(port):

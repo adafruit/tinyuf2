@@ -776,6 +776,24 @@ class HilRecord(unittest.TestCase):
       with self.subTest(board), self.assertRaisesRegex(cb.Fail, err):
         cb.roster_flasher(self.config, board)
 
+  def test_ninja_queries_are_bounded_and_an_idf_query_may_be_named(self):
+    calls = []
+
+    def run(cmd, **kwargs):
+      calls.append((cmd, kwargs))
+      return subprocess.CompletedProcess(cmd, 0, '', '')
+
+    with mock.patch.object(cb.subprocess, 'run', run):
+      cb.ninja_in('cmake', None, None, self.tmp, ['-n', '-v'])
+      cb.ninja_in('idf', 'docker', 'idf:image', self.tmp, ['-t', 'commands'], container='hil-query')
+    self.assertEqual(calls[0][1]['timeout'], cb.NINJA_QUERY_TIMEOUT)
+    self.assertEqual(calls[2][1]['timeout'], cb.NINJA_QUERY_TIMEOUT)
+    self.assertEqual(calls[2][0][calls[2][0].index('--name') + 1], 'hil-query')
+
+    with mock.patch.object(cb.subprocess, 'run', side_effect=subprocess.TimeoutExpired('ninja', 30)), \
+         self.assertRaisesRegex(cb.Fail, 'ninja query timed out after 30s'):
+      cb.ninja_in('cmake', None, None, self.tmp, ['-n', '-v'])
+
   def test_the_generated_jlink_target_must_name_the_roster_probe_and_the_build_image(self):
     flasher = {'name': 'jlink', 'uid': '000801012283', 'device': 'MIMXRT1011DAE5A'}
     root = self.tmp / 'b'

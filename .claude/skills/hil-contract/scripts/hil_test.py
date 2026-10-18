@@ -61,6 +61,7 @@ AIRCR_SYSRESETREQ = 0x05FA0004
 UF2_MAGIC = (0x0A324655, 0x9E5D5157, 0x0AB16F30)
 UF2_FLAG_FAMILY = 0x2000
 PROBE_TIMEOUT, USB_TIMEOUT, QUIET_TIME, KILL_WAIT, UDEV_TIMEOUT = 120, 20, 3, 5, 5
+NINJA_QUERY_TIMEOUT = cb.NINJA_QUERY_TIMEOUT
 JLINK_RETRY_DELAY = 2
 ESPTOOL_VERSION = '5.2.0'   # the CLI and API the esptool session helper is written and bench-checked against
 ESP_BAUD, ESP_TIMEOUT = 921600, 300
@@ -681,6 +682,26 @@ def stuck_children():
 def still_alive(survivors):
   return [s for s in survivors if (not container_gone(s['container']) if 'container' in s else
                                    s.get('start') is not None and proc_start(s['pid']) == s['start'])]
+
+
+def ninja_query(backend, idf_mode, image, board, log, root, args):
+  """Run a build-tree query as a bounded, tracked HIL child. An IDF query also has a board-specific name so
+  cleanup can remove a container that outlives its docker client."""
+  name = f'tinyuf2-hil-{board}-query' if backend == 'idf' and idf_mode == 'docker' else None
+  if name:
+    if container_present(name):
+      CONTAINERS.append(name)
+      raise StepFail(f'container {name} from an earlier query still exists; cleanup will remove it before flashing')
+    CONTAINERS.append(name)
+
+  def run(cmd):
+    code, out = spawn(cmd, log, NINJA_QUERY_TIMEOUT, cwd=ROOT)
+    return subprocess.CompletedProcess(cmd, code, out, '')
+
+  r = cb.ninja_in(backend, idf_mode, image, root, args, runner=run, container=name)
+  if name:
+    CONTAINERS.remove(name)   # docker run --rm returned; on an exception cleanup keeps and removes the name
+  return r
 
 
 # ------------------------------------------------------------------ probe
@@ -1480,7 +1501,7 @@ def verify_record(record_path, board, facts, workdir):
     if bad:
       raise Refused(f'build inputs are not clean: {bad} (commit, or rebuild from a clean checkout)')
   root = cb.ROOT / row['buildDir']
-  flash = admit_flash(record_path, rec, row, root, board)
+  flash = admit_flash(record_path, rec, row, root, board, workdir / 'hil.log')
   # the runner reads its own copies of the BIN, segments and blinky: the build dir's lock covers the flash target
   # only, and a rebuild may replace the dir after it
   copy = workdir / 'record'
@@ -1497,7 +1518,7 @@ def verify_record(record_path, board, facts, workdir):
                  'defines': rec.get('defines', []), 'version': embedded_version(files['bin'])}
 
 
-def admit_flash(record_path, rec, row, root, board):
+def admit_flash(record_path, rec, row, root, board, log):
   """The record's flash target, bound by check_build --hil-config to this roster flasher, with every file it reads
   hash-checked; the install runs that target, under the build dir's lock."""
   fl = row.get('flash') or {}
@@ -1508,7 +1529,7 @@ def admit_flash(record_path, rec, row, root, board):
                   f'check_build.py --board {board["name"]} ... --shared --hil-config <roster>)')
   idf = rec.get('idf') or {}
   return {'root': root, 'binding': fl, 'sha256': recorded(root, inputs, row), 'image': idf.get('image'),
-          'ninja': functools.partial(cb.ninja_in, row['backend'], idf.get('mode'), idf.get('image'))}
+          'ninja': functools.partial(ninja_query, row['backend'], idf.get('mode'), idf.get('image'), board['name'], log)}
 
 
 def recorded(root, rels, row):

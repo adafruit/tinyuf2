@@ -1597,6 +1597,40 @@ class Spawn(Tmp):
     self.assertIsNotNone(launched[0].poll())
     self.assertEqual(ht.CHILDREN, [])
 
+  def test_ninja_queries_use_the_tracked_runner_and_idf_survivors_are_cleaned_by_name(self):
+    calls = []
+
+    def run(cmd, log, timeout, cwd=None):
+      calls.append((cmd, log, timeout, cwd))
+      return 0, 'ninja: Entering directory `x\'\n'
+
+    log, root = self.tmp / 'hil.log', self.tmp / 'build'
+    with mock.patch.object(ht, 'spawn', run), mock.patch.object(ht, 'container_present', lambda n: False):
+      r = ht.ninja_query('cmake', None, None, 'board', log, root, ['-n', '-v'])
+      self.assertEqual((r.returncode, calls[0][2:]), (0, (ht.NINJA_QUERY_TIMEOUT, ht.ROOT)))
+      self.assertEqual(ht.CONTAINERS, [])
+
+      r = ht.ninja_query('idf', 'docker', 'idf:image', 'board', log, root, ['-n', '-v'])
+      name = 'tinyuf2-hil-board-query'
+      self.assertEqual(r.returncode, 0)
+      self.assertEqual(calls[1][0][calls[1][0].index('--name') + 1], name)
+      self.assertEqual(ht.CONTAINERS, [])
+
+    with mock.patch.object(ht, 'spawn', side_effect=ht.StepFail('ninja timed out after 30s')), \
+         mock.patch.object(ht, 'container_present', lambda n: False), \
+         mock.patch.object(ht, 'container_gone', lambda n: n == name), \
+         self.assertRaisesRegex(ht.StepFail, 'ninja timed out'):
+      ht.ninja_query('idf', 'docker', 'idf:image', 'board', log, root, ['-n', '-v'])
+    self.assertEqual(ht.CONTAINERS, [name])
+    with mock.patch.object(ht, 'container_gone', lambda n: n == name):
+      self.assertEqual(ht.stuck_children(), [])
+    self.assertEqual(ht.CONTAINERS, [])
+
+    with mock.patch.object(ht, 'container_present', lambda n: True), \
+         self.assertRaisesRegex(ht.StepFail, 'container .* from an earlier query'):
+      ht.ninja_query('idf', 'docker', 'idf:image', 'board', log, root, ['-n', '-v'])
+    self.assertEqual(ht.CONTAINERS, [name])
+
   def test_a_kill_reaches_a_grandchild_in_a_process_group_of_its_own(self):
     # as ninja runs JLinkExe: setpgid moves it out of the child's group, not out of its session
     pidfile = self.tmp / 'grandchild'
@@ -2172,6 +2206,13 @@ class BatteryRun(Tmp):
     bat.b['device'] = 'stm32f411ve'
     bat.install(self.files)
     self.assertEqual(rig.scripts[1][:2], ['sleep 1000', 'h'])
+
+  def test_a_timed_out_ninja_query_fails_the_install_untouched(self):
+    bat, rig = self.battery()
+    with mock.patch.object(ht.cb, 'flash_ready', side_effect=ht.StepFail('ninja timed out after 30s')), \
+         self.assertRaisesRegex(ht.StepFail, 'ninja timed out'):
+      bat.install(self.files)
+    self.assertEqual((bat.touched, rig.scripts), (False, []))
 
   def test_every_step_passes_and_resumes_only_after_a_halt(self):
     bat, rig = self.battery()
