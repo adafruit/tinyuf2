@@ -260,7 +260,7 @@ class Roster(Tmp):
                      ('stm32f411disco', 'retained-register', None, (0x08000000, 0x08010000), (0x08010000, 0x08080000)))
     ci = self.load(ROOT / 'test' / 'hil' / 'ci.json', 'imxrt1064_evk')
     self.assertEqual((ci['lock'], ci['reentry'], ci['usbPower'], ci['install'], ci['app']),
-                     ('mimxrt1064_evk', None, None, (0x70000000, 0x7000C000), (0x7000C000, 0x70400000)))
+                     ('mimxrt1064_evk', 'retained-register', None, (0x70000000, 0x7000C000), (0x7000C000, 0x70400000)))
     facts = ht.source_facts(f4)
     for what, over in (('flash past the F411VE\'s 512 KiB', {'flashSize': 0x100000}),
                        ('flash below 0x08000000', {'flashBase': 0x07FF0000})):
@@ -1816,10 +1816,15 @@ class Locks(Tmp):
 
   def test_cleanup_handoff_keeps_the_board_held_across_exec_and_recovery_can_end_it(self):
     fh = self.helper.acquire_board_lock(BOARD)
-    holder = ht.hand_off(fh, BOARD, 'cleanup failed', [{'pid': 99, 'start': 1, 'cmd': ['mcopy']}])
+    with mock.patch.dict(os.environ, {ht.JOB_TRACKING: 'job-7'}):
+      holder = ht.hand_off(fh, BOARD, 'cleanup failed', [{'pid': 99, 'start': 1, 'cmd': ['mcopy']}])
     self.addCleanup(lambda: _kill(holder['pid']))
     self.assertTrue(holder['ready'])
     self.assertNotIn('inProcess', holder)
+    # the holder is the re-executed `keep-held`, outside the Actions job's process tracking
+    proc = Path('/proc') / str(holder['pid'])
+    ht.wait_for(lambda: b'keep-held' in (proc / 'cmdline').read_bytes(), 5, 'holder exec')
+    self.assertNotIn(ht.JOB_TRACKING.encode(), (proc / 'environ').read_bytes())
     with self.assertRaises(OSError):
       self.helper.flock_nb(BOARD)
     rec = ht.prove_hold(self.helper, BOARD, holder['pid'], reason='hil_test.py', role=ht.HOLDER_ROLE)
@@ -1845,7 +1850,9 @@ class Locks(Tmp):
       return real(*a)
     for what, patch in (('fork fails', mock.patch.object(ht.os, 'fork', side_effect=OSError(11, 'EAGAIN'))),
                         ('pipe fails', mock.patch.object(ht.os, 'pipe', side_effect=OSError(24, 'EMFILE'))),
-                        ('no ack', mock.patch.object(ht, 'holder_record', dies_in_the_child))):
+                        ('no ack', mock.patch.object(ht, 'holder_record', dies_in_the_child)),
+                        # the exec succeeds but the replacement dies at startup: never acknowledged
+                        ('exec dies', mock.patch.object(ht, 'HOLDER_SCRIPT', self.tmp / 'missing.py'))):
       with self.subTest(what):
         fh = self.helper.acquire_board_lock(BOARD)
         with patch:
