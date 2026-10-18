@@ -1605,7 +1605,8 @@ class Spawn(Tmp):
       return 0, 'ninja: Entering directory `x\'\n'
 
     log, root = self.tmp / 'hil.log', self.tmp / 'build'
-    with mock.patch.object(ht, 'spawn', run), mock.patch.object(ht, 'container_present', lambda n: False):
+    with mock.patch.object(ht, 'spawn', run), mock.patch.object(ht, 'container_present', lambda n: False), \
+         mock.patch.object(ht, 'container_gone', lambda n: True):
       r = ht.ninja_query('cmake', None, None, 'board', log, root, ['-n', '-v'])
       self.assertEqual((r.returncode, calls[0][2:]), (0, (ht.NINJA_QUERY_TIMEOUT, ht.ROOT)))
       self.assertEqual(ht.CONTAINERS, [])
@@ -1615,6 +1616,16 @@ class Spawn(Tmp):
       self.assertEqual(r.returncode, 0)
       self.assertEqual(calls[1][0][calls[1][0].index('--name') + 1], name)
       self.assertEqual(ht.CONTAINERS, [])
+
+    with mock.patch.object(ht, 'spawn', return_value=(1, 'docker client failed')), \
+         mock.patch.object(ht, 'container_present', lambda n: False), \
+         mock.patch.object(ht, 'container_gone', lambda n: False):
+      r = ht.ninja_query('idf', 'docker', 'idf:image', 'board', log, root, ['-n', '-v'])
+    self.assertEqual(r.returncode, 1)
+    self.assertEqual(ht.CONTAINERS, [name])
+    with mock.patch.object(ht, 'container_gone', lambda n: n == name):
+      self.assertEqual(ht.stuck_children(), [])
+    self.assertEqual(ht.CONTAINERS, [])
 
     with mock.patch.object(ht, 'spawn', side_effect=ht.StepFail('ninja timed out after 30s')), \
          mock.patch.object(ht, 'container_present', lambda n: False), \

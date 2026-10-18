@@ -794,6 +794,21 @@ class HilRecord(unittest.TestCase):
          self.assertRaisesRegex(cb.Fail, 'ninja query timed out after 30s'):
       cb.ninja_in('cmake', None, None, self.tmp, ['-n', '-v'])
 
+    calls = []
+
+    def timeout_then_remove(cmd, **kwargs):
+      calls.append(cmd)
+      if cmd[:3] == ['docker', 'rm', '-f']:
+        return subprocess.CompletedProcess(cmd, 0, '', '')
+      raise subprocess.TimeoutExpired(cmd, cb.NINJA_QUERY_TIMEOUT)
+    with mock.patch.object(cb, 'git', return_value=str(self.tmp)), \
+         mock.patch.object(cb.subprocess, 'run', timeout_then_remove), \
+         self.assertRaisesRegex(cb.Fail, 'ninja query timed out after 30s'):
+      cb.ninja_in('idf', 'docker', 'idf:image', self.tmp, ['-n', '-v'])
+    name = f'tinyuf2-query-{os.getpid()}'
+    self.assertEqual(calls[0][calls[0].index('--name') + 1], name)
+    self.assertEqual(calls[1], ['docker', 'rm', '-f', name])
+
   def test_the_generated_jlink_target_must_name_the_roster_probe_and_the_build_image(self):
     flasher = {'name': 'jlink', 'uid': '000801012283', 'device': 'MIMXRT1011DAE5A'}
     root = self.tmp / 'b'

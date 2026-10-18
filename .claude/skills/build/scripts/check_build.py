@@ -733,14 +733,21 @@ def ninja_in(backend, idf_mode, image, root, args, runner=None, container=None):
   generator a host ninja would rewrite). Callers bind the build's own backend, mode and image. A HIL caller may
   supply its tracked runner and a container name; other callers still bound the query here."""
   cmd = ['ninja', '-C', str(root), *args]
+  if backend == 'idf' and idf_mode == 'docker' and runner is None and container is None:
+    container = f'tinyuf2-query-{os.getpid()}'
   if backend == 'idf' and idf_mode == 'docker':
     cmd = idf_docker(root, name=container) + [image, *cmd]   # the entrypoint sources export.sh, then runs cmd
   if runner:
     return runner(cmd)
   try:
     return subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT, timeout=NINJA_QUERY_TIMEOUT)
-  except subprocess.TimeoutExpired:
-    raise Fail(f'ninja query timed out after {NINJA_QUERY_TIMEOUT}s')
+  except subprocess.TimeoutExpired as e:
+    if container:
+      try:
+        subprocess.run(['docker', 'rm', '-f', container], capture_output=True, text=True, timeout=30)
+      except (OSError, subprocess.SubprocessError):
+        pass
+    raise Fail(f'ninja query timed out after {NINJA_QUERY_TIMEOUT}s') from e
 
 
 def backend_of(port):

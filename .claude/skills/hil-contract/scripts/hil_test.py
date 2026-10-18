@@ -699,8 +699,8 @@ def ninja_query(backend, idf_mode, image, board, log, root, args):
     return subprocess.CompletedProcess(cmd, code, out, '')
 
   r = cb.ninja_in(backend, idf_mode, image, root, args, runner=run, container=name)
-  if name:
-    CONTAINERS.remove(name)   # docker run --rm returned; on an exception cleanup keeps and removes the name
+  if name and container_gone(name):
+    CONTAINERS.remove(name)   # keep a survivor registered for cleanup and recovery
   return r
 
 
