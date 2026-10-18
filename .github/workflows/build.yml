@@ -22,10 +22,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # the claude-tests hook reads lib/uf2's uf2conv.py, the RT1062 SDK source and the STM32F303 and STM32F411 CMSIS headers
+      # the claude-tests hook reads lib/uf2's uf2conv.py, lib/agentrc's board-lock helper, the RT1062 SDK source and the
+      # STM32F303 and STM32F411 CMSIS headers
       - name: Fetch test inputs
         run: |
-          git submodule update --init lib/uf2
+          git submodule update --init --depth 1 lib/uf2 lib/agentrc
           python3 tools/get_deps.py mimxrt10xx stm32f3 stm32f4
 
       - name: Run pre-commit
