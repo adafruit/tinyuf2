@@ -15,7 +15,9 @@
 #include "board.h"
 
 // From board_api.h
+#ifndef BOARD_FLASH_APP_START
 #define BOARD_FLASH_APP_START  0
+#endif
 
 #ifdef __cplusplus
  }
