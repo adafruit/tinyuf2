@@ -169,7 +169,8 @@ class Selection(unittest.TestCase):
       self.assertEqual(classify(path)[1], 'none', path)
 
   def test_hil_runner_and_roster_select_tests_and_every_roster_board(self):
-    for path in ('.claude/skills/hil-contract/scripts/hil_test.py', 'test/hil/local.json', 'lib/agentrc'):
+    for path in ('.claude/skills/hil-contract/scripts/hil_test.py', 'test/hil/local.json', 'test/hil/ci.json', 'lib/agentrc',
+                 '.github/workflows/hil.yml'):
       r = cb.classify(path)
       self.assertEqual((r['rule'], r['tests'], r['hil'], r['boards']), ('hil-control', True, True, {}), path)
     self.assertEqual(cb.classify('.claude/skills/hil-contract/SKILL.md')['effect'], 'none')   # wording costs no hardware
