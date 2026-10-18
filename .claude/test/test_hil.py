@@ -2163,12 +2163,13 @@ class RunBoard(Tmp):
     self.assertIn(ht.HOLDER_ROLE, row['detail'])
     self.assertLess(time.monotonic() - t0, 5)
 
-  def test_the_lock_wait_ends_at_its_budget(self):
+  def test_the_lock_wait_ends_at_its_budget_even_when_the_board_frees_meanwhile(self):
     held = self.helper.acquire_board_lock(BOARD, reason='someone')
-    self.addCleanup(held.close)
     self.args.lock_wait = 1
+    threading.Timer(0.5, lambda: (self.helper.clear_record(held), held.close())).start()
     t0 = time.monotonic()
-    row, code, _ = self.run_board(lambda *a: self.fail('ran'))
+    with mock.patch.object(ht, 'LOCK_POLL', 5):   # one sleep, capped to the budget, waking after the release
+      row, code, _ = self.run_board(lambda *a: self.fail('ran'))
     self.assertEqual((code, row['locked'], row['recoveryBlocker']), (1, True, False))
     self.assertLess(time.monotonic() - t0, 3)
 

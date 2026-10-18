@@ -2232,13 +2232,16 @@ def run_board(args, board, facts, helper, workdir):
       raise Refused(f'{board["name"]}: {e}; refusing to run unlocked')
     except RuntimeError as e:
       # a cleanup holder never frees on its own (SKILL.md Recovery): a blocker, never waited for
-      blocker = helper.is_cleanup_holder(helper.read_record(board['lock']))
+      blocker, held = helper.is_cleanup_holder(helper.read_record(board['lock'])), str(e)
       left = deadline - time.monotonic()
       if blocker or left <= 0:
-        row.update(locked=True, recoveryBlocker=blocker, detail=str(e))
+        row.update(locked=True, recoveryBlocker=blocker, detail=held)
         return deferred(row), 1
     with signals(signal.SIG_UNBLOCK):
       time.sleep(min(LOCK_POLL, left))
+    if time.monotonic() >= deadline:   # no try past the budget, whatever the lock does meanwhile
+      row.update(locked=True, recoveryBlocker=False, detail=held)
+      return deferred(row), 1
   row['lockBypassed'] = fh is None
   users = probe_users(board)
   if users:   # a session from an earlier run, left on this probe: nothing may overlap it (SKILL.md Recovery)
