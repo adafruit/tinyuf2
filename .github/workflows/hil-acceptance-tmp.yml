@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 45
     env:
       BOARDS: imxrt1064_evk
-      FAIL_AT: cleanup
+      FAIL_AT: ""
     steps:
       # kept across runs and attempts, outside the workspace: records, every battery's run directory with its report,
       # log and output, and the markers that make a run which ended without a report a blocker for the next (hil_ci.py)
