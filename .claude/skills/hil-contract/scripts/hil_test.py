@@ -61,6 +61,7 @@ PROTECTED = {'hil_test.py', 'pool_check'}   # hil_lock.PROTECTED_REASONS, checke
 AGENTRC = 'lib/agentrc'
 LOCK_HELPER = ROOT / AGENTRC / 'skills' / 'hil' / 'scripts' / 'hil_lock.py'
 HOLDER_ROLE = 'cleanup-holder'
+LOCK_POLL = 15   # s between tries at a held board within run's --lock-wait
 SCB_VTOR, SCB_AIRCR = 0xE000ED08, 0xE000ED0C
 AIRCR_SYSRESETREQ = 0x05FA0004
 UF2_MAGIC = (0x0A324655, 0x9E5D5157, 0x0AB16F30)
@@ -2222,14 +2223,28 @@ def run_board(args, board, facts, helper, workdir):
   # blocked from here until the process exits or becomes the holder (keep_held): a signal acts only
   # inside the battery, and the report and any hold are settled first
   signal.pthread_sigmask(signal.SIG_BLOCK, TERM_SIGNALS)
-  try:
-    fh = helper.acquire_board_lock(board['lock'])
-  except helper.LockUnavailable as e:
-    raise Refused(f'{board["name"]}: {e}; refusing to run unlocked')
-  except RuntimeError as e:
-    row.update(locked=True, detail=str(e))
-    return deferred(row), 1
+  deadline = time.monotonic() + args.lock_wait
+  while True:
+    try:
+      fh = helper.acquire_board_lock(board['lock'])
+      break
+    except helper.LockUnavailable as e:
+      raise Refused(f'{board["name"]}: {e}; refusing to run unlocked')
+    except RuntimeError as e:
+      # a cleanup holder never frees on its own (SKILL.md Recovery): no wait
+      if time.monotonic() >= deadline or helper.is_cleanup_holder(helper.read_record(board['lock'])):
+        row.update(locked=True, detail=str(e))
+        return deferred(row), 1
+    with signals(signal.SIG_UNBLOCK):
+      time.sleep(LOCK_POLL)
   row['lockBypassed'] = fh is None
+  users = probe_users(board)
+  if users:   # a session from an earlier run, left on this probe: nothing may overlap it (SKILL.md Recovery)
+    row.update(probeUsers=users, detail=f'probe {board["probe"]} is still in use by pids {users}; no session may overlap them')
+    if fh is not None:
+      helper.clear_record(fh)
+      fh.close()
+    return deferred(row), 2
   bat = BATTERIES[board['flasher']](board, facts, workdir, args.fail_at, row.get('commissioning', False))
   code = 0
   try:
@@ -2295,6 +2310,8 @@ def main(argv=None):
   r.add_argument('--fail-at', choices=(*STEPS['esptool'], 'cleanup'), help='acceptance only: fail this step, or the cleanup, '
                  'to exercise cleanup and its holder')
   r.add_argument('--try-reentry', choices=REENTRY_METHODS, help="commissioning only, while the roster's reentry is unset")
+  r.add_argument('--lock-wait', type=int, default=0, help='seconds to keep trying a held board; a cleanup holder is never waited for')
+  r.add_argument('--run-root', type=Path, help="where this run's directory goes (default cmake-build/hil)")
   r.add_argument('config')
   i = sub.add_parser('install', help='program a bootloader under your own manual hold')
   i.add_argument('-b', '--board', required=True)
@@ -2332,7 +2349,7 @@ def main(argv=None):
     keep_held(fh)
   for sig in TERM_SIGNALS:
     signal.signal(sig, on_signal)
-  run_dir = cb.BUILD_DIR / 'hil' / f'run-{time.strftime("%Y%m%d-%H%M%S")}-{os.getpid()}'
+  run_dir = (getattr(args, 'run_root', None) or cb.BUILD_DIR / 'hil') / f'run-{time.strftime("%Y%m%d-%H%M%S")}-{os.getpid()}'
   result = {'pass': False, 'caveat': '', 'results': [], 'reportPath': str(run_dir / 'hil_report.json')}
   code, recovery, bat = 2, None, None
   try:
