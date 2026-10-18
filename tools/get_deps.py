@@ -62,6 +62,15 @@ deps_all = {**deps_mandatory, **deps_optional}
 TOP = Path(__file__).parent.parent.resolve()
 
 
+def find_symlink_component(path):
+    current = TOP
+    for part in path.relative_to(TOP).parts:
+        current /= part
+        if current.is_symlink():
+            return current
+    return None
+
+
 def run_cmd(cmd):
     r = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if r.returncode != 0:
@@ -78,9 +87,15 @@ def get_a_dep(d):
     commit = deps_all[d][1]
     families = deps_all[d][2]
 
+    p = Path(TOP / d)
+    symlink = find_symlink_component(p)
+    if symlink is not None:
+        print(f'Error: refusing to update {d}: {symlink.relative_to(TOP)} is a symlink')
+        print(f'Fetch {commit} in the checkout that owns the dependency, then link it here')
+        return 1
+
     print(f'cloning {d} with {url}')
 
-    p = Path(TOP / d)
     git_cmd = f"git -C {p}"
 
     # Init git deps if not existed
