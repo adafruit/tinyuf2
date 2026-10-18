@@ -291,14 +291,16 @@ static void u32_to_hexstr(uint32_t value, char* buffer) {
 
 void uf2_init(void) {
   _flash_size = board_flash_size();
+  _uf2_sector_count = 0;
 
   // CURRENT.UF2 starts at the application, not at the start of flash.
-  if (BOARD_FLASH_APP_START >= BOARD_FLASH_ADDR_ZERO &&
-      BOARD_FLASH_APP_START - BOARD_FLASH_ADDR_ZERO < _flash_size) {
-    _uf2_sector_count = (_flash_size - (BOARD_FLASH_APP_START - BOARD_FLASH_ADDR_ZERO)) /
-                        UF2_FIRMWARE_BYTES_PER_SECTOR;
-  } else {
-    _uf2_sector_count = 0;
+  uint32_t const flash_start = BOARD_FLASH_ADDR_ZERO;
+  uint32_t const app_start = BOARD_FLASH_APP_START;
+  if (app_start >= flash_start) {
+    uint32_t const app_offset = app_start - flash_start;
+    if (app_offset < _flash_size) {
+      _uf2_sector_count = (_flash_size - app_offset) / UF2_FIRMWARE_BYTES_PER_SECTOR;
+    }
   }
 
   // update CURRENT.UF2 file size
