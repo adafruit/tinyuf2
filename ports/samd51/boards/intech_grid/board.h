@@ -42,7 +42,7 @@
 #define USB_PRODUCT      "Bootloader 2026-10"
 
 #define UF2_PRODUCT_NAME USB_PRODUCT
-#define UF2_BOARD_ID     "SAMD51N20A-GRID"
+#define UF2_BOARD_ID     "SAMD51N20A-GRID-v0"
 #define UF2_VOLUME_LABEL "GRID26"
 #define UF2_INDEX_URL    "https://github.com/intechstudio/grid-fw/"
 
