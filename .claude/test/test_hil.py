@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Tests of the HIL contract's runner. Stubs prove the plumbing only: every probe and USB path here is
-unverified until a real run on the rig (SKILL.md, commissioning)."""
+unverified until a real run on the rig (commissioning.md)."""
 import contextlib
 import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import signal
 import struct
@@ -13,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -27,43 +29,6 @@ spec.loader.exec_module(ht)
 BOARD = 'lpcxpresso55s69'
 RT = {'port': 'mimxrt10xx', 'name': 'imxrt1060_evk', 'lock': 'mimxrt1060_evk'}
 
-# the API hil_test.py uses from tinyusb's test/hil/helper/hil_lock.py, with the same flock and record
-# semantics; set TINYUSB_HIL_LOCK to the real helper to run the lock tests against it instead
-FAKE_HELPER = '''
-import fcntl, json, os, time
-BOARD_LOCK_DIR = {dir!r}
-CI_REASON = 'hil_test.py'
-PROTECTED_REASONS = {{CI_REASON, 'pool_check'}}
-def lock_path(board): return os.path.join(BOARD_LOCK_DIR, f'{{board}}.lock')
-def flock_nb(board):
-  fh = os.fdopen(os.open(lock_path(board), os.O_RDWR | os.O_CREAT, 0o666), 'r+')
-  try:
-    fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-  except OSError:
-    fh.close(); raise
-  return fh
-def write_record(fh, reason):
-  fh.truncate(0); fh.seek(0)
-  json.dump({{'pid': os.getpid(), 'reason': reason, 'since': ''}}, fh); fh.flush(); return True
-def clear_record(fh): fh.truncate(0)
-def read_record(board):
-  try:
-    with open(lock_path(board)) as f: return json.load(f)
-  except (OSError, ValueError): return None
-def acquire_board_lock(board, reason=CI_REASON):
-  if os.environ.get('HIL_NO_BOARD_LOCK') == '1': return None
-  try:
-    os.makedirs(BOARD_LOCK_DIR, exist_ok=True)
-    fh = os.fdopen(os.open(lock_path(board), os.O_RDWR | os.O_CREAT, 0o666), 'r+')
-  except OSError:
-    return None
-  try:
-    fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-  except OSError:
-    info = fh.read(500).strip(); fh.close(); raise RuntimeError(f'board locked: {{info}}')
-  write_record(fh, reason); return fh
-'''
-
 HOLDER = '''
 import fcntl, json, os, sys, time
 fh = os.fdopen(os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o666), 'r+')
@@ -75,6 +40,15 @@ time.sleep(60)
 '''
 
 
+def pinned_helper(test, lockdir):
+  """lib/agentrc's hil_lock.py, the helper the runner takes its locks through, with its locks under `lockdir`."""
+  if not ht.LOCK_HELPER.is_file():
+    test.fail('lib/agentrc not checked out: git submodule update --init lib/agentrc')
+  helper = ht.load_helper()
+  helper.BOARD_LOCK_DIR = str(lockdir)
+  return helper
+
+
 def roster(tmp, **over):
   t = {'reentry': 'retained-register'}
   t.update(over.pop('tinyuf2', {}))
@@ -84,9 +58,6 @@ def roster(tmp, **over):
   cfg = tmp / 'local.json'
   cfg.write_text(json.dumps({'boards': [b]}))
   return cfg
-
-
-HELPER = Path('test/hil/helper/hil_lock.py')   # under TINYUSB_DIR
 
 
 # the runner reads no source facts for lpc55; most tests keep its layout as synthetic facts
@@ -112,8 +83,7 @@ class Tmp(unittest.TestCase):
     self.addCleanup(t.cleanup)
     self.tmp = Path(t.name)
     for p in (mock.patch.object(ht, 'source_facts', source_facts),
-              mock.patch.object(ht, 'CONTAINERS', []),   # a test's tracked container never reaches real docker later
-              mock.patch.dict(os.environ, {'TINYUSB_DIR': str(self.tmp)})):
+              mock.patch.object(ht, 'CONTAINERS', [])):   # a test's tracked container never reaches real docker later
       p.start()
       self.addCleanup(p.stop)
 
@@ -129,7 +99,6 @@ class Roster(Tmp):
     b = self.load(roster(self.tmp))
     self.assertEqual((b['install'], b['app'], b['device'], b['if'], b['speed']),
                      ((0, 0x10000), (0x10000, 0x98000), 'LPC55S69_M33_0', 'SWD', '4000'))
-    self.assertEqual(b['helper'], str(self.tmp / HELPER))
 
   def test_refusals(self):
     cases = {
@@ -151,14 +120,117 @@ class Roster(Tmp):
     with self.assertRaisesRegex(ht.Refused, 'usbPower is for J-Link boards only'):
       ht.load_board(s3_roster(self.tmp, tinyuf2={'reentry': 'dfu-detach', 'usbPower': {'hub': 'PA40004', 'port': 3}}), S3)
 
-  def test_the_lock_helper_comes_from_an_absolute_tinyusb_dir(self):
-    for value in ('', 'tinyusb'):
-      with self.subTest(value), mock.patch.dict(os.environ, {'TINYUSB_DIR': value}), \
-           self.assertRaisesRegex(ht.Refused, 'TINYUSB_DIR'):
-        ht.load_board(roster(self.tmp), BOARD)
-    with mock.patch.dict(os.environ), self.assertRaisesRegex(ht.Refused, 'TINYUSB_DIR'):
-      del os.environ['TINYUSB_DIR']
-      ht.load_board(roster(self.tmp), BOARD)
+  def test_a_missing_lock_helper_submodule_is_refused(self):
+    for what, file, checkout in (('no file', False, True), ('not a checkout', True, False)):
+      helper = self.tmp / 'hil_lock.py'
+      helper.unlink(missing_ok=True)
+      if file:
+        helper.write_text('')
+      with self.subTest(what), mock.patch.object(ht, 'LOCK_HELPER', helper), \
+           mock.patch.object(ht.cb, 'own_checkout', lambda p: checkout), \
+           self.assertRaisesRegex(ht.Refused, 'git submodule update --init lib/agentrc'):
+        ht.check_lock_pin()
+
+  def test_a_lock_helper_off_its_pin_is_refused(self):
+    helper = self.tmp / 'hil_lock.py'
+    helper.write_text('')
+    pin, other = 'a' * 40, 'b' * 40
+    cases = {'off its pin': (other, pin, [], f'lib/agentrc is at {other}; HEAD pins {pin}: git submodule update'),
+             'off its pin with the pin change staged': (other, other, [], f'but {other} is staged: commit or unstage'),
+             'dirty at its pin': (pin, pin, ['lib/agentrc'], f'lib/agentrc checkout is dirty at the pinned {pin}'),
+             'clean at its pin': (pin, pin, [], None)}
+    for what, (have, staged, dirty, refusal) in cases.items():
+      pinned = {('rev-parse', 'HEAD:lib/agentrc'): pin + '\n', ('rev-parse', ':lib/agentrc'): staged + '\n'}
+      checked_out = {('lib/agentrc', 'rev-parse', 'HEAD'): have + '\n'}
+      with self.subTest(what), mock.patch.object(ht, 'LOCK_HELPER', helper), \
+           mock.patch.object(ht.cb, 'own_checkout', lambda p: p == 'lib/agentrc'), \
+           mock.patch.object(ht.cb, 'git', lambda *a: pinned[a]), \
+           mock.patch.object(ht.cb, 'git_in', lambda *a: checked_out[a]), \
+           mock.patch.object(ht.cb, 'dirty_inputs', lambda paths: [p for p in paths if p in dirty]):
+        if refusal:
+          with self.assertRaisesRegex(ht.Refused, refusal):
+            ht.check_lock_pin()
+        else:
+          ht.check_lock_pin()
+
+  def test_a_git_failure_reading_the_pin_is_refused(self):
+    helper = self.tmp / 'hil_lock.py'
+    helper.write_text('')
+    pin, other = 'a' * 40, 'b' * 40
+
+    def fail(*a):
+      raise ht.cb.Fail('git failed')
+
+    def git_staged_fails(*a):
+      return fail() if a == ('rev-parse', ':lib/agentrc') else pin + '\n'
+
+    cases = {'git': (fail, lambda *a: pin + '\n', lambda p: []),
+             'git_in': (lambda *a: pin + '\n', fail, lambda p: []),
+             'git reading the staged pin': (git_staged_fails, lambda *a: other + '\n', lambda p: []),
+             'dirty_inputs': (lambda *a: pin + '\n', lambda *a: pin + '\n', fail)}
+    for what, (git, git_in, dirty_inputs) in cases.items():
+      with self.subTest(what), mock.patch.object(ht, 'LOCK_HELPER', helper), \
+           mock.patch.object(ht.cb, 'own_checkout', lambda p: True), mock.patch.object(ht.cb, 'git', git), \
+           mock.patch.object(ht.cb, 'git_in', git_in), mock.patch.object(ht.cb, 'dirty_inputs', dirty_inputs), \
+           self.assertRaisesRegex(ht.Refused, 'git failed'):
+        ht.check_lock_pin()
+
+  def test_this_checkout_passes_the_real_pin_check(self):
+    if not ht.LOCK_HELPER.is_file():
+      self.fail('lib/agentrc not checked out: git submodule update --init lib/agentrc')
+    # a git hook exports these, which would point git -C lib/agentrc at the superproject
+    env = {k: v for k, v in os.environ.items() if k not in ('GIT_DIR', 'GIT_WORK_TREE')}
+    if 'GIT_INDEX_FILE' in env:
+      # commit -a and commit <path> run the hook on a temporary index that holds the pin being committed
+      env['GIT_INDEX_FILE'] = str(ht.ROOT / env['GIT_INDEX_FILE'])
+    self.enterContext(mock.patch.dict(os.environ, env, clear=True))
+    git_in = ht.cb.git_in
+
+    def git_in_own_index(*a):
+      with mock.patch.dict(os.environ):
+        os.environ.pop('GIT_INDEX_FILE', None)
+        return git_in(*a)
+
+    self.enterContext(mock.patch.object(ht.cb, 'git_in', git_in_own_index))
+    want, staged = (ht.cb.git('rev-parse', ref).strip() for ref in ('HEAD:lib/agentrc', ':lib/agentrc'))
+    if staged != want:
+      # a commit bumping the pin runs this hook with the new pin staged over HEAD's: the other tests load
+      # whatever is checked out, so that must be the staged pin, clean, or they test the wrong helper
+      have = ht.cb.git_in('lib/agentrc', 'rev-parse', 'HEAD').strip()
+      self.assertEqual((have, ht.cb.dirty_inputs(['lib/agentrc'])), (staged, []),
+                       f'lib/agentrc is not checked out clean at the staged pin {staged}: git submodule update --init lib/agentrc')
+      with self.assertRaisesRegex(ht.Refused, 'is staged: commit or unstage'):
+        ht.check_lock_pin()
+    else:
+      ht.check_lock_pin()
+
+  def test_the_pinned_lock_helper_checks_its_pin_and_passes_the_contract(self):
+    with mock.patch.object(ht, 'check_lock_pin') as pin:
+      helper = pinned_helper(self, self.tmp / 'locks')
+    pin.assert_called_once_with()
+    self.assertEqual((helper.PROTECTED_REASONS, helper.CI_REASON, helper.CLEANUP_ROLE),
+                     (ht.PROTECTED, 'hil_test.py', ht.HOLDER_ROLE))
+    self.assertTrue(issubclass(helper.LockUnavailable, RuntimeError))
+
+  def test_a_lock_helper_off_the_contract_is_refused(self):
+    if not ht.LOCK_HELPER.is_file():
+      self.fail('lib/agentrc not checked out: git submodule update --init lib/agentrc')
+    text = ht.LOCK_HELPER.read_text()
+    for what, old, new in (('cleanup role', "CLEANUP_ROLE = 'cleanup-holder'", "CLEANUP_ROLE = 'other'"),
+                           ('protected reasons', "{CI_REASON, 'pool_check'}", '{CI_REASON}'),
+                           ('LockUnavailable not a RuntimeError', 'class LockUnavailable(RuntimeError)', 'class LockUnavailable(OSError)'),
+                           ('LockUnavailable not a class', 'class LockUnavailable(RuntimeError):',
+                            'LockUnavailable = 1\nclass _LockUnavailable(RuntimeError):'),
+                           ('protected reasons not iterable', "PROTECTED_REASONS = {CI_REASON, 'pool_check'}",
+                            'PROTECTED_REASONS = 1'),
+                           ('protected reasons unhashable', "PROTECTED_REASONS = {CI_REASON, 'pool_check'}",
+                            'PROTECTED_REASONS = [[CI_REASON]]')):
+      self.assertIn(old, text)
+      off = self.tmp / 'off.py'
+      off.write_text(text.replace(old, new))
+      with self.subTest(what), mock.patch.object(ht, 'LOCK_HELPER', off), mock.patch.object(ht, 'check_lock_pin'), \
+           self.assertRaisesRegex(ht.Refused, 'recheck this contract'):
+        ht.load_helper()
 
   def test_the_lock_defaults_to_the_board_name_and_the_port_comes_from_it(self):
     b = ht.load_board(roster(self.tmp), BOARD)
@@ -187,6 +259,9 @@ class Roster(Tmp):
     f4 = self.load(ROOT / 'test' / 'hil' / 'local.json', 'stm32f411ve_discovery')
     self.assertEqual((f4['lock'], f4['reentry'], f4['usbPower'], f4['install'], f4['app']),
                      ('stm32f411disco', 'retained-register', None, (0x08000000, 0x08010000), (0x08010000, 0x08080000)))
+    ci = self.load(ROOT / 'test' / 'hil' / 'ci.json', 'imxrt1064_evk')
+    self.assertEqual((ci['lock'], ci['reentry'], ci['usbPower'], ci['install'], ci['app']),
+                     ('mimxrt1064_evk', 'retained-register', None, (0x70000000, 0x7000C000), (0x7000C000, 0x70400000)))
     facts = ht.source_facts(f4)
     for what, over in (('flash past the F411VE\'s 512 KiB', {'flashSize': 0x100000}),
                        ('flash below 0x08000000', {'flashBase': 0x07FF0000})):
@@ -958,7 +1033,7 @@ class EspFlash(EspFake):
 
   def main(self, *argv):
     out = io.StringIO()
-    with mock.patch.object(ht, 'load_helper', lambda path: mock.Mock()), mock.patch.object(ht, 'manual_holder', mock.Mock()), \
+    with mock.patch.object(ht, 'load_helper', mock.Mock), mock.patch.object(ht, 'manual_holder', mock.Mock()), \
          mock.patch.object(ht.cb, 'BUILD_DIR', Path(tempfile.mkdtemp(dir=self.tmp))), contextlib.redirect_stdout(out):
       code = ht.main(list(argv))
     return code, json.loads(out.getvalue().strip().splitlines()[-1])
@@ -1388,6 +1463,31 @@ class Images(Tmp):
     self.assertEqual(ht.embedded_version(b), '0.35.0-1-gabc - tinyusb (x)')
 
 
+class Citations(unittest.TestCase):
+  CONTRACT = SCRIPT.parent.parent
+  CITE = re.compile(r'\b(SKILL|commissioning|bench-history)\.md(?:[,:]\s+([^,;:)\n]+?)\s*[),;:]| ([A-Z][\w/-]*))')
+
+  def unresolved(self, text):
+    """Citations in text whose label is no heading, bold item label or file name of the page they name."""
+    bad = []
+    for m in self.CITE.finditer(text):
+      page, label = f'{m[1]}.md', (m[2] or m[3]).strip()
+      doc = (self.CONTRACT / page).read_text()
+      labels = {h.strip() for h in re.findall(r'(?m)^#{2,}\s+(.+)$', doc)}
+      labels |= {b.strip().rstrip(':,') for b in re.findall(r'(?m)^\s*(?:[-*]|\d+\.)\s+\*\*(.+?)\*\*', doc)}
+      if label not in labels and not ('.' in label and label in doc):
+        bad.append(f'{page}: {label}')
+    return bad
+
+  def test_every_citation_of_a_contract_page_names_a_section_it_has(self):
+    self.assertEqual(self.unresolved('(SKILL.md, Commissioning) (SKILL.md, Commissioning: Port power) (SKILL.md Roster)'),
+                     ['SKILL.md: Commissioning', 'SKILL.md: Commissioning', 'SKILL.md: Roster'])
+    for f in sorted(self.CONTRACT.rglob('*')):
+      if f.suffix in ('.py', '.md'):
+        with self.subTest(f.relative_to(self.CONTRACT)):
+          self.assertEqual(self.unresolved(f.read_text()), [])
+
+
 class Exclusive(unittest.TestCase):
   def test_the_udev_property_gets_a_bounded_wait(self):
     seen = iter([False, False, True])
@@ -1730,17 +1830,10 @@ class Locks(Tmp):
     super().setUp()
     mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())   # hand_off blocks SIGUSR1 in this process
     self.addCleanup(signal.pthread_sigmask, signal.SIG_SETMASK, mask)
-    real = os.environ.get('TINYUSB_HIL_LOCK')
     lockdir = self.tmp / 'locks'
     lockdir.mkdir()
-    if real:
-      self.helper = ht.load_helper(real)
-      patch = mock.patch.object(self.helper, 'BOARD_LOCK_DIR', str(lockdir))
-      patch.start()
-      self.addCleanup(patch.stop)
-    else:
-      (self.tmp / 'hil_lock.py').write_text(FAKE_HELPER.format(dir=str(lockdir)))
-      self.helper = ht.load_helper(self.tmp / 'hil_lock.py')
+    with mock.patch.object(ht, 'check_lock_pin'):
+      self.helper = pinned_helper(self, lockdir)
     self.lock = self.helper.lock_path(BOARD)
 
   def holder(self, reason, lock=True):
@@ -1769,10 +1862,15 @@ class Locks(Tmp):
 
   def test_cleanup_handoff_keeps_the_board_held_across_exec_and_recovery_can_end_it(self):
     fh = self.helper.acquire_board_lock(BOARD)
-    holder = ht.hand_off(fh, BOARD, 'cleanup failed', [{'pid': 99, 'start': 1, 'cmd': ['mcopy']}])
+    with mock.patch.dict(os.environ, {ht.JOB_TRACKING: 'job-7'}):
+      holder = ht.hand_off(fh, BOARD, 'cleanup failed', [{'pid': 99, 'start': 1, 'cmd': ['mcopy']}])
     self.addCleanup(lambda: _kill(holder['pid']))
     self.assertTrue(holder['ready'])
     self.assertNotIn('inProcess', holder)
+    # the holder is the re-executed `keep-held`, outside the Actions job's process tracking
+    proc = Path('/proc') / str(holder['pid'])
+    ht.wait_for(lambda: b'keep-held' in (proc / 'cmdline').read_bytes(), 5, 'holder exec')
+    self.assertNotIn(ht.JOB_TRACKING.encode(), (proc / 'environ').read_bytes())
     with self.assertRaises(OSError):
       self.helper.flock_nb(BOARD)
     rec = ht.prove_hold(self.helper, BOARD, holder['pid'], reason='hil_test.py', role=ht.HOLDER_ROLE)
@@ -1798,7 +1896,9 @@ class Locks(Tmp):
       return real(*a)
     for what, patch in (('fork fails', mock.patch.object(ht.os, 'fork', side_effect=OSError(11, 'EAGAIN'))),
                         ('pipe fails', mock.patch.object(ht.os, 'pipe', side_effect=OSError(24, 'EMFILE'))),
-                        ('no ack', mock.patch.object(ht, 'holder_record', dies_in_the_child))):
+                        ('no ack', mock.patch.object(ht, 'holder_record', dies_in_the_child)),
+                        # the exec succeeds but the replacement dies at startup: never acknowledged
+                        ('exec dies', mock.patch.object(ht, 'HOLDER_SCRIPT', self.tmp / 'missing.py'))):
       with self.subTest(what):
         fh = self.helper.acquire_board_lock(BOARD)
         with patch:
@@ -1815,7 +1915,8 @@ class Locks(Tmp):
       import importlib.util, json, os, resource, signal, sys
       spec = importlib.util.spec_from_file_location('ht', {str(SCRIPT)!r}); ht = importlib.util.module_from_spec(spec)
       spec.loader.exec_module(ht)
-      helper = ht.load_helper({str(self.helper.__file__)!r})
+      ht.check_lock_pin = lambda: None
+      helper = ht.load_helper()
       helper.BOARD_LOCK_DIR = {str(Path(self.lock).parent)!r}
       fh = helper.acquire_board_lock({BOARD!r})
       signal.pthread_sigmask(signal.SIG_BLOCK, ht.TERM_SIGNALS)
@@ -1852,7 +1953,7 @@ class Locks(Tmp):
     os.kill(holder['pid'], signal.SIGUSR1)
     ht.wait_for(lambda: ht.flock_free(self.lock), 5, 'release')
 
-  def test_one_recovery_per_board_and_tinyusb_never_lists_it_as_a_holder(self):
+  def test_one_recovery_per_board_and_the_helper_never_lists_it_as_a_holder(self):
     first = ht.recovery_lock(self.helper, BOARD)
     with self.assertRaisesRegex(ht.Refused, 'another recovery holds'):
       ht.recovery_lock(self.helper, BOARD)
@@ -1896,11 +1997,11 @@ class RunBoard(Tmp):
       for sig, h in handlers.items():
         signal.signal(sig, h)
     self.addCleanup(unblock)
-    (self.tmp / 'hil_lock.py').write_text(FAKE_HELPER.format(dir=str(self.tmp / 'locks')))
-    self.helper = ht.load_helper(self.tmp / 'hil_lock.py')
+    with mock.patch.object(ht, 'check_lock_pin'):
+      self.helper = pinned_helper(self, self.tmp / 'locks')
     self.board = self.load(roster(self.tmp))
     self.facts = ht.source_facts(self.board)
-    self.args = mock.Mock(build_record='rec.json', fail_at=None, try_reentry=None)
+    self.args = mock.Mock(build_record='rec.json', fail_at=None, try_reentry=None, lock_wait=0)
     for p in (mock.patch.object(ht, 'verify_record', lambda *a: ({'hex': 'x.hex', 'bin': 'x.bin'}, {'version': 'v'})),
               mock.patch.object(ht, 'parse_hex', lambda p: {0: 1}),
               mock.patch.object(ht, 'hex_matches_bin', lambda d, b, base: True),
@@ -2087,6 +2188,79 @@ class RunBoard(Tmp):
     row, code, cleaned = self.run_board(lambda *a: self.fail('ran'))
     self.assertEqual((code, row['locked'], row['ran'], cleaned), (1, True, False, []))
 
+  def test_a_held_board_is_tried_again_within_lock_wait(self):
+    held = self.helper.acquire_board_lock(BOARD, reason='someone')
+    self.args.lock_wait = 5
+    threading.Timer(0.1, lambda: (self.helper.clear_record(held), held.close())).start()
+    with mock.patch.object(ht, 'LOCK_POLL', 0.02):
+      row, code, cleaned = self.run_board(lambda bat, f, v: setattr(bat, 'touched', True))
+    self.assertEqual((code, row['locked'], row['pass'], cleaned), (0, False, True, [True]))
+
+  def test_a_signal_during_the_lock_wait_still_gives_a_locked_row(self):
+    held = self.helper.acquire_board_lock(BOARD, reason='someone')
+    self.addCleanup(held.close)
+    self.args.lock_wait = 100
+    signal.signal(signal.SIGTERM, ht.on_signal)
+    real_sleep = time.sleep
+
+    def signalled(s):
+      os.kill(os.getpid(), signal.SIGTERM)
+      real_sleep(1)
+      self.fail('the signal did not interrupt the wait')
+    with mock.patch.object(ht.time, 'sleep', signalled):
+      row, code, cleaned = self.run_board(lambda *a: self.fail('ran'))
+    self.assertEqual((code, row['ran'], row['locked'], row['recoveryBlocker'], cleaned), (1, False, True, False, []))
+    self.assertIn('interrupted by SIGTERM while waiting for the lock', row['detail'])
+    self.assertTrue(self.helper.is_locked(BOARD))
+    self.assertEqual(self.helper.read_record(BOARD)['reason'], 'someone')
+
+  def test_a_failed_probe_check_is_not_run_and_released(self):
+    def no_bridge(board):
+      raise ht.StepFail('0 serial ports for bridge cp2102n: []')
+    with mock.patch.object(ht, 'probe_users', no_bridge):
+      row, code, cleaned = self.run_board(lambda *a: self.fail('ran'))
+    self.assertEqual((code, row['ran'], row['locked'], cleaned), (1, False, False, []))
+    self.assertEqual(row['detail'], 'probe check: 0 serial ports for bridge cp2102n: []')
+    self.assertFalse(self.helper.is_locked(BOARD))
+    self.helper.flock_nb(BOARD).close()
+
+  def test_a_failed_probe_check_without_the_board_lock_is_not_run(self):
+    def no_bridge(board):
+      raise ht.StepFail('0 serial ports for bridge cp2102n: []')
+    with mock.patch.object(ht, 'probe_users', no_bridge), mock.patch.dict(os.environ, {'HIL_NO_BOARD_LOCK': '1'}):
+      row, code, cleaned = self.run_board(lambda *a: self.fail('ran'))
+    self.assertEqual((code, row['ran'], row['lockBypassed'], cleaned), (1, False, True, []))
+    self.assertEqual(row['detail'], 'probe check: 0 serial ports for bridge cp2102n: []')
+
+  def test_a_cleanup_holder_is_not_waited_for(self):
+    held = self.helper.acquire_board_lock(BOARD, reason='someone')
+    self.addCleanup(held.close)
+    rec = json.loads(Path(self.helper.lock_path(BOARD)).read_text())
+    Path(self.helper.lock_path(BOARD)).write_text(json.dumps(dict(rec, role=ht.HOLDER_ROLE)))
+    self.args.lock_wait = 100
+    t0 = time.monotonic()
+    row, code, _ = self.run_board(lambda *a: self.fail('ran'))
+    self.assertEqual((code, row['locked'], row['recoveryBlocker']), (1, True, True))
+    self.assertIn(ht.HOLDER_ROLE, row['detail'])
+    self.assertLess(time.monotonic() - t0, 5)
+
+  def test_the_lock_wait_ends_at_its_budget_even_when_the_board_frees_meanwhile(self):
+    held = self.helper.acquire_board_lock(BOARD, reason='someone')
+    self.args.lock_wait = 1
+    threading.Timer(0.5, lambda: (self.helper.clear_record(held), held.close())).start()
+    t0 = time.monotonic()
+    with mock.patch.object(ht, 'LOCK_POLL', 5):   # one sleep, capped to the budget, waking after the release
+      row, code, _ = self.run_board(lambda *a: self.fail('ran'))
+    self.assertEqual((code, row['locked'], row['recoveryBlocker']), (1, True, False))
+    self.assertLess(time.monotonic() - t0, 3)
+
+  def test_a_probe_still_in_use_is_refused_after_the_lock_and_released(self):
+    with mock.patch.object(ht, 'probe_users', lambda b: [101]):
+      row, code, cleaned = self.run_board(lambda *a: self.fail('ran'))
+    self.assertEqual((code, row['ran'], row['probeUsers'], cleaned), (2, False, [101], []))
+    self.assertFalse(self.helper.is_locked(BOARD))
+    self.helper.flock_nb(BOARD).close()
+
   def test_the_board_is_locked_and_reported_under_its_lock_name(self):
     self.board = self.load(roster(self.tmp, tinyuf2={'lock': 'tinyusb_name'}))
     held = self.helper.acquire_board_lock('tinyusb_name', reason='someone')
@@ -2095,9 +2269,10 @@ class RunBoard(Tmp):
     self.assertEqual((code, row['board'], row['lock'], row['locked']), (1, BOARD, 'tinyusb_name', True))
 
   def test_an_unusable_lock_dir_is_refused_not_run_unlocked(self):
-    with mock.patch.object(self.helper, 'acquire_board_lock', lambda b: None), \
+    (self.tmp / 'file').write_text('')
+    with mock.patch.object(self.helper, 'BOARD_LOCK_DIR', str(self.tmp / 'file' / 'locks')), \
          mock.patch.dict(os.environ, {'HIL_NO_BOARD_LOCK': ''}):
-      with self.assertRaises(ht.Refused):
+      with self.assertRaisesRegex(ht.Refused, 'board lock unavailable.*refusing to run unlocked'):
         self.run_board(lambda *a: self.fail('ran'))
 
   def test_fail_at_injects_a_criterion_failure(self):
@@ -2595,7 +2770,7 @@ class Main(Tmp):
       cfg = roster(self.tmp, tinyuf2={'reentry': reentry})
       with self.subTest(what), contextlib.redirect_stdout(io.StringIO()), \
            mock.patch.object(ht.cb, 'BUILD_DIR', Path(tempfile.mkdtemp(dir=self.tmp))), \
-           mock.patch.object(ht, 'load_helper', lambda p: None), mock.patch.object(ht, 'manual_holder', lambda *a: None), \
+           mock.patch.object(ht, 'load_helper', lambda: None), mock.patch.object(ht, 'manual_holder', lambda *a: None), \
            mock.patch.object(ht, 'admit_record', lambda *a: ({'bin': 'b'}, {'version': 'v'})), \
            mock.patch.object(ht.Battery, 'install', lambda bat, f: seen.append(('install', bat.b['reentry'])) or {}), \
            mock.patch.object(ht.Battery, 'dfu_after_install', lambda bat, v: seen.append(('dfu', v)) or {}):
@@ -2609,7 +2784,7 @@ class Main(Tmp):
         bat.touched = touched
         raise ht.StepFail('tinyuf2-jlink failed (exit 1)')
       with self.subTest(touched), contextlib.redirect_stdout(io.StringIO()), \
-           mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / f'i{want}'), mock.patch.object(ht, 'load_helper', lambda p: None), \
+           mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / f'i{want}'), mock.patch.object(ht, 'load_helper', lambda: None), \
            mock.patch.object(ht, 'manual_holder', lambda *a: None), \
            mock.patch.object(ht, 'admit_record', lambda *a: ({}, {'version': 'v'})), mock.patch.object(ht.Battery, 'install', fail):
         self.assertEqual(ht.main(['install', '-b', BOARD, '--build-record', 'r.json', '--under-hold', 'x', str(cfg)]), want)
@@ -2621,7 +2796,7 @@ class Main(Tmp):
         bat.touched = touched
         raise ht.StepFail('the DFU device came back after the blinky copy')
       with self.subTest(touched), contextlib.redirect_stdout(io.StringIO()), \
-           mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / str(want)), mock.patch.object(ht, 'load_helper', lambda p: None), \
+           mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / str(want)), mock.patch.object(ht, 'load_helper', lambda: None), \
            mock.patch.object(ht, 'manual_holder', lambda *a: None), mock.patch.object(ht, 'probe_users', lambda b: []), \
            mock.patch.object(ht, 'admit_record', lambda *a: ({}, {'version': 'v'})), mock.patch.object(ht.Battery, 'restore', fail):
         self.assertEqual(ht.main(['restore', '-b', BOARD, '--build-record', 'r.json', '--under-hold', 'x', str(cfg)]), want)
@@ -2633,7 +2808,7 @@ class Main(Tmp):
     busy = mock.Mock(side_effect=ht.Refused(f'{BOARD}: another recovery holds x.lock.recover'))
     out = io.StringIO()
     with contextlib.redirect_stdout(out), mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp), \
-         mock.patch.object(ht, 'load_helper', lambda p: None), mock.patch.object(ht, 'check_jlink', lambda: None), \
+         mock.patch.object(ht, 'load_helper', lambda: None), mock.patch.object(ht, 'check_jlink', lambda: None), \
          mock.patch.object(ht, 'recovery_lock', busy), \
          mock.patch.object(ht, 'prove_hold', side_effect=AssertionError('checked the holder')), \
          mock.patch.object(ht, 'admit_record', lambda *a: ({}, {'version': 'v'})), \
@@ -2663,7 +2838,7 @@ class Main(Tmp):
                                                               'preservedRegions': {n: list(r) for n, r in regions.items()}}}]}))
       seen = []
       with self.subTest(what), contextlib.redirect_stdout(io.StringIO()), mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / str(want)), \
-           mock.patch.object(ht, 'load_helper', lambda p: mock.Mock()), \
+           mock.patch.object(ht, 'load_helper', mock.Mock), \
            mock.patch.object(ht, 'admit_record', lambda *a: ({}, {'version': 'v'})), \
            mock.patch.object(ht, 'recovery_lock', lambda *a: mock.Mock()), mock.patch.object(ht, 'prove_hold', lambda *a, **k: {}), \
            mock.patch.object(ht, 'probe_users', lambda b: []), mock.patch.object(ht.os, 'kill', lambda *a: None), \
@@ -2683,7 +2858,7 @@ class Main(Tmp):
       with self.subTest(argv[0]), contextlib.redirect_stdout(io.StringIO()), \
            mock.patch.object(ht, 'verify_record', lambda *a: ({'hex': 'x.hex', 'bin': fw}, {'version': 'v'})), \
            mock.patch.object(ht, 'parse_hex', lambda p: {0: 1}), mock.patch.object(ht, 'hex_matches_bin', lambda *a: True), \
-           mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / argv[0]), mock.patch.object(ht, 'load_helper', lambda p: None), \
+           mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / argv[0]), mock.patch.object(ht, 'load_helper', lambda: None), \
            mock.patch.object(ht, 'manual_holder', lambda *a: None), mock.patch.object(ht, 'exclusion_configured', lambda *a: None), \
            mock.patch.object(ht.shutil, 'which', lambda t: None if t == 'JLinkExe' else '/usr/bin/' + t), \
            mock.patch.object(ht.Probe, 'run', lambda *a, **k: probed.append(a)):
@@ -2699,6 +2874,31 @@ class Main(Tmp):
     r = json.loads(out.getvalue().splitlines()[-1])
     self.assertEqual((code, r['pass'], r['results'][0]['ran']), (2, False, False))
     self.assertTrue(Path(r['reportPath']).is_file())
+
+  def test_run_root_places_the_run_directory(self):
+    cfg = roster(self.tmp, flasher={'name': 'jlink', 'uid': '1', 'args': '-device NOPE'})
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out), mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / 'unused'):
+      ht.main(['run', '-b', BOARD, '--build-record', 'r.json', '--run-root', str(self.tmp / 'here'), str(cfg)])
+    r = json.loads(out.getvalue().splitlines()[-1])
+    self.assertEqual(Path(r['reportPath']).parent.parent, self.tmp / 'here')
+    self.assertFalse((self.tmp / 'unused').exists())
+
+  def test_a_lock_pin_refusal_stops_a_run_before_its_record_and_battery(self):
+    cfg = roster(self.tmp)
+    admit, battery = mock.Mock(), mock.Mock()
+    pin = mock.Mock(side_effect=ht.Refused('lib/agentrc is at b; HEAD pins a'))
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out), mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp), \
+         mock.patch.object(ht, 'check_lock_pin', pin), \
+         mock.patch.object(ht, 'admit_record', admit), mock.patch.object(ht.Battery, 'run', battery):
+      code = ht.main(['run', '-b', BOARD, '--build-record', 'r.json', str(cfg)])
+    res = json.loads(out.getvalue().splitlines()[-1])
+    self.assertEqual((code, res['error'], [{k: r[k] for k in ('ran', 'pass', 'locked')} for r in res['results']]),
+                     (2, 'lib/agentrc is at b; HEAD pins a', [{'ran': False, 'pass': False, 'locked': False}]))
+    pin.assert_called_once_with()
+    admit.assert_not_called()
+    battery.assert_not_called()
 
 
 H563 = {'port': 'stm32h5', 'name': 'stm32h563_nucleo', 'device': 'stm32h563zi', 'flasher': 'stlink'}

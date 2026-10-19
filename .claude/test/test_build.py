@@ -169,7 +169,8 @@ class Selection(unittest.TestCase):
       self.assertEqual(classify(path)[1], 'none', path)
 
   def test_hil_runner_and_roster_select_tests_and_every_roster_board(self):
-    for path in ('.claude/skills/hil-contract/scripts/hil_test.py', 'test/hil/local.json'):
+    for path in ('.claude/skills/hil-contract/scripts/hil_test.py', 'test/hil/local.json', 'test/hil/ci.json', 'lib/agentrc',
+                 '.github/workflows/hil.yml'):
       r = cb.classify(path)
       self.assertEqual((r['rule'], r['tests'], r['hil'], r['boards']), ('hil-control', True, True, {}), path)
     self.assertEqual(cb.classify('.claude/skills/hil-contract/SKILL.md')['effect'], 'none')   # wording costs no hardware
@@ -232,7 +233,7 @@ class CiSelection(unittest.TestCase):
   def test_paths_no_build_job_compiles_select_nothing(self):
     for path in ('README.md', '.claude/test/test_build.py', 'test/hil/local.json', '.github/workflows/codeql.yml',
                  '.github/workflows/codeql-buildscript.sh', 'ports/stm32f4/Makefile', 'ports/ch32v20x/boards.c',
-                 'ports/lpc55/apps/erase_firmware/Makefile'):
+                 'ports/lpc55/apps/erase_firmware/Makefile', 'lib/agentrc'):
       self.assertEqual(ci(path), {'full': False, 'ports': {}, 'ghostfat': False}, path)
 
   def test_selections_union_and_a_whole_port_absorbs_its_boards(self):

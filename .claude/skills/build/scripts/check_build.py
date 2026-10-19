@@ -78,8 +78,8 @@ CORE = ('src/', 'lib/', 'ports/family_support.cmake', 'CMakeLists.txt', 'cmake/'
 # make files every Makefile port includes: read by the make ports' builds and CodeQL's
 MAKE_SHARED = ('ports/make.mk', 'ports/rules.mk')
 CONTRACT_TESTS = ('.claude/test/test_build', '.claude/test/test_hil')
-# the HIL contract's runner and rosters: a change there re-runs the battery on every roster board
-HIL_CONTROL = ('.claude/skills/hil-contract/scripts/', 'test/hil/')
+# the HIL contract's runner, its lock helper's pin and rosters: a change there re-runs the battery on every roster board
+HIL_CONTROL = ('.claude/skills/hil-contract/scripts/', 'test/hil/', 'lib/agentrc', '.github/workflows/hil.yml')
 # hil_test.py imports these: the identity, artifacts and build dirs the battery trusts
 HIL_IMPORTS = '.claude/skills/build/scripts/'
 BUILD_CONTROL = (HIL_IMPORTS, '.github/workflows/build.yml',
@@ -637,7 +637,7 @@ def run(cmd, log, verbose, cwd=ROOT):
 
 def check_deps(port):
   """Remedy for a missing submodule or family dependency, None when all are present."""
-  missing = [s for s in ('lib/tinyusb', 'lib/uf2') if not (ROOT / s).is_dir() or not any((ROOT / s).iterdir())]
+  missing = [s for s in ('lib/tinyusb', 'lib/uf2', 'lib/agentrc') if not (ROOT / s).is_dir() or not any((ROOT / s).iterdir())]
   if missing:
     return f'empty submodule {", ".join(missing)}: git submodule update --init {" ".join(missing)}'
   for dep, families in deps_rows().items():

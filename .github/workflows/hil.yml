@@ -1,0 +1,102 @@
+name: HIL
+
+# The battery on the ci.lan rig (.claude/skills/hil-contract/SKILL.md, roster test/hil/ci.json) for the boards a
+# pull request's change reaches, built on the rig from its clean checkout. A pull request from a fork never
+# reaches the rig. A dispatch runs named boards, with fail_at for the contract's acceptance only.
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      board:
+        description: roster board(s), space separated
+        required: true
+      fail_at:
+        description: 'acceptance only: fail this battery step or the cleanup (the contract, Execution)'
+        required: false
+        default: ''
+
+# never cancelled: a battery killed mid-run leaves the board for recovery, so a newer push waits its turn
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  select:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    outputs:
+      boards: ${{ steps.select.outputs.boards }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      # HEAD is the merge commit, HEAD^1 the base it merges into; what no ci.json board can run is reported here,
+      # so a skipped rig job never hides it. A dispatch names boards, each checked against the roster.
+      - name: Select the boards the change reaches
+        id: select
+        env:
+          BOARD_INPUT: ${{ github.event.inputs.board }}
+        shell: bash   # -o pipefail: a failed selection must not become an empty, skipped rig job through tee
+        run: |
+          python3 - <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
+          import json, os, subprocess, sys
+          roster = {b['name'] for b in json.load(open('test/hil/ci.json'))['boards']}
+          if os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch':
+              boards = sorted(set(os.environ['BOARD_INPUT'].split()))
+              if not boards or set(boards) - roster:
+                  sys.exit(f'not in test/hil/ci.json: {sorted(set(boards) - roster) or "no board"}')
+              uncovered = []
+          else:
+              sel = subprocess.run([sys.executable, '.claude/skills/build/scripts/check_build.py', '--select-only',
+                                    '--base', 'HEAD^1', '--hil-config', 'test/hil/ci.json'], capture_output=True, text=True)
+              if sel.returncode:
+                  sys.exit(f'selection failed (exit {sel.returncode}): {sel.stdout or sel.stderr}')
+              hil = json.loads(sel.stdout)['hil']
+              boards, uncovered = hil['boards'], hil['uncovered']
+          print('boards:', ' '.join(boards) or 'none')
+          for u in uncovered:
+              print(f'- `{u["target"]}`: {u["reason"]}')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'boards={" ".join(boards)}\n')
+          EOF
+
+  ci-lan:
+    needs: select
+    if: needs.select.outputs.boards != ''
+    runs-on: [ self-hosted, Linux, X64, tinyuf2 ]
+    # one board is a ~2 min build and a ~2 min battery; a locked board waits up to hil_ci.py's --lock-wait
+    timeout-minutes: 45
+    env:
+      BOARDS: ${{ needs.select.outputs.boards }}
+      FAIL_AT: ${{ github.event.inputs.fail_at }}
+    steps:
+      # kept across runs and attempts, outside the workspace: records, every battery's run directory with its report,
+      # log and output, and the markers that make a run which ended without a report a blocker for the next (hil_ci.py)
+      - name: Set the run directory
+        run: echo "HIL_OUT=$(dirname "$GITHUB_WORKSPACE")/hil-state/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
+
+      - name: Clean workspace
+        run: |
+          rm -rf "${{ github.workspace }}"
+          mkdir -p "${{ github.workspace }}"
+
+      - uses: actions/checkout@v4
+
+      - name: Fetch the build inputs
+        run: |
+          git submodule update --init --depth 1 lib/tinyusb lib/uf2 lib/agentrc
+          for b in $BOARDS; do python3 tools/get_deps.py -b "$b"; done
+
+      - name: Battery on the rig
+        run: |
+          python3 .claude/skills/hil-contract/scripts/hil_ci.py --board $BOARDS ${FAIL_AT:+--fail-at "$FAIL_AT"} \
+            --roster test/hil/ci.json --out "$HIL_OUT"
+
+      - name: Upload the records, reports and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hil-ci-lan-${{ github.run_attempt }}
+          path: ${{ env.HIL_OUT }}
+          if-no-files-found: ignore
