@@ -1113,6 +1113,14 @@ def keep_build_lock(fh, survivors):
   return {'pid': os.getpid(), 'inProcess': True}
 
 
+def release_ended_builds():
+  """Close each build lock this process keeps (HELD_BUILD) once none of its survivors lives; the ones still kept."""
+  for kept in [k for k in HELD_BUILD if not still_alive(k[1])]:
+    kept[0].close()
+    HELD_BUILD.remove(kept)
+  return HELD_BUILD
+
+
 def keep_build(survivors):
   """The keeper's wait (keep_build_lock): its stdio closed, it polls until no survivor lives, then exits, which
   releases the lock it inherited."""
@@ -1964,14 +1972,20 @@ def exec_holder(fh, ack):
 def keep_held(fh):
   """Hold until recovery's SIGUSR1, taken by sigwait with SIGUSR1 blocked since hand_off: a handler and
   pause() lose a signal that lands between the interpreter's check and the syscall. SIGTERM and SIGINT
-  are ignored: an operator's timeout kill must not free a board that was never cleaned up."""
+  are ignored: an operator's timeout kill must not free a board that was never cleaned up. Meanwhile each build lock
+  this process kept (HELD_BUILD) is released once its survivors end, as restore() needs it before recovery signals."""
   for sig in (signal.SIGTERM, signal.SIGINT):
     signal.signal(sig, signal.SIG_IGN)
   signal.pthread_sigmask(signal.SIG_SETMASK, {signal.SIGUSR1})
   for std in (0, 1, 2):   # closed, not reopened on /dev/null: holding must not need a free descriptor
     with contextlib.suppress(OSError):
       os.close(std)
-  signal.sigwait({signal.SIGUSR1})
+  signalled = False
+  with contextlib.suppress(Exception):   # a failed look keeps the build locks, never frees the board
+    while not signalled and release_ended_builds():
+      signalled = signal.sigtimedwait({signal.SIGUSR1}, KEEPER_POLL) is not None
+  if not signalled:
+    signal.sigwait({signal.SIGUSR1})
   fh.truncate(0)
   os._exit(0)
 
@@ -2747,8 +2761,9 @@ def check_esptool():
   except OSError:
     line = ''
   py = line[2:].split()[0] if line.startswith('#!') and line[2:].split() else ''
-  bindir = [os.path.realpath(os.path.dirname(a)) for a in (py, sys.executable)]   # a venv's python links out of it
-  if not py or bindir[0] != bindir[1]:
+  # the same directory, as a venv's python links out of it, and the same interpreter, as one bin dir holds several
+  same = [os.path.realpath(f(a)) for f in (os.path.dirname, str) for a in (py, sys.executable)]
+  if not py or same[0] != same[1] or same[2] != same[3]:
     raise Refused(f'the esptool on PATH ({exe}) does not run under {sys.executable}, whose esptool {ESPTOOL_VERSION} the '
                   f'runner checked: put that installation\'s esptool first on PATH')
 
@@ -3130,7 +3145,7 @@ def main(argv=None):
   print(json.dumps(result), flush=True)
   if HELD_IN_PROCESS:
     keep_held(HELD_IN_PROCESS[0])
-  while HELD_BUILD and still_alive([s for _, left in HELD_BUILD for s in left]):   # no keeper started: keep it here
+  while release_ended_builds():   # no keeper started: keep them here
     time.sleep(KEEPER_POLL)
   return code
 

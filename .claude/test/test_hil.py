@@ -1221,6 +1221,7 @@ class EspFlash(EspFake):
     (venv / 'python3').symlink_to(sys.executable)   # a venv's python links out of the venv
     script = bindir / 'esptool'
     cases = (('this python', f'#!{sys.executable}\n', None), ('another python', f'#!{venv / "python3"}\n', 'does not run under'),
+             ('another python in its directory', f'#!{Path(sys.executable).with_name("python-other")}\n', 'does not run under'),
              ('no shebang', 'import esptool\n', 'does not run under'), ('not on PATH', None, 'does not run under'))
     for what, head, err in cases:
       if head is None:
@@ -2725,6 +2726,43 @@ class Locks(Tmp):
     time.sleep(0.3)
     self.assertIsNone(p.poll())
     ht.prove_hold(self.helper, BOARD, p.pid, reason='hil_test.py', role=ht.HOLDER_ROLE)
+    p.send_signal(signal.SIGUSR1)
+    self.assertEqual(p.wait(5), 0)
+    self.helper.flock_nb(BOARD).close()
+
+  def test_with_both_handoffs_failed_the_holding_runner_releases_the_build_lock_once_its_survivor_ends(self):
+    late = subprocess.Popen(['sleep', '30'], start_new_session=True)
+    self.addCleanup(lambda: (late.kill(), late.wait()))
+    root = self.tmp / 'build'
+    script = textwrap.dedent(f'''
+      import importlib.util, json, signal
+      from pathlib import Path
+      spec = importlib.util.spec_from_file_location('ht', {str(SCRIPT)!r}); ht = importlib.util.module_from_spec(spec)
+      spec.loader.exec_module(ht)
+      ht.check_lock_pin = lambda: None
+      ht.HOLDER_SCRIPT = Path({str(self.tmp / 'missing.py')!r})   # neither the keeper nor the holder starts
+      helper = ht.load_helper()
+      helper.BOARD_LOCK_DIR = {str(Path(self.lock).parent)!r}
+      fh = helper.acquire_board_lock({BOARD!r})
+      signal.pthread_sigmask(signal.SIG_BLOCK, ht.TERM_SIGNALS)
+      survivors = {json.dumps([ht.survivor(late.pid)])}
+      keeper = ht.keep_build_lock(ht.take_build_lock(Path({str(root)!r})), survivors)
+      holder = ht.hand_off(fh, {BOARD!r}, 'cleanup failed', survivors)
+      print(json.dumps([keeper, holder]), flush=True)
+      ht.keep_held(ht.HELD_IN_PROCESS[0])
+    ''')
+    p = subprocess.Popen([sys.executable, '-c', script], stdout=subprocess.PIPE, text=True)
+    self.addCleanup(lambda: (p.kill(), p.wait(), p.stdout.close()))
+    keeper, holder = json.loads(p.stdout.readline())
+    self.assertEqual([(r['pid'], r['inProcess']) for r in (keeper, holder)], [(p.pid, True)] * 2)
+    build_lock = ht.cb.build_lock_file(root)
+    time.sleep(0.3)
+    self.assertFalse(ht.flock_free(build_lock), 'the build lock went while its survivor lived')
+    late.kill()
+    late.wait()
+    ht.wait_for(lambda: ht.flock_free(build_lock), 5, 'the build lock released')
+    self.assertIsNone(p.poll())
+    ht.prove_hold(self.helper, BOARD, p.pid, reason='hil_test.py', role=ht.HOLDER_ROLE)   # the board stays held
     p.send_signal(signal.SIGUSR1)
     self.assertEqual(p.wait(5), 0)
     self.helper.flock_nb(BOARD).close()
