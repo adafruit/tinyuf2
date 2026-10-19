@@ -2960,6 +2960,38 @@ class RunBoard(Tmp):
     self.assertEqual((code, cleaned, row['cleanup']['survivors']), (4, [], stuck))
     self.assertEqual(row['cleanup']['detail'], 'StepFail: children survived SIGKILL; no flash may overlap them')
 
+  def test_the_restore_reflashes_through_a_build_lock_this_process_kept_once_its_survivor_ended(self):
+    root = self.tmp / 'build'
+    self.addCleanup(lambda: ([fh.close() for fh, _ in ht.HELD_BUILD], ht.HELD_BUILD.clear()))
+
+    def restore(*a, **k):   # as flash_target, on the build dir the run's flash used
+      ht.take_build_lock(root).close()
+      return {'pass': True, 'state': 'blinky copied', 'evidence': {}}
+    for ended in (True, False):
+      with self.subTest(ended=ended):
+        late = subprocess.Popen(['sleep', '30'], start_new_session=True)
+        self.addCleanup(lambda p=late: (p.kill(), p.wait()))
+
+        def flashed_with_a_survivor(bat, files, version):   # its keeper never started: the lock stays in process
+          bat.touched = True
+          with mock.patch.object(ht, 'HOLDER_SCRIPT', self.tmp / 'missing.py'):
+            ht.keep_build_lock(ht.take_build_lock(root), [ht.survivor(late.pid)])
+          if ended:
+            late.kill()
+            late.wait()
+          raise ht.StepFail('children survived SIGKILL')
+        with mock.patch.object(ht.Battery, 'run', flashed_with_a_survivor), \
+             mock.patch.object(ht.Battery, 'restore', restore), mock.patch.object(ht, 'BUILD_LOCK_WAIT', 0.3), \
+             mock.patch.object(ht, 'hand_off', lambda fh, b, d, s: (fh.close(), {'pid': 1})[1]):
+          row, code = ht.run_board(self.args, self.board, self.facts, self.helper, self.tmp)
+        if ended:
+          self.assertEqual((code, row['cleanup']['pass'], ht.HELD_BUILD), (1, True, []))
+          self.helper.flock_nb(BOARD).close()
+        else:   # its survivor alive: the lock stays kept, the restore cannot flash and the board stays held
+          self.assertEqual((code, row['cleanup']['heldAfter'], len(ht.HELD_BUILD)), (4, True, 1))
+          self.assertIn('is in use by a build or another flash', row['cleanup']['detail'])
+          self.assertFalse(ht.flock_free(ht.cb.build_lock_file(root)))
+
   def test_a_session_left_running_is_cleanup_pending_never_reaped_and_keeps_the_board(self):
     server = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], start_new_session=True)
     self.addCleanup(lambda: (server.kill(), server.wait()))

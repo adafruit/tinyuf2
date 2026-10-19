@@ -2938,6 +2938,7 @@ def clean_up(row, code, bat, fh, board, helper, files):
     if bat.touched:
       if bat.fail_at == 'cleanup':
         raise StepFail('--fail-at cleanup: injected cleanup failure (acceptance only)')
+      release_ended_builds()   # the restore's flash would block on a build lock this process still keeps
       row['cleanup'] = dict(bat.restore(files, row['firmware']['version']), heldAfter=False)
       stuck = settle_children()   # the restore's own children, before the lock is released
       if stuck:
