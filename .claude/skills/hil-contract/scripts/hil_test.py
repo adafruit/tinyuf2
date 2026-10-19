@@ -14,7 +14,6 @@ SKILL.md beside this script is the contract; this file is its mechanics.
 import argparse
 import contextlib
 import fcntl
-import functools
 import glob
 import hashlib
 import importlib.util
@@ -52,10 +51,12 @@ FLASH_LIMITS = {'LPC55S69_M33_0': (0, 0x9D800), 'MIMXRT1062xxx6A': (0x60000000, 
                 'MIMXRT1011DAE5A': (0x60000000, 0x60800000), 'MIMXRT1064xxx6A': (0x70000000, 0x70400000),
                 'stm32f303vc': (0x08000000, 0x08040000),
                 'stm32f411ve': (0x08000000, 0x08080000), 'stm32h563zi': (0x08000000, 0x08200000)}
+# by a board's kind, its firmware and battery: a J-Link or ST-LINK Cortex-M board, or an Espressif one whatever transport
+# installs it (board['flasher'])
 STEPS = {'jlink': ('install', 'dfu', 'copy', 'app-ran', 'reenter')}
 STEPS['stlink'] = STEPS['jlink']
-STEPS['esptool'] = STEPS['jlink'] + ('recopy',)
-REENTRY = {'jlink': ('retained-register',), 'stlink': ('retained-register',), 'esptool': ('dfu-detach',)}
+STEPS['esp'] = STEPS['jlink'] + ('recopy',)
+REENTRY = {'jlink': ('retained-register',), 'stlink': ('retained-register',), 'esp': ('dfu-detach',)}
 REENTRY_METHODS = sorted({m for v in REENTRY.values() for m in v})
 PROTECTED = {'hil_test.py', 'pool_check'}   # hil_lock.PROTECTED_REASONS, checked at load
 # the board-lock helper is the submodule's at its pinned commit, never an operator's installed agentrc
@@ -70,7 +71,6 @@ AIRCR_SYSRESETREQ = 0x05FA0004
 UF2_MAGIC = (0x0A324655, 0x9E5D5157, 0x0AB16F30)
 UF2_FLAG_FAMILY = 0x2000
 PROBE_TIMEOUT, USB_TIMEOUT, QUIET_TIME, KILL_WAIT, UDEV_TIMEOUT = 120, 20, 3, 5, 5
-NINJA_QUERY_TIMEOUT = cb.NINJA_QUERY_TIMEOUT
 JLINK_RETRY_DELAY = 2
 ESPTOOL_VERSION = '5.2.0'   # the CLI and API the esptool session helper is written and bench-checked against
 ESP_BAUD, ESP_TIMEOUT = 921600, 300
@@ -82,7 +82,7 @@ STM32_PROGRAMMER_CLI = 'STM32_Programmer_CLI'
 # what STM32CubeProgrammer prints at every connect to the roster's device: its Device ID and NVM size (bench, v2.23.0);
 # 0x484 names the H56x/573 family only, so the size pins the part
 STLINK_CHIPS = {'stm32h563zi': ('0x484', '2 MBytes')}
-ANSI = re.compile(r'\x1b\[[0-9;]*m')
+ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')   # any CSI sequence: esptool 5.2.0 moves the cursor off a TTY too
 # each script operation's success line, by its first word (bench, v2.23.0)
 STLINK_DONE = {'-halt': 'Core halted', '-run': 'Core run', '-rst': 'Software reset is performed',
                '-coreReg': 'XPSR     = 0x', '-r32': 'Reading 32-bit memory content', '-w32': '32-bit data download complete',
@@ -173,7 +173,7 @@ def load_board(config, name):
     if fl['name'] != 'jlink':
       raise Refused(f'{name}: tinyuf2.usbPower is for J-Link boards only')
   return {'name': name, 'lock': lock, 'uid': b['uid'], 'flasher': fl['name'], 'probe': fl['uid'], 'device': m.group(1),
-          'if': JLINK_IF, 'speed': JLINK_SPEED, 'port': port,
+          'kind': 'esp' if port == 'espressif' else fl['name'], 'if': JLINK_IF, 'speed': JLINK_SPEED, 'port': port,
           'reentry': t.get('reentry'), 'usbPower': power}
 
 
@@ -363,7 +363,7 @@ def source_facts(board):
   bdir = f'ports/{port}/boards/{board["name"]}'
   if not (ROOT / bdir).is_dir():
     raise Refused(f'{bdir} does not exist')
-  if board.get('flasher') == 'esptool':
+  if board.get('kind') == 'esp':
     return esp_source_facts(board, bdir)
   header, ld, flash_base, bin_base, ram, syms = port_sources(port, bdir)
   if has_define(f'{bdir}/board.h', 'BOARD_FLASH_APP_START'):
@@ -459,7 +459,7 @@ def register_layout(header, periph, member):
 def apply_layout(board, facts):
   """The install and app spans, from the candidate's source: the bootloader from the flash base up to the app
   start, the app from there to the end of the board's flash, all inside the device's programming limits."""
-  if board.get('flasher') == 'esptool':
+  if board.get('kind') == 'esp':
     try:
       lay = esp.layout(facts, board['device'])
     except esp.Refused as e:
@@ -576,7 +576,6 @@ def make_uf2(img, base, family, workdir):
 # ------------------------------------------------------------------ processes
 
 CHILDREN = []
-CONTAINERS = []   # docker containers a flash or a ninja query started, by name: outside every child's session
 REGISTERING = {'on': False, 'signum': None}
 
 
@@ -620,7 +619,8 @@ def spawn(cmd, log, timeout, cwd=None, stderr_to_log=False, env=None):
       f.write(e.stdout)
       raise
     f.write(out)
-    CHILDREN.remove(p)
+    if not session(p.pid):   # else a process it started lives on, tracked for cleanup's reap
+      CHILDREN.remove(p)
     return p.returncode, out
 
 
@@ -670,103 +670,18 @@ def proc_start(pid):
   return int(st[19]) if st and len(st) > 19 else None
 
 
-def container_present(name):
-  """Whether docker lists `name`; a docker that fails, hangs or is missing is a step failure, not an answer."""
-  try:
-    r = subprocess.run(['docker', 'ps', '-aq', '-f', f'name=^{name}$'], capture_output=True, text=True, timeout=30)
-  except (OSError, subprocess.SubprocessError) as e:
-    raise StepFail(f'docker ps failed: {e}')
-  if r.returncode:
-    raise StepFail(f'docker ps failed: {r.stderr.strip()[-200:]}')
-  return bool(r.stdout.strip())
-
-
-def container_gone(name):
-  """`docker rm -f` (a running, created or exited container alike), then whether docker no longer lists it; a
-  docker error is not an answer, so it counts as still there."""
-  try:
-    subprocess.run(['docker', 'rm', '-f', name], capture_output=True, timeout=30)
-    end = time.monotonic() + 2 * KILL_WAIT
-    while (left := container_present(name)) and time.monotonic() < end:
-      time.sleep(0.2)
-    return not left
-  except (StepFail, OSError, subprocess.SubprocessError):
-    return False
-
-
 def stuck_children():
-  """Processes of the children's sessions, and containers a flash or a ninja query created, that survived SIGKILL,
-  identified so a later recovery can tell they are still alive. The launchers go first, so no `docker` child can
-  create or start a container after its name is checked."""
-  stuck, launching = [], set()
-  for p in list(CHILDREN):
-    left = reap(p)
-    if left:
-      launching.update(p.args)
-    stuck += [survivor(pid) for pid in left]
-  for name in list(CONTAINERS):
-    if container_gone(name) and name not in launching:   # a surviving launcher may still create it
-      CONTAINERS.remove(name)
-    else:
-      stuck.append({'container': name})
-  return stuck
+  """Processes of the children's sessions that survived SIGKILL, identified so a later recovery can tell they are still
+  alive."""
+  return [survivor(pid) for p in list(CHILDREN) for pid in reap(p)]
 
 
 def still_alive(survivors):
-  return [s for s in survivors if (not container_gone(s['container']) if 'container' in s else
-                                   s.get('start') is not None and proc_start(s['pid']) == s['start'])]
-
-
-def ninja_query(backend, idf_mode, image, board, log, root, args):
-  """Run a build-tree query as a bounded, tracked HIL child, its stderr in `log` only so check_build parses ninja's
-  stdout alone. An IDF query runs in container tinyuf2-hil-<board>-query, tracked until docker no longer lists it:
-  one left by an earlier query, or still listed after this one, fails the step and stays for cleanup; a timed-out or
-  interrupted query's is removed here, once its launcher is gone, before the caller's build lock is released."""
-  name = f'tinyuf2-hil-{board}-query' if backend == 'idf' and idf_mode == 'docker' else None
-  if name:
-    present = container_present(name)
-    if name not in CONTAINERS:
-      CONTAINERS.append(name)
-    if present:
-      raise StepFail(f'container {name} from an earlier ninja query still exists; nothing was flashed, and cleanup '
-                     'removes the container')
-
-  started = []
-
-  def run(cmd):
-    started.append([str(c) for c in cmd])
-    code, out = spawn(cmd, log, NINJA_QUERY_TIMEOUT, cwd=ROOT, stderr_to_log=True)
-    return subprocess.CompletedProcess(cmd, code, out, '')
-
-  def end_query():
-    """The aborted query's launcher reaped, then its container removed once docker settles (cb.container_left): its
-    create may still land. A launcher that outlives SIGKILL could create it later, so then both stay for cleanup.
-    '' once no query container is tracked, else why."""
-    survivors = [reap(p) for p in list(CHILDREN) if p.args in started]
-    if name not in CONTAINERS:
-      return ''
-    if any(survivors):
-      return f'; container {name} stays for cleanup, its launcher alive after SIGKILL'
-    why = cb.container_left(name)
-    if not why:
-      CONTAINERS.remove(name)
-    return why
-
-  try:
-    try:
-      r = cb.ninja_in(backend, idf_mode, image, root, args, runner=run, container=name)
-    except StepFail:   # spawn's timeout
-      raise StepFail(f'{root.name}: ninja query {" ".join(args)} timed out after {NINJA_QUERY_TIMEOUT}s'
-                     f'{end_query()}') from None
-    if name:
-      if container_present(name):
-        raise StepFail(f'container {name} still exists after its ninja query; nothing was flashed, and cleanup '
-                       'removes the container')
-      CONTAINERS.remove(name)
-  except Interrupted:
-    end_query()
-    raise
-  return r
+  """The survivors still alive: a process by its pid and start time; a container, which only a report from a runner
+  that still ran the IDF flash target or its dry runs names, unless docker has listed it no more for check_build's
+  settle (cb.container_left), and never while a process of the same report lives, which may still create it (#580)."""
+  procs = [s for s in survivors if 'container' not in s and s.get('start') is not None and proc_start(s['pid']) == s['start']]
+  return procs + [s for s in survivors if 'container' in s and (procs or cb.container_left(s['container']))]
 
 
 # ------------------------------------------------------------------ the flash provider
@@ -811,15 +726,19 @@ def command_argv(cmd):
 def tool_runner(log):
   """The flash provider's `run=`: each command one tracked spawn child, its transcript in `log`, its session killed on
   the bound and a survivor kept in CHILDREN for cleanup. A timeout returns rc 124 with the output so far (the
-  provider records the attempt as timed out); an interruption raises Interrupted carrying it. Executed directly, a
-  tool that dies by a signal reports -N."""
+  provider records the attempt as timed out); an interruption raises Interrupted carrying it. Cleanup is 'done' only
+  when nothing of the child's session is left, else 'unknown' (cleanup reaps it). Executed directly, a tool that dies
+  by a signal reports -N."""
   def run(cmd, cwd=None, *, timeout):
     argv, env = command_argv(cmd)
+    tracked = len(CHILDREN)
     try:
       code, out = spawn(argv, log, timeout, cwd=cwd, env=env)
     except SpawnTimeout as e:
-      return subprocess.CompletedProcess(argv, 124, e.output, None)
-    return subprocess.CompletedProcess(argv, code, out, None)
+      code, out = 124, e.output
+    r = subprocess.CompletedProcess(argv, code, out, None)
+    r.cleanup = 'done' if len(CHILDREN) == tracked else 'unknown'   # 'done': nothing of its session is left
+    return r
   return run
 
 
@@ -990,8 +909,11 @@ def judge_jlink_target(code, out, board, hex_path):
 
 
 def judge_esp_target(code, out, segments):
-  """ESP-IDF's flash target, through CMake and Ninja in CI's image: esptool's write of every segment at its offset,
-  each hash-verified, then the hard reset (bench transcript, esptool v5.3.1 in espressif/idf:v6.1)."""
+  """The provider's esptool flash: esptool's write of every segment at its offset, each hash-verified, then the hard
+  reset (esptool 5.2.0 cmds.py write_flash and loader.py hard_reset, which the bench transcripts of 5.2.0 on the P4's
+  USB-Serial/JTAG and 5.3.1 in espressif/idf:v6.1 match), with any CSI sequence and the underscore spellings'
+  deprecation warnings around them ignored."""
+  out = ANSI.sub('', out)
   wrote = sorted(int(a, 16) for a in re.findall(r'^Wrote \d+ bytes \(\d+ compressed\) at 0x([0-9a-f]{8}) in ', out, re.M))
   if code or wrote != sorted(off for off, _ in segments) or out.count('Hash of data verified.') != len(segments) or \
      'Hard resetting via RTS pin' not in out:
@@ -1807,7 +1729,7 @@ def verify_record(record_path, board, facts, workdir):
   if not rec.get('pass') or len(rows) != 1 or rows[0].get('status') != 'ok' or rows[0].get('removed'):
     raise Refused(f'{record_path}: not a passing --shared build of {board["name"]}')
   row, info = rows[0], rec.get('input', {})
-  want = 'idf' if board.get('flasher') == 'esptool' else 'cmake'
+  want = 'idf' if board.get('kind') == 'esp' else 'cmake'
   if row.get('backend') != want:
     raise Refused(f'{record_path}: a {row.get("backend")} build; the HIL takes {want} builds only for this board '
                   f'(check_build.py --board {board["name"]}{" --backend cmake" if want == "cmake" else ""} --shared '
@@ -1833,7 +1755,7 @@ def verify_record(record_path, board, facts, workdir):
     if bad:
       raise Refused(f'build inputs are not clean: {bad} (commit, or rebuild from a clean checkout)')
   root = cb.ROOT / row['buildDir']
-  flash = admit_flash(record_path, rec, row, root, board, workdir / 'hil.log')
+  flash = admit_flash(record_path, row, root, board)
   # the runner reads its own copies of the BIN, segments and blinky: the build dir's lock covers the flash target
   # only, and a rebuild may replace the dir after it
   copy = workdir / 'record'
@@ -1850,22 +1772,17 @@ def verify_record(record_path, board, facts, workdir):
                  'defines': rec.get('defines', []), 'version': embedded_version(files['bin'])}
 
 
-def admit_flash(record_path, rec, row, root, board, log):
+def admit_flash(record_path, row, root, board):
   """The record's flash binding (check_build --hil-config: its flash target checked against this roster flasher at
-  the build), with every file the install reads hash-checked; the install reads them under the build dir's lock. A
-  J-Link or ST-LINK install runs the provider's flash of the bound HEX, not the target; an IDF one still runs its
-  flash target after a dry run."""
+  the build), with every file the install reads hash-checked; the install reads them under the build dir's lock,
+  through the provider, never the target."""
   fl = row.get('flash') or {}
   target, inputs = cb.FLASH[board['flasher']]
   want = {'name': board['flasher'], 'uid': board['probe'], 'device': board['device']}
   if (fl.get('flasher'), fl.get('target'), fl.get('inputs')) != (want, target, list(inputs)):
     raise Refused(f'{record_path}: its flash target is not bound to this roster flasher {want} (rebuild it with '
                   f'check_build.py --board {board["name"]} ... --shared --hil-config <roster>)')
-  idf = rec.get('idf') or {}
-  out = {'root': root, 'binding': fl, 'sha256': recorded(root, inputs, row), 'image': idf.get('image')}
-  if row['backend'] == 'idf':
-    out['ninja'] = functools.partial(ninja_query, row['backend'], idf.get('mode'), idf.get('image'), board['name'], log)
-  return out
+  return {'root': root, 'binding': fl, 'sha256': recorded(root, inputs, row)}
 
 
 def recorded(root, rels, row):
@@ -1930,14 +1847,6 @@ def sha256(p):
     return None
 
 
-def ready(flash):
-  """The IDF flash target's dry run (cb.flash_ready): it would run nothing but its flasher."""
-  try:
-    cb.flash_ready(flash['root'], flash['binding'], flash['ninja'])
-  except cb.Fail as e:
-    raise StepFail(str(e))
-
-
 def check_bootloader_bin(bin_path, board, facts, what):
   """The BIN from its flash address (`binBase`) inside `install`, within the device's flash limits, and this
   board's (its UF2_BOARD_ID)."""
@@ -1970,9 +1879,9 @@ class Battery:
       raise
     self.steps.append({'step': name, 'pass': True, 'evidence': ev, 'detail': ''})
 
-  def flash_target(self, flash, op, judge, before, what, timeout, ready=None):
+  def flash_target(self, flash, op, judge, before, what, timeout):
     """The record's image through the flash provider, `op(run)` with tool_runner's run, under its build dir's lock:
-    the inputs still hash as recorded before it (and `ready()` passes), and again after it; judged(). Touched from
+    the inputs still hash as recorded before it, and again after it; judged(). Touched from
     the tool's start; only attempts that all ended before any target connect leave the board as it was. The lock
     is released only once every child the operation started has ended, reaped here when interrupted; one that
     survives SIGKILL keeps it through a keeper (#579), and the board through cleanup's: the flash then fails
@@ -1981,8 +1890,6 @@ class Battery:
     flashed = False
     try:
       self.check_inputs(flash, 'before the flash')
-      if ready:
-        ready()
       was, self.touched = self.touched, True
       try:
         ev = judged(op(tool_runner(self.log)), judge, before, what, timeout)
@@ -2301,7 +2208,7 @@ def esp_app_chunks(uf2_path, facts, board):
 
 
 class EspBattery(Battery):
-  """The battery on an esptool board. TinyUF2 copies apps/dfu_runtime with this run's nonce block past the
+  """The battery on an Espressif board. TinyUF2 copies apps/dfu_runtime with this run's nonce block past the
   image; the app reports the nonce in its DFU runtime interface string and returns to DFU on DFU_DETACH."""
   def __init__(self, board, facts, workdir, fail_at=None, commissioning=False):
     super().__init__(board, facts, workdir, fail_at, commissioning)
@@ -2318,38 +2225,30 @@ class EspBattery(Battery):
 
   def install(self, files):
     """The preserved regions' snapshot first, in a session of its own, which the report keeps however the run ends:
-    a recovery's restore checks against it. A restore reuses the run's snapshot, or a recovery's. Then ESP-IDF's
-    flash target in CI's image, given only the bridge's tty, in a container named for the board so a survivor is
-    found and ended by name (cleanup, recovery), as is its dry runs' (ninja_query); then the runner's own read-back."""
-    tty = esp_port(self.b['probe'])   # no bridge fails here, untouched; any session may leave the chip in its ROM loader
-    name = f'tinyuf2-hil-{self.b["name"]}'
-    if container_present(name):
-      raise StepFail(f'container {name} from an earlier flash still exists: check what it runs, then docker rm -f {name}')
-    fl = files['flash']
-    # created, not run: the container exists, and its name is tracked, before anything can start it; cleanup
-    # removes it by name however the run ends. IDF_FLASH_FULL: v6's fast reflash skips segments already in
-    # flash, and judge_esp_target needs every segment written and verified
-    CONTAINERS.append(name)
-    code, out = spawn(cb.idf_docker(fl['root'], 'create') + [
-      '--name', name, '--device', tty, '--group-add', str(os.stat(tty).st_gid), '-e', f'ESPPORT={tty}',
-      '-e', 'IDF_FLASH_FULL=1', fl['image'],
-      'cmake', '--build', str(fl['root']), '--target', fl['binding']['target']], self.log, 60)
-    if code:
-      raise StepFail(f'docker create {name} failed (exit {code})', {'tail': out.strip().splitlines()[-3:]})
+    a recovery's restore checks against it. A restore reuses the run's snapshot, or a recovery's. Then the record's
+    segments through the provider's esptool flash, the runner's own esptool on the transport's tty, from the build
+    dir under its lock as flash_args names them; then the runner's own read-back."""
+    tty = esp_port(self.b['probe'])   # no tty fails here, untouched; any session may leave the chip in its ROM loader
     self.touched = True
     if self.preserved is None:
       keep = self.b['regions']['preserved']
       self.preserved = preserved_md5(keep, self.tool.run(preserved_ops(keep), 'no-reset'))
-    def start(run):
-      cmd = ['docker', 'start', '-a', name]
-      return provider().Operation([provider().Attempt(cmd, None, run(cmd, timeout=ESP_TIMEOUT), None, 'unknown', None)])
-    ev = self.flash_target(fl, start, lambda code, out: judge_esp_target(code, out, files['segments']),
-                           lambda code, out: False, 'docker', ESP_TIMEOUT,
-                           ready=lambda: ready(fl))
-    if container_gone(name):
-      CONTAINERS.remove(name)
+    fl = files['flash']
+
+    def flash(run):   # under the build dir's lock, its inputs checked: flash_args from bytes that hash as recorded
+      raw = (fl['root'] / 'flash_args').read_bytes()
+      if hashlib.sha256(raw).hexdigest() != fl['sha256']['flash_args']:
+        raise StepFail('flash_args changed after the inputs were checked; nothing was flashed')
+      # the settings line, then one "OFFSET FILE" per segment, relative to the build dir
+      return provider().flash_esptool({'name': 'esptool', 'uid': self.b['probe'], 'args': ''}, chip=self.b['device'],
+                                      port=tty, flash_args=' '.join(raw.decode().split()), cwd=str(fl['root']),
+                                      timeout=ESP_TIMEOUT, run=run)
+    ev = self.flash_target(fl, flash,
+                           lambda code, out: judge_esp_target(code, out, files['segments']), lambda code, out: False,
+                           'esptool', ESP_TIMEOUT)
     ev.update(esp_verify(self.tool, self.b, files['segments'], self.dir, self.preserved))
-    return {'wrote': ev['wrote'], 'writes': ev['writes'], 'readBack': True}
+    return {'wrote': ev['wrote'], 'writes': ev['writes'], 'readBack': True, 'esptool': ESPTOOL_VERSION,
+            'operation': ev['operation']}
 
   def report_fields(self):
     keep = self.b['regions']['preserved']
@@ -2423,7 +2322,7 @@ class EspBattery(Battery):
                                      claim='a fresh copy boots the app after re-entry'))
 
 
-BATTERIES = {'jlink': Battery, 'stlink': StlinkBattery, 'esptool': EspBattery}
+BATTERIES = {'jlink': Battery, 'stlink': StlinkBattery, 'esp': EspBattery}
 
 
 TERM_SIGNALS = {signal.SIGTERM, signal.SIGINT}
@@ -2458,6 +2357,8 @@ def check_stlink():
 
 
 def check_esptool():
+  """The runner's own esptool ESPTOOL_VERSION: its package for this Python (esp_session.py), and the `esptool` command
+  the provider runs, an entry script of this same Python, so the flash and the sessions run one esptool."""
   import importlib.metadata
   try:
     v = importlib.metadata.version('esptool')
@@ -2465,6 +2366,17 @@ def check_esptool():
     v = None
   if v != ESPTOOL_VERSION:
     raise Refused(f'esptool {v} is installed for {sys.executable}; the runner needs esptool {ESPTOOL_VERSION}')
+  exe = shutil.which('esptool')
+  try:
+    with open(exe or '', 'rb') as f:
+      line = f.readline().decode(errors='replace').strip()
+  except OSError:
+    line = ''
+  py = line[2:].split()[0] if line.startswith('#!') and line[2:].split() else ''
+  bindir = [os.path.realpath(os.path.dirname(a)) for a in (py, sys.executable)]   # a venv's python links out of it
+  if not py or bindir[0] != bindir[1]:
+    raise Refused(f'the esptool on PATH ({exe}) does not run under {sys.executable}, whose esptool {ESPTOOL_VERSION} the '
+                  f'runner checked: put that installation\'s esptool first on PATH')
 
 
 def check_pyusb():
@@ -2509,7 +2421,7 @@ def reentry_decision(row):
 def admit_record(record_path, board, facts, workdir):
   """A build record the battery and restore may install, with what they need on this host."""
   files, fw = verify_record(record_path, board, facts, workdir)
-  if board['flasher'] in ('jlink', 'stlink'):
+  if board['kind'] != 'esp':
     data = parse_hex(files['hex'])
     check_ranges(data, [board['install']], FLASH_LIMITS[board['device']], files['hex'])
     if not hex_matches_bin(data, files['bin'], facts['binBase']):
@@ -2528,24 +2440,24 @@ def trial_reentry(board, method):
     return board
   if board['reentry'] is not None:
     raise Refused(f'{board["name"]}: reentry is already commissioned; --try-reentry is for commissioning only')
-  if method not in REENTRY[board['flasher']]:
-    raise Refused(f'{board["name"]}: a {board["flasher"]} board re-enters by one of {REENTRY[board["flasher"]]}')
+  if method not in REENTRY[board['kind']]:
+    raise Refused(f'{board["name"]}: its battery re-enters by one of {REENTRY[board["kind"]]}')
   return dict(board, reentry=method)
 
 
 def run_board(args, board, facts, helper, workdir):
   row = {'board': board['name'], 'lock': board['lock'], 'ran': False, 'pass': False, 'locked': False,
          'lockBypassed': False, 'steps': [], 'cleanup': None, 'detail': ''}
-  methods = REENTRY[board['flasher']]
-  if args.fail_at and args.fail_at not in (*STEPS[board['flasher']], 'cleanup'):
-    raise Refused(f'{board["name"]}: the {board["flasher"]} battery has no step {args.fail_at}')
+  methods = REENTRY[board['kind']]
+  if args.fail_at and args.fail_at not in (*STEPS[board['kind']], 'cleanup'):
+    raise Refused(f'{board["name"]}: its battery has no step {args.fail_at}')
   if args.try_reentry:
     board = trial_reentry(board, args.try_reentry)
     row.update(commissioning=True, tried=args.try_reentry)
   elif board['reentry'] not in methods:
     raise Refused(f'{board["name"]}: tinyuf2.reentry must be one of {methods} (set from commissioning)')
   files, row['firmware'] = admit_record(args.build_record, board, facts, workdir)
-  if board['flasher'] == 'esptool':
+  if board['kind'] == 'esp':
     check_pyusb()
   # blocked from here until the process exits or becomes the holder (keep_held): a signal acts only
   # inside the battery, and the report and any hold are settled first
@@ -2576,7 +2488,7 @@ def run_board(args, board, facts, helper, workdir):
   row['lockBypassed'] = fh is None
   try:
     users = probe_users(board)
-  except StepFail as e:   # an esptool board without exactly one bridge tty: not run, nothing touched
+  except StepFail as e:   # an Espressif board without exactly one tty: not run, nothing touched
     row['detail'] = f'probe check: {e}'
     if fh is not None:
       helper.clear_record(fh)
@@ -2588,7 +2500,7 @@ def run_board(args, board, facts, helper, workdir):
       helper.clear_record(fh)
       fh.close()
     return deferred(row), 2
-  bat = BATTERIES[board['flasher']](board, facts, workdir, args.fail_at, row.get('commissioning', False))
+  bat = BATTERIES[board['kind']](board, facts, workdir, args.fail_at, row.get('commissioning', False))
   code = 0
   try:
     row['ran'] = True
@@ -2653,7 +2565,7 @@ def main(argv=None):
   r.add_argument('-b', '--board', required=True)
   r.add_argument('--build-record', required=True, help='check_build.py --board B [--backend cmake] --shared --hil-config ROSTER '
                  'JSON, under cmake-build/')
-  r.add_argument('--fail-at', choices=(*STEPS['esptool'], 'cleanup'), help='acceptance only: fail this step, or the cleanup, '
+  r.add_argument('--fail-at', choices=(*STEPS['esp'], 'cleanup'), help='acceptance only: fail this step, or the cleanup, '
                  'to exercise cleanup and its holder')
   r.add_argument('--try-reentry', choices=REENTRY_METHODS, help="commissioning only, while the roster's reentry is unset")
   r.add_argument('--lock-wait', type=int, default=0, help='seconds to keep trying a held board; a cleanup holder is never waited for')
@@ -2723,7 +2635,7 @@ def main(argv=None):
       board = trial_reentry(board, args.try_reentry)
       manual_holder(helper, board['lock'], args.under_hold)
       files, fw = admit_record(args.build_record, board, facts, run_dir)
-      bat = BATTERIES[board['flasher']](board, facts, run_dir)
+      bat = BATTERIES[board['kind']](board, facts, run_dir)
       try:
         ev = bat.install(files)
         ev['dfu'] = bat.dfu_after_install(fw['version'])
@@ -2749,7 +2661,7 @@ def main(argv=None):
         if len(failed) != 1:
           raise Refused(f'{args.report} names no cleanup holder {args.recover_holder} of {board["name"]}')
         held = [failed[0]['cleanup']]
-        if board['flasher'] == 'esptool':
+        if board['kind'] == 'esp':
           snapshot = report_snapshot(failed[0], board['regions']['preserved'])
         recovery = recovery_lock(helper, board['lock'])
         rec = prove_hold(helper, board['lock'], args.recover_holder, reason='hil_test.py', role=HOLDER_ROLE)
@@ -2765,7 +2677,7 @@ def main(argv=None):
       users = probe_users(board)
       if users:
         raise Refused(f'probe {board["probe"]} is still in use by pids {users}; recovery may not overlap them')
-      bat = BATTERIES[board['flasher']](board, facts, run_dir)
+      bat = BATTERIES[board['kind']](board, facts, run_dir)
       try:
         if snapshot:
           bat.preserved = snapshot

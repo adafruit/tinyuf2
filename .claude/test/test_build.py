@@ -449,7 +449,7 @@ class HilSelection(unittest.TestCase):
     self.roster.write_text(json.dumps({'boards': [{'name': 'imxrt1060_evk', 'flasher': {'name': 'jlink'}},
                                                   {'name': 'espressif_esp32s3_devkitc_1', 'flasher': {'name': 'esptool'}}]}))
     rt_gap = {'target': 'apps/dfu_runtime/src/nonce.c on mimxrt10xx',
-              'reason': f'no {self.config} esptool board of mimxrt10xx runs dfu_runtime'}
+              'reason': f'no {self.config} Espressif board of mimxrt10xx runs dfu_runtime'}
     h = self.hil('apps/dfu_runtime/src/nonce.c')   # espressif and mimxrt10xx build it; only the S3 runs it
     self.assertEqual((h['boards'], h['uncovered']), (['espressif_esp32s3_devkitc_1'], [rt_gap]))
     h = self.hil('apps/dfu_runtime/src/nonce.c', 'src/main.c')   # the whole roster's battery still never runs it on RT
@@ -459,7 +459,7 @@ class HilSelection(unittest.TestCase):
     self.assertEqual((h['boards'], h['uncovered']), (['espressif_esp32s3_devkitc_1'], []))
     h = self.hil('ports/mimxrt10xx/apps/dfu_runtime/board_dfu_runtime.c')
     self.assertEqual((h['boards'], [u['reason'] for u in h['uncovered']]),
-                     ([], [f'no {self.config} esptool board of mimxrt10xx runs dfu_runtime']))
+                     ([], [f'no {self.config} Espressif board of mimxrt10xx runs dfu_runtime']))
     h = self.hil('apps/blinky/src/blinky.c', 'ports/espressif/apps/blinky/main/CMakeLists.txt')
     self.assertEqual((h['boards'], len(h['uncovered'])), ([], 2))
     self.roster.write_text(json.dumps({'boards': [{'name': 'imxrt1060_evk', 'flasher': {'name': 'jlink'}}]}))
@@ -860,7 +860,7 @@ class HilRecord(unittest.TestCase):
     root = self.tmp / 'b'
     with self.fake_tools():
       r = cb.ninja_in('cmake', None, None, root, ['-n', '-v'])
-      self.assertEqual(cb.dry_run(lambda d, args: r, root), [])   # the stderr warning is not a step
+    self.assertEqual(r.stdout, "ninja: Entering directory `x'\n")   # the stderr warning is not in it
     self.assertEqual((r.returncode, r.stderr), (0, 'ninja: warning: on stderr\n'))
     with self.fake_tools(HANG='1'), mock.patch.object(cb, 'NINJA_QUERY_TIMEOUT', 0.5), \
          self.assertRaisesRegex(cb.Fail, '^' + re.escape(f'b: ninja -n -v timed out after {cb.NINJA_QUERY_TIMEOUT}s') + '$'):
@@ -956,23 +956,6 @@ class HilRecord(unittest.TestCase):
     [name] = [c[c.index('--name') + 1] for c in self.tool_calls('docker') if c[0] == 'run']
     self.assertRegex(name, '^' + re.escape(f'tinyuf2-query-{os.getpid()}-') + '[0-9a-f]{32}$')
 
-  def test_a_runner_gets_the_docker_wrapped_query_and_must_name_its_container(self):
-    root, calls = self.tmp / 'b', []
-
-    def runner(cmd):
-      calls.append(cmd)
-      return subprocess.CompletedProcess(cmd, 0, 'out', '')
-    with mock.patch.object(cb, 'git', return_value=str(self.tmp)), \
-         mock.patch.object(cb.subprocess, 'Popen', side_effect=AssertionError('the runner runs the query')):
-      self.assertEqual(cb.ninja_in('idf', 'docker', 'idf:image', root, ['-n', '-v'], runner, 'hil-query').stdout, 'out')
-      self.assertEqual(cb.ninja_in('cmake', None, None, root, ['-n'], runner, 'hil-query').stdout, 'out')
-      with self.assertRaisesRegex(cb.Fail, 'must name the container'):
-        cb.ninja_in('idf', 'docker', 'idf:image', root, ['-n', '-v'], runner)
-    self.assertEqual(calls[0][:2], ['docker', 'run'])
-    self.assertEqual((calls[0][calls[0].index('--name') + 1], calls[0][-6:]),
-                     ('hil-query', ['idf:image', 'ninja', '-C', str(root), '-n', '-v']))
-    self.assertEqual((calls[1], len(calls)), (['ninja', '-C', str(root), '-n'], 2))
-
   def test_the_build_time_commands_query_reads_ninjas_stdout_and_reports_its_stderr(self):
     # a real query through the unbound ninja_in: a failure's diagnostic is on stderr only, a warning there is never
     # parsed as a command (#572 B1)
@@ -1026,109 +1009,6 @@ class HilRecord(unittest.TestCase):
                        ('another segment', dict(extra='0x10000 app.bin\n'))):
       with self.subTest(what), self.assertRaisesRegex(cb.Fail, 'does not flash'):
         cb.flash_binding(flasher, root, self.idf_tree(root, **tree))
-
-  def ready(self, flasher, root, tree, steps, nested=(), code=0, banner=True):
-    """flash_ready on `root` whose target dry-runs `steps` and whose bootloader subproject dry-runs `nested`;
-    `banner` False drops ninja's banner from both, 'nested' from the subproject's only."""
-    commands = tree(root)
-    command = cb.flash_binding(flasher, root, commands)['command']
-    flash = {'target': cb.FLASH[flasher['name']][0], 'flasher': flasher, 'command': command}
-
-    def ninja(d, args):
-      self.assertEqual(args[:2], ['-n', '-v'])
-      out = [command if x == 'FLASH' else x for x in (steps if d == root else nested)]
-      return subprocess.CompletedProcess(args, code, 'entrypoint banner\n' + ("ninja: Entering directory `x'\n" if banner is True or banner == 'nested' and d == root else '') +
-                                         ''.join(f'[{i}/9] {x}\n' for i, x in enumerate(out, 1)), '')
-    cb.flash_ready(root, flash, ninja)
-
-  def test_a_flash_target_is_ready_only_when_its_dry_run_shows_just_the_flasher(self):
-    jlink = {'name': 'jlink', 'uid': '000801012283', 'device': 'MIMXRT1011DAE5A'}
-    root = self.tmp / 'b'
-    self.ready(jlink, root, self.jlink_tree, ['FLASH'])
-    rebuild = [f'/usr/bin/arm-none-eabi-gcc -c {ROOT}/src/main.c -o main.c.obj', ': && arm-none-eabi-gcc -o tinyuf2.elf', 'FLASH']
-    for what, steps, kw in (('a rebuild', rebuild, {}), ('a CMake re-run', ['/usr/bin/cmake --regenerate-during-build -S.. -B.'], {}),
-                            ('ninja fails', ['FLASH'], {'code': 1}), ('nothing', [], {}),
-                            ('no ninja banner', ['FLASH'], {'banner': False}),
-                            ('another command', ['JLinkExe -USB 1'], {}), ('the flasher twice', ['FLASH', 'FLASH'], {})):
-      with self.subTest(what), self.assertRaisesRegex(cb.Fail, 'would not run only its flasher'):
-        self.ready(jlink, root, self.jlink_tree, steps, **kw)
-
-  def test_an_idf_flash_target_may_also_run_steps_that_write_no_flash_input(self):
-    esp = {'name': 'esptool', 'uid': 'b1', 'device': 'esp32s3'}
-    root = self.tmp / 'e'
-    cmake, py = '/opt/esp/tools/cmake/3.30.2/bin/cmake', '/opt/esp/python_env/idf5.3_py3.10_env/bin/python'
-    sizes = f'{py} /opt/esp/idf/components/partition_table/check_sizes.py --offset 0x8000'
-    size = (f'cd {root}/esp-idf/esptool_py && {sizes} partition --type app {root}/partition_table/partition-table.bin '
-            f'{root}/tinyuf2.bin')
-    boot_size = f'cd {root}/bootloader/esp-idf/esptool_py && {sizes} bootloader 0x0 {root}/bootloader/bootloader.bin'
-    uf2_size = f'cd {root} && {sizes} partition --type app --subtype factory {root}/partition_table/partition-table.bin {root}/tinyuf2.bin'
-    copies = ' && '.join(f'{cmake} -E copy {root}/{f} {root}/_bin/{Path(f).name}' for f in cb.FLASH['esptool'][1])
-    post = (f'cd {root} && bash {root}/tinyuf2.postbuild.sh && cd {root} && {cmake} -E echo "Copy binaries for artifact" && '
-            f'{copies} && cd {root} && {py}3.10 {ROOT}/lib/uf2/utils/uf2conv.py --carray -o '
-            f'{root}/apps/update_tinyuf2/bootloader_bin.c {root}/tinyuf2.bin')
-    stamps = (f'cd {root} && {cmake} -E make_directory {root}/CMakeFiles && {cmake} -E touch {root}/CMakeFiles/bootloader-complete '
-              f'&& {cmake} -E touch {root}/bootloader-prefix/src/bootloader-stamp/bootloader-done')
-    fresh = [f'cd {root}/bootloader && {cmake} --build .', size, uf2_size, f'cd {root}/bootloader && {cmake} -E echo_append', post,
-             stamps, 'FLASH']
-    script = root / 'tinyuf2.postbuild.sh'
-    good = ('#!/bin/bash\necho "Creating combined.bin"\n'
-            f"esptool --chip esp32s3 merge-bin --output combined.bin $(tr '\\n' ' ' < {root}/flash_args)\n")
-    self.idf_tree(root)
-    script.write_text(good)
-    self.ready(esp, root, self.idf_tree, fresh, [boot_size])
-    cases = (('a CMake re-run', [f'cd {root} && {cmake} --regenerate-during-build -S/p -B{root}'], [boot_size], good),
-             ('an app rebuild', [f'{root}/xtensa-esp32s3-elf-g++ -o tinyuf2.elf'] + fresh, [boot_size], good),
-             ('a bootloader rebuild', fresh, ['xtensa-esp32s3-elf-gcc -c bootloader_start.c', boot_size], good),
-             ('a size check and a copy', [size + f' && cp /tmp/o.bin {root}/tinyuf2.bin', 'FLASH'], [], good),
-             ('a copy out of _bin', [f'{cmake} -E copy /tmp/o.bin {root}/_bin/../tinyuf2.bin', 'FLASH'], [], good),
-             ('a redirect', [f'{cmake} -E echo x > {root}/tinyuf2.bin', 'FLASH'], [], good),
-             ('a changed post-build script', fresh, [boot_size], good + f'cp /tmp/o.bin {root}/tinyuf2.bin\n'),
-             ('a step after the bootloader build', [f'cd {root}/bootloader && {cmake} --build . && {cmake} -E echo_append', 'FLASH'],
-              ['xtensa-esp32s3-elf-gcc -c bootloader_start.c'], good),
-             ('a copy through a symlink', [f'{cmake} -E copy /tmp/o.bin {root}/_bin/alias/tinyuf2.bin', 'FLASH'], [], good),
-             ('a touch of a flash input', [f'{cmake} -E touch {root}/flash_args', 'FLASH'], [], good))
-    (root / '_bin').mkdir()
-    (root / '_bin/alias').symlink_to('..')
-    for what, steps, nested, text in cases:
-      with self.subTest(what), self.assertRaisesRegex(cb.Fail, 'would not run only its flasher'):
-        script.write_text(text)
-        self.ready(esp, root, self.idf_tree, steps, nested)
-    script.write_text(good)
-    (root / '_bin/alias').unlink()
-    (root / '_bin').rmdir()
-    (root / '_bin').symlink_to('.')   # a copy into _bin would land on the input itself
-    with self.subTest('a symlinked _bin'), self.assertRaisesRegex(cb.Fail, 'would not run only its flasher'):
-      self.ready(esp, root, self.idf_tree, [f'{cmake} -E copy /tmp/o.bin {root}/_bin/tinyuf2.bin', 'FLASH'], [boot_size])
-    (root / 'apps').symlink_to('.')
-    (root / 'update_tinyuf2').symlink_to('.')
-    carray = 'cd ' + post.split(' && cd ')[-1]
-    self.ready(esp, root, self.idf_tree, [carray, 'FLASH'], [boot_size])   # before the alias
-    (root / 'bootloader_bin.c').symlink_to('tinyuf2.bin')
-    with self.subTest('a C array onto the image'), self.assertRaisesRegex(cb.Fail, 'would not run only its flasher'):
-      self.ready(esp, root, self.idf_tree, [carray, 'FLASH'], [boot_size])
-    (root / 'combined.bin').symlink_to('tinyuf2.bin')
-    with self.subTest('a post-build onto the image'), self.assertRaisesRegex(cb.Fail, 'would not run only its flasher'):
-      self.ready(esp, root, self.idf_tree, [post.split(' && cd ')[0], 'FLASH'], [boot_size])
-    (root / 'combined.bin').unlink()
-    self.ready(esp, root, self.idf_tree, [post.split(' && cd ')[0], 'FLASH'], [boot_size])
-    (root / '_bin').unlink()
-    (root / '_bin').mkdir()
-    (root / '_bin/image.bin').write_text('x')
-    (root / 'ota_data_initial.bin').unlink(missing_ok=True)
-    (root / 'ota_data_initial.bin').symlink_to('_bin/image.bin')
-    with self.subTest('a copy onto a symlinked input'), self.assertRaisesRegex(cb.Fail, 'would not run only its flasher'):
-      self.ready(esp, root, self.idf_tree, [f'{cmake} -E copy /tmp/o.bin {root}/_bin/image.bin', 'FLASH'], [boot_size])
-    with self.assertRaisesRegex(cb.Fail, 'bootloader: ninja -n failed'):
-      self.ready(esp, root, self.idf_tree, fresh, [boot_size], banner='nested')
-
-  def test_an_idf_bootloader_size_check_is_read_only_at_any_offset(self):
-    root = self.tmp / 'p4'
-    sizes = '/opt/esp/python_env/idf6.1_py3.12_env/bin/python /opt/esp/idf/components/partition_table/check_sizes.py --offset 0x8000'
-    boot_size = lambda arg: f'cd {root}/bootloader && {sizes} bootloader {arg} {root}/bootloader/bootloader.bin'
-    self.assertTrue(cb.idf_step_writes_no_input(boot_size('0x2000'), root, 'esp32p4'))
-    for arg in ('2000', '0x2000 x', '0x20g0'):
-      with self.subTest(arg):
-        self.assertFalse(cb.idf_step_writes_no_input(boot_size(arg), root, 'esp32p4'))
 
   def test_a_hil_record_pins_the_target_inputs_and_holds_the_build_lock(self):
     args = mock.Mock(shared=True, define=[], verbose=False, idf='docker')

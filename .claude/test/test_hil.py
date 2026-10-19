@@ -2,6 +2,7 @@
 """Tests of the HIL contract's runner. Stubs prove the plumbing only: every probe and USB path here is
 unverified until a real run on the rig (commissioning.md)."""
 import contextlib
+import importlib.metadata
 import importlib.util
 import io
 import json
@@ -27,7 +28,6 @@ sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location('hil_test', SCRIPT)
 ht = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ht)
-FLASH_READY = ht.cb.flash_ready   # for a test that lets the dry runs run, under fixtures that stub it
 # lib/agentrc's flash provider, loaded once as main() loads it; its pin check is Roster's to test, against the real
 # checkout and a git hook's environment
 with mock.patch.object(ht, 'check_lock_pin'), contextlib.suppress(ht.Refused):
@@ -88,10 +88,9 @@ class Tmp(unittest.TestCase):
     t = tempfile.TemporaryDirectory()
     self.addCleanup(t.cleanup)
     self.tmp = Path(t.name)
-    for p in (mock.patch.object(ht, 'source_facts', source_facts),
-              mock.patch.object(ht, 'CONTAINERS', [])):   # a test's tracked container never reaches real docker later
-      p.start()
-      self.addCleanup(p.stop)
+    p = mock.patch.object(ht, 'source_facts', source_facts)
+    p.start()
+    self.addCleanup(p.stop)
 
   def load(self, cfg, name=BOARD):
     """A roster entry with its layout applied, as main() admits it."""
@@ -850,10 +849,8 @@ class EspFake(Tmp):
     real = ht.spawn
     self.targets = []
     for p in (mock.patch.object(ht, 'ESP_SESSION', fake), mock.patch.object(ht, 'esp_port', lambda uid: str(tty)),
-              mock.patch.object(ht, 'container_present', lambda name: False),
-              mock.patch.object(ht, 'container_gone', lambda name: True),   # never the real docker rm -f
-              mock.patch.object(ht.cb, 'flash_ready', lambda *a: None),
-              mock.patch.object(ht, 'spawn', lambda cmd, *a, **k: self.docker(cmd) if cmd[0] == 'docker' else real(cmd, *a, **k)),
+              mock.patch.object(ht, 'spawn', lambda cmd, *a, **k: self.esptool(cmd, k) if cmd[0] == 'esptool'
+                                else real(cmd, *a, **k)),
               mock.patch.dict(os.environ, {'FAKE_ESP_FLASH': str(self.flash)})):
       p.start()
       self.addCleanup(p.stop)
@@ -863,14 +860,16 @@ class EspFake(Tmp):
   def sessions(self):
     return [json.loads(l) for l in (self.tmp / 'flash.img.sessions').read_text().splitlines()]
 
-  def docker(self, cmd):
-    self.targets.append([str(c) for c in cmd])
-    return (0, 'c0ffee\n') if cmd[1] == 'create' else self.target(cmd)
+  def esptool(self, cmd, k):
+    self.targets.append(([str(c) for c in cmd], k.get('cwd'), k.get('env')))
+    return self.target(cmd)
 
   def target(self, cmd):
-    """ESP-IDF's flash target in its container: every segment written, FAKE_ESP_CORRUPT corrupting the segment at
-    that offset and FAKE_ESP_SPILL a preserved byte, and the transcript's shape from the bench."""
-    img, out = bytearray(self.flash.read_bytes()), ''
+    """The provider's `esptool write_flash`: every segment written, FAKE_ESP_CORRUPT corrupting the segment at that
+    offset and FAKE_ESP_SPILL a preserved byte, and the transcript's shape from the bench, CSI codes and the underscore
+    spellings' warnings included (esptool 5.2.0 logger.py, cli_util.py)."""
+    img, out = bytearray(self.flash.read_bytes()), ("\x1b[0;33mWarning:\x1b[0m Deprecated: Command 'write_flash' is "
+                                                    "deprecated. Use 'write-flash' instead.\n")
     for off, path in self.segments:
       blob = path.read_bytes()
       if os.environ.get('FAKE_ESP_CORRUPT') == hex(off):
@@ -878,14 +877,15 @@ class EspFake(Tmp):
       img[off:off + len(blob)] = blob
       if os.environ.get('FAKE_ESP_SPILL') and off == 0:
         img[0x9000] ^= 0xff
-      out += f'Writing at 0x{off:08x}... (100 %)\nWrote {len(blob)} bytes (9 compressed) at 0x{off:08x} in 0.1 seconds\nHash of data verified.\n'
+      out += (f'Writing at 0x{off:08x} [====] 100.0% \x1b[1A\x1b[2K\nWrote {len(blob)} bytes (9 compressed) at '
+              f'0x{off:08x} in 0.1 seconds (100.0 kbit/s).\nHash of data verified.\n')
     self.flash.write_bytes(img)
-    return 0, out + '\nLeaving...\nHard resetting via RTS pin...\n'
+    return 0, out + '\nHard resetting via RTS pin...\n'
 
   def files(self):
     root = self.tmp / 'b'
     return {'segments': self.segments,
-            'flash': {'root': root, 'binding': {'target': 'flash'}, 'image': 'espressif/idf:v6.1', 'ninja': None,
+            'flash': {'root': root, 'binding': {'target': 'flash'},
                       'sha256': {rel: ht.sha256(root / rel) for rel in ht.cb.FLASH['esptool'][1]}}}
 
 
@@ -898,7 +898,7 @@ class EspFlash(EspFake):
 
   def test_install_writes_the_segments_reads_them_back_and_keeps_the_preserved_regions(self):
     before = self.flash.read_bytes()
-    self.install()
+    ev = self.install()
     img = self.flash.read_bytes()
     for off, path in self.segments:
       self.assertEqual(img[off:off + path.stat().st_size], path.read_bytes())
@@ -909,20 +909,55 @@ class EspFlash(EspFake):
     self.assertEqual((snap['ops'], snap['args'][-1]), (['md5'] * 3, 'no-reset'))
     self.assertEqual((check['ops'], check['args'][-1]), (['read'] * 4 + ['md5'] * 3, 'hard-reset'))
     self.assertIn('--chip', check['args'])
-    docker, start = self.targets   # the bridge's tty only, in a container named for the board, created first
-    tty = str(self.tmp / 'ttyUSB0')
-    self.assertEqual((docker[:2], start), (['docker', 'create'], ['docker', 'start', '-a', f'tinyuf2-hil-{S3}']))
-    self.assertEqual(docker[docker.index('--name') + 1], f'tinyuf2-hil-{S3}')
-    self.assertEqual((docker[docker.index('--device') + 1], f'ESPPORT={tty}' in docker), (tty, True))
-    self.assertIn('IDF_FLASH_FULL=1', docker)   # every segment written, as judge_esp_target requires
-    self.assertEqual(docker[-5:], ['cmake', '--build', str(self.tmp / 'b'), '--target', 'flash'])
+    # the runner's own esptool on the bridge's tty, from the build dir as flash_args names the segments; no container
+    (argv, cwd, env), = self.targets
+    root, tty = self.tmp / 'b', str(self.tmp / 'ttyUSB0')
+    self.assertEqual(argv, ['esptool', '--chip', 'esp32s3', '-p', tty, '--before=default_reset', '--after=hard_reset',
+                            'write_flash', *(root / 'flash_args').read_text().split()])
+    self.assertEqual((cwd, env), (str(root), {'NO_COLOR': '1'}))
+    self.assertEqual((ev['wrote'], ev['operation']), (['0x0', '0x8000', '0xe000', '0x410000'],
+                                                     {'attempts': [{'kind': 'exited', 'exit': 0}], 'cleanup': 'done'}))
+    self.assertEqual(ev['esptool'], ht.ESPTOOL_VERSION)
+
+  def test_flash_args_are_read_under_the_build_lock_from_bytes_that_hash_as_recorded(self):
+    fa, files = self.tmp / 'b' / 'flash_args', self.files()
+    good = fa.read_text()
+    fa.write_text(good.replace('0x410000', '0x400000'))   # a writer that finishes as the lock is taken
+    take = ht.take_build_lock
+
+    def taken(root):
+      fa.write_text(good)
+      return take(root)
+    with mock.patch.object(ht, 'take_build_lock', taken):
+      ht.EspBattery(self.board, self.facts, self.work).install(files)
+    self.assertEqual(self.targets[0][0][8:], good.split())
+
+  def test_flash_args_changed_after_the_hash_check_are_not_flashed(self):
+    fa = self.tmp / 'b' / 'flash_args'
+    check = ht.Battery.check_inputs
+
+    def changed(flash, when, ev=None):
+      check(flash, when, ev)
+      if when == 'before the flash':
+        fa.write_text(fa.read_text().replace('0x410000', '0x400000'))
+    with mock.patch.object(ht.Battery, 'check_inputs', staticmethod(changed)), \
+         self.assertRaisesRegex(ht.StepFail, 'flash_args changed'):
+      self.install()
+    self.assertEqual(self.targets, [])
 
   def test_a_session_that_fails_to_connect_writes_nothing(self):
     before = self.flash.read_bytes()
     with mock.patch.dict(os.environ, {'FAKE_ESP_FAIL': 'No serial data received.'}), \
          self.assertRaisesRegex(ht.StepFail, 'No serial data'):
       self.install()
-    self.assertEqual(self.flash.read_bytes(), before)
+    self.assertEqual((self.flash.read_bytes(), self.targets), (before, []))
+
+  def test_no_tty_fails_before_any_session_and_leaves_the_board_untouched(self):
+    def gone(uid):
+      raise ht.StepFail('0 serial ports')
+    with mock.patch.object(ht, 'esp_port', gone), self.assertRaisesRegex(ht.StepFail, '0 serial ports'):
+      self.install()
+    self.assertEqual((self.bat.touched, (self.tmp / 'flash.img.sessions').exists(), self.targets), (False, False, []))
 
   def test_a_bad_read_back_or_a_touched_preserved_region_fails_the_install(self):
     for env, err in (({'FAKE_ESP_CORRUPT': '0x410000'}, 'tinyuf2.bin does not read back as written'),
@@ -930,10 +965,26 @@ class EspFlash(EspFake):
       with self.subTest(err), mock.patch.dict(os.environ, env), self.assertRaisesRegex(ht.StepFail, err):
         self.install()
 
+  def test_a_failed_or_timed_out_flash_fails_touched_with_its_operation(self):
+    for what, result, err in (('exit 2', (2, 'A fatal error occurred: Failed to connect\n'), 'the flash target failed'),
+                              ('timeout', ht.SpawnTimeout('esptool timed out', 'Writing at 0x00000000', []),
+                               f'esptool timed out after {ht.ESP_TIMEOUT}s')):
+      def esptool(cmd, k):
+        self.targets.append(cmd)
+        if isinstance(result, Exception):
+          raise result
+        return result
+      with self.subTest(what), mock.patch.object(self, 'esptool', esptool), \
+           self.assertRaisesRegex(ht.StepFail, err) as cm:
+        self.install()
+      self.assertTrue(self.bat.touched)
+      self.assertEqual((cm.exception.evidence['beforeTarget'], cm.exception.evidence['operation']['attempts'][0]['kind']),
+                       (False, 'exited' if what == 'exit 2' else 'timed_out'))
+
   def test_the_read_back_compares_the_preserved_regions_with_the_snapshot(self):
     tool, keep = ht.Esptool(self.board, self.work, self.work / 'hil.log'), self.board['regions']['preserved']
     snap = ht.preserved_md5(keep, tool.run(ht.preserved_ops(keep), 'no-reset'))
-    self.target(['docker'])
+    self.target(['esptool'])
     ev = ht.esp_verify(tool, self.board, self.segments, self.work, snapshot=snap)
     self.assertEqual(ev['preserved'], snap)
     self.assertEqual(ev['writes'][-1], {'what': 'tinyuf2.bin', 'span': ['0x410000', hex(0x410000 + self.segments[-1][1].stat().st_size)],
@@ -942,9 +993,13 @@ class EspFlash(EspFake):
     with self.assertRaisesRegex(ht.StepFail, 'preserved region changed by the end of the install'):
       ht.esp_verify(tool, self.board, self.segments, self.work, snapshot=dict(snap, nvs='x'))
 
-  def test_the_target_transcript_must_show_every_segment_written_and_verified(self):
-    out = self.target(['docker'])[1]
+  def test_the_flash_transcript_must_show_every_segment_written_and_verified(self):
+    out = self.target(['esptool'])[1]
+    self.assertIn('\x1b[1A', out)
     self.assertEqual(ht.judge_esp_target(0, out, self.segments)['wrote'], ['0x0', '0x8000', '0xe000', '0x410000'])
+    # a CSI code at a line's start would hide a write from a judge that strips only colour codes
+    csi = out.replace('Wrote', '\x1b[2K\x1b[1AWrote')
+    self.assertEqual(ht.judge_esp_target(0, csi, self.segments)['wrote'], ['0x0', '0x8000', '0xe000', '0x410000'])
     cases = (('a nonzero exit', 1, out), ('a segment missing', 0, out.replace('at 0x00008000 in', 'at 0x00009000 in')),
              ('a hash not verified', 0, out.replace('Hash of data verified.\n', '', 1)),
              ('no reset', 0, out.replace('Hard resetting via RTS pin...', '')), ('nothing', 0, ''))
@@ -960,102 +1015,17 @@ class EspFlash(EspFake):
     with mock.patch.object(ht.cb, 'identity', lambda ports: now), mock.patch.object(ht.cb, 'ci_idf_version', lambda: 'v6.1'):
       return ht.verify_record(rec, self.board, self.facts, self.work)[0]
 
-  def test_an_admitted_record_installs(self):
+  def test_an_admitted_record_installs_from_its_build_dir_without_a_container_or_a_dry_run(self):
     files = self.admitted()
-    q = files['flash']['ninja']   # the dry runs: tracked children of this board's run, logged to its hil.log
-    self.assertEqual((q.func, q.args, q.keywords),
-                     (ht.ninja_query, ('idf', 'docker', 'espressif/idf:v6.1', S3, self.work / 'hil.log'), {}))
+    self.assertEqual(set(files['flash']), {'root', 'binding', 'sha256'})
+    spawned = []
+    real = ht.spawn
     self.bat = ht.EspBattery(self.board, self.facts, self.work)
-    self.assertTrue(self.bat.install(files)['readBack'])
-    self.assertEqual(self.targets[0][self.targets[0].index('--device') - 1], f'tinyuf2-hil-{S3}')
-    self.assertIn('espressif/idf:v6.1', self.targets[0])
-
-  def test_the_dry_runs_run_in_the_boards_query_container_and_forget_it_once_gone(self):
-    command = 'cd /b && /usr/bin/cmake -D SERIAL_TOOL=x -P run_serial_tool.cmake'
-    self.row['flash']['command'] = command
-    files, flash_container, queries = self.admitted(), f'tinyuf2-hil-{S3}', []
-    root, run_flash = files['flash']['root'], self.docker
-
-    def docker(cmd):
-      if cmd[1] != 'run':
-        return run_flash(cmd)
-      queries.append((cmd[cmd.index('--name') + 1], cmd[cmd.index('-C') + 1:], list(ht.CONTAINERS)))
-      tree = cmd[cmd.index('-C') + 1]
-      return 0, f"banner\nninja: Entering directory `{tree}'\n" + (f'[1/1] {command}\n' if tree == str(root) else
-                                                                     'ninja: no work to do.\n')
-    self.docker = docker
-    self.bat = ht.EspBattery(self.board, self.facts, self.work)
-    with mock.patch.object(ht.cb, 'flash_ready', FLASH_READY):
+    with mock.patch.object(ht, 'spawn', lambda cmd, *a, **k: (spawned.append(cmd[0]), real(cmd, *a, **k))[1]):
       self.assertTrue(self.bat.install(files)['readBack'])
-    query = f'tinyuf2-hil-{S3}-query'
-    self.assertEqual(queries, [(query, [str(root), '-n', '-v', 'flash'], [flash_container, query]),
-                               (query, [str(root / 'bootloader'), '-n', '-v'], [flash_container, query])])
-    self.assertEqual((self.targets[1], ht.CONTAINERS), (['docker', 'start', '-a', flash_container], []))
-
-  def test_a_timed_out_dry_run_fails_the_install_and_its_container_goes_under_the_build_lock(self):
-    files, removed = self.admitted(), []
-    root, run_flash = files['flash']['root'], self.docker
-
-    def docker(cmd):
-      if cmd[1] != 'run':
-        return run_flash(cmd)
-      raise ht.StepFail(f'docker timed out after {ht.NINJA_QUERY_TIMEOUT}s')   # as spawn reports the query's client
-
-    def left(name):
-      try:
-        with ht.cb.build_lock(root, wait=False):
-          removed.append((name, 'unlocked'))
-      except BlockingIOError:
-        removed.append((name, 'locked'))
-      return ''
-    self.docker = docker
-    self.bat = ht.EspBattery(self.board, self.facts, self.work)
-    with mock.patch.object(ht.cb, 'flash_ready', FLASH_READY), mock.patch.object(ht.cb, 'container_left', left), \
-         self.assertRaisesRegex(ht.StepFail, '^' + re.escape(
-           f'{root.name}: ninja query -n -v flash timed out after {ht.NINJA_QUERY_TIMEOUT}s') + '$'):
-      self.bat.install(files)
-    self.assertEqual(removed, [(f'tinyuf2-hil-{S3}-query', 'locked')])
-    # the snapshot session touched the board; the flash container, created and never started, is cleanup's
-    self.assertEqual((self.bat.touched, [t[:2] for t in self.targets], ht.CONTAINERS),
-                     (True, [['docker', 'create']], [f'tinyuf2-hil-{S3}']))
-
-  def test_an_interrupted_create_leaves_the_name_for_cleanup_and_the_board_untouched(self):
-    def interrupted(cmd):
-      raise ht.Interrupted('interrupted by SIGTERM')
-    self.docker = interrupted   # the patched spawn looks it up per call
-    with mock.patch.object(ht, 'CONTAINERS', []) as tracked, self.assertRaises(ht.Interrupted):
-      self.install()
-    self.assertEqual(tracked, [f'tinyuf2-hil-{S3}'])
-    self.assertEqual((self.bat.touched, (self.tmp / 'flash.img.sessions').exists()), (False, False))
-
-  def test_a_container_left_by_an_earlier_flash_refuses_before_any_session(self):
-    with mock.patch.object(ht, 'container_present', lambda name: True), \
-         self.assertRaisesRegex(ht.StepFail, f'container tinyuf2-hil-{S3} from an earlier flash'):
-      self.install()
-    self.assertEqual((self.bat.touched, (self.tmp / 'flash.img.sessions').exists(), self.targets), (False, False, []))
-
-  def test_an_interrupted_dry_run_removes_its_container_under_the_build_lock(self):
-    files, removed = self.admitted(), []
-    root, run_flash = files['flash']['root'], self.docker
-
-    def docker(cmd):
-      if cmd[1] != 'run':
-        return run_flash(cmd)
-      raise ht.Interrupted('interrupted by SIGTERM')
-
-    def left(name):
-      try:
-        with ht.cb.build_lock(root, wait=False):
-          removed.append((name, 'unlocked'))
-      except BlockingIOError:
-        removed.append((name, 'locked'))
-      return ''
-    self.docker = docker
-    self.bat = ht.EspBattery(self.board, self.facts, self.work)
-    with mock.patch.object(ht.cb, 'flash_ready', FLASH_READY), mock.patch.object(ht.cb, 'container_left', left), \
-         self.assertRaisesRegex(ht.Interrupted, 'SIGTERM'):
-      self.bat.install(files)
-    self.assertEqual((removed, ht.CONTAINERS), ([(f'tinyuf2-hil-{S3}-query', 'locked')], [f'tinyuf2-hil-{S3}']))
+    self.assertNotIn('docker', spawned)
+    self.assertNotIn('ninja', spawned)
+    self.assertEqual(self.targets[0][1], str(files['flash']['root']))
 
   def test_the_install_snapshot_round_trips_through_the_report(self):
     keep = self.board['regions']['preserved']
@@ -1133,9 +1103,34 @@ class EspFlash(EspFake):
     self.assertEqual(code, 2)
     self.assertIn("re-enters by one of ('dfu-detach',)", res['error'])
 
-  def test_the_esptool_version_is_gated(self):
-    with mock.patch('importlib.metadata.version', lambda name: '4.8.1'), self.assertRaisesRegex(ht.Refused, '5.2.0'):
-      ht.check_esptool()
+  def test_the_esptool_version_and_the_command_the_provider_runs_are_gated(self):
+    def missing(name):
+      raise importlib.metadata.PackageNotFoundError(name)
+    for what, version in (('wrong version', lambda name: '4.8.1'), ('absent', missing)):
+      with self.subTest(what), mock.patch('importlib.metadata.version', version), \
+           self.assertRaisesRegex(ht.Refused, 'the runner needs esptool 5.2.0'):
+        ht.check_esptool()
+    bindir = self.tmp / 'bin'
+    bindir.mkdir()
+    venv = self.tmp / 'venv' / 'bin'
+    venv.mkdir(parents=True)
+    (venv / 'python3').symlink_to(sys.executable)   # a venv's python links out of the venv
+    script = bindir / 'esptool'
+    cases = (('this python', f'#!{sys.executable}\n', None), ('another python', f'#!{venv / "python3"}\n', 'does not run under'),
+             ('no shebang', 'import esptool\n', 'does not run under'), ('not on PATH', None, 'does not run under'))
+    for what, head, err in cases:
+      if head is None:
+        script.unlink(missing_ok=True)
+      else:
+        script.write_text(head)
+        script.chmod(0o755)
+      with self.subTest(what), mock.patch('importlib.metadata.version', lambda name: '5.2.0'), \
+           mock.patch.object(ht.shutil, 'which', lambda n: str(script) if script.exists() else None):
+        if err:
+          with self.assertRaisesRegex(ht.Refused, err):
+            ht.check_esptool()
+        else:
+          ht.check_esptool()
 
 
 STUB_ESPTOOL = {
@@ -1194,9 +1189,9 @@ class EspRig:
         return 0, json.dumps({'ok': True, 'interface': 0})
       blk = self.stale or self.app.get(self.bat.nonce_off, b'')
       return 0, json.dumps({'ok': True, 'interface': 0, 'string': f'HIL {blk[12:28].hex()}'})
-    code, out = self.real_spawn(cmd, log, timeout, cwd)
-    if cmd[:2] == ['docker', 'start']:
-      self.on = 'dfu'   # the target's hard reset; blank otadata boots the factory app: TinyUF2
+    code, out = self.real_spawn(cmd, log, timeout, cwd, **k)
+    if cmd[0] == 'esptool':
+      self.on = 'dfu'   # esptool's hard reset; blank otadata boots the factory app: TinyUF2
     return code, out
 
   def fat_read(self, dev, name, length, log, offset=0):
@@ -1235,7 +1230,7 @@ class EspBatteryRun(EspFake):
   def test_every_step_passes_with_a_fresh_nonce_per_copy(self):
     bat, rig, files = self.battery()
     bat.run(files, 'v1')
-    self.assertEqual([x['step'] for x in bat.steps if x['pass']], list(ht.STEPS['esptool']))
+    self.assertEqual([x['step'] for x in bat.steps if x['pass']], list(ht.STEPS['esp']))
     ev = {x['step']: x['evidence'] for x in bat.steps}
     self.assertEqual(ev['app-ran']['string'], f'HIL {ev["copy"]["nonce"]}')
     self.assertEqual(ev['recopy']['string'], f'HIL {ev["recopy"]["nonce"]}')
@@ -1782,119 +1777,6 @@ class Spawn(Tmp):
     self.assertIsNotNone(launched[0].poll())
     self.assertEqual(ht.CHILDREN, [])
 
-  def test_ninja_queries_use_the_tracked_runner_and_a_container_is_forgotten_only_once_docker_lists_it_no_more(self):
-    calls, present, name = [], [], 'tinyuf2-hil-board-query'
-    log, root = self.tmp / 'hil.log', self.tmp / 'build'
-
-    def run(cmd, log, timeout, cwd=None, stderr_to_log=False):
-      calls.append((cmd, log, timeout, cwd, stderr_to_log, list(ht.CONTAINERS)))
-      return 0, "ninja: Entering directory `x'\n"
-
-    def query(*listed):   # what container_present answers before and after the query
-      present[:] = list(listed)
-      return ht.ninja_query('idf', 'docker', 'idf:image', 'board', log, root, ['-n', '-v'])
-    with mock.patch.object(ht, 'spawn', run), mock.patch.object(ht, 'container_present', lambda n: present.pop(0)):
-      r = ht.ninja_query('cmake', None, None, 'board', log, root, ['-n', '-v'])
-      self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "ninja: Entering directory `x'\n", ''))
-      self.assertEqual(calls[0][1:], (log, ht.NINJA_QUERY_TIMEOUT, ht.ROOT, True, []))   # stderr kept out of stdout
-
-      self.assertEqual(query(False, False).returncode, 0)
-      self.assertEqual((calls[1][0][calls[1][0].index('--name') + 1], calls[1][-1], ht.CONTAINERS), (name, [name], []))
-
-      with self.assertRaisesRegex(ht.StepFail, f'^container {name} still exists after its ninja query; nothing was flashed'):
-        query(False, True)
-      self.assertEqual(ht.CONTAINERS, [name])   # kept for cleanup
-      self.assertEqual(query(False, False).returncode, 0)   # a name already tracked is not tracked twice
-      self.assertEqual(ht.CONTAINERS, [])
-
-      ht.CONTAINERS.append(name)
-      with self.assertRaisesRegex(ht.StepFail, f'^container {name} from an earlier ninja query still exists; nothing was flashed'):
-        query(True)
-      self.assertEqual((ht.CONTAINERS, len(calls)), ([name], 4))   # one entry, and no query started
-
-    ht.CONTAINERS.clear()
-    for what, after in (('docker ps fails before', []), ('docker ps fails after', [name])):
-      seen = []
-
-      def ps(n):
-        seen.append(n)
-        if what.endswith('before') or len(seen) > 1:
-          raise ht.StepFail('docker ps failed: x')
-        return False
-      with self.subTest(what), mock.patch.object(ht, 'spawn', run), mock.patch.object(ht, 'container_present', ps), \
-           self.assertRaisesRegex(ht.StepFail, 'docker ps failed'):
-        ht.ninja_query('idf', 'docker', 'idf:image', 'board', log, root, ['-n', '-v'])
-      self.assertEqual(ht.CONTAINERS, after)   # registered only once a query could start; kept when unconfirmed
-      ht.CONTAINERS.clear()
-
-  def test_a_timed_out_ninja_query_names_the_build_and_removes_its_container_or_keeps_it_tracked(self):
-    log, root, name = self.tmp / 'hil.log', self.tmp / 'build', 'tinyuf2-hil-board-query'
-    timed_out = re.escape(f'build: ninja query -n -v timed out after {ht.NINJA_QUERY_TIMEOUT}s')
-    still = f'; container {name} still exists: docker rm -f {name}'   # as cb.container_left reports it
-    cases = (('cmake', None, 'ninja', '', []), ('idf', 'docker', 'docker', '', []), ('idf', 'docker', 'docker', still, [name]))
-    for backend, mode, cmd0, left, tracked in cases:
-      with self.subTest(backend=backend, left=left), \
-           mock.patch.object(ht, 'spawn', side_effect=ht.StepFail(f'{cmd0} timed out after {ht.NINJA_QUERY_TIMEOUT}s')), \
-           mock.patch.object(ht, 'container_present', lambda n: False), mock.patch.object(ht.cb, 'container_left', lambda n: left), \
-           self.assertRaisesRegex(ht.StepFail, '^' + timed_out + re.escape(left) + '$'):
-        ht.ninja_query(backend, mode, 'idf:image', 'board', log, root, ['-n', '-v'])
-      self.assertEqual(ht.CONTAINERS, tracked)
-      ht.CONTAINERS.clear()
-
-  def test_an_interrupted_ninja_query_is_reaped_then_its_container_removed_unless_the_launcher_survives(self):
-    log, root, name = self.tmp / 'hil.log', self.tmp / 'build', 'tinyuf2-hil-board-query'
-    for backend, mode, survivors, order, tracked in (
-        ('cmake', None, [], ['reap'], []), ('idf', 'docker', [], ['reap', 'container'], []),
-        ('idf', 'docker', [99], ['reap'], [name])):   # a launcher alive after SIGKILL could still create it
-      events, launcher = [], mock.Mock()
-
-      def interrupted(cmd, *a, **k):   # as an Interrupted out of spawn's communicate leaves its child
-        launcher.args = [str(c) for c in cmd]
-        ht.CHILDREN.append(launcher)
-        raise ht.Interrupted('interrupted by SIGTERM')
-
-      def reap(p):
-        events.append('reap')
-        if not survivors:
-          ht.CHILDREN.remove(p)
-        return survivors
-      with self.subTest(backend=backend, survivors=survivors), mock.patch.object(ht, 'spawn', interrupted), \
-           mock.patch.object(ht, 'reap', reap), mock.patch.object(ht, 'container_present', lambda n: False), \
-           mock.patch.object(ht.cb, 'container_left', lambda n: events.append('container') or ''), \
-           self.assertRaisesRegex(ht.Interrupted, 'SIGTERM'):
-        ht.ninja_query(backend, mode, 'idf:image', 'board', log, root, ['-n', '-v'])
-      self.assertEqual((events, ht.CONTAINERS, ht.CHILDREN), (order, tracked, [launcher] if survivors else []))
-      ht.CONTAINERS.clear()
-      ht.CHILDREN.clear()
-
-  def test_a_signal_during_a_ninja_query_ends_the_query_before_it_unwinds(self):
-    tools = self.tmp / 'bin'
-    tools.mkdir()
-    (tools / 'ninja').write_text(f'#!/bin/sh\necho $$ > {self.tmp / "pid"}\nexec sleep 30\n')
-    (tools / 'ninja').chmod(0o755)
-    started = self.tmp / 'pid'
-
-    def signal_once_started():
-      end = time.monotonic() + 10
-      while not started.exists() and time.monotonic() < end:
-        time.sleep(0.01)
-      os.kill(os.getpid(), signal.SIGTERM)
-    signaller = threading.Thread(target=signal_once_started)
-    signaller.start()
-    self.addCleanup(signaller.join)
-    with mock.patch.dict(os.environ, {'PATH': f'{tools}:{os.environ["PATH"]}'}), \
-         self.assertRaisesRegex(ht.Interrupted, 'SIGTERM'):
-      ht.ninja_query('cmake', None, None, 'board', self.tmp / 'hil.log', self.tmp / 'build', ['-n', '-v'])
-    self.assertEqual((ht.CHILDREN, ht.proc_stat(int((self.tmp / 'pid').read_text()))), ([], None))
-
-  def test_a_docker_that_fails_hangs_or_is_missing_is_a_step_failure_when_listing_a_container(self):
-    for what, run in (('exit 1', lambda cmd, **k: subprocess.CompletedProcess(cmd, 1, '', 'daemon down')),
-                      ('timeout', mock.Mock(side_effect=subprocess.TimeoutExpired('docker', 30))),
-                      ('no docker', mock.Mock(side_effect=FileNotFoundError('docker')))):
-      with self.subTest(what), mock.patch.object(ht.subprocess, 'run', run), \
-           self.assertRaisesRegex(ht.StepFail, '^docker ps failed'):
-        ht.container_present('tinyuf2-hil-b-query')
-
   def test_a_spawned_childs_stderr_can_go_to_the_log_only(self):
     log = self.tmp / 'log'
     code, out = ht.spawn([sys.executable, '-c', 'import sys; print("out"); print("err", file=sys.stderr)'], log, 5,
@@ -1947,50 +1829,37 @@ class Spawn(Tmp):
     self.assertTrue(Path(f'/proc/{p.pid}').exists())
     self.assertEqual(ht.still_alive([{'pid': p.pid, 'start': start}]), [])
 
-  def test_a_flash_container_is_removed_by_name_after_its_launcher_and_a_survivor_blocks_recovery(self):
-    order, present = [], {'tinyuf2-hil-b': True}
+  def test_a_legacy_reports_container_is_gone_only_once_docker_settles_on_none_and_its_launchers_are_gone(self):
+    """#580: no runner makes a container any more, but a report from one that did may name one. A create still in
+    flight when that runner died may land after the first empty listing; the name is gone only once docker has listed
+    it no more for CONTAINER_SETTLE, and never while a process of the same report lives."""
+    name, listings, calls = 'tinyuf2-hil-b', [], []
+
     def run(cmd, **k):
-      order.append(cmd)
-      return subprocess.CompletedProcess(cmd, 0, '', '')
-    with mock.patch.object(ht, 'CONTAINERS', ['tinyuf2-hil-b']), mock.patch.object(ht.subprocess, 'run', run), \
-         mock.patch.object(ht, 'container_present', lambda name: present[name]), mock.patch.object(ht, 'KILL_WAIT', 0.1):
-      stuck = ht.stuck_children()
-      self.assertEqual((stuck, order[0], ht.CONTAINERS), ([{'container': 'tinyuf2-hil-b'}], ['docker', 'rm', '-f', 'tinyuf2-hil-b'],
-                                                          ['tinyuf2-hil-b']))
-      self.assertEqual(ht.still_alive(stuck), stuck)
-      present['tinyuf2-hil-b'] = False
-      self.assertEqual((ht.still_alive(stuck), ht.stuck_children(), ht.CONTAINERS), ([], [], []))
+      calls.append(cmd[:2])
+      out = listings.pop(0) if cmd[1] == 'ps' and listings else ''
+      return subprocess.CompletedProcess(cmd, 0, out, '')
+    launcher = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
+    self.addCleanup(lambda: (launcher.kill(), launcher.wait()))
+    live = {'pid': launcher.pid, 'start': ht.proc_start(launcher.pid), 'cmd': 'docker start -a ' + name}
+    with mock.patch.object(ht.cb.subprocess, 'run', run), mock.patch.object(ht.cb, 'CONTAINER_SETTLE', 0.3), \
+         mock.patch.object(ht.cb, 'CONTAINER_GONE_WAIT', 5):
+      listings[:] = ['', 'c0ffee\n']   # absent once, then the delayed create lands
+      self.assertEqual(ht.still_alive([{'container': name}]), [])
+      self.assertGreaterEqual(calls.count(['docker', 'rm']), 3)   # removed again once it landed, then settled
+      self.assertEqual(listings, [])
+      calls.clear()
+      self.assertEqual(ht.still_alive([live, {'container': name}]), [live, {'container': name}])
+      self.assertEqual(calls, [])   # not even looked at while its launcher lives
+    with mock.patch.object(ht.cb, 'container_left', lambda n: f'; container {n} still exists: docker rm -f {n}'):
+      self.assertEqual(ht.still_alive([{'container': name}]), [{'container': name}])
 
-  def test_a_docker_error_in_cleanup_is_a_survivor_not_an_escape(self):
-    for what, run, present in (('docker ps fails', None, mock.Mock(side_effect=ht.StepFail('docker ps failed: x'))),
-                               ('docker rm times out', mock.Mock(side_effect=subprocess.TimeoutExpired('docker', 30)), None),
-                               ('no docker', mock.Mock(side_effect=FileNotFoundError('docker')), None)):
-      with self.subTest(what), mock.patch.object(ht, 'CONTAINERS', ['tinyuf2-hil-b']), \
-           mock.patch.object(ht.subprocess, 'run', run or (lambda cmd, **k: subprocess.CompletedProcess(cmd, 0, '', ''))), \
-           mock.patch.object(ht, 'container_present', present or (lambda name: True)), mock.patch.object(ht, 'KILL_WAIT', 0.1):
-        self.assertEqual(ht.stuck_children(), [{'container': 'tinyuf2-hil-b'}])
-        self.assertEqual(ht.still_alive([{'container': 'tinyuf2-hil-b'}]), [{'container': 'tinyuf2-hil-b'}])
-
-  def test_cleanup_reaps_the_launchers_before_it_checks_a_container(self):
-    order = []
-    p = mock.Mock(pid=1, args=['docker', 'create'])
-    with mock.patch.object(ht, 'CHILDREN', [p]), mock.patch.object(ht, 'CONTAINERS', ['tinyuf2-hil-b']), \
-         mock.patch.object(ht, 'reap', lambda q: order.append('reap') or ht.CHILDREN.remove(q) or []), \
-         mock.patch.object(ht, 'container_gone', lambda name: order.append('container') or True):
+  def test_cleanup_tracks_no_container(self):
+    p = mock.Mock(pid=1, args=['esptool'])
+    with mock.patch.object(ht, 'CHILDREN', [p]), mock.patch.object(ht, 'reap', lambda q: ht.CHILDREN.remove(q) or []), \
+         mock.patch.object(ht.subprocess, 'run', mock.Mock(side_effect=AssertionError('no docker in cleanup'))):
       self.assertEqual(ht.stuck_children(), [])
-    self.assertEqual(order, ['reap', 'container'])
-
-  def test_a_container_stays_tracked_while_a_launcher_naming_it_outlives_sigkill(self):
-    name, other = 'tinyuf2-hil-b-query', 'tinyuf2-hil-b'
-    query, flash = ['docker', 'run', '--rm', '--name', name, 'img', 'ninja'], ['docker', 'start', '-a', other]
-    for args, survivors, tracked in ((query, [99], [name]), (flash, [99], [other]), (query, [], [])):
-      gone, p = [], mock.Mock(pid=1, args=args)
-      with self.subTest(args=args, survivors=survivors), mock.patch.object(ht, 'CHILDREN', [p]), \
-           mock.patch.object(ht, 'CONTAINERS', [name, other]), mock.patch.object(ht, 'reap', lambda q: survivors), \
-           mock.patch.object(ht, 'container_gone', lambda n: gone.append(n) or True):
-        stuck = ht.stuck_children()
-        self.assertEqual(([x for x in stuck if 'container' in x], gone, ht.CONTAINERS),
-                         ([{'container': n} for n in tracked], [name, other], tracked))   # a create in flight may land later
+    self.assertFalse(hasattr(ht, 'CONTAINERS'))
 
   def test_a_timed_out_childs_output_so_far_is_in_the_log(self):
     log = self.tmp / 'log'
@@ -2071,6 +1940,21 @@ class FlashProvider(Tmp):
     op = ht.provider().Operation([ht.provider().Attempt(r.args, None, r, None, 'unknown', None)])
     self.assertEqual(op.attempts[0].kind, 'timed_out')
     self.assertIn('so far', log.read_text())
+
+  def test_the_adapter_reports_cleanup_done_only_once_nothing_of_the_tools_session_is_left(self):
+    run = ht.tool_runner(self.tmp / 'hil.log')
+    self.assertEqual(run([sys.executable, '-c', 'pass'], timeout=10).cleanup, 'done')
+    self.assertEqual(run([sys.executable, '-c', 'import time; time.sleep(30)'], timeout=1).cleanup, 'done')   # reaped
+    # a process the tool started, its stdout closed, outlives the tool: tracked for cleanup, never called done
+    bg = 'import subprocess, sys; subprocess.Popen(["sleep", "30"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)'
+    self.addCleanup(ht.stuck_children)
+    r = run([sys.executable, '-c', bg], timeout=10)
+    self.assertEqual((r.returncode, r.cleanup, len(ht.CHILDREN)), (0, 'unknown', 1))
+    self.assertEqual(ht.stuck_children(), [])
+    self.assertEqual(ht.CHILDREN, [])
+    op = ht.provider().flash_esptool({'args': ''}, chip='esp32s3', port='/dev/null', flash_args='0x0 a.bin', cwd=str(self.tmp),
+                                     timeout=5, run=lambda cmd, cwd, timeout: run([sys.executable, '-c', 'pass'], timeout=5))
+    self.assertEqual(op.cleanup, 'done')
 
   def test_an_interrupted_tool_is_recorded_interrupted_with_its_output_and_left_for_cleanup(self):
     handler = signal.signal(signal.SIGTERM, ht.on_signal)
@@ -2580,27 +2464,6 @@ class RunBoard(Tmp):
     self.assertEqual((code, cleaned, row['cleanup']['survivors']), (4, [], stuck))
     self.assertEqual(row['cleanup']['detail'], 'StepFail: children survived SIGKILL; no flash may overlap them')
 
-  def test_a_container_the_restore_leaves_tracked_is_swept_before_the_release(self):
-    def touched(bat, files, version):
-      bat.touched = True
-
-    def restore(*a, **k):
-      ht.CONTAINERS.append('tinyuf2-hil-x-query')
-      return {'pass': True, 'state': 'blinky copied', 'evidence': {}}
-    for gone, code in ((True, 0), (False, 4)):
-      with self.subTest(gone=gone), mock.patch.object(ht.Battery, 'run', touched), \
-           mock.patch.object(ht.Battery, 'restore', restore), mock.patch.object(ht, 'container_gone', lambda n: gone), \
-           mock.patch.object(ht, 'hand_off', lambda fh, b, d, s: (fh.close(), {'pid': 1})[1]):
-        row, got = ht.run_board(self.args, self.board, self.facts, self.helper, self.tmp)
-        self.assertEqual(got, code)
-        if gone:
-          self.assertEqual((row['cleanup']['heldAfter'], ht.CONTAINERS), (False, []))
-          self.helper.flock_nb(BOARD).close()
-        else:
-          self.assertEqual((row['cleanup']['survivors'], row['cleanup']['detail']),
-                           ([{'container': 'tinyuf2-hil-x-query'}], 'StepFail: the restore left children that survived SIGKILL'))
-        ht.CONTAINERS.clear()
-
   def test_a_survivor_on_an_untouched_board_still_keeps_it_held(self):
     def fail(bat, files, version):
       raise ht.StepFail('install: probe hung')
@@ -2828,8 +2691,8 @@ class BatteryRun(Tmp):
     rig.hex = build / 'tinyuf2.hex'
     rig.hex.write_text(':00000001FF\n')
     self.files = {'bin': self.tmp / 'c.bin', 'hex': rig.hex,
-                  'flash': {'root': build, 'binding': {'target': 'tinyuf2-jlink'}, 'sha256': {'tinyuf2.hex': ht.sha256(rig.hex)},
-                            'ninja': None}}
+                  'flash': {'root': build, 'binding': {'target': 'tinyuf2-jlink'},
+                            'sha256': {'tinyuf2.hex': ht.sha256(rig.hex)}}}
     (self.tmp / 'cur').mkdir()
     bat.probe.run = rig.probe
     bat.probe.sysreset = lambda: rig.probe([f'w4 {ht.SCB_AIRCR:08X} {ht.AIRCR_SYSRESETREQ:08X}'], judge=False)
@@ -2841,8 +2704,7 @@ class BatteryRun(Tmp):
         if corrupt:
           corrupt(rig.current)
       return rig.fat_read(*a)
-    for p in (mock.patch.object(ht.cb, 'flash_ready', lambda *a: None),
-              mock.patch.object(ht, 'usb_device', lambda *a: '1-2' if rig.present else None),
+    for p in (mock.patch.object(ht, 'usb_device', lambda *a: '1-2' if rig.present else None),
               mock.patch.object(ht, 'block_device', lambda p: '/dev/sdz'),
               mock.patch.object(ht, 'check_exclusive', lambda d: None),
               mock.patch.object(ht, 'fat_read', fat_read),
@@ -2873,7 +2735,7 @@ class BatteryRun(Tmp):
                                          '-1,-1', '-speed', 'auto', '-NoGui', '1', '-ExitOnError', '1', '-CommandFile'], None))
     self.assertEqual((Path(path).parent, Path(path).exists()), (self.tmp, False))   # in the run dir, removed after
     self.assertEqual(rig.scripts[0], FLASHED(self.files['hex']))
-    self.assertEqual(ev['operation'], {'attempts': [{'kind': 'exited', 'exit': 0}], 'cleanup': 'unknown'})
+    self.assertEqual(ev['operation'], {'attempts': [{'kind': 'exited', 'exit': 0}], 'cleanup': 'done'})
 
   def test_a_timed_out_flash_fails_touched_with_its_transcript_so_far(self):
     bat, rig = self.battery()
@@ -2896,7 +2758,7 @@ class BatteryRun(Tmp):
     self.assertEqual(rig.scripts[2][:2], ['h', f'w4 {bat.f["dblTapReg"]:08X} 00000000'])   # cleared in dfu
     self.assertIn(f'sleep {2 * bat.f["dblTapDelayMs"] + 200}', rig.scripts[3])
     self.assertEqual(bat.steps[0]['evidence'], {'flashDownload': '1 range affected (65536 bytes)', 'verified': True,
-                                                'operation': {'attempts': [{'kind': 'exited', 'exit': 0}], 'cleanup': 'unknown'}})
+                                                'operation': {'attempts': [{'kind': 'exited', 'exit': 0}], 'cleanup': 'done'}})
     for script in rig.scripts:
       if 'g' in script:
         self.assertEqual(script[0], 'h', script)
@@ -3233,7 +3095,7 @@ class Decision(unittest.TestCase):
             'cleanup': {'pass': cleaned, 'heldAfter': held}}
 
   def test_the_commissioning_decision(self):
-    for method in (*ht.REENTRY['jlink'], *ht.REENTRY['esptool']):
+    for method in (*ht.REENTRY['jlink'], *ht.REENTRY['esp']):
       with self.subTest(method):
         self.assertEqual(ht.reentry_decision(self.row(method)), method)
         self.assertEqual(ht.reentry_decision(self.row(method, passed=False, failed_at='readback')), method)
@@ -3606,7 +3468,7 @@ class StlinkBatteryRun(Tmp):
     (build / 'tinyuf2.hex').write_text(':00000001FF\n')
     self.files = {'bin': bin_path, 'hex': build / 'tinyuf2.hex',
                   'flash': {'root': build, 'binding': {'target': 'tinyuf2-stlink'},
-                            'sha256': {'tinyuf2.hex': ht.sha256(build / 'tinyuf2.hex')}, 'ninja': None}}
+                            'sha256': {'tinyuf2.hex': ht.sha256(build / 'tinyuf2.hex')}}}
 
     def spawn(cmd, log, timeout, cwd=None, **k):
       if cmd[:2] == [ht.STM32_PROGRAMMER_CLI, '--connect']:   # the provider's flash
@@ -3628,8 +3490,7 @@ class StlinkBatteryRun(Tmp):
       return {'entries': {'CURRENT.UF2': [9, f['flashSize'] // 256 * 512]}, 'data': data, 'size': len(data)}
     (self.tmp / 'cur').mkdir()
     clock = [0.0]
-    for p in (mock.patch.object(ht.cb, 'flash_ready', lambda *a: None),
-              mock.patch.object(ht, 'usb_device', lambda *a: '1-2' if self.present[0] else None),
+    for p in (mock.patch.object(ht, 'usb_device', lambda *a: '1-2' if self.present[0] else None),
               mock.patch.object(ht, 'block_device', lambda p: '/dev/sdz'),
               mock.patch.object(ht, 'check_exclusive', lambda d: None),
               mock.patch.object(ht, 'fat_read', fat_read),
@@ -3648,7 +3509,7 @@ class StlinkBatteryRun(Tmp):
     self.assertRegex(s[1][1], r'^-u 0x08000000 0x5824 \S+readback-\d+\.bin$')
     self.assertEqual(self.bat.steps[0]['evidence'],
                      {'flashDownload': 'File download complete', 'erasedSectors': ['0', '1'], 'verified': True,
-                      'operation': {'attempts': [{'kind': 'exited', 'exit': 0}], 'cleanup': 'unknown'}})
+                      'operation': {'attempts': [{'kind': 'exited', 'exit': 0}], 'cleanup': 'done'}})
     observe = next(x for x in s if '-coreReg' in x)
     self.assertEqual(observe[:5], ['-halt', '-run', f'#Delay({2 * self.bat.f["dblTapDelayMs"] + 200})', '-halt', '-coreReg'])
     self.assertEqual(observe.count('-coreReg'), 2)

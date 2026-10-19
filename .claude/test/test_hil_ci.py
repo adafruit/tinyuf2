@@ -170,7 +170,7 @@ class Stubbed(unittest.TestCase):
       self.main('--board', BOARD, '--fail-at', 'rm-rf')
 
   def test_the_fail_at_steps_are_the_runners(self):
-    self.assertEqual(hil_ci.STEPS, (*ht.STEPS['esptool'], 'cleanup'))
+    self.assertEqual(hil_ci.STEPS, (*ht.STEPS['esp'], 'cleanup'))
 
   def test_fail_at_reaches_the_battery(self):
     held = {'row': {'ran': True, 'pass': False, 'steps': [{'step': 'install', 'pass': True}],
