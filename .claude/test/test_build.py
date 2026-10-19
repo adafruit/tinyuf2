@@ -828,6 +828,23 @@ class HilRecord(unittest.TestCase):
       with self.subTest(board), self.assertRaisesRegex(cb.Fail, err):
         cb.roster_flasher(self.config, board)
 
+  def test_a_route_binds_the_esptool_bindings_segments(self):
+    p4 = 'espressif_p4_function_ev'
+    route = {'name': 'openocd_esp', 'uid': '30:ED:A0:E0:C9:02', 'device': 'esp32p4'}
+    self.assertEqual(cb.roster_routes('test/hil/local.json', p4), [route])
+    self.assertEqual(cb.roster_routes('test/hil/local.json', 'metro_m7_1011'), [])
+    inputs = list(cb.FLASH['esptool'][1])
+    rec = {'board': p4, 'flash': {'flasher': {'name': 'esptool', 'uid': 'b', 'device': 'esp32p4'}, 'inputs': inputs}}
+    self.assertEqual(cb.flash_routes(rec, [route]), {'openocd_esp': {'flasher': route, 'inputs': inputs}})
+    with self.assertRaisesRegex(cb.Fail, 'needs the esptool binding of that chip'):
+      cb.flash_routes(rec, [dict(route, device='esp32s3')])
+    with tempfile.TemporaryDirectory() as d:
+      for args in ('-f board/esp32p4-builtin.cfg -c init', '-f interface/esp_usb_jtag.cfg -f target/esp32p4.cfg'):
+        cfg = Path(d) / 'r.json'
+        cfg.write_text(json.dumps({'boards': [{'name': p4, 'tinyuf2': {'routes': [{'flasher': dict(route, args=args)}]}}]}))
+        with self.subTest(args), self.assertRaisesRegex(cb.Fail, 'not the roster form'):
+          cb.roster_routes(str(cfg), p4)
+
   def fake_tools(self, **env):
     """`ninja` and `docker` on PATH that log their argv; as the query, each prints ninja's dry run with a warning on
     stderr, or with HANG starts a grandchild, adds both pids to `self.pids` and hangs. `docker run` creates the

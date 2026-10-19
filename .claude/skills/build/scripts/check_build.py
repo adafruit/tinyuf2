@@ -101,6 +101,9 @@ FLASH = {'jlink': ('tinyuf2-jlink', ('tinyuf2.jlink', 'tinyuf2.hex')), 'stlink':
                                'ota_data_initial.bin', 'tinyuf2.bin'))}
 # a roster flasher's args, whose one group is the device or chip its flash target must name
 FLASHER_ARGS = {'jlink': r'-device (\S+)', 'stlink': r'-device (\S+)', 'esptool': r'--chip (\w+)'}
+# a further install route of an Espressif board (tinyuf2.routes): the chip's built-in USB-Serial/JTAG through agentrc's
+# openocd_esp, which programs the esptool binding's segments; uid is the USJ serial
+ROUTE_ARGS = {'openocd_esp': r'-f board/(esp32[a-z0-9]*)-builtin\.cfg'}
 NINJA_STEP = re.compile(r'\[\d+/\d+\] ')   # ninja's progress prefix
 NINJA_QUERY_TIMEOUT = 30   # s for one ninja query
 DOCKER_TIMEOUT, CONTAINER_GONE_WAIT = 30, 10   # s for one docker call; s a killed query's container may linger
@@ -807,6 +810,33 @@ def roster_flasher(config, board):
   return flasher, defines.get(name, [])
 
 
+def roster_routes(config, board):
+  """The board's further install routes (tinyuf2.routes), each {name, uid, device} as a record binds it."""
+  try:
+    entry = next(b for b in json.loads((ROOT / config).read_text())['boards'] if b['name'] == board)
+    routes = [(r['flasher']['name'], r['flasher']['uid'], r['flasher']['args'])
+              for r in (entry.get('tinyuf2') or {}).get('routes', [])]
+  except (OSError, ValueError, KeyError, TypeError, StopIteration, AttributeError) as e:
+    raise Fail(f'cannot read {board}\'s routes from {config}: {e}')
+  out = []
+  for name, uid, fargs in routes:
+    m = re.fullmatch(ROUTE_ARGS.get(name, r'(?!)'), fargs) if isinstance(fargs, str) else None
+    if not m or not isinstance(uid, str) or not re.fullmatch(r'[\w.:+-]+', uid):
+      raise Fail(f'{board}: route {name!r} args {fargs!r} or uid {uid!r} is not the roster form')
+    out.append({'name': name, 'uid': uid, 'device': m[1]})
+  return out
+
+
+def flash_routes(rec, routes):
+  """A passing IDF build's further routes, each bound to the files its esptool binding hashed: the segments
+  openocd_esp programs as they are, without esptool's header rewrite."""
+  fl = rec.get('flash') or {}
+  for r in routes:
+    if (fl.get('flasher') or {}).get('name') != 'esptool' or fl['flasher']['device'] != r['device']:
+      raise Fail(f'{rec["board"]}: route {r["name"]} for {r["device"]} needs the esptool binding of that chip')
+  return {r['name']: {'flasher': r, 'inputs': list(fl['inputs'])} for r in routes}
+
+
 def flash_binding(flasher, root, ninja):
   """The generated flash target's own command, checked token for token against the roster flasher: the probe,
   device and image it names, not CMakeCache, which need not hold JLINK_DEVICE. `ninja(dir, args)` runs ninja in the
@@ -1052,7 +1082,11 @@ def main(argv=None):
         idf['version'] = (v.stdout or v.stderr).strip()
         idf['matchesCi'] = ci in idf['version']
     flashers = {b: roster_flasher(args.hil_config, b) for b, _ in sel['boards']} if args.hil_config else {}
+    routes = {b: roster_routes(args.hil_config, b) for b, _ in sel['boards']} if args.hil_config else {}
     records = [build_board(b, backend, args, idf, flashers.get(b)) for (b, backend) in sel['boards']]
+    for r in records:
+      if routes.get(r['board']) and r['status'] == 'ok':
+        r['flashRoutes'] = flash_routes(r, routes[r['board']])
     for r in records:
       r['selectedBy'] = sel['boards'][(r['board'], r['backend'])]
     # an input that moved while building, even if restored before the HIL checks it, leaves firmware
