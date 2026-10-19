@@ -846,7 +846,8 @@ class HilRecord(unittest.TestCase):
   def kill_hung(self):
     for pid in self.hung():
       if alive(pid, wait=0):
-        os.kill(pid, signal.SIGKILL)
+        with contextlib.suppress(ProcessLookupError):   # it may exit between the check and the kill
+          os.kill(pid, signal.SIGKILL)
 
   def tool_calls(self, tool):
     return [l.split()[1:] for l in self.tools_log.read_text().splitlines() if l.split()[0] == tool]
