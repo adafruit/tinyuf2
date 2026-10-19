@@ -103,7 +103,8 @@ FLASH = {'jlink': ('tinyuf2-jlink', ('tinyuf2.jlink', 'tinyuf2.hex')), 'stlink':
 FLASHER_ARGS = {'jlink': r'-device (\S+)', 'stlink': r'-device (\S+)', 'esptool': r'--chip (\w+)'}
 NINJA_STEP = re.compile(r'\[\d+/\d+\] ')   # ninja's progress prefix
 NINJA_QUERY_TIMEOUT = 30   # s for one ninja query
-DOCKER_TIMEOUT, CONTAINER_GONE_WAIT = 30, 10   # s for one docker call; s a timed-out query's container may linger
+DOCKER_TIMEOUT, CONTAINER_GONE_WAIT = 30, 10   # s for one docker call; s a killed query's container may linger
+CONTAINER_SETTLE = 2   # s docker must list no container before a killed client's pending create counts as never landing
 # configure variables that select a probe or port: a HIL record sets them from the roster, never from -D
 SELECTION = ('JLINK_OPTION', 'STLINK_SERIAL', 'OPENOCD_SERIAL', 'OPENOCD_OPTION', 'ESPPORT')
 
@@ -755,16 +756,19 @@ def ninja_in(backend, idf_mode, image, root, args, runner=None, container=None):
       with contextlib.suppress(ProcessLookupError):
         os.killpg(p.pid, signal.SIGKILL)
       p.wait()
-      if not isinstance(e, subprocess.TimeoutExpired):
-        raise
-      raise Fail(f'{root.name}: ninja {shlex.join(args)} timed out after {NINJA_QUERY_TIMEOUT}s' +
-                 (container_left(container) if container else '')) from None
+      left = container_left(container) if container else ''
+      if isinstance(e, subprocess.TimeoutExpired):
+        raise Fail(f'{root.name}: ninja {shlex.join(args)} timed out after {NINJA_QUERY_TIMEOUT}s{left}') from None
+      if left:
+        print(f'{root.name}: interrupted ninja {shlex.join(args)}{left}', file=sys.stderr)
+      raise
   return subprocess.CompletedProcess(cmd, p.returncode, out, err)
 
 
 def container_left(name):
-  """'' once docker no longer lists `name` after `docker rm -f`, else why, naming it, for an error message."""
-  end = time.monotonic() + CONTAINER_GONE_WAIT
+  """'' once docker has listed no `name` for CONTAINER_SETTLE, `docker rm -f` before each look, so a create still
+  pending when the client was killed is removed when it lands; else why, naming it, for an error message."""
+  end, absent_since = time.monotonic() + CONTAINER_GONE_WAIT, None
   try:
     while True:
       subprocess.run(['docker', 'rm', '-f', name], capture_output=True, text=True, timeout=DOCKER_TIMEOUT)
@@ -772,11 +776,14 @@ def container_left(name):
                          timeout=DOCKER_TIMEOUT)
       if r.returncode:
         return f'; docker ps failed ({r.stderr.strip()[-200:]}), so container {name} may be left: docker rm -f {name}'
-      if not r.stdout.strip():
+      now = time.monotonic()
+      absent_since = None if r.stdout.strip() else now if absent_since is None else absent_since
+      if absent_since is not None and now - absent_since >= CONTAINER_SETTLE:
         return ''
-      if time.monotonic() > end:
-        return f'; container {name} still exists: docker rm -f {name}'
-      time.sleep(0.5)
+      if now > end:
+        return (f'; container {name} still exists: docker rm -f {name}' if absent_since is None else
+                f'; container {name} was listed within {CONTAINER_SETTLE}s, so it may be left: docker rm -f {name}')
+      time.sleep(0.2)
   except (OSError, subprocess.SubprocessError) as e:
     return f'; docker failed ({e}), so container {name} may be left: docker rm -f {name}'
 

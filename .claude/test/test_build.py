@@ -24,13 +24,24 @@ LPC55_ARTIFACTS = ['_bin/tinyuf2-lpcxpresso55s69.bin', '_bin/tinyuf2-lpcxpresso5
 FAKE_TOOL = '''#!{python}
 import os, subprocess, sys, time
 from pathlib import Path
-with open(os.environ['TOOLS_LOG'], 'a') as f:
+log = Path(os.environ['TOOLS_LOG'])
+container = log.with_name('container')   # the one container the fake daemon holds
+with open(log, 'a') as f:
   f.write(' '.join([Path(sys.argv[0]).name] + sys.argv[1:]) + '\\n')
 if sys.argv[1] == 'rm':
-  sys.exit(int(os.environ.get('RM_EXIT', '0')))
-if sys.argv[1] == 'ps':
-  print('c0ffee' if os.environ.get('LEFT') else '')
+  if os.environ.get('RM_EXIT'):
+    sys.exit(int(os.environ['RM_EXIT']))
+  container.unlink(missing_ok=True)
   sys.exit(0)
+if sys.argv[1] == 'ps':
+  print('c0ffee' if container.exists() else '')
+  sys.exit(0)
+if sys.argv[1] == 'run' and os.environ.get('CREATE_AFTER'):   # the daemon's create, landing after its client is gone
+  subprocess.Popen([sys.executable, '-c', 'import pathlib, sys, time; time.sleep(float(sys.argv[1])); pathlib.Path(sys.argv[2]).touch(); '
+                    'open(sys.argv[3], "a").write("daemon created")', os.environ['CREATE_AFTER'], str(container), str(log)],
+                   start_new_session=True)
+elif sys.argv[1] == 'run':
+  container.touch()
 if os.environ.get('HANG'):
   Path(os.environ['GRANDCHILD']).write_text(str(subprocess.Popen(['sleep', '60']).pid))
   time.sleep(60)
@@ -812,7 +823,8 @@ class HilRecord(unittest.TestCase):
 
   def fake_tools(self, **env):
     """`ninja` and `docker` on PATH that log their argv; as the query, each prints ninja's dry run with a warning on
-    stderr, or with HANG starts a grandchild and hangs. `docker rm` exits RM_EXIT, `docker ps` lists LEFT."""
+    stderr, or with HANG starts a grandchild and hangs. `docker run` creates the container, CREATE_AFTER s later
+    if set; `docker rm` removes it, or exits RM_EXIT; `docker ps` lists it."""
     tools = self.tmp / 'bin'
     tools.mkdir(exist_ok=True)
     for name in ('ninja', 'docker'):
@@ -820,6 +832,7 @@ class HilRecord(unittest.TestCase):
       (tools / name).chmod(0o755)
     self.tools_log, self.grandchild = self.tmp / 'tools.log', self.tmp / 'grandchild'
     self.tools_log.unlink(missing_ok=True)
+    (self.tmp / 'container').unlink(missing_ok=True)
     return mock.patch.dict(os.environ, {'PATH': f'{tools}:{os.environ["PATH"]}', 'TOOLS_LOG': str(self.tools_log),
                                         'GRANDCHILD': str(self.grandchild), **env})
 
@@ -841,12 +854,12 @@ class HilRecord(unittest.TestCase):
   def test_a_timed_out_idf_query_removes_its_named_container_or_names_the_one_left(self):
     root, name, bound = self.tmp / 'b', f'tinyuf2-query-{os.getpid()}', 0.5
     timed_out = re.escape(f'b: ninja -n -v timed out after {bound}s')
-    cases = (('removed', {}, '$'), ('still listed', {'LEFT': '1', 'RM_EXIT': '1'},
-                                    re.escape(f'; container {name} still exists: docker rm -f {name}') + '$'))
+    cases = (('removed', {}, '$'), ('created after the kill', {'CREATE_AFTER': str(bound + 0.1)}, '$'),
+             ('still listed', {'RM_EXIT': '1'}, re.escape(f'; container {name} still exists: docker rm -f {name}') + '$'))
     for what, env, tail in cases:
       with self.subTest(what), self.fake_tools(HANG='1', **env), mock.patch.object(cb, 'git', return_value=str(self.tmp)), \
-           mock.patch.object(cb, 'NINJA_QUERY_TIMEOUT', bound), mock.patch.object(cb, 'CONTAINER_GONE_WAIT', 0.2), \
-           self.assertRaisesRegex(cb.Fail, '^' + timed_out + tail):
+           mock.patch.object(cb, 'NINJA_QUERY_TIMEOUT', bound), mock.patch.object(cb, 'CONTAINER_SETTLE', 1), \
+           mock.patch.object(cb, 'CONTAINER_GONE_WAIT', 3), self.assertRaisesRegex(cb.Fail, '^' + timed_out + tail):
         try:
           cb.ninja_in('idf', 'docker', 'idf:image', root, ['-n', '-v'])
         finally:
@@ -854,11 +867,38 @@ class HilRecord(unittest.TestCase):
           self.assertEqual((query[query.index('--name') + 1], query[-6:]), (name, ['idf:image', 'ninja', '-C', str(root), '-n', '-v']))
           self.assertEqual([c for c in self.tool_calls('docker') if c[0] == 'rm'][0], ['rm', '-f', name])
           self.assertFalse(alive(int(self.grandchild.read_text())))
+          # absent once is not gone: a create pending at the kill lands later and is removed too
+          end = time.monotonic() + 5
+          while 'CREATE_AFTER' in env and 'daemon created' not in self.tools_log.read_text() and time.monotonic() < end:
+            time.sleep(0.05)
+          self.assertEqual((self.tmp / 'container').exists(), bool(env.get('RM_EXIT')))
     with self.fake_tools(HANG='1'), mock.patch.object(cb, 'git', return_value=str(self.tmp)), \
          mock.patch.object(cb, 'NINJA_QUERY_TIMEOUT', bound), \
          mock.patch.object(cb.subprocess, 'run', side_effect=FileNotFoundError('docker')), \
          self.assertRaisesRegex(cb.Fail, '^' + timed_out + re.escape(f'; docker failed (docker), so container {name} may be left')):
       cb.ninja_in('idf', 'docker', 'idf:image', root, ['-n', '-v'])
+
+  def test_an_interrupted_idf_query_is_killed_and_its_container_removed_and_the_interruption_kept(self):
+    root, name, communicate = self.tmp / 'b', f'tinyuf2-query-{os.getpid()}', subprocess.Popen.communicate
+    for what, env, err in (('removed', {}, ''), ('still listed', {'RM_EXIT': '1'},
+                                                 f'b: interrupted ninja -n -v; container {name} still exists: docker rm -f {name}\n')):
+      interrupted = []
+
+      def ctrl_c(p, *a, **k):   # the query's own communicate only: container_left's docker calls run as usual
+        if not interrupted:
+          interrupted.append(p.pid)
+          raise KeyboardInterrupt
+        return communicate(p, *a, **k)
+      stderr = io.StringIO()
+      with self.subTest(what), self.fake_tools(HANG='1', **env), mock.patch.object(cb, 'git', return_value=str(self.tmp)), \
+           mock.patch.object(subprocess.Popen, 'communicate', ctrl_c), mock.patch.object(cb, 'CONTAINER_SETTLE', 0.2), \
+           mock.patch.object(cb, 'CONTAINER_GONE_WAIT', 0.5), contextlib.redirect_stderr(stderr), \
+           self.assertRaises(KeyboardInterrupt):
+        (self.tmp / 'container').touch()   # created before the interruption
+        cb.ninja_in('idf', 'docker', 'idf:image', root, ['-n', '-v'])
+      self.assertEqual((stderr.getvalue(), (self.tmp / 'container').exists()), (err, bool(env)))
+      self.assertIn(['rm', '-f', name], self.tool_calls('docker'))
+      self.assertFalse(alive(interrupted[0]))
 
   def test_a_runner_gets_the_docker_wrapped_query_and_must_name_its_container(self):
     root, calls = self.tmp / 'b', []
