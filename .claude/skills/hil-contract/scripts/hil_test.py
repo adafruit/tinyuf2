@@ -599,12 +599,21 @@ def spawn(cmd, log, timeout, cwd=None, stderr_to_log=False):
       CHILDREN.append(p)
     try:
       out, _ = p.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as e:
       reap(p)
+      f.write(decoded(p, e.output))
       raise StepFail(f'{Path(str(cmd[0])).name} timed out after {timeout}s')
+    except Interrupted:   # left for cleanup's reap; what communicate read so far is only in its own buffer
+      f.write(decoded(p, b''.join(getattr(p, '_fileobj2output', {}).get(p.stdout, []))))
+      raise
     f.write(out)
     CHILDREN.remove(p)
     return p.returncode, out
+
+
+def decoded(p, out):
+  """A text-mode child's partial output, which communicate's timeout gives as bytes."""
+  return out.decode(p.stdout.encoding, 'replace') if isinstance(out, bytes) else out or ''
 
 
 def proc_stat(pid):
@@ -673,16 +682,19 @@ def stuck_children():
   """Processes of the children's sessions, and containers a flash or a ninja query created, that survived SIGKILL,
   identified so a later recovery can tell they are still alive. The launchers go first, so no `docker` child can
   create or start a container after its name is checked."""
-  stuck = []
+  stuck, launching = [], set()
   for p in list(CHILDREN):
-    for pid in reap(p):
+    left = reap(p)
+    if left:
+      launching.update(p.args)
+    for pid in left:
       try:
         cmd = Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0')[:3]
       except OSError:
         cmd = []
       stuck.append({'pid': pid, 'start': proc_start(pid), 'cmd': [c.decode(errors='replace') for c in cmd]})
   for name in list(CONTAINERS):
-    if container_gone(name):
+    if container_gone(name) and name not in launching:   # a surviving launcher may still create it
       CONTAINERS.remove(name)
     else:
       stuck.append({'container': name})

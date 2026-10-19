@@ -1976,6 +1976,43 @@ class Spawn(Tmp):
       self.assertEqual(ht.stuck_children(), [])
     self.assertEqual(order, ['reap', 'container'])
 
+  def test_a_container_stays_tracked_while_a_launcher_naming_it_outlives_sigkill(self):
+    name, other = 'tinyuf2-hil-b-query', 'tinyuf2-hil-b'
+    query, flash = ['docker', 'run', '--rm', '--name', name, 'img', 'ninja'], ['docker', 'start', '-a', other]
+    for args, survivors, tracked in ((query, [99], [name]), (flash, [99], [other]), (query, [], [])):
+      gone, p = [], mock.Mock(pid=1, args=args)
+      with self.subTest(args=args, survivors=survivors), mock.patch.object(ht, 'CHILDREN', [p]), \
+           mock.patch.object(ht, 'CONTAINERS', [name, other]), mock.patch.object(ht, 'reap', lambda q: survivors), \
+           mock.patch.object(ht, 'container_gone', lambda n: gone.append(n) or True):
+        stuck = ht.stuck_children()
+        self.assertEqual(([x for x in stuck if 'container' in x], gone, ht.CONTAINERS),
+                         ([{'container': n} for n in tracked], [name, other], tracked))   # a create in flight may land later
+
+  def test_a_timed_out_childs_output_so_far_is_in_the_log(self):
+    log = self.tmp / 'log'
+    with self.assertRaisesRegex(ht.StepFail, f'^{re.escape(Path(sys.executable).name)} timed out after 2s$'):
+      ht.spawn([sys.executable, '-c', 'import time; print("partial", flush=True); time.sleep(30)'], log, 2)
+    self.assertIn('partial\n', log.read_text())
+
+  def test_an_interrupted_childs_output_so_far_is_in_the_log(self):
+    log, ready = self.tmp / 'log', self.tmp / 'ready'
+    self.addCleanup(lambda: [ht.reap(p) for p in list(ht.CHILDREN)])
+
+    def signal_once_printed():
+      end = time.monotonic() + 10
+      while not ready.exists() and time.monotonic() < end:
+        time.sleep(0.01)
+      time.sleep(0.5)   # for communicate to read it
+      os.kill(os.getpid(), signal.SIGTERM)
+    signaller = threading.Thread(target=signal_once_printed)
+    signaller.start()
+    self.addCleanup(signaller.join)
+    with self.assertRaisesRegex(ht.Interrupted, 'SIGTERM'):
+      ht.spawn([sys.executable, '-c', f'import time; print("partial", flush=True); open({str(ready)!r}, "w"); '
+                'time.sleep(30)'], log, 20)
+    self.assertEqual(len(ht.CHILDREN), 1)   # left for cleanup's reap, as before
+    self.assertIn('partial\n', log.read_text())
+
   def test_registering_leaves_the_childs_signal_mask_alone(self):
     code, out = ht.spawn(['grep', 'SigBlk', '/proc/self/status'], self.tmp / 'log', 5)
     self.assertEqual(code, 0, out)
