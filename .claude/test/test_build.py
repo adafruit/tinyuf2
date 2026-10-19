@@ -8,7 +8,9 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -17,6 +19,37 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / '.claude' / 'skills' / 'build' / 'scripts' / 'check_build.py'
 LPC55_ARTIFACTS = ['_bin/tinyuf2-lpcxpresso55s69.bin', '_bin/tinyuf2-lpcxpresso55s69.hex',
                    '_bin/apps/update-tinyuf2-lpcxpresso55s69.uf2']
+
+
+FAKE_TOOL = '''#!{python}
+import os, subprocess, sys, time
+from pathlib import Path
+with open(os.environ['TOOLS_LOG'], 'a') as f:
+  f.write(' '.join([Path(sys.argv[0]).name] + sys.argv[1:]) + '\\n')
+if sys.argv[1] == 'rm':
+  sys.exit(int(os.environ.get('RM_EXIT', '0')))
+if sys.argv[1] == 'ps':
+  print('c0ffee' if os.environ.get('LEFT') else '')
+  sys.exit(0)
+if os.environ.get('HANG'):
+  Path(os.environ['GRANDCHILD']).write_text(str(subprocess.Popen(['sleep', '60']).pid))
+  time.sleep(60)
+print("ninja: Entering directory `x'")
+print('ninja: warning: on stderr', file=sys.stderr)
+'''
+
+
+def alive(pid, wait=2):
+  """Whether `pid` is still a live process (not gone or a zombie) after up to `wait` s."""
+  end = time.monotonic() + wait
+  while time.monotonic() < end:
+    try:
+      if Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[0] == 'Z':
+        return False
+    except OSError:
+      return False
+    time.sleep(0.05)
+  return True
 
 
 def build_tmpdir():
@@ -777,38 +810,78 @@ class HilRecord(unittest.TestCase):
       with self.subTest(board), self.assertRaisesRegex(cb.Fail, err):
         cb.roster_flasher(self.config, board)
 
-  def test_ninja_queries_are_bounded_and_an_idf_query_may_be_named(self):
-    calls = []
+  def fake_tools(self, **env):
+    """`ninja` and `docker` on PATH that log their argv; as the query, each prints ninja's dry run with a warning on
+    stderr, or with HANG starts a grandchild and hangs. `docker rm` exits RM_EXIT, `docker ps` lists LEFT."""
+    tools = self.tmp / 'bin'
+    tools.mkdir(exist_ok=True)
+    for name in ('ninja', 'docker'):
+      (tools / name).write_text(FAKE_TOOL.format(python=sys.executable))
+      (tools / name).chmod(0o755)
+    self.tools_log, self.grandchild = self.tmp / 'tools.log', self.tmp / 'grandchild'
+    self.tools_log.unlink(missing_ok=True)
+    return mock.patch.dict(os.environ, {'PATH': f'{tools}:{os.environ["PATH"]}', 'TOOLS_LOG': str(self.tools_log),
+                                        'GRANDCHILD': str(self.grandchild), **env})
 
-    def run(cmd, **kwargs):
-      calls.append((cmd, kwargs))
-      return subprocess.CompletedProcess(cmd, 0, '', '')
+  def tool_calls(self, tool):
+    return [l.split()[1:] for l in self.tools_log.read_text().splitlines() if l.split()[0] == tool]
 
-    with mock.patch.object(cb.subprocess, 'run', run):
-      cb.ninja_in('cmake', None, None, self.tmp, ['-n', '-v'])
-      cb.ninja_in('idf', 'docker', 'idf:image', self.tmp, ['-t', 'commands'], container='hil-query')
-    self.assertEqual(calls[0][1]['timeout'], cb.NINJA_QUERY_TIMEOUT)
-    self.assertEqual(calls[2][1]['timeout'], cb.NINJA_QUERY_TIMEOUT)
-    self.assertEqual(calls[2][0][calls[2][0].index('--name') + 1], 'hil-query')
+  def test_an_unbound_query_returns_ninja_stdout_alone_and_a_timeout_kills_its_whole_session(self):
+    root = self.tmp / 'b'
+    with self.fake_tools():
+      r = cb.ninja_in('cmake', None, None, root, ['-n', '-v'])
+      self.assertEqual(cb.dry_run(lambda d, args: r, root), [])   # the stderr warning is not a step
+    self.assertEqual((r.returncode, r.stderr), (0, 'ninja: warning: on stderr\n'))
+    with self.fake_tools(HANG='1'), mock.patch.object(cb, 'NINJA_QUERY_TIMEOUT', 0.5), \
+         self.assertRaisesRegex(cb.Fail, '^' + re.escape(f'b: ninja -n -v timed out after {cb.NINJA_QUERY_TIMEOUT}s') + '$'):
+      cb.ninja_in('cmake', None, None, root, ['-n', '-v'])
+    self.assertFalse(alive(int(self.grandchild.read_text())))
+    self.assertEqual(self.tool_calls('docker'), [])
 
-    with mock.patch.object(cb.subprocess, 'run', side_effect=subprocess.TimeoutExpired('ninja', 30)), \
-         self.assertRaisesRegex(cb.Fail, 'ninja query timed out after 30s'):
-      cb.ninja_in('cmake', None, None, self.tmp, ['-n', '-v'])
+  def test_a_timed_out_idf_query_removes_its_named_container_or_names_the_one_left(self):
+    root, name, bound = self.tmp / 'b', f'tinyuf2-query-{os.getpid()}', 0.5
+    timed_out = re.escape(f'b: ninja -n -v timed out after {bound}s')
+    cases = (('removed', {}, '$'), ('still listed', {'LEFT': '1', 'RM_EXIT': '1'},
+                                    re.escape(f'; container {name} still exists: docker rm -f {name}') + '$'))
+    for what, env, tail in cases:
+      with self.subTest(what), self.fake_tools(HANG='1', **env), mock.patch.object(cb, 'git', return_value=str(self.tmp)), \
+           mock.patch.object(cb, 'NINJA_QUERY_TIMEOUT', bound), mock.patch.object(cb, 'CONTAINER_GONE_WAIT', 0.2), \
+           self.assertRaisesRegex(cb.Fail, '^' + timed_out + tail):
+        try:
+          cb.ninja_in('idf', 'docker', 'idf:image', root, ['-n', '-v'])
+        finally:
+          query = next(c for c in self.tool_calls('docker') if c[0] == 'run')
+          self.assertEqual((query[query.index('--name') + 1], query[-6:]), (name, ['idf:image', 'ninja', '-C', str(root), '-n', '-v']))
+          self.assertEqual([c for c in self.tool_calls('docker') if c[0] == 'rm'][0], ['rm', '-f', name])
+          self.assertFalse(alive(int(self.grandchild.read_text())))
+    with self.fake_tools(HANG='1'), mock.patch.object(cb, 'git', return_value=str(self.tmp)), \
+         mock.patch.object(cb, 'NINJA_QUERY_TIMEOUT', bound), \
+         mock.patch.object(cb.subprocess, 'run', side_effect=FileNotFoundError('docker')), \
+         self.assertRaisesRegex(cb.Fail, '^' + timed_out + re.escape(f'; docker failed (docker), so container {name} may be left')):
+      cb.ninja_in('idf', 'docker', 'idf:image', root, ['-n', '-v'])
 
-    calls = []
+  def test_a_runner_gets_the_docker_wrapped_query_and_must_name_its_container(self):
+    root, calls = self.tmp / 'b', []
 
-    def timeout_then_remove(cmd, **kwargs):
+    def runner(cmd):
       calls.append(cmd)
-      if cmd[:3] == ['docker', 'rm', '-f']:
-        return subprocess.CompletedProcess(cmd, 0, '', '')
-      raise subprocess.TimeoutExpired(cmd, cb.NINJA_QUERY_TIMEOUT)
+      return subprocess.CompletedProcess(cmd, 0, 'out', '')
     with mock.patch.object(cb, 'git', return_value=str(self.tmp)), \
-         mock.patch.object(cb.subprocess, 'run', timeout_then_remove), \
-         self.assertRaisesRegex(cb.Fail, 'ninja query timed out after 30s'):
-      cb.ninja_in('idf', 'docker', 'idf:image', self.tmp, ['-n', '-v'])
-    name = f'tinyuf2-query-{os.getpid()}'
-    self.assertEqual(calls[0][calls[0].index('--name') + 1], name)
-    self.assertEqual(calls[1], ['docker', 'rm', '-f', name])
+         mock.patch.object(cb.subprocess, 'Popen', side_effect=AssertionError('the runner runs the query')):
+      self.assertEqual(cb.ninja_in('idf', 'docker', 'idf:image', root, ['-n', '-v'], runner, 'hil-query').stdout, 'out')
+      self.assertEqual(cb.ninja_in('cmake', None, None, root, ['-n'], runner, 'hil-query').stdout, 'out')
+      with self.assertRaisesRegex(cb.Fail, 'must name the container'):
+        cb.ninja_in('idf', 'docker', 'idf:image', root, ['-n', '-v'], runner)
+    self.assertEqual(calls[0][:2], ['docker', 'run'])
+    self.assertEqual((calls[0][calls[0].index('--name') + 1], calls[0][-6:]),
+                     ('hil-query', ['idf:image', 'ninja', '-C', str(root), '-n', '-v']))
+    self.assertEqual((calls[1], len(calls)), (['ninja', '-C', str(root), '-n'], 2))
+
+  def test_a_failed_commands_query_whose_stderr_went_elsewhere_reports_its_stdout(self):
+    flasher = {'name': 'jlink', 'uid': '000801012283', 'device': 'MIMXRT1011DAE5A'}
+    ninja = lambda d, args: subprocess.CompletedProcess(args, 1, "ninja: error: unknown target 'tinyuf2-jlink'", '')   # noqa: E731
+    with self.assertRaisesRegex(cb.Fail, 'unknown target'):
+      cb.flash_binding(flasher, self.tmp / 'b', ninja)
 
   def test_the_generated_jlink_target_must_name_the_roster_probe_and_the_build_image(self):
     flasher = {'name': 'jlink', 'uid': '000801012283', 'device': 'MIMXRT1011DAE5A'}
