@@ -716,20 +716,25 @@ def ninja_query(backend, idf_mode, image, board, log, root, args):
     return subprocess.CompletedProcess(cmd, code, out, '')
 
   def end_query():
-    """The query's launcher reaped, then its container removed; a launcher that outlives SIGKILL could still create
-    it, so then both stay for cleanup. True once no query container is tracked."""
+    """The aborted query's launcher reaped, then its container removed once docker settles (cb.container_left): its
+    create may still land. A launcher that outlives SIGKILL could create it later, so then both stay for cleanup.
+    '' once no query container is tracked, else why."""
     survivors = [reap(p) for p in list(CHILDREN) if p.args in started]
-    if name in CONTAINERS and not any(survivors) and container_gone(name):
+    if name not in CONTAINERS:
+      return ''
+    if any(survivors):
+      return f'; container {name} stays for cleanup, its launcher alive after SIGKILL'
+    why = cb.container_left(name)
+    if not why:
       CONTAINERS.remove(name)
-    return name not in CONTAINERS
+    return why
 
   try:
     try:
       r = cb.ninja_in(backend, idf_mode, image, root, args, runner=run, container=name)
     except StepFail:   # spawn's timeout
-      left = not end_query()
-      raise StepFail(f'{root.name}: ninja query {" ".join(args)} timed out after {NINJA_QUERY_TIMEOUT}s' +
-                     (f'; container {name} is not confirmed gone' if left else '')) from None
+      raise StepFail(f'{root.name}: ninja query {" ".join(args)} timed out after {NINJA_QUERY_TIMEOUT}s'
+                     f'{end_query()}') from None
     if name:
       if container_present(name):
         raise StepFail(f'container {name} still exists after its ninja query; nothing was flashed, and cleanup '
