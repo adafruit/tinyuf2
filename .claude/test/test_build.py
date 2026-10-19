@@ -946,6 +946,12 @@ class HilRecord(unittest.TestCase):
     names = [c[c.index('--name') + 1] for c in self.tool_calls('docker') if c[0] == 'run']
     self.assertEqual(names, [f'tinyuf2-query-{os.getpid()}-first', f'tinyuf2-query-{os.getpid()}-second'])
 
+  def test_an_unbound_idf_querys_container_is_named_for_the_pid_and_a_uuid4(self):   # as hil-contract documents it
+    with self.fake_tools(), mock.patch.object(cb, 'git', return_value=str(self.tmp)):
+      cb.ninja_in('idf', 'docker', 'idf:image', self.tmp / 'b', ['-n', '-v'])
+    [name] = [c[c.index('--name') + 1] for c in self.tool_calls('docker') if c[0] == 'run']
+    self.assertRegex(name, '^' + re.escape(f'tinyuf2-query-{os.getpid()}-') + '[0-9a-f]{32}$')
+
   def test_a_runner_gets_the_docker_wrapped_query_and_must_name_its_container(self):
     root, calls = self.tmp / 'b', []
 
