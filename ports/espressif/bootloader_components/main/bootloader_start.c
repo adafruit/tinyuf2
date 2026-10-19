@@ -244,7 +244,7 @@ static int selected_boot_partition(const bootloader_state_t *bs) {
                 boot_index = FACTORY_INDEX;
                 break;
               }
-            } while ((esp_log_early_timestamp() - tm_start) < detection_delay_ms);
+            } while (detection_delay_ms > (esp_log_early_timestamp() - tm_start) );
 
             if (UF2_DETECTION_DELAY_MS > 0){
               board_led_off();
