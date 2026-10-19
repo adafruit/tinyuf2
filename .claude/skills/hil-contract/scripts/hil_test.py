@@ -2762,8 +2762,9 @@ def check_esptool():
     line = ''
   py = line[2:].split()[0] if line.startswith('#!') and line[2:].split() else ''
   # the same directory, as a venv's python links out of it, and the same interpreter, as one bin dir holds several
-  same = [os.path.realpath(f(a)) for f in (os.path.dirname, str) for a in (py, sys.executable)]
-  if not py or same[0] != same[1] or same[2] != same[3]:
+  bindir = [os.path.realpath(os.path.dirname(a)) for a in (py, sys.executable)]
+  interpreter = [os.path.realpath(a) for a in (py, sys.executable)]
+  if not py or bindir[0] != bindir[1] or interpreter[0] != interpreter[1]:
     raise Refused(f'the esptool on PATH ({exe}) does not run under {sys.executable}, whose esptool {ESPTOOL_VERSION} the '
                   f'runner checked: put that installation\'s esptool first on PATH')
 
