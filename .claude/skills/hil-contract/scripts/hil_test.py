@@ -22,6 +22,7 @@ import json
 import os
 import re
 import select
+import shlex
 import shutil
 import signal
 import struct
@@ -60,6 +61,8 @@ PROTECTED = {'hil_test.py', 'pool_check'}   # hil_lock.PROTECTED_REASONS, checke
 # the board-lock helper is the submodule's at its pinned commit, never an operator's installed agentrc
 AGENTRC = 'lib/agentrc'
 LOCK_HELPER = ROOT / AGENTRC / 'skills' / 'hil' / 'scripts' / 'hil_lock.py'
+# the flash provider beside it (agentrc `hil` Flashers): every install, probe session and reset runs through it
+FLASH_PROVIDER = LOCK_HELPER.with_name('hil_flash.py')
 HOLDER_ROLE = 'cleanup-holder'
 LOCK_POLL = 15   # s between tries at a held board within run's --lock-wait
 SCB_VTOR, SCB_AIRCR = 0xE000ED08, 0xE000ED0C
@@ -120,7 +123,14 @@ class NotEnumerated(StepFail):
 
 
 class Interrupted(Exception):
-  pass
+  interrupted = True   # what the flash provider reads to record an attempt as interrupted, not an error
+
+
+class SpawnTimeout(StepFail):
+  """A spawned child killed on its bound: its output so far and what of its session outlived SIGKILL."""
+  def __init__(self, msg, output, survivors):
+    super().__init__(msg)
+    self.output, self.survivors = output, survivors
 
 
 # ------------------------------------------------------------------ roster and source facts
@@ -584,27 +594,30 @@ def registering():
       raise Interrupted(f'interrupted by {signal.Signals(signum).name}')
 
 
-def spawn(cmd, log, timeout, cwd=None, stderr_to_log=False):
+def spawn(cmd, log, timeout, cwd=None, stderr_to_log=False, env=None):
   """Run a child in its own process group with a bound; a child that survives SIGKILL (D state on a
   stuck USB device) is left in CHILDREN for cleanup to see. Children spawned during cleanup inherit its
   blocked SIGTERM and SIGINT, so only SIGKILL (reap) may be relied on to end them. With `stderr_to_log`, the
-  child's stderr goes to the log only and the output returned is its stdout."""
+  child's stderr goes to the log only and the output returned is its stdout. `env` adds to the environment.
+  A timeout raises SpawnTimeout and an interruption Interrupted, each carrying the output so far."""
   with open(log, 'a') as f:
-    f.write('$ ' + ' '.join(map(str, cmd)) + '\n')
+    f.write('$ ' + ' '.join([f'{k}={v}' for k, v in (env or {}).items()] + list(map(str, cmd))) + '\n')
     f.flush()
     with registering():
       p = subprocess.Popen([str(c) for c in cmd], stdout=subprocess.PIPE,
                            stderr=f if stderr_to_log else subprocess.STDOUT, text=True, errors='replace',
-                           start_new_session=True, cwd=cwd)
+                           start_new_session=True, cwd=cwd, env=env and {**os.environ, **env})
       CHILDREN.append(p)
     try:
       out, _ = p.communicate(timeout=timeout)
     except subprocess.TimeoutExpired as e:
-      reap(p)
-      f.write(decoded(p, e.output))
-      raise StepFail(f'{Path(str(cmd[0])).name} timed out after {timeout}s')
-    except Interrupted:   # left for cleanup's reap; what communicate read so far is only in its own buffer
-      f.write(decoded(p, b''.join(getattr(p, '_fileobj2output', {}).get(p.stdout, []))))
+      left = reap(p)
+      partial = decoded(p, e.output)
+      f.write(partial)
+      raise SpawnTimeout(f'{Path(str(cmd[0])).name} timed out after {timeout}s', partial, left)
+    except Interrupted as e:   # left for cleanup's reap; what communicate read so far is only in its own buffer
+      e.stdout = decoded(p, b''.join(getattr(p, '_fileobj2output', {}).get(p.stdout, [])))
+      f.write(e.stdout)
       raise
     f.write(out)
     CHILDREN.remove(p)
@@ -612,8 +625,8 @@ def spawn(cmd, log, timeout, cwd=None, stderr_to_log=False):
 
 
 def decoded(p, out):
-  """A text-mode child's partial output, which communicate's timeout gives as bytes."""
-  return out.decode(p.stdout.encoding, 'replace') if isinstance(out, bytes) else out or ''
+  """A text-mode child's partial output, which communicate's timeout gives as bytes, in its stream's encoding."""
+  return text(out, p.stdout.encoding)
 
 
 def proc_stat(pid):
@@ -645,6 +658,9 @@ def reap(p):
     time.sleep(0.1)
   if not left and p in CHILDREN:   # tracked while any of its session lives, for cleanup to see
     CHILDREN.remove(p)
+  if p.stdout:   # nothing more is read from a killed child
+    with contextlib.suppress(OSError):
+      p.stdout.close()
   return left
 
 
@@ -687,12 +703,7 @@ def stuck_children():
     left = reap(p)
     if left:
       launching.update(p.args)
-    for pid in left:
-      try:
-        cmd = Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0')[:3]
-      except OSError:
-        cmd = []
-      stuck.append({'pid': pid, 'start': proc_start(pid), 'cmd': [c.decode(errors='replace') for c in cmd]})
+    stuck += [survivor(pid) for pid in left]
   for name in list(CONTAINERS):
     if container_gone(name) and name not in launching:   # a surviving launcher may still create it
       CONTAINERS.remove(name)
@@ -758,6 +769,189 @@ def ninja_query(backend, idf_mode, image, board, log, root, args):
   return r
 
 
+# ------------------------------------------------------------------ the flash provider
+
+PROVIDER = []   # the one hil_flash module this process loads (provider())
+PROVIDER_API = ('flash_jlink', 'flash_stlink', 'run_jlink_commands', 'run_stlink_commands', 'sysresetreq_jlink',
+                'sysresetreq_stlink', 'Operation', 'Attempt')
+
+
+def provider():
+  """lib/agentrc's hil_flash.py at the commit HEAD pins, loaded by path once per process, never an installed
+  agentrc's; Refused when the submodule is off its pin or the module lacks what the runner calls."""
+  if not PROVIDER:
+    check_lock_pin()
+    spec = importlib.util.spec_from_file_location('agentrc_hil_flash', FLASH_PROVIDER)
+    mod = importlib.util.module_from_spec(spec)
+    try:
+      spec.loader.exec_module(mod)
+    except Exception as e:
+      raise Refused(f'flash provider {FLASH_PROVIDER} failed to load: {e}')
+    missing = [n for n in PROVIDER_API if not hasattr(mod, n)]
+    if missing or (getattr(mod, 'SCB_AIRCR', None), getattr(mod, 'AIRCR_SYSRESETREQ', None)) != (SCB_AIRCR, AIRCR_SYSRESETREQ):
+      raise Refused(f'flash provider {FLASH_PROVIDER}: lacks {missing} or writes another SYSRESETREQ; recheck this contract')
+    PROVIDER.append(mod)
+  return PROVIDER[0]
+
+
+def command_argv(cmd):
+  """(argv, environment) of a provider command: an argv as is, a shell string split into words with its leading
+  NAME=value words as the environment they set. Any other shell syntax is refused: no shell runs it."""
+  if not isinstance(cmd, str):
+    return [str(c) for c in cmd], None
+  if re.search(r'[|&;<>()$`\\*?\n]', cmd):
+    raise ValueError(f'a provider command this runner cannot run without a shell: {cmd!r}')
+  words, env = shlex.split(cmd), {}
+  while words and re.fullmatch(r'[A-Za-z_]\w*=\S*', words[0]):
+    k, v = words.pop(0).split('=', 1)
+    env[k] = v
+  return words, env or None
+
+
+def tool_runner(log):
+  """The flash provider's `run=`: each command one tracked spawn child, its transcript in `log`, its session killed on
+  the bound and a survivor kept in CHILDREN for cleanup. A timeout returns rc 124 with the output so far (the
+  provider records the attempt as timed out); an interruption raises Interrupted carrying it. Executed directly, a
+  tool that dies by a signal reports -N."""
+  def run(cmd, cwd=None, *, timeout):
+    argv, env = command_argv(cmd)
+    try:
+      code, out = spawn(argv, log, timeout, cwd=cwd, env=env)
+    except SpawnTimeout as e:
+      return subprocess.CompletedProcess(argv, 124, e.output, None)
+    return subprocess.CompletedProcess(argv, code, out, None)
+  return run
+
+
+def text(out, encoding='utf-8'):
+  return out.decode(encoding, 'replace') if isinstance(out, bytes) else out or ''
+
+
+def operation_record(op):
+  """What the report keeps of a provider operation: each attempt's kind and exit, never their output joined (the
+  transcripts are in hil.log), its cleanup and any outstanding session's receipt."""
+  return {'attempts': [{'kind': a.kind, 'exit': a.result.returncode} for a in op.attempts], 'cleanup': op.cleanup,
+          **({'receipts': [str(r) for r in op.receipts]} if op.receipts else {})}
+
+
+def before_target(attempts, before):
+  """Every attempt ended before any target connect (before(code, out)); a timed-out one never did, since its output
+  so far does not show how far it got."""
+  return all(not a.timed_out and before(a.result.returncode, text(a.result.stdout)) for a in attempts)
+
+
+def judged(op, judge, before, what, timeout):
+  """judge(code, out) of the operation's last attempt. A failure's `beforeTarget` holds only when every attempt ended
+  before any target connect (before(code, out)); a timed-out one never does, since its output so far does not show
+  how far it got."""
+  attempts = op.attempts
+  out = text(attempts[-1].result.stdout)
+  timed_out = any(a.timed_out for a in attempts)
+  try:
+    if timed_out:
+      raise StepFail(f'{what} timed out after {timeout}s', {'tail': out.strip().splitlines()[-5:]})
+    ev = judge(attempts[-1].result.returncode, out)
+  except StepFail as e:
+    e.evidence.update(beforeTarget=before_target(attempts, before), operation=operation_record(op))
+    raise
+  return dict(ev, operation=operation_record(op))
+
+
+# ------------------------------------------------------------------ build locks
+
+BUILD_LOCK_WAIT = 2   # s a flash waits for a build dir's lock: a keeper (keep_build_lock) polls every KEEPER_POLL
+KEEPER_POLL = 1
+HELD_BUILD = []   # (lock file, survivors) this process keeps itself when no keeper could start
+
+
+def take_build_lock(root):
+  """check_build's lock of the build dir `root`, as an open file held until it is closed or kept; StepFail when a
+  build, another flash or a keeper still holds it after BUILD_LOCK_WAIT."""
+  path = cb.build_lock_file(root)
+  path.parent.mkdir(parents=True, exist_ok=True)
+  fh = open(path, 'a')
+  end = time.monotonic() + BUILD_LOCK_WAIT
+  while True:
+    try:
+      fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+      return fh
+    except BlockingIOError:
+      if time.monotonic() >= end:
+        fh.close()
+        raise StepFail(f'{root.name} is in use by a build or another flash; nothing was flashed')
+      time.sleep(0.2)
+
+
+def survivor(pid):
+  try:
+    cmd = Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0')[:3]
+  except OSError:
+    cmd = []
+  return {'pid': pid, 'start': proc_start(pid), 'cmd': [c.decode(errors='replace') for c in cmd]}
+
+
+def settle_children(started=()):
+  """Reap every child started since `started` (CHILDREN then; by default every one) that is still tracked: an
+  interrupted one, or what of a timed-out one outlived its kill. Returns the processes still alive after SIGKILL,
+  identified so a later recovery can tell they are still alive."""
+  left = []
+  for p in [p for p in CHILDREN if p not in started]:
+    left += [survivor(pid) for pid in reap(p)]
+  return left
+
+
+def keep_build_lock(fh, survivors):
+  """Hand a build dir's lock to a detached keeper while processes that may still read the tree survive (#579): it
+  shares the open file description, re-executes itself as `keep-build` without the job tracking variable (as
+  exec_holder), ignores SIGTERM and SIGINT, and exits, releasing the lock, once none of `survivors` lives. Its
+  acknowledgement comes only once it runs; without one this process keeps the lock and waits for them before it
+  exits (main)."""
+  try:
+    r, w = os.pipe()
+    pid = os.fork()
+  except OSError:
+    pid = None
+  if pid == 0:
+    try:
+      for sig in TERM_SIGNALS:
+        signal.signal(sig, signal.SIG_IGN)
+      os.close(r)
+      os.setsid()
+      for fd in (fh.fileno(), w):
+        os.set_inheritable(fd, True)
+      env = {k: v for k, v in os.environ.items() if k != JOB_TRACKING}
+      with contextlib.suppress(OSError):
+        os.execve(sys.executable, [sys.executable, '-B', str(HOLDER_SCRIPT), 'keep-build', str(fh.fileno()), str(w),
+                                   json.dumps(survivors)], env)
+    finally:
+      os._exit(1)
+  if pid:
+    os.close(w)
+    ready, _, _ = select.select([r], [], [], 10)
+    ack = os.read(r, 16) if ready else b''
+    os.close(r)
+    if ack == b'ok':
+      fh.close()   # the keeper's description now; never LOCK_UN
+      return {'pid': pid}
+    with contextlib.suppress(ProcessLookupError):
+      os.kill(pid, signal.SIGKILL)
+    with contextlib.suppress(ChildProcessError):
+      os.waitpid(pid, 0)
+  HELD_BUILD.append((fh, survivors))
+  return {'pid': os.getpid(), 'inProcess': True}
+
+
+def keep_build(survivors):
+  """The keeper's wait (keep_build_lock): its stdio closed, it polls until no survivor lives, then exits, which
+  releases the lock it inherited."""
+  for std in (0, 1, 2):
+    with contextlib.suppress(OSError):
+      os.close(std)
+  while still_alive(survivors):
+    time.sleep(KEEPER_POLL)
+  os._exit(0)
+
+
 # ------------------------------------------------------------------ probe
 
 def died_at_probe_connect(code, out, probe):
@@ -783,15 +977,15 @@ def jlink_failure(code, out, probe):
 
 
 def judge_jlink_target(code, out, board, hex_path):
-  """The tinyuf2-jlink transcript, through CMake and Ninja: JLinkExe can exit 0 with every command FAILED (no probe
-  with the serial), so success is read from the transcript: this HEX downloaded, programmed or already matching,
-  then O.K. and the script completed, with no failure line anywhere."""
+  """The provider's J-Link flash transcript (the record's tinyuf2-jlink script): JLinkExe can exit 0 with every command
+  FAILED (no probe with the serial), so success is read from the transcript: this HEX downloaded, programmed or
+  already matching, then O.K. and the script completed, with no failure line anywhere."""
   judged = re.sub(BENIGN[board['device']], '', out) if board['device'] in BENIGN else out
   m = re.search(rf'^Downloading file \[{re.escape(str(hex_path))}\]\.\.\.$(?:\n.*)*?\nJ-Link: Flash download: Bank \d+ @ '
                 r'0x[0-9A-F]+: (Skipped\. Contents already match|\d+ ranges? affected \(\d+ bytes\))$(?:\n.*)*?\nO\.K\.$',
                 judged, re.M)
   if code or not m or 'Script processing completed.' not in judged or re.search(JLINK_ERRORS + '|FAILED', judged):
-    raise StepFail(f'tinyuf2-jlink failed (exit {code})', jlink_failure(code, out, board['probe']))
+    raise StepFail(f'the J-Link flash failed (exit {code})', jlink_failure(code, out, board['probe']))
   return {'flashDownload': m[1]}
 
 
@@ -806,36 +1000,56 @@ def judge_esp_target(code, out, segments):
 
 
 class Probe:
+  """J-Link sessions of the runner's, each through the flash provider's run_jlink_commands with tinyuf2's session
+  profile, judged here."""
   def __init__(self, board, workdir, log):
     self.b, self.dir, self.log = board, workdir, log
     self.retried = []
+    self.flasher = {'name': 'jlink', 'uid': board['probe'], 'args': f'-device {board["device"]}'}
+    # SWD at 4000 kHz, autoconnect, and the core for a device whose own connect resets the chip (SESSION_DEVICE)
+    self.profile = {'interface': board['if'], 'speed': board['speed'], 'autoconnect': True,
+                    'device': SESSION_DEVICE.get(board['device'], board['device']), 'timeout': PROBE_TIMEOUT,
+                    'workdir': workdir}
 
   def run(self, commands, judge=True):
     """One JLinkExe session. judge=False is for a last `w4` that resets the target, which may drop the
     connection mid-transaction: only its issue on a connected target is judged (J-Link's "Writing VALUE ->
     ADDR" with no failure before it), and the caller's observation is the evidence."""
-    script = self.dir / f'jlink-{time.monotonic_ns()}.jlink'
-    script.write_text('\n'.join(list(commands) + ['exit']) + '\n')
-    device = SESSION_DEVICE.get(self.b['device'], self.b['device'])
-    cmd = ['JLinkExe', '-USB', self.b['probe'], '-device', device, '-if', self.b['if'], '-speed',
-           self.b['speed'], '-autoconnect', '1', '-NoGui', '1', '-ExitOnError', '1', '-CommandFile', script]
-    code, out = spawn(cmd, self.log, PROBE_TIMEOUT)
+    return self.session(lambda run: provider().run_jlink_commands(self.flasher, list(commands), run=run,
+                                                                    **self.profile), commands, judge)
+
+  def sysreset(self):
+    """The provider's SYSRESETREQ session (the AIRCR write), judged on its issue."""
+    return self.session(lambda run: provider().sysresetreq_jlink(self.flasher, run=run, **self.profile),
+                        [f'w4 {SCB_AIRCR:08X} {AIRCR_SYSRESETREQ:08X}'], judge=False)
+
+  def failure(self, attempts):
+    """jlink_failure over every attempt: before the target only when each one ended there."""
+    return {'tail': text(attempts[-1].result.stdout).strip().splitlines()[-5:],
+            'beforeTarget': before_target(attempts, lambda code, out: stopped_before_target(code, out, self.b['probe']))}
+
+  def session(self, op, commands, judge):
+    run = tool_runner(self.log)
+    attempts = list(op(run).attempts)
+    code, out = attempts[-1].result.returncode, text(attempts[-1].result.stdout)
     if died_at_probe_connect(code, out, self.b['probe']):
-      self.retried.append({'exit': code, 'script': script.name})
+      self.retried.append({'exit': code, 'commands': list(commands)})
       with open(self.log, 'a') as f:
         f.write(f'# JLinkExe died (exit {code}) at the probe connect, before the target; retrying once\n')
       time.sleep(JLINK_RETRY_DELAY)
-      code, out = spawn(cmd, self.log, PROBE_TIMEOUT)
-    judged = re.sub(BENIGN[self.b['device']], '', out) if self.b['device'] in BENIGN else out
+      attempts += op(run).attempts
+      code, out = attempts[-1].result.returncode, text(attempts[-1].result.stdout)
+    if attempts[-1].timed_out:
+      raise StepFail(f'JLinkExe timed out after {PROBE_TIMEOUT}s', self.failure(attempts))
+    seen = re.sub(BENIGN[self.b['device']], '', out) if self.b['device'] in BENIGN else out
     # a crash fails even a reset session (judge=False): its commands may not have run
-    if code < 0 or judge and (code or re.search(JLINK_ERRORS, judged)):
-      raise StepFail(f'JLinkExe failed (exit {code})', jlink_failure(code, out, self.b['probe']))
+    if code < 0 or judge and (code or re.search(JLINK_ERRORS, seen)):
+      raise StepFail(f'JLinkExe failed (exit {code})', self.failure(attempts))
     if not judge and commands[-1].startswith('w4 '):
       _, addr, value = commands[-1].split()
-      head, issued, _ = judged.partition(f'Writing {value} -> {addr}')
+      head, issued, _ = seen.partition(f'Writing {value} -> {addr}')
       if not issued or re.search(JLINK_ERRORS, head):
-        raise StepFail(f'the reset write was not issued on a connected target (exit {code})',
-                       jlink_failure(code, out, self.b['probe']))
+        raise StepFail(f'the reset write was not issued on a connected target (exit {code})', self.failure(attempts))
     return out
 
   def mem32(self, addrs):
@@ -869,33 +1083,43 @@ def stlink_failure(out):
 
 
 def judge_stlink_target(code, out, board):
-  """The tinyuf2-stlink transcript, through CMake and Ninja (bench, STM32CubeProgrammer v2.23.0): the roster's chip,
-  the HEX downloaded and the start command's success, with no error line; the binding fixed the command."""
+  """The provider's ST-LINK flash transcript, the record's tinyuf2-stlink command (bench, STM32CubeProgrammer
+  v2.23.0): the roster's chip, the HEX downloaded and the start command's success, with no error line."""
   out = ANSI.sub('', out)
   m = re.search(r'^Opening and parsing file: tinyuf2\.hex$(?:\n.*)*?\nErasing internal memory sectors? \[?([\d ]+)\]?$'
                 r'(?:\n.*)*?\nFile download complete$(?:\n.*)*?\nStart operation achieved successfully$', out, re.M)
   if code or not m or not chip_reported(out, board) or re.search(r'^Error', out, re.M):
-    raise StepFail(f'tinyuf2-stlink failed (exit {code})', stlink_failure(out))
+    raise StepFail(f'the ST-LINK flash failed (exit {code})', stlink_failure(out))
   return {'flashDownload': 'File download complete', 'erasedSectors': m[1].split()}
 
 
 class StlinkProbe:
-  """One STM32CubeProgrammer CLI connection per session: a script that connects to the roster's ST-LINK without a
-  reset (HOTPLUG), then runs `ops` in order. The CLI stops at the first failed operation and exits 1 (bench, v2.23.0);
-  success is read from the transcript too: the roster's chip, every operation echoed in order with its success line,
-  no error line, the script's end."""
+  """One STM32CubeProgrammer CLI connection per session, through the flash provider's run_stlink_commands: a script
+  that connects to the roster's ST-LINK without a reset (HOTPLUG), then runs `ops` in order. The CLI stops at the
+  first failed operation and exits 1 (bench, v2.23.0); success is read from the transcript too: the roster's chip,
+  every script line echoed in order with its success line, no error line, the script's end."""
 
   def __init__(self, board, workdir, log):
     self.b, self.dir, self.log = board, workdir, log
     self.retried = []   # the report's jlinkRetried: a CLI session is never retried
+    self.flasher = {'name': 'stlink', 'uid': board['probe'], 'args': f'-device {board["device"]}'}
+    self.profile = {'connect_mode': 'HOTPLUG', 'timeout': PROBE_TIMEOUT, 'workdir': workdir}
 
   def run(self, ops):
     """Each operation's output, in order."""
-    script = self.dir / f'stlink-{time.monotonic_ns()}.prg'
-    lines = [f'-c port=SWD sn={self.b["probe"]} mode=HOTPLUG', *ops]
-    script.write_text('\n'.join(lines) + '\n')
-    code, out = spawn([STM32_PROGRAMMER_CLI, '-script', script], self.log, PROBE_TIMEOUT)
-    out = ANSI.sub('', out)
+    return self.judge(provider().run_stlink_commands(self.flasher, list(ops), run=tool_runner(self.log),
+                                                     **self.profile), ops)
+
+  def sysreset(self):
+    """The provider's SYSRESETREQ session: `-w32` with `-nv`."""
+    op = provider().sysresetreq_stlink(self.flasher, run=tool_runner(self.log), **self.profile)
+    return self.judge(op, op.attempts[-1].script.splitlines()[1:])
+
+  def judge(self, op, ops):
+    a = op.attempts[-1]
+    code, out, lines = a.result.returncode, ANSI.sub('', text(a.result.stdout)), a.script.splitlines()
+    if a.timed_out:
+      raise StepFail(f'STM32_Programmer_CLI timed out after {PROBE_TIMEOUT}s', dict(stlink_failure(out), beforeTarget=False))
     parts = re.split(r'(?m)^Operation \[(\d+)\]: (.*?) *$', out)
     if code or list(zip(parts[1::3], parts[2::3])) != [(str(i), x) for i, x in enumerate(lines, 1)] or \
        re.search(r'^Error', out, re.M) or not chip_reported(parts[3] if len(parts) > 3 else '', self.b) or \
@@ -1627,8 +1851,10 @@ def verify_record(record_path, board, facts, workdir):
 
 
 def admit_flash(record_path, rec, row, root, board, log):
-  """The record's flash target, bound by check_build --hil-config to this roster flasher, with every file it reads
-  hash-checked; the install runs that target, under the build dir's lock."""
+  """The record's flash binding (check_build --hil-config: its flash target checked against this roster flasher at
+  the build), with every file the install reads hash-checked; the install reads them under the build dir's lock. A
+  J-Link or ST-LINK install runs the provider's flash of the bound HEX, not the target; an IDF one still runs its
+  flash target after a dry run."""
   fl = row.get('flash') or {}
   target, inputs = cb.FLASH[board['flasher']]
   want = {'name': board['flasher'], 'uid': board['probe'], 'device': board['device']}
@@ -1636,8 +1862,10 @@ def admit_flash(record_path, rec, row, root, board, log):
     raise Refused(f'{record_path}: its flash target is not bound to this roster flasher {want} (rebuild it with '
                   f'check_build.py --board {board["name"]} ... --shared --hil-config <roster>)')
   idf = rec.get('idf') or {}
-  return {'root': root, 'binding': fl, 'sha256': recorded(root, inputs, row), 'image': idf.get('image'),
-          'ninja': functools.partial(ninja_query, row['backend'], idf.get('mode'), idf.get('image'), board['name'], log)}
+  out = {'root': root, 'binding': fl, 'sha256': recorded(root, inputs, row), 'image': idf.get('image')}
+  if row['backend'] == 'idf':
+    out['ninja'] = functools.partial(ninja_query, row['backend'], idf.get('mode'), idf.get('image'), board['name'], log)
+  return out
 
 
 def recorded(root, rels, row):
@@ -1702,6 +1930,14 @@ def sha256(p):
     return None
 
 
+def ready(flash):
+  """The IDF flash target's dry run (cb.flash_ready): it would run nothing but its flasher."""
+  try:
+    cb.flash_ready(flash['root'], flash['binding'], flash['ninja'])
+  except cb.Fail as e:
+    raise StepFail(str(e))
+
+
 def check_bootloader_bin(bin_path, board, facts, what):
   """The BIN from its flash address (`binBase`) inside `install`, within the device's flash limits, and this
   board's (its UF2_BOARD_ID)."""
@@ -1717,7 +1953,7 @@ class Battery:
     self.log = workdir / 'hil.log'
     self.probe = Probe(board, workdir, self.log)
     self.power = PortPower(board.get('usbPower'), self.log)
-    self.steps, self.usb_path, self.touched, self.at = [], None, False, 'setup'
+    self.steps, self.usb_path, self.touched, self.at, self.kept = [], None, False, 'setup', []
     # where CURRENT.UF2 starts and the flash size INFO_UF2.TXT reports
     self.app_start, self.dfu_flash = facts.get('appStart'), facts['flashSize']
     self.dfu_claim = 'DFU observed after the install'
@@ -1734,31 +1970,39 @@ class Battery:
       raise
     self.steps.append({'step': name, 'pass': True, 'evidence': ev, 'detail': ''})
 
-  def flash_target(self, flash, cmd, timeout, judge):
-    """The record's flash target, under its build dir's lock: the inputs still hash as recorded and a dry run shows
-    the target runs nothing but its flasher (cb.flash_ready); after it, the inputs are hashed again. Touched from the
-    target's start; only a transcript recognised as ending before any target connect leaves the board as it was."""
-    root, fl = flash['root'], flash['binding']
-    with contextlib.ExitStack() as held:
-      try:
-        held.enter_context(cb.build_lock(root, wait=False))
-      except BlockingIOError:
-        raise StepFail(f'{root.name} is in use by a build or another flash; nothing was flashed')
+  def flash_target(self, flash, op, judge, before, what, timeout, ready=None):
+    """The record's image through the flash provider, `op(run)` with tool_runner's run, under its build dir's lock:
+    the inputs still hash as recorded before it (and `ready()` passes), and again after it; judged(). Touched from
+    the tool's start; only attempts that all ended before any target connect leave the board as it was. The lock
+    is released only once every child the operation started has ended, reaped here when interrupted; one that
+    survives SIGKILL keeps it through a keeper (#579), and the board through cleanup's: the flash then fails
+    however it went, so nothing follows it while that child lives."""
+    started, lock = list(CHILDREN), take_build_lock(flash['root'])
+    flashed = False
+    try:
       self.check_inputs(flash, 'before the flash')
-      try:
-        cb.flash_ready(root, fl, flash['ninja'])
-      except cb.Fail as e:
-        raise StepFail(str(e))
+      if ready:
+        ready()
       was, self.touched = self.touched, True
-      code, out = spawn(cmd, self.log, timeout)
       try:
-        ev = judge(code, out)
+        ev = judged(op(tool_runner(self.log)), judge, before, what, timeout)
       except StepFail as e:
         if e.evidence.get('beforeTarget'):
           self.touched = was
         raise
       self.check_inputs(flash, 'while flashing', ev)
-    return ev
+      flashed = True
+      return ev
+    finally:
+      with signals(signal.SIG_BLOCK):
+        left = settle_children(started)
+        if left:
+          self.kept.append({'buildDir': flash['root'].name, 'survivors': left, 'keeper': keep_build_lock(lock, left)})
+        else:
+          lock.close()
+      if left and flashed:
+        raise StepFail(f'{what}: children survived SIGKILL; the build lock stays with a keeper and the board with '
+                       'cleanup', {'survivors': left})
 
   @staticmethod
   def check_inputs(flash, when, ev=None):
@@ -1799,7 +2043,7 @@ class Battery:
   def sysreset(self):
     """SYSRESETREQ from the probe. It may drop the debug connection mid-write: its exit is not judged, its issue is;
     the caller's observation is the evidence."""
-    return self.probe.run([f'w4 {SCB_AIRCR:08X} {AIRCR_SYSRESETREQ:08X}'], judge=False)
+    return self.probe.sysreset()
 
   def dfu(self, version):
     f = self.f
@@ -1913,13 +2157,17 @@ class Battery:
 
   def report_fields(self):
     # the cleanup's retries and cycles land here too: the same lists
-    return {'jlinkRetried': self.probe.retried, **({'portCycles': self.power.cycles} if self.power.cfg else {})}
+    return {'jlinkRetried': self.probe.retried, **({'portCycles': self.power.cycles} if self.power.cfg else {}),
+            **({'buildLocksKept': self.kept} if self.kept else {})}
 
   def install(self, files):
-    """The record's tinyuf2-jlink target, then the BIN verified at its flash address in a session of the runner's."""
-    fl = files['flash']
-    ev = self.flash_target(fl, ['cmake', '--build', fl['root'], '--target', fl['binding']['target']], PROBE_TIMEOUT,
-                           lambda code, out: judge_jlink_target(code, out, self.b, files['hex']))
+    """The record's HEX through the provider's J-Link flash (the script the record's tinyuf2-jlink target runs), then
+    the BIN verified at its flash address in a session of the runner's."""
+    def flash(run):
+      return provider().flash_jlink(self.probe.flasher, str(files['hex']), timeout=PROBE_TIMEOUT, run=run,
+                                    workdir=str(self.dir))
+    ev = self.flash_target(files['flash'], flash, lambda code, out: judge_jlink_target(code, out, self.b, files['hex']),
+                           lambda code, out: stopped_before_target(code, out, self.b['probe']), 'JLinkExe', PROBE_TIMEOUT)
     settle = INSTALL_SETTLE_MS.get(self.b['device'])
     verify = ['h', f'verifybin {files["bin"]},{self.f["binBase"]:#x}', 'r', 'g']
     self.probe.run(([f'sleep {settle}'] if settle else []) + verify)
@@ -1981,11 +2229,14 @@ class StlinkBattery(Battery):
     return self.dir / f'readback-{time.monotonic_ns()}.bin', f'-u 0x{addr:08X} {len(want):#x}'
 
   def install(self, files):
-    """The record's tinyuf2-stlink target, then the BIN read back from its flash address in a session of the runner's,
-    which ends in a system reset (bench: the core runs after `-rst`)."""
-    fl = files['flash']
-    ev = self.flash_target(fl, ['cmake', '--build', fl['root'], '--target', fl['binding']['target']], PROBE_TIMEOUT,
-                           lambda code, out: judge_stlink_target(code, out, self.b))
+    """The record's HEX through the provider's ST-LINK flash (the command the record's tinyuf2-stlink target runs,
+    without the CLI's verify), then the BIN read back from its flash address in a session of the runner's, which ends
+    in a system reset (bench: the core runs after `-rst`)."""
+    ev = self.flash_target(files['flash'], lambda run: provider().flash_stlink(self.probe.flasher, str(files['hex']),
+                                                                              timeout=PROBE_TIMEOUT, run=run),
+                           lambda code, out: judge_stlink_target(code, out, self.b),
+                           lambda code, out: stlink_failure(ANSI.sub('', out))['beforeTarget'], 'STM32_Programmer_CLI',
+                           PROBE_TIMEOUT)
     want = Path(files['bin']).read_bytes()
     path, op = self.readback(self.f['binBase'], want)
     self.probe.run(['-halt', f'{op} {path}', '-rst'])
@@ -1996,7 +2247,7 @@ class StlinkBattery(Battery):
   def sysreset(self):
     """SYSRESETREQ without the CLI's read-back, which the reset would fail (bench: `-nv` writes and exits 0, the host
     sees the device re-enumerate); issued only once the write is reported done."""
-    body = self.probe.run([f'-w32 0x{SCB_AIRCR:08X} 0x{AIRCR_SYSRESETREQ:08X} -nv'])[0]
+    body = self.probe.sysreset()[0]
     if f'w @0x{SCB_AIRCR:08x}:  0x{AIRCR_SYSRESETREQ:08x}' not in body:
       raise StepFail('the reset write was not reported done', {'tail': body.strip().splitlines()[-3:]})
     return body
@@ -2089,8 +2340,12 @@ class EspBattery(Battery):
     if self.preserved is None:
       keep = self.b['regions']['preserved']
       self.preserved = preserved_md5(keep, self.tool.run(preserved_ops(keep), 'no-reset'))
-    ev = self.flash_target(fl, ['docker', 'start', '-a', name], ESP_TIMEOUT,
-                           lambda code, out: judge_esp_target(code, out, files['segments']))
+    def start(run):
+      cmd = ['docker', 'start', '-a', name]
+      return provider().Operation([provider().Attempt(cmd, None, run(cmd, timeout=ESP_TIMEOUT), None, 'unknown', None)])
+    ev = self.flash_target(fl, start, lambda code, out: judge_esp_target(code, out, files['segments']),
+                           lambda code, out: False, 'docker', ESP_TIMEOUT,
+                           ready=lambda: ready(fl))
     if container_gone(name):
       CONTAINERS.remove(name)
     ev.update(esp_verify(self.tool, self.b, files['segments'], self.dir, self.preserved))
@@ -2098,7 +2353,8 @@ class EspBattery(Battery):
 
   def report_fields(self):
     keep = self.b['regions']['preserved']
-    return {'snapshot': self.preserved and {'preserved': self.preserved,
+    return {**({'buildLocksKept': self.kept} if self.kept else {}),
+            'snapshot': self.preserved and {'preserved': self.preserved,
                                             'preservedRegions': {n: list(r) for n, r in keep.items()}}}
 
   def usb_dfu(self, op):
@@ -2429,6 +2685,10 @@ def main(argv=None):
   kh = sub.add_parser('keep-held', help='internal: the re-executed cleanup holder (exec_holder)')
   kh.add_argument('fd', type=int)
   kh.add_argument('ack', type=int)
+  kb = sub.add_parser('keep-build', help="internal: the re-executed keeper of a build dir's lock (keep_build_lock)")
+  kb.add_argument('fd', type=int)
+  kb.add_argument('ack', type=int)
+  kb.add_argument('survivors', type=json.loads)
   args = ap.parse_args(argv)
   if args.cmd == 'fat-read':
     return fat_read_main(args)
@@ -2437,9 +2697,15 @@ def main(argv=None):
     os.write(args.ack, b'ok')
     os.close(args.ack)
     keep_held(fh)
+  if args.cmd == 'keep-build':
+    os.write(args.ack, b'ok')
+    os.close(args.ack)
+    keep_build(args.survivors)
   for sig in TERM_SIGNALS:
     signal.signal(sig, on_signal)
-  run_dir = (getattr(args, 'run_root', None) or cb.BUILD_DIR / 'hil') / f'run-{time.strftime("%Y%m%d-%H%M%S")}-{os.getpid()}'
+  # absolute: a provider command file is written in it while the working directory is
+  run_dir = ((getattr(args, 'run_root', None) or cb.BUILD_DIR / 'hil') /
+             f'run-{time.strftime("%Y%m%d-%H%M%S")}-{os.getpid()}').resolve()
   result = {'pass': False, 'caveat': '', 'results': [], 'reportPath': str(run_dir / 'hil_report.json')}
   code, recovery, bat = 2, None, None
   try:
@@ -2448,6 +2714,7 @@ def main(argv=None):
     facts = source_facts(board)
     apply_layout(board, facts)
     helper = load_helper()
+    provider()
     if args.cmd == 'run':
       row, code = run_board(args, board, facts, helper, run_dir)
       result['results'].append(row)
@@ -2462,6 +2729,7 @@ def main(argv=None):
         ev['dfu'] = bat.dfu_after_install(fw['version'])
       finally:
         result['survivors'] = stuck_children()
+        result.update(bat.kept and {'buildLocksKept': bat.kept} or {})
       result['results'].append({'board': board['name'], 'installed': fw, 'evidence': ev})
       result['pass'], code = True, 0
     else:
@@ -2504,6 +2772,7 @@ def main(argv=None):
         cleanup = bat.restore(files, fw['version'])
       finally:
         result['survivors'] = stuck_children()
+        result.update(bat.kept and {'buildLocksKept': bat.kept} or {})
       if result['survivors']:
         raise StepFail('restore left children that survived SIGKILL')
       if args.recover_holder is not None:
@@ -2533,6 +2802,8 @@ def main(argv=None):
   print(json.dumps(result), flush=True)
   if HELD_IN_PROCESS:
     keep_held(HELD_IN_PROCESS[0])
+  while HELD_BUILD and still_alive([s for _, left in HELD_BUILD for s in left]):   # no keeper started: keep it here
+    time.sleep(KEEPER_POLL)
   return code
 
 

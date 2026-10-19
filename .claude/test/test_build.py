@@ -2,6 +2,7 @@
 that compile a change, and the JSON and exit code follow SKILL.md. Builds are stubbed here; a real
 build is evidence only from a run of the script itself."""
 import contextlib
+import functools
 import importlib.util
 import io
 import json
@@ -47,7 +48,10 @@ if os.environ.get('HANG'):
   with open(os.environ['PIDS'], 'a') as f:
     f.write(f'{{os.getpid()}} {{subprocess.Popen(["sleep", "60"]).pid}}\\n')
   time.sleep(60)
-print("ninja: Entering directory `x'")
+if os.environ.get('UNKNOWN_TARGET'):   # as ninja 1.13 reports it: stderr only, nothing on stdout
+  print(f"ninja: error: unknown target '{{sys.argv[-1]}}'", file=sys.stderr)
+  sys.exit(1)
+print(os.environ.get('STDOUT', "ninja: Entering directory `x'"))
 print('ninja: warning: on stderr', file=sys.stderr)
 '''
 
@@ -969,11 +973,18 @@ class HilRecord(unittest.TestCase):
                      ('hil-query', ['idf:image', 'ninja', '-C', str(root), '-n', '-v']))
     self.assertEqual((calls[1], len(calls)), (['ninja', '-C', str(root), '-n'], 2))
 
-  def test_a_failed_commands_query_whose_stderr_went_elsewhere_reports_its_stdout(self):
+  def test_the_build_time_commands_query_reads_ninjas_stdout_and_reports_its_stderr(self):
+    # a real query through the unbound ninja_in: a failure's diagnostic is on stderr only, a warning there is never
+    # parsed as a command (#572 B1)
     flasher = {'name': 'jlink', 'uid': '000801012283', 'device': 'MIMXRT1011DAE5A'}
-    ninja = lambda d, args: subprocess.CompletedProcess(args, 1, "ninja: error: unknown target 'tinyuf2-jlink'", '')   # noqa: E731
-    with self.assertRaisesRegex(cb.Fail, 'unknown target'):
-      cb.flash_binding(flasher, self.tmp / 'b', ninja)
+    root, query = self.tmp / 'b', functools.partial(cb.ninja_in, 'cmake', None, None)
+    with self.fake_tools(UNKNOWN_TARGET='1'), \
+         self.assertRaisesRegex(cb.Fail, re.escape("ninja: error: unknown target 'tinyuf2-jlink'")):
+      cb.flash_binding(flasher, root, query)
+    line = self.jlink_tree(root)(root, [])
+    with self.fake_tools(STDOUT=line.stdout.strip()):
+      self.assertEqual(cb.flash_binding(flasher, root, query)['command'], line.stdout.splitlines()[1])
+    self.assertEqual(self.tool_calls('ninja'), [['-C', str(root), '-t', 'commands', 'tinyuf2-jlink']])
 
   def test_the_generated_jlink_target_must_name_the_roster_probe_and_the_build_image(self):
     flasher = {'name': 'jlink', 'uid': '000801012283', 'device': 'MIMXRT1011DAE5A'}

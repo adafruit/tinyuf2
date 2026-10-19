@@ -7,6 +7,7 @@ import io
 import json
 import os
 import re
+import select
 import shutil
 import signal
 import struct
@@ -27,6 +28,10 @@ spec = importlib.util.spec_from_file_location('hil_test', SCRIPT)
 ht = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ht)
 FLASH_READY = ht.cb.flash_ready   # for a test that lets the dry runs run, under fixtures that stub it
+# lib/agentrc's flash provider, loaded once as main() loads it; its pin check is Roster's to test, against the real
+# checkout and a git hook's environment
+with mock.patch.object(ht, 'check_lock_pin'), contextlib.suppress(ht.Refused):
+  ht.provider()
 BOARD = 'lpcxpresso55s69'
 RT = {'port': 'mimxrt10xx', 'name': 'imxrt1060_evk', 'lock': 'mimxrt1060_evk'}
 
@@ -287,7 +292,7 @@ class PortPowerCase(Tmp):
     self.clock, self.writes, self.fail = [0.0], [], {}
     real_path = ht.Path
 
-    def spawn(cmd, log, timeout, cwd=None):
+    def spawn(cmd, log, timeout, cwd=None, **k):
       self.assertEqual((cmd[:3], timeout), (['sh', '-c', ht.PortPower.SET], ht.PortPower.TIMEOUT))
       value = cmd[-1]
       self.writes.append((self.clock[0], value))
@@ -448,8 +453,7 @@ class Rt1060(Tmp):
                        (work / 'record/_bin/tinyuf2.bin', str(build / '_bin/tinyuf2.bin'), '1.0'))
       self.assertEqual((files['hex'], files['flash']['root'], files['flash']['sha256']['tinyuf2.hex']),
                        (build / 'tinyuf2.hex', build, rows['tinyuf2.hex']))   # the HEX the target loads, not a copy
-      q = files['flash']['ninja']   # the dry run: a tracked child of this board's run, logged to its hil.log
-      self.assertEqual((q.func, q.args, q.keywords), (ht.ninja_query, ('cmake', None, None, 'imxrt1060_evk', work / 'hil.log'), {}))
+      self.assertNotIn('ninja', files['flash'])   # the install runs the provider's flash, never the target or a dry run
       for what, flash in (('another probe', dict(row['flash'], flasher={'name': 'jlink', 'uid': '9', 'device': 'MIMXRT1062xxx6A'})),
                           ('no binding', None)):
         with self.subTest(what), self.assertRaisesRegex(ht.Refused, 'not bound to this roster flasher'):
@@ -1172,7 +1176,7 @@ class EspRig:
     want = {'dfu': (f['vid'], f['pid']), 'app': (f['appVid'], f['appPid'])}.get(self.on)
     return '1-2' if (vid, pid) == want and serial == self.bat.b['uid'] else None
 
-  def spawn(self, cmd, log, timeout, cwd=None):
+  def spawn(self, cmd, log, timeout, cwd=None, **k):
     if cmd[0] == 'mcopy':
       blocks = ht.parse_uf2(Path(cmd[4]).read_bytes())
       self.copied.append(blocks)
@@ -1764,7 +1768,7 @@ class Spawn(Tmp):
 
   def test_a_signal_right_after_the_child_starts_still_leaves_it_tracked_for_cleanup(self):
     real, launched = subprocess.Popen, []
-    self.addCleanup(lambda: [(ht.reap(p), p.communicate()) for p in launched])
+    self.addCleanup(lambda: [(ht.reap(p), p.wait()) for p in launched])   # reap closes our end of its pipe
 
     def popen_then_signalled(*a, **k):
       launched.append(real(*a, **k))
@@ -2019,6 +2023,240 @@ class Spawn(Tmp):
     self.assertFalse(int(out.split()[1], 16) & (1 << (signal.SIGTERM - 1)), out)
 
 
+def sigterm_when(ready, what):
+  """SIGTERM this process from a thread once ready() holds: the interruption lands where the test means it to, with
+  no fixed delay to outwait."""
+  def go():
+    with contextlib.suppress(ht.StepFail):
+      ht.wait_for(ready, 10, what)
+      os.kill(os.getpid(), signal.SIGTERM)
+  threading.Thread(target=go, daemon=True).start()
+
+
+class FlashProvider(Tmp):
+  """The runner's use of agentrc's flash provider: its loading, the run= adapter over spawn, the one J-Link flash
+  script, and sessions and resets through its primitives."""
+
+  def test_the_pinned_provider_loads_once_and_a_missing_or_incomplete_one_is_refused(self):
+    self.assertIs(ht.provider(), ht.provider())
+    self.assertEqual(Path(ht.provider().__file__), ht.FLASH_PROVIDER)
+    for what, path, api in (('missing', self.tmp / 'none.py', ht.PROVIDER_API),
+                            ('incomplete', ht.FLASH_PROVIDER, ht.PROVIDER_API + ('flash_everything',))):
+      with self.subTest(what), mock.patch.object(ht, 'PROVIDER', []), mock.patch.object(ht, 'FLASH_PROVIDER', path), \
+           mock.patch.object(ht, 'PROVIDER_API', api), self.assertRaises(ht.Refused):
+        ht.provider()
+    with mock.patch.object(ht, 'PROVIDER', []), \
+         mock.patch.object(ht, 'check_lock_pin', side_effect=ht.Refused('lib/agentrc is at x; HEAD pins y')), \
+         self.assertRaisesRegex(ht.Refused, 'HEAD pins'):
+      ht.provider()
+
+  def test_a_shell_string_runs_as_argv_with_its_assignments_as_environment(self):
+    self.assertEqual(ht.command_argv("NO_COLOR=1 esptool --chip esp32s3 -p /dev/ttyACM0 write_flash 0x0 'a b.bin'"),
+                     (['esptool', '--chip', 'esp32s3', '-p', '/dev/ttyACM0', 'write_flash', '0x0', 'a b.bin'],
+                      {'NO_COLOR': '1'}))
+    self.assertEqual(ht.command_argv(['JLinkExe', '-USB', 1]), (['JLinkExe', '-USB', '1'], None))
+    for cmd in ('a | b', 'a; b', 'a && b', 'echo $HOME', 'a > f', 'echo `x`'):
+      with self.subTest(cmd), self.assertRaises(ValueError):
+        ht.command_argv(cmd)
+
+  def test_the_adapter_returns_exit_output_and_a_timeouts_transcript_so_far(self):
+    run, log = ht.tool_runner(self.tmp / 'hil.log'), self.tmp / 'hil.log'
+    r = run('FOO=bar printenv FOO', timeout=10)
+    self.assertEqual((r.returncode, r.stdout), (0, 'bar\n'))
+    self.assertEqual(run([sys.executable, '-c', 'import sys; sys.exit(3)'], timeout=10).returncode, 3)
+    r = run([sys.executable, '-c', 'import os, signal; os.kill(os.getpid(), signal.SIGSEGV)'], timeout=10)
+    self.assertEqual(r.returncode, -signal.SIGSEGV)   # executed directly: a crash keeps its signal
+    r = run([sys.executable, '-c', 'import time; print("so far", flush=True); time.sleep(30)'], timeout=1)
+    self.assertEqual((r.returncode, r.stdout, ht.CHILDREN), (124, 'so far\n', []))
+    op = ht.provider().Operation([ht.provider().Attempt(r.args, None, r, None, 'unknown', None)])
+    self.assertEqual(op.attempts[0].kind, 'timed_out')
+    self.assertIn('so far', log.read_text())
+
+  def test_an_interrupted_tool_is_recorded_interrupted_with_its_output_and_left_for_cleanup(self):
+    handler = signal.signal(signal.SIGTERM, ht.on_signal)
+    mask = signal.pthread_sigmask(signal.SIG_UNBLOCK, ht.TERM_SIGNALS)
+    self.addCleanup(signal.pthread_sigmask, signal.SIG_SETMASK, mask)
+    self.addCleanup(signal.signal, signal.SIGTERM, handler)
+    self.addCleanup(ht.stuck_children)
+    threading.Timer(1, os.kill, (os.getpid(), signal.SIGTERM)).start()
+    with self.assertRaises(ht.Interrupted) as e:
+      ht.provider().run_jlink_commands({'uid': '1'}, ['h'], interface='SWD', speed='4000', autoconnect=True, device='d',
+                                        timeout=10, workdir=self.tmp, run=lambda cmd, timeout: ht.tool_runner(
+                                          self.tmp / 'log')([sys.executable, '-c', 'import time; print("hi", flush=True); '
+                                                             'time.sleep(30)'], timeout=timeout))
+    a = e.exception.operation.attempts[-1]
+    self.assertEqual((a.kind, a.result.stdout, len(ht.CHILDREN)), ('interrupted', 'hi\n', 1))
+
+  def test_the_providers_jlink_flash_script_is_the_record_targets(self):
+    # option B: one script for both projects; the CMake target's (check_build's flash_binding fixture) must not drift
+    hexp, seen = '/b/tinyuf2.hex', []
+    op = ht.provider().flash_jlink({'uid': '000801012283', 'args': '-device MIMXRT1011DAE5A'}, hexp, timeout=5,
+                                   run=lambda cmd, timeout: seen.append(cmd) or subprocess.CompletedProcess(cmd, 0, '', ''))
+    self.assertEqual(op.attempts[0].script, JLINK_TARGET_SCRIPT.format(hex=hexp) + '\n')
+    argv = ht.command_argv(seen[0])[0]
+    pairs = lambda a: sorted(zip(a[1:-2:2], a[2:-2:2]))   # noqa: E731   flag, value
+    self.assertEqual((argv[0], argv[-2], pairs(argv)), ('JLinkExe', '-CommandFile', pairs(JLINK_TARGET_ARGV)))
+
+  def test_sessions_and_resets_go_through_the_providers_primitives_with_tinyuf2s_profile(self):
+    seen = []
+
+    def spawn(cmd, log, timeout, cwd=None, **k):
+      seen.append((list(cmd), Path(cmd[-1]).read_text(), timeout))
+      return 0, f'J-Link>w4 E000ED0C 05FA0004\nWriting 05FA0004 -> E000ED0C\n'
+    probe = ht.Probe({'probe': '7', 'device': 'stm32f411ve', 'if': 'SWD', 'speed': '4000'}, self.tmp, self.tmp / 'log')
+    with mock.patch.object(ht, 'spawn', spawn):
+      probe.sysreset()
+    self.assertEqual(seen[0][0][:-1], ['JLinkExe', '-USB', '7', '-device', 'Cortex-M4', '-if', 'SWD', '-speed', '4000',
+                                       '-autoconnect', '1', '-NoGui', '1', '-ExitOnError', '1', '-CommandFile'])
+    self.assertEqual(seen[0][1:], ('w4 E000ED0C 05FA0004\nexit\n', ht.PROBE_TIMEOUT))
+    self.assertEqual(Path(seen[0][0][-1]).parent, self.tmp)
+    cube, scripts = FakeCube(), []
+    cube.on_reset = lambda: None
+    stlink = ht.StlinkProbe({'probe': '0023', 'device': 'stm32h563zi'}, self.tmp, self.tmp / 'log')
+    with mock.patch.object(ht, 'spawn', lambda cmd, *a, **k: scripts.append(Path(cmd[2]).read_text()) or cube.run(cmd[2])):
+      stlink.sysreset()
+    self.assertEqual(scripts, ['-c port=SWD sn=0023 mode=HOTPLUG\n-w32 0xE000ED0C 0x05FA0004 -nv\n'])
+
+  def test_before_target_holds_only_when_every_attempt_ended_before_the_target(self):
+    probe = ht.Probe({'probe': '000726129165', 'device': 'd', 'if': 'SWD', 'speed': '4000'}, self.tmp, self.tmp / 'hil.log')
+    crash = (-11, 'Connecting to J-Link ...O.K.\nS/N: 726129165\n')
+    for what, second, before in (('no probe on the rerun', (1, JLINK_NO_PROBE), True),
+                                 ('the rerun reached the target', (1, 'Connecting to target via SWD\nCannot connect to target.\n'),
+                                  False)):
+      calls = iter([crash, second])
+      with self.subTest(what), mock.patch.object(ht, 'JLINK_RETRY_DELAY', 0), \
+           mock.patch.object(ht, 'spawn', lambda *a, **k: next(calls)), self.assertRaises(ht.StepFail) as e:
+        probe.run(['h'])
+      self.assertEqual(e.exception.evidence['beforeTarget'], before)
+    self.assertEqual(probe.retried[-1], {'exit': -11, 'commands': ['h']})
+
+
+# the CMake target's J-Link command and script, as check_build's flash_binding requires them (test_build.jlink_tree)
+JLINK_TARGET_ARGV = ['JLinkExe', '-device', 'MIMXRT1011DAE5A', '-USB', '000801012283', '-ExitOnError', '1', '-NoGui', '1',
+                     '-if', 'swd', '-JTAGConf', '-1,-1', '-speed', 'auto', '-CommandFile', '/b/tinyuf2.jlink']
+JLINK_TARGET_SCRIPT = 'halt\nloadfile {hex}\nr\ngo\nexit'
+
+CONTENDER = """
+import fcntl, json, os, sys, time
+with open(sys.argv[1], 'a') as f:
+  print('waiting', flush=True)
+  fcntl.flock(f, fcntl.LOCK_EX)
+  pid = int(open(sys.argv[2]).read()) if os.path.exists(sys.argv[2]) else None
+  alive = pid is not None and os.path.exists(f'/proc/{pid}') and open(f'/proc/{pid}/stat').read().rsplit(')', 1)[1].split()[0] != 'Z'
+  print(json.dumps({'at': time.monotonic(), 'childAlive': alive}), flush=True)
+"""
+
+
+class BuildLockLifetime(Tmp):
+  """#579: a flash keeps its build dir's lock until every child it started has ended, against a real contender."""
+
+  def setUp(self):
+    super().setUp()
+    board = self.load(roster(self.tmp))
+    self.bat = ht.Battery(board, ht.source_facts(board), self.tmp)
+    self.root = self.tmp / 'build'
+    self.root.mkdir()
+    self.flash = {'root': self.root, 'sha256': {}}
+    self.pidfile = self.tmp / 'child.pid'
+    self.addCleanup(ht.stuck_children)
+
+  def child(self, body):
+    return [sys.executable, '-c', f'import os, sys, time; open({str(self.pidfile)!r}, "w").write(str(os.getpid())); {body}']
+
+  def contender(self):
+    c = subprocess.Popen([sys.executable, '-c', CONTENDER, str(ht.cb.build_lock_file(self.root)), str(self.pidfile)],
+                         stdout=subprocess.PIPE, text=True)
+    self.addCleanup(lambda: (c.kill(), c.wait(), c.stdout.close()))
+    self.assertEqual(c.stdout.readline().strip(), 'waiting')
+    return c
+
+  def flash_with(self, body, timeout=10):
+    def op(run):
+      self.contended = self.contender()   # started while the tool runs, the lock already held
+      return one_attempt(run(self.child(body), timeout=timeout))
+    return self.bat.flash_target(self.flash, op, lambda code, out: {'exit': code}, lambda code, out: False, 'tool', timeout)
+
+  def acquired(self):
+    got = json.loads(self.contended.stdout.readline())
+    return got, time.monotonic()
+
+  def test_success_releases_the_lock_once_the_tool_has_exited(self):
+    self.assertEqual(self.flash_with('time.sleep(0.5)')['exit'], 0)
+    got, _ = self.acquired()
+    self.assertFalse(got['childAlive'])
+
+  def test_a_timeout_kills_the_tool_before_the_lock_goes(self):
+    with self.assertRaisesRegex(ht.StepFail, 'timed out after 1s'):
+      self.flash_with('time.sleep(30)', timeout=1)
+    self.assertFalse(self.acquired()[0]['childAlive'])
+
+  def test_an_interruption_reaps_the_tool_inside_the_lock(self):
+    handler = signal.signal(signal.SIGTERM, ht.on_signal)
+    mask = signal.pthread_sigmask(signal.SIG_UNBLOCK, ht.TERM_SIGNALS)
+    self.addCleanup(signal.pthread_sigmask, signal.SIG_SETMASK, mask)
+    self.addCleanup(signal.signal, signal.SIGTERM, handler)
+    sigterm_when(lambda: self.pidfile.exists() and self.pidfile.read_text(), 'the tool running under the lock')
+    with self.assertRaises(ht.Interrupted):
+      self.flash_with('time.sleep(30)')
+    self.assertEqual(ht.CHILDREN, [])
+    self.assertFalse(self.acquired()[0]['childAlive'])
+
+  def outlived(self, late):
+    """reap as if `late` were a member of the child's session that outlived SIGKILL: the child stays tracked."""
+    real = ht.reap
+
+    def reap(p):
+      left = real(p) + [late.pid]
+      if p not in ht.CHILDREN:
+        ht.CHILDREN.append(p)
+      return left
+    return mock.patch.object(ht, 'reap', reap)
+
+  def test_a_survivor_keeps_the_lock_through_a_keeper_until_it_exits(self):
+    late = subprocess.Popen(['sleep', '30'], start_new_session=True)   # stands for a child that outlived SIGKILL
+    self.addCleanup(lambda: (late.kill(), late.wait()))
+    with self.outlived(late), \
+         self.assertRaisesRegex(ht.StepFail, 'timed out'):
+      self.flash_with('time.sleep(30)', timeout=1)
+    kept, = self.bat.kept
+    self.assertEqual(([s['pid'] for s in kept['survivors']], kept['buildDir']), ([late.pid], 'build'))
+    self.assertNotIn('inProcess', kept['keeper'])
+    keeper = kept['keeper']['pid']
+    self.addCleanup(lambda: _kill(keeper))
+    with open(ht.cb.build_lock_file(self.root), 'a') as f, self.assertRaises(OSError):
+      ht.fcntl.flock(f, ht.fcntl.LOCK_EX | ht.fcntl.LOCK_NB)   # the keeper holds it after this process let go
+    ready, _, _ = select.select([self.contended.stdout], [], [], 0.3)
+    self.assertFalse(ready, 'the contender got the lock while the survivor lived')
+    late.kill()
+    late.wait()
+    self.acquired()   # once the survivor is gone
+    ht.wait_for(lambda: ht.proc_stat(keeper) is None, 5, 'the keeper exiting')
+
+  def test_a_flash_that_succeeded_but_left_a_survivor_fails_after_handing_the_lock_to_its_keeper(self):
+    late = subprocess.Popen(['sleep', '3'], start_new_session=True)
+    self.addCleanup(lambda: (late.kill(), late.wait()))
+    left = [ht.survivor(late.pid)]
+    with mock.patch.object(ht, 'settle_children', lambda started: list(left)), \
+         self.assertRaisesRegex(ht.StepFail, 'children survived SIGKILL') as cm:
+      self.flash_with('pass')
+    self.assertEqual((cm.exception.evidence['survivors'], self.bat.kept[0]['survivors']), (left, left))
+    self.addCleanup(lambda: _kill(self.bat.kept[0]['keeper']['pid']))
+    with open(ht.cb.build_lock_file(self.root), 'a') as f, self.assertRaises(OSError):
+      ht.fcntl.flock(f, ht.fcntl.LOCK_EX | ht.fcntl.LOCK_NB)
+
+  def test_a_keeper_that_never_starts_leaves_the_lock_with_this_process(self):
+    late = subprocess.Popen(['sleep', '30'], start_new_session=True)
+    self.addCleanup(lambda: (late.kill(), late.wait()))
+    self.addCleanup(lambda: ([fh.close() for fh, _ in ht.HELD_BUILD], ht.HELD_BUILD.clear()))
+    with self.outlived(late), \
+         mock.patch.object(ht, 'HOLDER_SCRIPT', self.tmp / 'missing.py'), \
+         self.assertRaisesRegex(ht.StepFail, 'timed out'):
+      self.flash_with('time.sleep(30)', timeout=1)
+    self.assertEqual((self.bat.kept[0]['keeper'], len(ht.HELD_BUILD)), ({'pid': os.getpid(), 'inProcess': True}, 1))
+    with open(ht.cb.build_lock_file(self.root), 'a') as f, self.assertRaises(OSError):
+      ht.fcntl.flock(f, ht.fcntl.LOCK_EX | ht.fcntl.LOCK_NB)
+
+
 class Locks(Tmp):
   def setUp(self):
     super().setUp()
@@ -2204,6 +2442,7 @@ class RunBoard(Tmp):
               mock.patch.object(ht, 'check_jlink', lambda: None),
               mock.patch.object(ht, 'check_bootloader_bin', lambda *a: None),
               mock.patch.object(ht, 'exclusion_configured', lambda *a: None),
+              mock.patch.object(ht, 'probe_users', lambda b: []),   # not the host's J-Link tools: tests patch their own
               mock.patch.object(ht.shutil, 'which', lambda t: '/usr/bin/' + t)):
       p.start()
       self.addCleanup(p.stop)
@@ -2499,19 +2738,26 @@ class RunBoard(Tmp):
       bat.step('dfu', lambda: {})
 
 
+def one_attempt(result):
+  """A provider Operation of the one run `result`, for a test's flash op."""
+  return ht.provider().Operation([ht.provider().Attempt(result.args, None, result, None, 'unknown', None)])
+
+
+def FLASHED(hex_path):   # noqa: N802   FakeRig's record of the provider's J-Link flash script
+  return ['flash', 'halt', f'loadfile {hex_path}', 'r', 'go', 'exit']
+
+
 def jlink_target(hex_path, download='1 range affected (65536 bytes)', tail='O.K.\n'):
-  """tinyuf2-jlink's transcript through CMake and Ninja, in the shape the bench recorded on metro_m7_1011."""
-  return (f'[1/1] cd /b && JLinkExe -device D -USB 1 -ExitOnError 1 -NoGui 1 -if swd -JTAGConf -1,-1 -speed auto '
-          f'-CommandFile /b/tinyuf2.jlink\nJ-Link>halt\nConnecting to J-Link ...O.K.\nS/N: 1\nConnecting to target via SWD\n'
+  """The J-Link flash script's transcript, in the shape the bench recorded on metro_m7_1011."""
+  return (f'J-Link>halt\nConnecting to J-Link ...O.K.\nS/N: 1\nConnecting to target via SWD\n'
           f'Cortex-M7 identified.\nJ-Link>loadfile {hex_path}\nResetTarget() start\n'
           f'ResetTarget() end - Took 117ms\nDownloading file [{hex_path}]...\n'
           f'Comparing flash   [000%]100%] Done.\nJ-Link: Flash download: Bank 0 @ 0x60000000: {download}\n{tail}'
           f'J-Link>r\nJ-Link>go\nJ-Link>exit\n\nScript processing completed.\n')
 
 
-JLINK_NO_PROBE = ('[1/1] cd /b && JLinkExe -USB 999999999 -ExitOnError 1\nJ-Link>halt\nJ-Link connection not established yet but '
-                  'required for command.\nConnecting to J-Link ...FAILED: Cannot connect to J-Link.\nFAILED: CMakeFiles/tinyuf2-jlink\n'
-                  'ninja: build stopped: subcommand failed.\n')
+JLINK_NO_PROBE = ('J-Link>halt\nJ-Link connection not established yet but required for command.\n'
+                  'Connecting to J-Link ...FAILED: Cannot connect to J-Link.\n')
 
 
 # J-Link's connect to an STM32F303VC with TinyUF2's write protection set, as the bench recorded it
@@ -2547,11 +2793,13 @@ class FakeRig:
         self.mem[int(a, 16)] = int(v, 16)
     return out
 
-  def spawn(self, cmd, log, timeout, cwd=None):
+  def spawn(self, cmd, log, timeout, cwd=None, **k):
     if cmd[0] == 'mcopy':
       self.present = False
-    if cmd[0] == 'cmake':
-      self.scripts.append(['target ' + cmd[-1]])
+    if cmd[0] == 'JLinkExe':
+      script = Path(cmd[cmd.index('-CommandFile') + 1]).read_text().splitlines()
+      assert any(c.startswith('loadfile ') for c in script), script   # sessions go through FakeRig.probe
+      self.scripts.append(['flash'] + script)
       self.present = not self.app_survives
       return 0, jlink_target(self.hex)
     return 0, ''
@@ -2584,6 +2832,7 @@ class BatteryRun(Tmp):
                             'ninja': None}}
     (self.tmp / 'cur').mkdir()
     bat.probe.run = rig.probe
+    bat.probe.sysreset = lambda: rig.probe([f'w4 {ht.SCB_AIRCR:08X} {ht.AIRCR_SYSRESETREQ:08X}'], judge=False)
     clock = [0.0]   # time passes only when the battery sleeps
 
     def fat_read(*a):
@@ -2607,32 +2856,47 @@ class BatteryRun(Tmp):
   def test_the_f411_install_verify_waits_out_the_option_byte_rewrite_before_its_halt(self):
     bat, rig = self.battery()
     bat.b['device'] = 'stm32f411ve'
+    bat.probe.__init__(bat.b, bat.probe.dir, bat.probe.log)
     bat.install(self.files)
     self.assertEqual(rig.scripts[1][:2], ['sleep 1000', 'h'])
 
-  def test_a_timed_out_dry_run_fails_the_install_untouched(self):
+  def test_the_install_is_the_providers_jlink_flash_of_the_record_hex_and_runs_no_ninja(self):
     bat, rig = self.battery()
-    root = self.files['flash']['root']
-    self.files['flash']['ninja'] = ht.functools.partial(ht.ninja_query, 'cmake', None, None, bat.b['name'], self.tmp / 'hil.log')
+    bat.b['device'] = 'stm32f411ve'   # the flash connects as the roster device; only sessions connect as the core
+    bat.probe.__init__(bat.b, bat.probe.dir, bat.probe.log)   # as built for that board
+    calls, spawn = [], rig.spawn
+    with mock.patch.object(ht, 'spawn', lambda cmd, *a, **k: calls.append((list(cmd), k.get('cwd'))) or spawn(cmd, *a, **k)):
+      ev = bat.install(self.files)
+    (argv, cwd), = calls
+    path = argv[-1]
+    self.assertEqual((argv[:-1], cwd), (['JLinkExe', '-USB', '1', '-device', 'stm32f411ve', '-if', 'swd', '-JTAGConf',
+                                         '-1,-1', '-speed', 'auto', '-NoGui', '1', '-ExitOnError', '1', '-CommandFile'], None))
+    self.assertEqual((Path(path).parent, Path(path).exists()), (self.tmp, False))   # in the run dir, removed after
+    self.assertEqual(rig.scripts[0], FLASHED(self.files['hex']))
+    self.assertEqual(ev['operation'], {'attempts': [{'kind': 'exited', 'exit': 0}], 'cleanup': 'unknown'})
 
-    def spawn(cmd, log, timeout, cwd=None, stderr_to_log=False):
-      if cmd[0] == 'ninja':
-        raise ht.StepFail(f'ninja timed out after {timeout}s')   # as spawn reports it, its session reaped
-      return rig.spawn(cmd, log, timeout, cwd)
-    with mock.patch.object(ht.cb, 'flash_ready', FLASH_READY), mock.patch.object(ht, 'spawn', spawn), \
-         self.assertRaisesRegex(ht.StepFail, '^' + re.escape(
-           f'{root.name}: ninja query -n -v tinyuf2-jlink timed out after {ht.NINJA_QUERY_TIMEOUT}s') + '$'):
+  def test_a_timed_out_flash_fails_touched_with_its_transcript_so_far(self):
+    bat, rig = self.battery()
+
+    def hangs(cmd, log, timeout, **k):
+      raise ht.SpawnTimeout(f'JLinkExe timed out after {timeout}s', 'Connecting to J-Link ...FAILED: x\n', [])
+    with mock.patch.object(ht, 'spawn', hangs), \
+         self.assertRaisesRegex(ht.StepFail, f'^JLinkExe timed out after {ht.PROBE_TIMEOUT}s$') as e:
       bat.install(self.files)
-    self.assertEqual((bat.touched, rig.scripts), (False, []))
+    ev = e.exception.evidence
+    # what a killed tool printed so far is no proof it never reached the target
+    self.assertEqual((ev['tail'], ev['beforeTarget'], bat.touched), (['Connecting to J-Link ...FAILED: x'], False, True))
+    self.assertEqual(ev['operation']['attempts'], [{'kind': 'timed_out', 'exit': 124}])
 
   def test_every_step_passes_and_resumes_only_after_a_halt(self):
     bat, rig = self.battery()
     bat.run(self.files, 'v1')
     self.assertEqual([x['step'] for x in bat.steps if x['pass']], list(ht.STEPS['jlink']))
-    self.assertEqual(rig.scripts[:2], [['target tinyuf2-jlink'], ['h', f'verifybin {self.tmp / "c.bin"},0x0', 'r', 'g']])
+    self.assertEqual(rig.scripts[:2], [FLASHED(self.files['hex']), ['h', f'verifybin {self.tmp / "c.bin"},0x0', 'r', 'g']])
     self.assertEqual(rig.scripts[2][:2], ['h', f'w4 {bat.f["dblTapReg"]:08X} 00000000'])   # cleared in dfu
     self.assertIn(f'sleep {2 * bat.f["dblTapDelayMs"] + 200}', rig.scripts[3])
-    self.assertEqual(bat.steps[0]['evidence'], {'flashDownload': '1 range affected (65536 bytes)', 'verified': True})
+    self.assertEqual(bat.steps[0]['evidence'], {'flashDownload': '1 range affected (65536 bytes)', 'verified': True,
+                                                'operation': {'attempts': [{'kind': 'exited', 'exit': 0}], 'cleanup': 'unknown'}})
     for script in rig.scripts:
       if 'g' in script:
         self.assertEqual(script[0], 'h', script)
@@ -2707,7 +2971,7 @@ class BatteryRun(Tmp):
     with mock.patch.object(ht, 'spawn', lambda cmd, *a, **k: copies.append(cmd) or rig.spawn(cmd, *a, **k)):
       out = bat.restore(dict(self.files, blinky=blinky, blinkyBlocks=1), 'v1')
     self.assertEqual((out['state'], out['evidence']['copy']), ('blinky copied', {'blocks': 1}))
-    self.assertEqual(rig.scripts, [['target tinyuf2-jlink'], ['h', f'verifybin {self.tmp / "c.bin"},0x0', 'r', 'g']])
+    self.assertEqual(rig.scripts, [FLASHED(self.files['hex']), ['h', f'verifybin {self.tmp / "c.bin"},0x0', 'r', 'g']])
     self.assertEqual(copies[1][4], blinky)   # after the target's cmake
     rig.present, polls = True, []
     def blip(*a):   # DFU shows once, mid-way through the quiet period, then is gone again
@@ -2725,14 +2989,14 @@ class BatteryRun(Tmp):
                      {'flashDownload': '1 range affected (65536 bytes)'})
     skip = 'Skipped. Contents already match'   # an already-matching image is a success
     self.assertEqual(ht.judge_jlink_target(0, jlink_target(hexp, skip), bat.b, hexp)['flashDownload'], skip)
-    cases = (('every command FAILED, exit 0', 0, JLINK_NO_PROBE, True), ('ninja failed', 1, JLINK_NO_PROBE, True),
+    cases = (('every command FAILED, exit 0', 0, JLINK_NO_PROBE, True), ('no probe, exit 1', 1, JLINK_NO_PROBE, True),
              ('another image', 0, jlink_target(self.tmp / 'other.hex'), False),
              ('no O.K.', 0, jlink_target(hexp, tail=''), False),
              ('a failure line', 0, jlink_target(hexp, tail='O.K.\nCannot connect to target.\n'), False),
              ('cut short', 0, jlink_target(hexp).replace('Script processing completed.\n', ''), False),
              ('a nonzero exit', 2, jlink_target(hexp), False), ('nothing', 0, '', False))
     for what, code, out, before in cases:
-      with self.subTest(what), self.assertRaisesRegex(ht.StepFail, 'tinyuf2-jlink failed') as e:
+      with self.subTest(what), self.assertRaisesRegex(ht.StepFail, 'the J-Link flash failed') as e:
         ht.judge_jlink_target(code, out, bat.b, hexp)
       self.assertEqual(e.exception.evidence['beforeTarget'], before, what)
 
@@ -2755,37 +3019,37 @@ class BatteryRun(Tmp):
       with self.subTest(what), self.assertRaises(ht.StepFail):
         ht.judge_jlink_target(0, text, board, hexp)
 
-  def test_the_target_runs_under_the_build_lock_between_two_input_checks(self):
+  def test_the_flash_runs_under_the_build_lock_between_two_input_checks(self):
     bat, rig = self.battery()
     fl, hexp = self.files['flash'], self.files['hex']
     judge = lambda code, out: ht.judge_jlink_target(code, out, bat.b, hexp)   # noqa: E731
-    cmake = ['cmake', '--build', fl['root'], '--target', 'tinyuf2-jlink']
+    before = lambda code, out: ht.stopped_before_target(code, out, bat.b['probe'])   # noqa: E731
+
+    def flash(run):
+      return one_attempt(run(['JLinkExe', '-CommandFile', str(self.tmp / 'x.jlink')], timeout=5))
+    (self.tmp / 'x.jlink').write_text(f'halt\nloadfile {hexp}\nr\ngo\nexit\n')
     with self.subTest('a build holds the dir'), ht.cb.build_lock(fl['root']), \
          self.assertRaisesRegex(ht.StepFail, 'in use by a build or another flash'):
-      bat.flash_target(fl, cmake, 5, judge)
+      bat.flash_target(fl, flash, judge, before, 'JLinkExe', 5)
     good = hexp.read_text()
     hexp.write_text('changed')
     with self.subTest('an input changed'), self.assertRaisesRegex(ht.StepFail, 'changed before the flash'):
-      bat.flash_target(fl, cmake, 5, judge)
+      bat.flash_target(fl, flash, judge, before, 'JLinkExe', 5)
     hexp.write_text(good)
-    with self.subTest('a dry run with more than the flasher'), \
-         mock.patch.object(ht.cb, 'flash_ready', side_effect=ht.cb.Fail('would not run only its flasher')), \
-         self.assertRaisesRegex(ht.StepFail, 'only its flasher'):
-      bat.flash_target(fl, cmake, 5, judge)
-    self.assertEqual((rig.scripts, bat.touched), ([], False))   # none of these ran the target
+    self.assertEqual((rig.scripts, bat.touched), ([], False))   # none of these ran the tool
     for what, result, touched in (('no probe', (1, JLINK_NO_PROBE), False),
                                   ('the target reached', (1, jlink_target(hexp, tail='Cannot connect to target.\n')), True)):
       bat.touched = False
       with self.subTest(what), mock.patch.object(ht, 'spawn', lambda *a, r=result, **k: r), \
-           self.assertRaisesRegex(ht.StepFail, 'tinyuf2-jlink failed'):
-        bat.flash_target(fl, cmake, 5, judge)
+           self.assertRaisesRegex(ht.StepFail, 'the J-Link flash failed'):
+        bat.flash_target(fl, flash, judge, before, 'JLinkExe', 5)
       self.assertEqual(bat.touched, touched, what)
     bat.touched = False
     spawn = rig.spawn
     with self.subTest('rebuilt while flashing'), \
          mock.patch.object(ht, 'spawn', lambda cmd, *a, **k: (hexp.write_text('rebuilt'), spawn(cmd, *a, **k))[1]), \
          self.assertRaisesRegex(ht.StepFail, 'changed while flashing') as e:
-      bat.flash_target(fl, cmake, 5, judge)
+      bat.flash_target(fl, flash, judge, before, 'JLinkExe', 5)
     self.assertEqual((bat.touched, e.exception.evidence['flashDownload']), (True, '1 range affected (65536 bytes)'))
 
   def test_dfu_after_an_install_reenters_only_when_dfu_never_enumerates(self):
@@ -3002,12 +3266,44 @@ class Main(Tmp):
         code = ht.main(['install', '-b', BOARD, '--build-record', 'r.json', '--under-hold', 'debug 7', *extra, str(cfg)])
         self.assertEqual((code, seen), (want, calls))
 
+  def test_manual_install_and_restore_flash_the_record_hex_through_the_provider(self):
+    cfg = roster(self.tmp, tinyuf2={'reentry': None})
+    build = self.tmp / 'build'
+    build.mkdir()
+    hexp = build / 'tinyuf2.hex'
+    hexp.write_text(':00000001FF\n')
+    blinky = self.tmp / 'blinky.uf2'
+    blinky.write_bytes(ht.pack_uf2([(0x10000, bytes(256))], LPC_FACTS['family']))
+    files = {'bin': self.tmp / 'c.bin', 'hex': hexp, 'blinky': blinky, 'blinkyBlocks': 1,
+             'flash': {'root': build, 'binding': {'target': 'tinyuf2-jlink'}, 'sha256': {'tinyuf2.hex': ht.sha256(hexp)}}}
+    flashed, clock = [], [0.0]
+
+    def spawn(cmd, log, timeout, cwd=None, **k):
+      if cmd[0] == 'JLinkExe':
+        flashed.append(Path(cmd[-1]).read_text())
+        return 0, jlink_target(hexp)
+      return 0, ''   # mcopy, sync
+    for argv in (['install', '-b', BOARD, '--build-record', 'r.json', '--under-hold', 'x'],
+                 ['restore', '-b', BOARD, '--build-record', 'r.json', '--under-hold', 'x']):
+      out = io.StringIO()
+      with self.subTest(argv[0]), contextlib.redirect_stdout(out), \
+           mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / argv[0]), mock.patch.object(ht, 'load_helper', lambda: None), \
+           mock.patch.object(ht, 'manual_holder', lambda *a: None), mock.patch.object(ht, 'probe_users', lambda b: []), \
+           mock.patch.object(ht, 'admit_record', lambda *a: (files, {'version': 'v'})), mock.patch.object(ht, 'spawn', spawn), \
+           mock.patch.object(ht.Probe, 'run', lambda *a, **k: ''), \
+           mock.patch.object(ht.Battery, 'dfu_after_install', lambda bat, v: {'usb': '1-2'}), \
+           mock.patch.object(ht, 'block_device', lambda p: '/dev/sdz'), mock.patch.object(ht, 'usb_device', lambda *a: None), \
+           mock.patch.object(ht.time, 'sleep', lambda t: clock.__setitem__(0, clock[0] + t)), \
+           mock.patch.object(ht.time, 'monotonic', lambda: clock[0]):
+        self.assertEqual(ht.main(argv + [str(cfg)]), 0, out.getvalue())
+    self.assertEqual(flashed, [f'halt\nloadfile {hexp}\nr\ngo\nexit\n'] * 2)
+
   def test_an_install_that_fails_after_touching_the_board_is_exit_4(self):
     cfg = roster(self.tmp, tinyuf2={'reentry': None})
     for touched, want in ((True, 4), (False, 1)):
       def fail(bat, files, touched=touched):
         bat.touched = touched
-        raise ht.StepFail('tinyuf2-jlink failed (exit 1)')
+        raise ht.StepFail('the J-Link flash failed (exit 1)')
       with self.subTest(touched), contextlib.redirect_stdout(io.StringIO()), \
            mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / f'i{want}'), mock.patch.object(ht, 'load_helper', lambda: None), \
            mock.patch.object(ht, 'manual_holder', lambda *a: None), \
@@ -3150,13 +3446,14 @@ class FakeCube:
   """STM32_Programmer_CLI -script, answering each operation in the shape the bench recorded (v2.23.0)."""
 
   def __init__(self, dev='0x484', nvm='2 MBytes'):
-    self.dev, self.nvm, self.scripts, self.mem, self.flash = dev, nvm, [], {}, {}
+    self.dev, self.nvm, self.scripts, self.mem, self.flash, self.connects = dev, nvm, [], {}, {}, []
     self.r0, self.pc, self.sp, self.vtor = 5, 0x08008400, 0x20001000, 0x08008000
     self.on_reset, self.break_op = None, None
 
   def run(self, script):
     lines = Path(script).read_text().splitlines()
     self.scripts.append(lines[1:])
+    self.connects.append(lines[0])
     out = '=== Script Manager BEGIN ===\n'
     for i, line in enumerate(lines, 1):
       out += f'Operation [{i}]: {line} \n'
@@ -3203,7 +3500,7 @@ class Stlink(Tmp):
     self.board = {'name': 'stm32h563_nucleo', 'probe': '0023', 'device': 'stm32h563zi', 'flasher': 'stlink'}
     self.probe = ht.StlinkProbe(self.board, self.tmp, self.tmp / 'log')
     self.answer = None
-    p = mock.patch.object(ht, 'spawn', lambda cmd, log, timeout, cwd=None: self.answer(cmd) if self.answer else
+    p = mock.patch.object(ht, 'spawn', lambda cmd, log, timeout, **k: self.answer(cmd) if self.answer else
                           self.cube.run(cmd[2]))
     p.start()
     self.addCleanup(p.stop)
@@ -3211,8 +3508,9 @@ class Stlink(Tmp):
   def test_a_session_connects_hotplug_to_the_roster_probe_and_returns_each_operation(self):
     self.cube.mem[0x2009FFFC] = 0xF01669EF
     self.assertEqual(self.probe.mem32([0x2009FFFC, ht.SCB_VTOR]), {0x2009FFFC: 0xF01669EF, ht.SCB_VTOR: 0x08008000})
-    script = next(self.tmp.glob('stlink-*.prg')).read_text().splitlines()
-    self.assertEqual(script, ['-c port=SWD sn=0023 mode=HOTPLUG', '-r32 0x2009FFFC 1', f'-r32 0x{ht.SCB_VTOR:08X} 1'])
+    self.assertEqual((self.cube.connects[0], self.cube.scripts[0]),
+                     ('-c port=SWD sn=0023 mode=HOTPLUG', ['-r32 0x2009FFFC 1', f'-r32 0x{ht.SCB_VTOR:08X} 1']))
+    self.assertEqual(list(self.tmp.glob('*.prg')), [])   # the provider's script file, in the run dir, is gone
     self.assertEqual(self.probe.write32(0x20000FFC, 0x12345678), '0x12345678')
     self.assertEqual(self.cube.scripts[-1], ['-halt', '-w32 0x20000FFC 0x12345678', '-r32 0x20000FFC 1', '-run'])
 
@@ -3271,7 +3569,7 @@ class Stlink(Tmp):
                      {'flashDownload': 'File download complete', 'erasedSectors': ['0', '1']})
     for what, out, code in (('no start', stlink_target(start=''), 0), ('an error', stlink_target(error='Error: x\n'), 0),
                             ('another part', stlink_target(nvm='1 MBytes'), 0), ('a nonzero exit', stlink_target(), 1)):
-      with self.subTest(what), self.assertRaisesRegex(ht.StepFail, 'tinyuf2-stlink failed'):
+      with self.subTest(what), self.assertRaisesRegex(ht.StepFail, 'the ST-LINK flash failed'):
         ht.judge_stlink_target(code, out, self.board)
 
   def test_any_programmer_cli_is_a_probe_user(self):
@@ -3310,9 +3608,9 @@ class StlinkBatteryRun(Tmp):
                   'flash': {'root': build, 'binding': {'target': 'tinyuf2-stlink'},
                             'sha256': {'tinyuf2.hex': ht.sha256(build / 'tinyuf2.hex')}, 'ninja': None}}
 
-    def spawn(cmd, log, timeout, cwd=None):
-      if cmd[0] == 'cmake':
-        cube.scripts.append(['target ' + cmd[-1]])
+    def spawn(cmd, log, timeout, cwd=None, **k):
+      if cmd[:2] == [ht.STM32_PROGRAMMER_CLI, '--connect']:   # the provider's flash
+        cube.scripts.append(cmd[1:])
         return 0, stlink_target()
       if cmd[0] == 'mcopy':
         self.present[0] = False
@@ -3345,11 +3643,12 @@ class StlinkBatteryRun(Tmp):
     self.bat.run(self.files, 'v1')
     self.assertEqual([x['step'] for x in self.bat.steps if x['pass']], list(ht.STEPS['stlink']))
     s = self.cube.scripts
-    self.assertEqual(s[0], ['target tinyuf2-stlink'])
+    self.assertEqual(s[0], ['--connect', 'port=swd', 'sn=0023', '--write', str(self.files['hex']), '--go'])   # no --verify
     self.assertEqual((s[1][0], s[1][2]), ('-halt', '-rst'))
     self.assertRegex(s[1][1], r'^-u 0x08000000 0x5824 \S+readback-\d+\.bin$')
     self.assertEqual(self.bat.steps[0]['evidence'],
-                     {'flashDownload': 'File download complete', 'erasedSectors': ['0', '1'], 'verified': True})
+                     {'flashDownload': 'File download complete', 'erasedSectors': ['0', '1'], 'verified': True,
+                      'operation': {'attempts': [{'kind': 'exited', 'exit': 0}], 'cleanup': 'unknown'}})
     observe = next(x for x in s if '-coreReg' in x)
     self.assertEqual(observe[:5], ['-halt', '-run', f'#Delay({2 * self.bat.f["dblTapDelayMs"] + 200})', '-halt', '-coreReg'])
     self.assertEqual(observe.count('-coreReg'), 2)

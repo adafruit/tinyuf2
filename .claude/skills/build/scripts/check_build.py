@@ -932,12 +932,16 @@ def flash_ready(root, flash, ninja):
                f'{"ninja -n failed" if extra is None else extra[:3]}; rebuild the record')
 
 
+def build_lock_file(root):
+  return root.with_name(root.name + '.lock')
+
+
 @contextlib.contextmanager
 def build_lock(root, wait=True):
   """Excludes a rebuild of a shared build dir while another build or a HIL flash uses it; without `wait`, a held
   lock raises BlockingIOError."""
   root.parent.mkdir(parents=True, exist_ok=True)
-  with open(root.with_name(root.name + '.lock'), 'a') as f:
+  with open(build_lock_file(root), 'a') as f:
     fcntl.flock(f, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
     yield
 
