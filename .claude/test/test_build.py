@@ -7,8 +7,11 @@ import io
 import json
 import os
 import re
+import signal
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -17,6 +20,50 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / '.claude' / 'skills' / 'build' / 'scripts' / 'check_build.py'
 LPC55_ARTIFACTS = ['_bin/tinyuf2-lpcxpresso55s69.bin', '_bin/tinyuf2-lpcxpresso55s69.hex',
                    '_bin/apps/update-tinyuf2-lpcxpresso55s69.uf2']
+
+
+FAKE_TOOL = '''#!{python}
+import os, subprocess, sys, time
+from pathlib import Path
+log = Path(os.environ['TOOLS_LOG'])
+container = log.with_name('container')   # the one container the fake daemon holds
+with open(log, 'a') as f:
+  f.write(' '.join([Path(sys.argv[0]).name] + sys.argv[1:]) + '\\n')
+if sys.argv[1] == 'rm':
+  if os.environ.get('RM_EXIT'):
+    sys.exit(int(os.environ['RM_EXIT']))
+  container.unlink(missing_ok=True)
+  sys.exit(0)
+if sys.argv[1] == 'ps':
+  print('c0ffee' if container.exists() else '')
+  sys.exit(0)
+if sys.argv[1] == 'run' and os.environ.get('CREATE_AFTER'):   # the daemon's create, landing after its client is gone
+  subprocess.Popen([sys.executable, '-c', 'import pathlib, sys, time; time.sleep(float(sys.argv[1])); pathlib.Path(sys.argv[2]).touch(); '
+                    'open(sys.argv[3], "a").write("daemon created")', os.environ['CREATE_AFTER'], str(container), str(log)],
+                   start_new_session=True)
+elif sys.argv[1] == 'run':
+  container.touch()
+if os.environ.get('HANG'):
+  with open(os.environ['PIDS'], 'a') as f:
+    f.write(f'{{os.getpid()}} {{subprocess.Popen(["sleep", "60"]).pid}}\\n')
+  time.sleep(60)
+print("ninja: Entering directory `x'")
+print('ninja: warning: on stderr', file=sys.stderr)
+'''
+
+
+def alive(pid, wait=2):
+  """Whether `pid` is still a live process (not gone or a zombie) after up to `wait` s."""
+  end = time.monotonic() + wait
+  while True:
+    try:
+      if Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[0] == 'Z':
+        return False
+    except OSError:
+      return False
+    if time.monotonic() >= end:
+      return True
+    time.sleep(0.05)
 
 
 def build_tmpdir():
@@ -776,6 +823,157 @@ class HilRecord(unittest.TestCase):
     for board, err in (('lpcxpresso55s69', 'no HIL flash target'), ('imxrt1060_evk', 'not on')):
       with self.subTest(board), self.assertRaisesRegex(cb.Fail, err):
         cb.roster_flasher(self.config, board)
+
+  def fake_tools(self, **env):
+    """`ninja` and `docker` on PATH that log their argv; as the query, each prints ninja's dry run with a warning on
+    stderr, or with HANG starts a grandchild, adds both pids to `self.pids` and hangs. `docker run` creates the
+    container, CREATE_AFTER s later if set; `docker rm` removes it, or exits RM_EXIT; `docker ps` lists it."""
+    tools = self.tmp / 'bin'
+    tools.mkdir(exist_ok=True)
+    for name in ('ninja', 'docker'):
+      (tools / name).write_text(FAKE_TOOL.format(python=sys.executable))
+      (tools / name).chmod(0o755)
+    self.tools_log, self.pids = self.tmp / 'tools.log', self.tmp / 'pids'
+    self.tools_log.unlink(missing_ok=True)
+    (self.tmp / 'container').unlink(missing_ok=True)
+    self.addCleanup(self.kill_hung)
+    return mock.patch.dict(os.environ, {'PATH': f'{tools}:{os.environ["PATH"]}', 'TOOLS_LOG': str(self.tools_log),
+                                        'PIDS': str(self.pids), **env})
+
+  def hung(self):
+    return [int(pid) for pid in self.pids.read_text().split()] if self.pids.exists() else []
+
+  def kill_hung(self):
+    for pid in self.hung():
+      if alive(pid, wait=0):
+        with contextlib.suppress(ProcessLookupError):   # it may exit between the check and the kill
+          os.kill(pid, signal.SIGKILL)
+
+  def tool_calls(self, tool):
+    return [l.split()[1:] for l in self.tools_log.read_text().splitlines() if l.split()[0] == tool]
+
+  def test_an_unbound_query_returns_ninja_stdout_alone_and_a_timeout_kills_it(self):
+    root = self.tmp / 'b'
+    with self.fake_tools():
+      r = cb.ninja_in('cmake', None, None, root, ['-n', '-v'])
+      self.assertEqual(cb.dry_run(lambda d, args: r, root), [])   # the stderr warning is not a step
+    self.assertEqual((r.returncode, r.stderr), (0, 'ninja: warning: on stderr\n'))
+    with self.fake_tools(HANG='1'), mock.patch.object(cb, 'NINJA_QUERY_TIMEOUT', 0.5), \
+         self.assertRaisesRegex(cb.Fail, '^' + re.escape(f'b: ninja -n -v timed out after {cb.NINJA_QUERY_TIMEOUT}s') + '$'):
+      cb.ninja_in('cmake', None, None, root, ['-n', '-v'])
+    self.assertFalse(alive(self.hung()[0]))
+    self.assertEqual(self.tool_calls('docker'), [])
+
+  def test_a_kill_of_check_builds_process_group_also_ends_its_query(self):
+    # as `timeout` ends what it runs: the whole process group, which the query and what it starts never leave
+    code = ('import importlib.util, sys; from pathlib import Path; '
+            'spec = importlib.util.spec_from_file_location("check_build", sys.argv[1]); '
+            'cb = importlib.util.module_from_spec(spec); spec.loader.exec_module(cb); '
+            'cb.ninja_in("cmake", None, None, Path(sys.argv[2]), ["-n", "-v"])')
+    with self.fake_tools(HANG='1'):
+      outer = subprocess.Popen([sys.executable, '-c', code, str(SCRIPT), str(self.tmp / 'b')], cwd=ROOT,
+                               start_new_session=True)
+    end = time.monotonic() + 10
+    while len(self.hung()) < 2 and time.monotonic() < end:
+      time.sleep(0.05)
+    os.killpg(outer.pid, signal.SIGKILL)
+    outer.wait()
+    self.assertEqual(len(self.hung()), 2)
+    self.assertEqual([pid for pid in self.hung() if alive(pid)], [])
+
+  def test_a_timed_out_idf_query_removes_its_named_container_or_names_the_one_left(self):
+    root, name, bound = self.tmp / 'b', f'tinyuf2-query-{os.getpid()}-deadbeef', 0.5
+    timed_out = re.escape(f'b: ninja -n -v timed out after {bound}s')
+    cases = (('removed', {}, '$'), ('created after the kill', {'CREATE_AFTER': str(bound + 0.1)}, '$'),
+             ('still listed', {'RM_EXIT': '1'}, re.escape(f'; container {name} still exists: docker rm -f {name}') + '$'))
+    for what, env, tail in cases:
+      with self.subTest(what), self.fake_tools(HANG='1', **env), mock.patch.object(cb, 'git', return_value=str(self.tmp)), \
+           mock.patch.object(cb.uuid, 'uuid4', return_value=mock.Mock(hex='deadbeef')), \
+           mock.patch.object(cb, 'NINJA_QUERY_TIMEOUT', bound), mock.patch.object(cb, 'CONTAINER_SETTLE', 1), \
+           mock.patch.object(cb, 'CONTAINER_GONE_WAIT', 3), self.assertRaisesRegex(cb.Fail, '^' + timed_out + tail):
+        try:
+          cb.ninja_in('idf', 'docker', 'idf:image', root, ['-n', '-v'])
+        finally:
+          query = next(c for c in self.tool_calls('docker') if c[0] == 'run')
+          self.assertEqual((query[query.index('--name') + 1], query[-6:]), (name, ['idf:image', 'ninja', '-C', str(root), '-n', '-v']))
+          self.assertEqual([c for c in self.tool_calls('docker') if c[0] == 'rm'][0], ['rm', '-f', name])
+          # absent once is not gone: a create pending at the kill lands later and is removed too
+          end = time.monotonic() + 5
+          while 'CREATE_AFTER' in env and 'daemon created' not in self.tools_log.read_text() and time.monotonic() < end:
+            time.sleep(0.05)
+          self.assertEqual((self.tmp / 'container').exists(), bool(env.get('RM_EXIT')))
+    calls = []
+
+    def no_docker(cmd, **k):   # the query times out, then docker is gone
+      calls.append(cmd)
+      raise subprocess.TimeoutExpired(cmd, bound) if len(calls) == 1 else FileNotFoundError('docker')
+    with mock.patch.object(cb, 'git', return_value=str(self.tmp)), mock.patch.object(cb, 'NINJA_QUERY_TIMEOUT', bound), \
+         mock.patch.object(cb.uuid, 'uuid4', return_value=mock.Mock(hex='deadbeef')), \
+         mock.patch.object(cb.subprocess, 'run', no_docker), \
+         self.assertRaisesRegex(cb.Fail, '^' + timed_out + re.escape(f'; docker failed (docker), so container {name} may be left')):
+      cb.ninja_in('idf', 'docker', 'idf:image', root, ['-n', '-v'])
+
+  def test_an_interrupted_idf_query_is_killed_and_its_container_removed_and_the_interruption_kept(self):
+    root, name, communicate = self.tmp / 'b', f'tinyuf2-query-{os.getpid()}-deadbeef', subprocess.Popen.communicate
+    for what, env, err in (('removed', {}, ''), ('still listed', {'RM_EXIT': '1'},
+                                                 f'b: interrupted ninja -n -v; container {name} still exists: docker rm -f {name}\n')):
+      interrupted = []
+
+      def ctrl_c(p, *a, **k):   # the query's own communicate only: container_left's docker calls run as usual
+        if not interrupted:
+          interrupted.append(p.pid)
+          raise KeyboardInterrupt
+        return communicate(p, *a, **k)
+      stderr = io.StringIO()
+      with self.subTest(what), self.fake_tools(HANG='1', **env), mock.patch.object(cb, 'git', return_value=str(self.tmp)), \
+           mock.patch.object(cb.uuid, 'uuid4', return_value=mock.Mock(hex='deadbeef')), \
+           mock.patch.object(subprocess.Popen, 'communicate', ctrl_c), mock.patch.object(cb, 'CONTAINER_SETTLE', 0.2), \
+           mock.patch.object(cb, 'CONTAINER_GONE_WAIT', 0.5), contextlib.redirect_stderr(stderr), \
+           self.assertRaises(KeyboardInterrupt):
+        (self.tmp / 'container').touch()   # created before the interruption
+        cb.ninja_in('idf', 'docker', 'idf:image', root, ['-n', '-v'])
+      self.assertEqual((stderr.getvalue(), (self.tmp / 'container').exists()), (err, bool(env)))
+      self.assertIn(['rm', '-f', name], self.tool_calls('docker'))
+      self.assertFalse(alive(interrupted[0]))
+
+  def test_each_unbound_idf_query_gets_a_distinct_container_name(self):
+    root = self.tmp / 'b'
+    ids = [mock.Mock(hex='first'), mock.Mock(hex='second')]
+    with self.fake_tools(), mock.patch.object(cb, 'git', return_value=str(self.tmp)), \
+         mock.patch.object(cb.uuid, 'uuid4', side_effect=ids):
+      cb.ninja_in('idf', 'docker', 'idf:image', root, ['-n', '-v'])
+      cb.ninja_in('idf', 'docker', 'idf:image', root, ['-t', 'commands'])
+    names = [c[c.index('--name') + 1] for c in self.tool_calls('docker') if c[0] == 'run']
+    self.assertEqual(names, [f'tinyuf2-query-{os.getpid()}-first', f'tinyuf2-query-{os.getpid()}-second'])
+
+  def test_an_unbound_idf_querys_container_is_named_for_the_pid_and_a_uuid4(self):   # as hil-contract documents it
+    with self.fake_tools(), mock.patch.object(cb, 'git', return_value=str(self.tmp)):
+      cb.ninja_in('idf', 'docker', 'idf:image', self.tmp / 'b', ['-n', '-v'])
+    [name] = [c[c.index('--name') + 1] for c in self.tool_calls('docker') if c[0] == 'run']
+    self.assertRegex(name, '^' + re.escape(f'tinyuf2-query-{os.getpid()}-') + '[0-9a-f]{32}$')
+
+  def test_a_runner_gets_the_docker_wrapped_query_and_must_name_its_container(self):
+    root, calls = self.tmp / 'b', []
+
+    def runner(cmd):
+      calls.append(cmd)
+      return subprocess.CompletedProcess(cmd, 0, 'out', '')
+    with mock.patch.object(cb, 'git', return_value=str(self.tmp)), \
+         mock.patch.object(cb.subprocess, 'Popen', side_effect=AssertionError('the runner runs the query')):
+      self.assertEqual(cb.ninja_in('idf', 'docker', 'idf:image', root, ['-n', '-v'], runner, 'hil-query').stdout, 'out')
+      self.assertEqual(cb.ninja_in('cmake', None, None, root, ['-n'], runner, 'hil-query').stdout, 'out')
+      with self.assertRaisesRegex(cb.Fail, 'must name the container'):
+        cb.ninja_in('idf', 'docker', 'idf:image', root, ['-n', '-v'], runner)
+    self.assertEqual(calls[0][:2], ['docker', 'run'])
+    self.assertEqual((calls[0][calls[0].index('--name') + 1], calls[0][-6:]),
+                     ('hil-query', ['idf:image', 'ninja', '-C', str(root), '-n', '-v']))
+    self.assertEqual((calls[1], len(calls)), (['ninja', '-C', str(root), '-n'], 2))
+
+  def test_a_failed_commands_query_whose_stderr_went_elsewhere_reports_its_stdout(self):
+    flasher = {'name': 'jlink', 'uid': '000801012283', 'device': 'MIMXRT1011DAE5A'}
+    ninja = lambda d, args: subprocess.CompletedProcess(args, 1, "ninja: error: unknown target 'tinyuf2-jlink'", '')   # noqa: E731
+    with self.assertRaisesRegex(cb.Fail, 'unknown target'):
+      cb.flash_binding(flasher, self.tmp / 'b', ninja)
 
   def test_the_generated_jlink_target_must_name_the_roster_probe_and_the_build_image(self):
     flasher = {'name': 'jlink', 'uid': '000801012283', 'device': 'MIMXRT1011DAE5A'}

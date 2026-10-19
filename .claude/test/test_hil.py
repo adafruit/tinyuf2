@@ -26,6 +26,7 @@ sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location('hil_test', SCRIPT)
 ht = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ht)
+FLASH_READY = ht.cb.flash_ready   # for a test that lets the dry runs run, under fixtures that stub it
 BOARD = 'lpcxpresso55s69'
 RT = {'port': 'mimxrt10xx', 'name': 'imxrt1060_evk', 'lock': 'mimxrt1060_evk'}
 
@@ -447,6 +448,8 @@ class Rt1060(Tmp):
                        (work / 'record/_bin/tinyuf2.bin', str(build / '_bin/tinyuf2.bin'), '1.0'))
       self.assertEqual((files['hex'], files['flash']['root'], files['flash']['sha256']['tinyuf2.hex']),
                        (build / 'tinyuf2.hex', build, rows['tinyuf2.hex']))   # the HEX the target loads, not a copy
+      q = files['flash']['ninja']   # the dry run: a tracked child of this board's run, logged to its hil.log
+      self.assertEqual((q.func, q.args, q.keywords), (ht.ninja_query, ('cmake', None, None, 'imxrt1060_evk', work / 'hil.log'), {}))
       for what, flash in (('another probe', dict(row['flash'], flasher={'name': 'jlink', 'uid': '9', 'device': 'MIMXRT1062xxx6A'})),
                           ('no binding', None)):
         with self.subTest(what), self.assertRaisesRegex(ht.Refused, 'not bound to this roster flasher'):
@@ -945,17 +948,72 @@ class EspFlash(EspFake):
       with self.subTest(what), self.assertRaisesRegex(ht.StepFail, 'the flash target failed'):
         ht.judge_esp_target(code, text, self.segments)
 
-  def test_an_admitted_record_installs(self):
+  def admitted(self):
     now = {'head': 'h', 'submodules': {}, 'deps': {}, 'dirty': False}
     rec = self.tmp / 'rec.json'
     rec.write_text(json.dumps({'pass': True, 'input': now, 'boards': [self.row],
                                'idf': {'mode': 'docker', 'image': 'espressif/idf:v6.1'}}))
     with mock.patch.object(ht.cb, 'identity', lambda ports: now), mock.patch.object(ht.cb, 'ci_idf_version', lambda: 'v6.1'):
-      files, _ = ht.verify_record(rec, self.board, self.facts, self.work)
+      return ht.verify_record(rec, self.board, self.facts, self.work)[0]
+
+  def test_an_admitted_record_installs(self):
+    files = self.admitted()
+    q = files['flash']['ninja']   # the dry runs: tracked children of this board's run, logged to its hil.log
+    self.assertEqual((q.func, q.args, q.keywords),
+                     (ht.ninja_query, ('idf', 'docker', 'espressif/idf:v6.1', S3, self.work / 'hil.log'), {}))
     self.bat = ht.EspBattery(self.board, self.facts, self.work)
     self.assertTrue(self.bat.install(files)['readBack'])
     self.assertEqual(self.targets[0][self.targets[0].index('--device') - 1], f'tinyuf2-hil-{S3}')
     self.assertIn('espressif/idf:v6.1', self.targets[0])
+
+  def test_the_dry_runs_run_in_the_boards_query_container_and_forget_it_once_gone(self):
+    command = 'cd /b && /usr/bin/cmake -D SERIAL_TOOL=x -P run_serial_tool.cmake'
+    self.row['flash']['command'] = command
+    files, flash_container, queries = self.admitted(), f'tinyuf2-hil-{S3}', []
+    root, run_flash = files['flash']['root'], self.docker
+
+    def docker(cmd):
+      if cmd[1] != 'run':
+        return run_flash(cmd)
+      queries.append((cmd[cmd.index('--name') + 1], cmd[cmd.index('-C') + 1:], list(ht.CONTAINERS)))
+      tree = cmd[cmd.index('-C') + 1]
+      return 0, f"banner\nninja: Entering directory `{tree}'\n" + (f'[1/1] {command}\n' if tree == str(root) else
+                                                                     'ninja: no work to do.\n')
+    self.docker = docker
+    self.bat = ht.EspBattery(self.board, self.facts, self.work)
+    with mock.patch.object(ht.cb, 'flash_ready', FLASH_READY):
+      self.assertTrue(self.bat.install(files)['readBack'])
+    query = f'tinyuf2-hil-{S3}-query'
+    self.assertEqual(queries, [(query, [str(root), '-n', '-v', 'flash'], [flash_container, query]),
+                               (query, [str(root / 'bootloader'), '-n', '-v'], [flash_container, query])])
+    self.assertEqual((self.targets[1], ht.CONTAINERS), (['docker', 'start', '-a', flash_container], []))
+
+  def test_a_timed_out_dry_run_fails_the_install_and_its_container_goes_under_the_build_lock(self):
+    files, removed = self.admitted(), []
+    root, run_flash = files['flash']['root'], self.docker
+
+    def docker(cmd):
+      if cmd[1] != 'run':
+        return run_flash(cmd)
+      raise ht.StepFail(f'docker timed out after {ht.NINJA_QUERY_TIMEOUT}s')   # as spawn reports the query's client
+
+    def left(name):
+      try:
+        with ht.cb.build_lock(root, wait=False):
+          removed.append((name, 'unlocked'))
+      except BlockingIOError:
+        removed.append((name, 'locked'))
+      return ''
+    self.docker = docker
+    self.bat = ht.EspBattery(self.board, self.facts, self.work)
+    with mock.patch.object(ht.cb, 'flash_ready', FLASH_READY), mock.patch.object(ht.cb, 'container_left', left), \
+         self.assertRaisesRegex(ht.StepFail, '^' + re.escape(
+           f'{root.name}: ninja query -n -v flash timed out after {ht.NINJA_QUERY_TIMEOUT}s') + '$'):
+      self.bat.install(files)
+    self.assertEqual(removed, [(f'tinyuf2-hil-{S3}-query', 'locked')])
+    # the snapshot session touched the board; the flash container, created and never started, is cleanup's
+    self.assertEqual((self.bat.touched, [t[:2] for t in self.targets], ht.CONTAINERS),
+                     (True, [['docker', 'create']], [f'tinyuf2-hil-{S3}']))
 
   def test_an_interrupted_create_leaves_the_name_for_cleanup_and_the_board_untouched(self):
     def interrupted(cmd):
@@ -971,6 +1029,29 @@ class EspFlash(EspFake):
          self.assertRaisesRegex(ht.StepFail, f'container tinyuf2-hil-{S3} from an earlier flash'):
       self.install()
     self.assertEqual((self.bat.touched, (self.tmp / 'flash.img.sessions').exists(), self.targets), (False, False, []))
+
+  def test_an_interrupted_dry_run_removes_its_container_under_the_build_lock(self):
+    files, removed = self.admitted(), []
+    root, run_flash = files['flash']['root'], self.docker
+
+    def docker(cmd):
+      if cmd[1] != 'run':
+        return run_flash(cmd)
+      raise ht.Interrupted('interrupted by SIGTERM')
+
+    def left(name):
+      try:
+        with ht.cb.build_lock(root, wait=False):
+          removed.append((name, 'unlocked'))
+      except BlockingIOError:
+        removed.append((name, 'locked'))
+      return ''
+    self.docker = docker
+    self.bat = ht.EspBattery(self.board, self.facts, self.work)
+    with mock.patch.object(ht.cb, 'flash_ready', FLASH_READY), mock.patch.object(ht.cb, 'container_left', left), \
+         self.assertRaisesRegex(ht.Interrupted, 'SIGTERM'):
+      self.bat.install(files)
+    self.assertEqual((removed, ht.CONTAINERS), ([(f'tinyuf2-hil-{S3}-query', 'locked')], [f'tinyuf2-hil-{S3}']))
 
   def test_the_install_snapshot_round_trips_through_the_report(self):
     keep = self.board['regions']['preserved']
@@ -1697,6 +1778,127 @@ class Spawn(Tmp):
     self.assertIsNotNone(launched[0].poll())
     self.assertEqual(ht.CHILDREN, [])
 
+  def test_ninja_queries_use_the_tracked_runner_and_a_container_is_forgotten_only_once_docker_lists_it_no_more(self):
+    calls, present, name = [], [], 'tinyuf2-hil-board-query'
+    log, root = self.tmp / 'hil.log', self.tmp / 'build'
+
+    def run(cmd, log, timeout, cwd=None, stderr_to_log=False):
+      calls.append((cmd, log, timeout, cwd, stderr_to_log, list(ht.CONTAINERS)))
+      return 0, "ninja: Entering directory `x'\n"
+
+    def query(*listed):   # what container_present answers before and after the query
+      present[:] = list(listed)
+      return ht.ninja_query('idf', 'docker', 'idf:image', 'board', log, root, ['-n', '-v'])
+    with mock.patch.object(ht, 'spawn', run), mock.patch.object(ht, 'container_present', lambda n: present.pop(0)):
+      r = ht.ninja_query('cmake', None, None, 'board', log, root, ['-n', '-v'])
+      self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "ninja: Entering directory `x'\n", ''))
+      self.assertEqual(calls[0][1:], (log, ht.NINJA_QUERY_TIMEOUT, ht.ROOT, True, []))   # stderr kept out of stdout
+
+      self.assertEqual(query(False, False).returncode, 0)
+      self.assertEqual((calls[1][0][calls[1][0].index('--name') + 1], calls[1][-1], ht.CONTAINERS), (name, [name], []))
+
+      with self.assertRaisesRegex(ht.StepFail, f'^container {name} still exists after its ninja query; nothing was flashed'):
+        query(False, True)
+      self.assertEqual(ht.CONTAINERS, [name])   # kept for cleanup
+      self.assertEqual(query(False, False).returncode, 0)   # a name already tracked is not tracked twice
+      self.assertEqual(ht.CONTAINERS, [])
+
+      ht.CONTAINERS.append(name)
+      with self.assertRaisesRegex(ht.StepFail, f'^container {name} from an earlier ninja query still exists; nothing was flashed'):
+        query(True)
+      self.assertEqual((ht.CONTAINERS, len(calls)), ([name], 4))   # one entry, and no query started
+
+    ht.CONTAINERS.clear()
+    for what, after in (('docker ps fails before', []), ('docker ps fails after', [name])):
+      seen = []
+
+      def ps(n):
+        seen.append(n)
+        if what.endswith('before') or len(seen) > 1:
+          raise ht.StepFail('docker ps failed: x')
+        return False
+      with self.subTest(what), mock.patch.object(ht, 'spawn', run), mock.patch.object(ht, 'container_present', ps), \
+           self.assertRaisesRegex(ht.StepFail, 'docker ps failed'):
+        ht.ninja_query('idf', 'docker', 'idf:image', 'board', log, root, ['-n', '-v'])
+      self.assertEqual(ht.CONTAINERS, after)   # registered only once a query could start; kept when unconfirmed
+      ht.CONTAINERS.clear()
+
+  def test_a_timed_out_ninja_query_names_the_build_and_removes_its_container_or_keeps_it_tracked(self):
+    log, root, name = self.tmp / 'hil.log', self.tmp / 'build', 'tinyuf2-hil-board-query'
+    timed_out = re.escape(f'build: ninja query -n -v timed out after {ht.NINJA_QUERY_TIMEOUT}s')
+    still = f'; container {name} still exists: docker rm -f {name}'   # as cb.container_left reports it
+    cases = (('cmake', None, 'ninja', '', []), ('idf', 'docker', 'docker', '', []), ('idf', 'docker', 'docker', still, [name]))
+    for backend, mode, cmd0, left, tracked in cases:
+      with self.subTest(backend=backend, left=left), \
+           mock.patch.object(ht, 'spawn', side_effect=ht.StepFail(f'{cmd0} timed out after {ht.NINJA_QUERY_TIMEOUT}s')), \
+           mock.patch.object(ht, 'container_present', lambda n: False), mock.patch.object(ht.cb, 'container_left', lambda n: left), \
+           self.assertRaisesRegex(ht.StepFail, '^' + timed_out + re.escape(left) + '$'):
+        ht.ninja_query(backend, mode, 'idf:image', 'board', log, root, ['-n', '-v'])
+      self.assertEqual(ht.CONTAINERS, tracked)
+      ht.CONTAINERS.clear()
+
+  def test_an_interrupted_ninja_query_is_reaped_then_its_container_removed_unless_the_launcher_survives(self):
+    log, root, name = self.tmp / 'hil.log', self.tmp / 'build', 'tinyuf2-hil-board-query'
+    for backend, mode, survivors, order, tracked in (
+        ('cmake', None, [], ['reap'], []), ('idf', 'docker', [], ['reap', 'container'], []),
+        ('idf', 'docker', [99], ['reap'], [name])):   # a launcher alive after SIGKILL could still create it
+      events, launcher = [], mock.Mock()
+
+      def interrupted(cmd, *a, **k):   # as an Interrupted out of spawn's communicate leaves its child
+        launcher.args = [str(c) for c in cmd]
+        ht.CHILDREN.append(launcher)
+        raise ht.Interrupted('interrupted by SIGTERM')
+
+      def reap(p):
+        events.append('reap')
+        if not survivors:
+          ht.CHILDREN.remove(p)
+        return survivors
+      with self.subTest(backend=backend, survivors=survivors), mock.patch.object(ht, 'spawn', interrupted), \
+           mock.patch.object(ht, 'reap', reap), mock.patch.object(ht, 'container_present', lambda n: False), \
+           mock.patch.object(ht.cb, 'container_left', lambda n: events.append('container') or ''), \
+           self.assertRaisesRegex(ht.Interrupted, 'SIGTERM'):
+        ht.ninja_query(backend, mode, 'idf:image', 'board', log, root, ['-n', '-v'])
+      self.assertEqual((events, ht.CONTAINERS, ht.CHILDREN), (order, tracked, [launcher] if survivors else []))
+      ht.CONTAINERS.clear()
+      ht.CHILDREN.clear()
+
+  def test_a_signal_during_a_ninja_query_ends_the_query_before_it_unwinds(self):
+    tools = self.tmp / 'bin'
+    tools.mkdir()
+    (tools / 'ninja').write_text(f'#!/bin/sh\necho $$ > {self.tmp / "pid"}\nexec sleep 30\n')
+    (tools / 'ninja').chmod(0o755)
+    started = self.tmp / 'pid'
+
+    def signal_once_started():
+      end = time.monotonic() + 10
+      while not started.exists() and time.monotonic() < end:
+        time.sleep(0.01)
+      os.kill(os.getpid(), signal.SIGTERM)
+    signaller = threading.Thread(target=signal_once_started)
+    signaller.start()
+    self.addCleanup(signaller.join)
+    with mock.patch.dict(os.environ, {'PATH': f'{tools}:{os.environ["PATH"]}'}), \
+         self.assertRaisesRegex(ht.Interrupted, 'SIGTERM'):
+      ht.ninja_query('cmake', None, None, 'board', self.tmp / 'hil.log', self.tmp / 'build', ['-n', '-v'])
+    self.assertEqual((ht.CHILDREN, ht.proc_stat(int((self.tmp / 'pid').read_text()))), ([], None))
+
+  def test_a_docker_that_fails_hangs_or_is_missing_is_a_step_failure_when_listing_a_container(self):
+    for what, run in (('exit 1', lambda cmd, **k: subprocess.CompletedProcess(cmd, 1, '', 'daemon down')),
+                      ('timeout', mock.Mock(side_effect=subprocess.TimeoutExpired('docker', 30))),
+                      ('no docker', mock.Mock(side_effect=FileNotFoundError('docker')))):
+      with self.subTest(what), mock.patch.object(ht.subprocess, 'run', run), \
+           self.assertRaisesRegex(ht.StepFail, '^docker ps failed'):
+        ht.container_present('tinyuf2-hil-b-query')
+
+  def test_a_spawned_childs_stderr_can_go_to_the_log_only(self):
+    log = self.tmp / 'log'
+    code, out = ht.spawn([sys.executable, '-c', 'import sys; print("out"); print("err", file=sys.stderr)'], log, 5,
+                         stderr_to_log=True)
+    self.assertEqual((code, out), (0, 'out\n'))
+    self.assertIn('err\n', log.read_text())
+    self.assertIn('out\n', log.read_text())
+
   def test_a_kill_reaches_a_grandchild_in_a_process_group_of_its_own(self):
     # as ninja runs JLinkExe: setpgid moves it out of the child's group, not out of its session
     pidfile = self.tmp / 'grandchild'
@@ -1773,6 +1975,43 @@ class Spawn(Tmp):
          mock.patch.object(ht, 'container_gone', lambda name: order.append('container') or True):
       self.assertEqual(ht.stuck_children(), [])
     self.assertEqual(order, ['reap', 'container'])
+
+  def test_a_container_stays_tracked_while_a_launcher_naming_it_outlives_sigkill(self):
+    name, other = 'tinyuf2-hil-b-query', 'tinyuf2-hil-b'
+    query, flash = ['docker', 'run', '--rm', '--name', name, 'img', 'ninja'], ['docker', 'start', '-a', other]
+    for args, survivors, tracked in ((query, [99], [name]), (flash, [99], [other]), (query, [], [])):
+      gone, p = [], mock.Mock(pid=1, args=args)
+      with self.subTest(args=args, survivors=survivors), mock.patch.object(ht, 'CHILDREN', [p]), \
+           mock.patch.object(ht, 'CONTAINERS', [name, other]), mock.patch.object(ht, 'reap', lambda q: survivors), \
+           mock.patch.object(ht, 'container_gone', lambda n: gone.append(n) or True):
+        stuck = ht.stuck_children()
+        self.assertEqual(([x for x in stuck if 'container' in x], gone, ht.CONTAINERS),
+                         ([{'container': n} for n in tracked], [name, other], tracked))   # a create in flight may land later
+
+  def test_a_timed_out_childs_output_so_far_is_in_the_log(self):
+    log = self.tmp / 'log'
+    with self.assertRaisesRegex(ht.StepFail, f'^{re.escape(Path(sys.executable).name)} timed out after 2s$'):
+      ht.spawn([sys.executable, '-c', 'import time; print("partial", flush=True); time.sleep(30)'], log, 2)
+    self.assertIn('partial\n', log.read_text())
+
+  def test_an_interrupted_childs_output_so_far_is_in_the_log(self):
+    log, ready = self.tmp / 'log', self.tmp / 'ready'
+    self.addCleanup(lambda: [ht.reap(p) for p in list(ht.CHILDREN)])
+
+    def signal_once_printed():
+      end = time.monotonic() + 10
+      while not ready.exists() and time.monotonic() < end:
+        time.sleep(0.01)
+      time.sleep(0.5)   # for communicate to read it
+      os.kill(os.getpid(), signal.SIGTERM)
+    signaller = threading.Thread(target=signal_once_printed)
+    signaller.start()
+    self.addCleanup(signaller.join)
+    with self.assertRaisesRegex(ht.Interrupted, 'SIGTERM'):
+      ht.spawn([sys.executable, '-c', f'import time; print("partial", flush=True); open({str(ready)!r}, "w"); '
+                'time.sleep(30)'], log, 20)
+    self.assertEqual(len(ht.CHILDREN), 1)   # left for cleanup's reap, as before
+    self.assertIn('partial\n', log.read_text())
 
   def test_registering_leaves_the_childs_signal_mask_alone(self):
     code, out = ht.spawn(['grep', 'SigBlk', '/proc/self/status'], self.tmp / 'log', 5)
@@ -2100,6 +2339,27 @@ class RunBoard(Tmp):
     self.assertEqual((code, cleaned, row['cleanup']['survivors']), (4, [], stuck))
     self.assertEqual(row['cleanup']['detail'], 'StepFail: children survived SIGKILL; no flash may overlap them')
 
+  def test_a_container_the_restore_leaves_tracked_is_swept_before_the_release(self):
+    def touched(bat, files, version):
+      bat.touched = True
+
+    def restore(*a, **k):
+      ht.CONTAINERS.append('tinyuf2-hil-x-query')
+      return {'pass': True, 'state': 'blinky copied', 'evidence': {}}
+    for gone, code in ((True, 0), (False, 4)):
+      with self.subTest(gone=gone), mock.patch.object(ht.Battery, 'run', touched), \
+           mock.patch.object(ht.Battery, 'restore', restore), mock.patch.object(ht, 'container_gone', lambda n: gone), \
+           mock.patch.object(ht, 'hand_off', lambda fh, b, d, s: (fh.close(), {'pid': 1})[1]):
+        row, got = ht.run_board(self.args, self.board, self.facts, self.helper, self.tmp)
+        self.assertEqual(got, code)
+        if gone:
+          self.assertEqual((row['cleanup']['heldAfter'], ht.CONTAINERS), (False, []))
+          self.helper.flock_nb(BOARD).close()
+        else:
+          self.assertEqual((row['cleanup']['survivors'], row['cleanup']['detail']),
+                           ([{'container': 'tinyuf2-hil-x-query'}], 'StepFail: the restore left children that survived SIGKILL'))
+        ht.CONTAINERS.clear()
+
   def test_a_survivor_on_an_untouched_board_still_keeps_it_held(self):
     def fail(bat, files, version):
       raise ht.StepFail('install: probe hung')
@@ -2347,6 +2607,21 @@ class BatteryRun(Tmp):
     bat.b['device'] = 'stm32f411ve'
     bat.install(self.files)
     self.assertEqual(rig.scripts[1][:2], ['sleep 1000', 'h'])
+
+  def test_a_timed_out_dry_run_fails_the_install_untouched(self):
+    bat, rig = self.battery()
+    root = self.files['flash']['root']
+    self.files['flash']['ninja'] = ht.functools.partial(ht.ninja_query, 'cmake', None, None, bat.b['name'], self.tmp / 'hil.log')
+
+    def spawn(cmd, log, timeout, cwd=None, stderr_to_log=False):
+      if cmd[0] == 'ninja':
+        raise ht.StepFail(f'ninja timed out after {timeout}s')   # as spawn reports it, its session reaped
+      return rig.spawn(cmd, log, timeout, cwd)
+    with mock.patch.object(ht.cb, 'flash_ready', FLASH_READY), mock.patch.object(ht, 'spawn', spawn), \
+         self.assertRaisesRegex(ht.StepFail, '^' + re.escape(
+           f'{root.name}: ninja query -n -v tinyuf2-jlink timed out after {ht.NINJA_QUERY_TIMEOUT}s') + '$'):
+      bat.install(self.files)
+    self.assertEqual((bat.touched, rig.scripts), (False, []))
 
   def test_every_step_passes_and_resumes_only_after_a_halt(self):
     bat, rig = self.battery()

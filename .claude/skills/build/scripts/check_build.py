@@ -27,6 +27,8 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -100,6 +102,9 @@ FLASH = {'jlink': ('tinyuf2-jlink', ('tinyuf2.jlink', 'tinyuf2.hex')), 'stlink':
 # a roster flasher's args, whose one group is the device or chip its flash target must name
 FLASHER_ARGS = {'jlink': r'-device (\S+)', 'stlink': r'-device (\S+)', 'esptool': r'--chip (\w+)'}
 NINJA_STEP = re.compile(r'\[\d+/\d+\] ')   # ninja's progress prefix
+NINJA_QUERY_TIMEOUT = 30   # s for one ninja query
+DOCKER_TIMEOUT, CONTAINER_GONE_WAIT = 30, 10   # s for one docker call; s a killed query's container may linger
+CONTAINER_SETTLE = 2   # s docker must list no container before a killed client's pending create counts as never landing
 # configure variables that select a probe or port: a HIL record sets them from the roster, never from -D
 SELECTION = ('JLINK_OPTION', 'STLINK_SERIAL', 'OPENOCD_SERIAL', 'OPENOCD_OPTION', 'ESPPORT')
 
@@ -715,23 +720,71 @@ def build_idf(board, root, defines, log, verbose, idf_mode, image):
   return not run(idf_docker(root) + [image, 'bash', '-c', inner], log, verbose), []
 
 
-def idf_docker(root, verb='run'):
+def idf_docker(root, verb='run', name=None):
   """`docker run` (or `create`) with the checkout, its git dir and the build dir mounted at their own paths, image
   last."""
   common = Path(git('rev-parse', '--path-format=absolute', '--git-common-dir').strip())
   cmd = ['docker', verb, '--rm', '--user', f'{os.getuid()}:{os.getgid()}', '-e', 'HOME=/tmp', '-w', str(ROOT)]
+  if name:
+    cmd += ['--name', name]
   for m in sorted({ROOT, common, root.parent}):
     cmd += ['-v', f'{m}:{m}']
   return cmd
 
 
-def ninja_in(backend, idf_mode, image, root, args):
+def ninja_in(backend, idf_mode, image, root, args, runner=None, container=None):
   """Runs ninja on `root` with the ninja that built it: the host's, or the IDF image's (whose build log and
-  generator a host ninja would rewrite). Callers bind the build's own backend, mode and image."""
+  generator a host ninja would rewrite). Callers bind the build's own backend, mode and image. Unbound, the query
+  runs here, its process killed past NINJA_QUERY_TIMEOUT or on an interruption (only that process: `ninja -n` and
+  `-t commands` start nothing, though a docker client may), and it stays in this process group, so a kill of the
+  group reaches it too. A HIL caller supplies its tracked `runner(cmd)`, which bounds the query itself and returns
+  a CompletedProcess whose stdout is ninja's alone (its stderr may go to the caller's log instead), and for an IDF
+  docker query the container name it tracks."""
   cmd = ['ninja', '-C', str(root), *args]
   if backend == 'idf' and idf_mode == 'docker':
-    cmd = idf_docker(root) + [image, *cmd]   # the image's entrypoint sources export.sh, then runs cmd
-  return subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT)
+    if runner and not container:
+      raise Fail(f'{root.name}: a ninja query runner must name the container it tracks')
+    container = container or f'tinyuf2-query-{os.getpid()}-{uuid.uuid4().hex}'
+    cmd = idf_docker(root, name=container) + [image, *cmd]   # the entrypoint sources export.sh, then runs cmd
+  else:
+    container = None
+  if runner:
+    return runner(cmd)
+  try:
+    return subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT, timeout=NINJA_QUERY_TIMEOUT)
+  except BaseException as e:   # subprocess.run has killed the query
+    left = container_left(container) if container else ''
+    if isinstance(e, subprocess.TimeoutExpired):
+      raise Fail(f'{root.name}: ninja {shlex.join(args)} timed out after {NINJA_QUERY_TIMEOUT}s{left}') from None
+    if left:
+      print(f'{root.name}: interrupted ninja {shlex.join(args)}{left}', file=sys.stderr)
+    raise
+
+
+def container_left(name):
+  """'' once docker has listed no `name` for CONTAINER_SETTLE, `docker rm -f` before each look, so a create still
+  pending when the client was killed is removed when it lands; else why, naming it, for an error message."""
+  end, absent_since = time.monotonic() + CONTAINER_GONE_WAIT, None
+  try:
+    while True:
+      subprocess.run(['docker', 'rm', '-f', name], capture_output=True, text=True, timeout=DOCKER_TIMEOUT)
+      r = subprocess.run(['docker', 'ps', '-aq', '-f', f'name=^{name}$'], capture_output=True, text=True,
+                         timeout=DOCKER_TIMEOUT)
+      if r.returncode:
+        return f'; docker ps failed ({r.stderr.strip()[-200:]}), so container {name} may be left: docker rm -f {name}'
+      now = time.monotonic()
+      if r.stdout.strip():
+        absent_since = None
+      elif absent_since is None:
+        absent_since = now
+      if absent_since is not None and now - absent_since >= CONTAINER_SETTLE:
+        return ''
+      if now > end:
+        return (f'; container {name} still exists: docker rm -f {name}' if absent_since is None else
+                f'; container {name} was listed within {CONTAINER_SETTLE}s, so it may be left: docker rm -f {name}')
+      time.sleep(0.2)
+  except (OSError, subprocess.SubprocessError) as e:
+    return f'; docker failed ({e}), so container {name} may be left: docker rm -f {name}'
 
 
 def backend_of(port):
@@ -800,7 +853,7 @@ def flash_binding(flasher, root, ninja):
     ok = ok and sorted(l.split()[1] for l in segs if l.strip()) == sorted(inputs[1:])
   if not ok:
     raise Fail(f'{root.name}: target {target} does not flash {flasher} with the build\'s image: '
-               f'{cmds if cmds else r.stderr.strip()[-200:]}')
+               f'{cmds if cmds else (r.stderr or r.stdout).strip()[-200:]}')
   return {'target': target, 'flasher': flasher, 'command': cmds[0], 'inputs': list(inputs)}
 
 
