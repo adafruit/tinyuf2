@@ -7,6 +7,7 @@ import io
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -43,7 +44,8 @@ if sys.argv[1] == 'run' and os.environ.get('CREATE_AFTER'):   # the daemon's cre
 elif sys.argv[1] == 'run':
   container.touch()
 if os.environ.get('HANG'):
-  Path(os.environ['GRANDCHILD']).write_text(str(subprocess.Popen(['sleep', '60']).pid))
+  with open(os.environ['PIDS'], 'a') as f:
+    f.write(f'{{os.getpid()}} {{subprocess.Popen(["sleep", "60"]).pid}}\\n')
   time.sleep(60)
 print("ninja: Entering directory `x'")
 print('ninja: warning: on stderr', file=sys.stderr)
@@ -53,14 +55,15 @@ print('ninja: warning: on stderr', file=sys.stderr)
 def alive(pid, wait=2):
   """Whether `pid` is still a live process (not gone or a zombie) after up to `wait` s."""
   end = time.monotonic() + wait
-  while time.monotonic() < end:
+  while True:
     try:
       if Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[0] == 'Z':
         return False
     except OSError:
       return False
+    if time.monotonic() >= end:
+      return True
     time.sleep(0.05)
-  return True
 
 
 def build_tmpdir():
@@ -823,23 +826,32 @@ class HilRecord(unittest.TestCase):
 
   def fake_tools(self, **env):
     """`ninja` and `docker` on PATH that log their argv; as the query, each prints ninja's dry run with a warning on
-    stderr, or with HANG starts a grandchild and hangs. `docker run` creates the container, CREATE_AFTER s later
-    if set; `docker rm` removes it, or exits RM_EXIT; `docker ps` lists it."""
+    stderr, or with HANG starts a grandchild, adds both pids to `self.pids` and hangs. `docker run` creates the
+    container, CREATE_AFTER s later if set; `docker rm` removes it, or exits RM_EXIT; `docker ps` lists it."""
     tools = self.tmp / 'bin'
     tools.mkdir(exist_ok=True)
     for name in ('ninja', 'docker'):
       (tools / name).write_text(FAKE_TOOL.format(python=sys.executable))
       (tools / name).chmod(0o755)
-    self.tools_log, self.grandchild = self.tmp / 'tools.log', self.tmp / 'grandchild'
+    self.tools_log, self.pids = self.tmp / 'tools.log', self.tmp / 'pids'
     self.tools_log.unlink(missing_ok=True)
     (self.tmp / 'container').unlink(missing_ok=True)
+    self.addCleanup(self.kill_hung)
     return mock.patch.dict(os.environ, {'PATH': f'{tools}:{os.environ["PATH"]}', 'TOOLS_LOG': str(self.tools_log),
-                                        'GRANDCHILD': str(self.grandchild), **env})
+                                        'PIDS': str(self.pids), **env})
+
+  def hung(self):
+    return [int(pid) for pid in self.pids.read_text().split()] if self.pids.exists() else []
+
+  def kill_hung(self):
+    for pid in self.hung():
+      if alive(pid, wait=0):
+        os.kill(pid, signal.SIGKILL)
 
   def tool_calls(self, tool):
     return [l.split()[1:] for l in self.tools_log.read_text().splitlines() if l.split()[0] == tool]
 
-  def test_an_unbound_query_returns_ninja_stdout_alone_and_a_timeout_kills_its_whole_session(self):
+  def test_an_unbound_query_returns_ninja_stdout_alone_and_a_timeout_kills_it(self):
     root = self.tmp / 'b'
     with self.fake_tools():
       r = cb.ninja_in('cmake', None, None, root, ['-n', '-v'])
@@ -848,8 +860,25 @@ class HilRecord(unittest.TestCase):
     with self.fake_tools(HANG='1'), mock.patch.object(cb, 'NINJA_QUERY_TIMEOUT', 0.5), \
          self.assertRaisesRegex(cb.Fail, '^' + re.escape(f'b: ninja -n -v timed out after {cb.NINJA_QUERY_TIMEOUT}s') + '$'):
       cb.ninja_in('cmake', None, None, root, ['-n', '-v'])
-    self.assertFalse(alive(int(self.grandchild.read_text())))
+    self.assertFalse(alive(self.hung()[0]))
     self.assertEqual(self.tool_calls('docker'), [])
+
+  def test_a_kill_of_check_builds_process_group_also_ends_its_query(self):
+    # as `timeout` ends what it runs: the whole process group, which the query and what it starts never leave
+    code = ('import importlib.util, sys; from pathlib import Path; '
+            'spec = importlib.util.spec_from_file_location("check_build", sys.argv[1]); '
+            'cb = importlib.util.module_from_spec(spec); spec.loader.exec_module(cb); '
+            'cb.ninja_in("cmake", None, None, Path(sys.argv[2]), ["-n", "-v"])')
+    with self.fake_tools(HANG='1'):
+      outer = subprocess.Popen([sys.executable, '-c', code, str(SCRIPT), str(self.tmp / 'b')], cwd=ROOT,
+                               start_new_session=True)
+    end = time.monotonic() + 10
+    while len(self.hung()) < 2 and time.monotonic() < end:
+      time.sleep(0.05)
+    os.killpg(outer.pid, signal.SIGKILL)
+    outer.wait()
+    self.assertEqual(len(self.hung()), 2)
+    self.assertEqual([pid for pid in self.hung() if alive(pid)], [])
 
   def test_a_timed_out_idf_query_removes_its_named_container_or_names_the_one_left(self):
     root, name, bound = self.tmp / 'b', f'tinyuf2-query-{os.getpid()}', 0.5
@@ -866,15 +895,18 @@ class HilRecord(unittest.TestCase):
           query = next(c for c in self.tool_calls('docker') if c[0] == 'run')
           self.assertEqual((query[query.index('--name') + 1], query[-6:]), (name, ['idf:image', 'ninja', '-C', str(root), '-n', '-v']))
           self.assertEqual([c for c in self.tool_calls('docker') if c[0] == 'rm'][0], ['rm', '-f', name])
-          self.assertFalse(alive(int(self.grandchild.read_text())))
           # absent once is not gone: a create pending at the kill lands later and is removed too
           end = time.monotonic() + 5
           while 'CREATE_AFTER' in env and 'daemon created' not in self.tools_log.read_text() and time.monotonic() < end:
             time.sleep(0.05)
           self.assertEqual((self.tmp / 'container').exists(), bool(env.get('RM_EXIT')))
-    with self.fake_tools(HANG='1'), mock.patch.object(cb, 'git', return_value=str(self.tmp)), \
-         mock.patch.object(cb, 'NINJA_QUERY_TIMEOUT', bound), \
-         mock.patch.object(cb.subprocess, 'run', side_effect=FileNotFoundError('docker')), \
+    calls = []
+
+    def no_docker(cmd, **k):   # the query times out, then docker is gone
+      calls.append(cmd)
+      raise subprocess.TimeoutExpired(cmd, bound) if len(calls) == 1 else FileNotFoundError('docker')
+    with mock.patch.object(cb, 'git', return_value=str(self.tmp)), mock.patch.object(cb, 'NINJA_QUERY_TIMEOUT', bound), \
+         mock.patch.object(cb.subprocess, 'run', no_docker), \
          self.assertRaisesRegex(cb.Fail, '^' + timed_out + re.escape(f'; docker failed (docker), so container {name} may be left')):
       cb.ninja_in('idf', 'docker', 'idf:image', root, ['-n', '-v'])
 

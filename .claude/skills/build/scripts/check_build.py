@@ -25,7 +25,6 @@ import re
 import runpy
 import shlex
 import shutil
-import signal
 import subprocess
 import sys
 import time
@@ -735,9 +734,11 @@ def idf_docker(root, verb='run', name=None):
 def ninja_in(backend, idf_mode, image, root, args, runner=None, container=None):
   """Runs ninja on `root` with the ninja that built it: the host's, or the IDF image's (whose build log and
   generator a host ninja would rewrite). Callers bind the build's own backend, mode and image. Unbound, the query
-  runs here in a session of its own, killed whole past NINJA_QUERY_TIMEOUT. A HIL caller supplies its tracked
-  `runner(cmd)`, which bounds the query itself and returns a CompletedProcess whose stdout is ninja's alone (its
-  stderr may go to the caller's log instead), and for an IDF docker query the container name it tracks."""
+  runs here, its process killed past NINJA_QUERY_TIMEOUT or on an interruption (only that process: `ninja -n` and
+  `-t commands` start nothing, though a docker client may), and it stays in this process group, so a kill of the
+  group reaches it too. A HIL caller supplies its tracked `runner(cmd)`, which bounds the query itself and returns
+  a CompletedProcess whose stdout is ninja's alone (its stderr may go to the caller's log instead), and for an IDF
+  docker query the container name it tracks."""
   cmd = ['ninja', '-C', str(root), *args]
   if backend == 'idf' and idf_mode == 'docker':
     if runner and not container:
@@ -748,21 +749,15 @@ def ninja_in(backend, idf_mode, image, root, args, runner=None, container=None):
     container = None
   if runner:
     return runner(cmd)
-  with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=ROOT,
-                        start_new_session=True) as p:
-    try:
-      out, err = p.communicate(timeout=NINJA_QUERY_TIMEOUT)
-    except BaseException as e:
-      with contextlib.suppress(ProcessLookupError):
-        os.killpg(p.pid, signal.SIGKILL)
-      p.wait()
-      left = container_left(container) if container else ''
-      if isinstance(e, subprocess.TimeoutExpired):
-        raise Fail(f'{root.name}: ninja {shlex.join(args)} timed out after {NINJA_QUERY_TIMEOUT}s{left}') from None
-      if left:
-        print(f'{root.name}: interrupted ninja {shlex.join(args)}{left}', file=sys.stderr)
-      raise
-  return subprocess.CompletedProcess(cmd, p.returncode, out, err)
+  try:
+    return subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT, timeout=NINJA_QUERY_TIMEOUT)
+  except BaseException as e:   # subprocess.run has killed the query
+    left = container_left(container) if container else ''
+    if isinstance(e, subprocess.TimeoutExpired):
+      raise Fail(f'{root.name}: ninja {shlex.join(args)} timed out after {NINJA_QUERY_TIMEOUT}s{left}') from None
+    if left:
+      print(f'{root.name}: interrupted ninja {shlex.join(args)}{left}', file=sys.stderr)
+    raise
 
 
 def container_left(name):
@@ -777,7 +772,10 @@ def container_left(name):
       if r.returncode:
         return f'; docker ps failed ({r.stderr.strip()[-200:]}), so container {name} may be left: docker rm -f {name}'
       now = time.monotonic()
-      absent_since = None if r.stdout.strip() else now if absent_since is None else absent_since
+      if r.stdout.strip():
+        absent_since = None
+      elif absent_since is None:
+        absent_since = now
       if absent_since is not None and now - absent_since >= CONTAINER_SETTLE:
         return ''
       if now > end:
