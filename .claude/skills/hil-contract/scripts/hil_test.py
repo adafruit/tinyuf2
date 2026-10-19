@@ -566,7 +566,7 @@ def make_uf2(img, base, family, workdir):
 # ------------------------------------------------------------------ processes
 
 CHILDREN = []
-CONTAINERS = []   # docker containers a flash started, by name: outside every child's session
+CONTAINERS = []   # docker containers a flash or a ninja query started, by name: outside every child's session
 REGISTERING = {'on': False, 'signum': None}
 
 
@@ -584,16 +584,18 @@ def registering():
       raise Interrupted(f'interrupted by {signal.Signals(signum).name}')
 
 
-def spawn(cmd, log, timeout, cwd=None):
+def spawn(cmd, log, timeout, cwd=None, stderr_to_log=False):
   """Run a child in its own process group with a bound; a child that survives SIGKILL (D state on a
   stuck USB device) is left in CHILDREN for cleanup to see. Children spawned during cleanup inherit its
-  blocked SIGTERM and SIGINT, so only SIGKILL (reap) may be relied on to end them."""
+  blocked SIGTERM and SIGINT, so only SIGKILL (reap) may be relied on to end them. With `stderr_to_log`, the
+  child's stderr goes to the log only and the output returned is its stdout."""
   with open(log, 'a') as f:
     f.write('$ ' + ' '.join(map(str, cmd)) + '\n')
     f.flush()
     with registering():
-      p = subprocess.Popen([str(c) for c in cmd], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                           errors='replace', start_new_session=True, cwd=cwd)
+      p = subprocess.Popen([str(c) for c in cmd], stdout=subprocess.PIPE,
+                           stderr=f if stderr_to_log else subprocess.STDOUT, text=True, errors='replace',
+                           start_new_session=True, cwd=cwd)
       CHILDREN.append(p)
     try:
       out, _ = p.communicate(timeout=timeout)
@@ -644,7 +646,11 @@ def proc_start(pid):
 
 
 def container_present(name):
-  r = subprocess.run(['docker', 'ps', '-aq', '-f', f'name=^{name}$'], capture_output=True, text=True, timeout=30)
+  """Whether docker lists `name`; a docker that fails, hangs or is missing is a step failure, not an answer."""
+  try:
+    r = subprocess.run(['docker', 'ps', '-aq', '-f', f'name=^{name}$'], capture_output=True, text=True, timeout=30)
+  except (OSError, subprocess.SubprocessError) as e:
+    raise StepFail(f'docker ps failed: {e}')
   if r.returncode:
     raise StepFail(f'docker ps failed: {r.stderr.strip()[-200:]}')
   return bool(r.stdout.strip())
@@ -664,9 +670,9 @@ def container_gone(name):
 
 
 def stuck_children():
-  """Processes of the children's sessions, and containers a flash created, that survived SIGKILL, identified so
-  a later recovery can tell they are still alive. The launchers go first, so no `docker` child can create or start
-  a container after its name is checked."""
+  """Processes of the children's sessions, and containers a flash or a ninja query created, that survived SIGKILL,
+  identified so a later recovery can tell they are still alive. The launchers go first, so no `docker` child can
+  create or start a container after its name is checked."""
   stuck = []
   for p in list(CHILDREN):
     for pid in reap(p):
@@ -689,22 +695,36 @@ def still_alive(survivors):
 
 
 def ninja_query(backend, idf_mode, image, board, log, root, args):
-  """Run a build-tree query as a bounded, tracked HIL child. An IDF query also has a board-specific name so
-  cleanup can remove a container that outlives its docker client."""
+  """Run a build-tree query as a bounded, tracked HIL child, its stderr in `log` only so check_build parses ninja's
+  stdout alone. An IDF query runs in container tinyuf2-hil-<board>-query, tracked until docker no longer lists it:
+  one left by an earlier query, or still listed after this one, fails the step and stays for cleanup; a timed-out
+  query's is removed here, before the caller's build lock is released."""
   name = f'tinyuf2-hil-{board}-query' if backend == 'idf' and idf_mode == 'docker' else None
   if name:
-    if container_present(name):
+    present = container_present(name)
+    if name not in CONTAINERS:
       CONTAINERS.append(name)
-      raise StepFail(f'container {name} from an earlier query still exists; cleanup will remove it before flashing')
-    CONTAINERS.append(name)
+    if present:
+      raise StepFail(f'container {name} from an earlier ninja query still exists; nothing was flashed, and cleanup '
+                     'removes the container')
 
   def run(cmd):
-    code, out = spawn(cmd, log, NINJA_QUERY_TIMEOUT, cwd=ROOT)
+    code, out = spawn(cmd, log, NINJA_QUERY_TIMEOUT, cwd=ROOT, stderr_to_log=True)
     return subprocess.CompletedProcess(cmd, code, out, '')
 
-  r = cb.ninja_in(backend, idf_mode, image, root, args, runner=run, container=name)
-  if name and container_gone(name):
-    CONTAINERS.remove(name)   # keep a survivor registered for cleanup and recovery
+  try:
+    r = cb.ninja_in(backend, idf_mode, image, root, args, runner=run, container=name)
+  except StepFail:   # spawn's timeout, the client's session reaped
+    left = name and not container_gone(name)
+    if name and not left:
+      CONTAINERS.remove(name)
+    raise StepFail(f'{root.name}: ninja query {" ".join(args)} timed out after {NINJA_QUERY_TIMEOUT}s' +
+                   (f'; container {name} is not confirmed gone' if left else '')) from None
+  if name:
+    if container_present(name):
+      raise StepFail(f'container {name} still exists after its ninja query; nothing was flashed, and cleanup '
+                     'removes the container')
+    CONTAINERS.remove(name)
   return r
 
 
@@ -2019,7 +2039,7 @@ class EspBattery(Battery):
     """The preserved regions' snapshot first, in a session of its own, which the report keeps however the run ends:
     a recovery's restore checks against it. A restore reuses the run's snapshot, or a recovery's. Then ESP-IDF's
     flash target in CI's image, given only the bridge's tty, in a container named for the board so a survivor is
-    found and ended by name (cleanup, recovery); then the runner's own read-back."""
+    found and ended by name (cleanup, recovery), as is its dry runs' (ninja_query); then the runner's own read-back."""
     tty = esp_port(self.b['probe'])   # no bridge fails here, untouched; any session may leave the chip in its ROM loader
     name = f'tinyuf2-hil-{self.b["name"]}'
     if container_present(name):
@@ -2319,6 +2339,9 @@ def clean_up(row, code, bat, fh, board, helper, files):
       if bat.fail_at == 'cleanup':
         raise StepFail('--fail-at cleanup: injected cleanup failure (acceptance only)')
       row['cleanup'] = dict(bat.restore(files, row['firmware']['version']), heldAfter=False)
+      stuck = stuck_children()   # the restore's own children and containers, before the lock is released
+      if stuck:
+        raise StepFail('the restore left children that survived SIGKILL')
     else:
       row['cleanup'] = {'pass': True, 'state': 'untouched', 'evidence': {}, 'heldAfter': False}
   except BaseException as e:
