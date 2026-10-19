@@ -92,7 +92,7 @@ ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')   # any CSI sequence: esptool 5.2.
 STLINK_DONE = {'-halt': 'Core halted', '-run': 'Core run', '-rst': 'Software reset is performed',
                '-coreReg': 'XPSR     = 0x', '-r32': 'Reading 32-bit memory content', '-w32': '32-bit data download complete',
                '-u': 'Data read successfully', '#Delay': 'The system go to sleep for'}
-CMAKE_RECORD_FILES = ('_bin/tinyuf2.bin', '_bin/apps/blinky.uf2')   # besides the flash target's inputs
+CMAKE_RECORD_FILES = ('_bin/tinyuf2.bin', '_bin/apps/blinky.uf2')   # besides the flash's inputs
 JLINK_ERRORS = (r'Verify failed|Could not|Cannot connect|ERROR|ResetTarget failed|Failed to halt|CPU is not halted|'
                 r'Failed to unlock|Can not attach')
 UDEV_RULES = ('/etc/udev/rules.d', '/run/udev/rules.d')
@@ -108,7 +108,7 @@ BENIGN = {'MIMXRT1062xxx6A': _RESET_VECTOR_NOTE, 'MIMXRT1011DAE5A': _RESET_VECTO
 # runner sessions connect as the core: J-Link's stm32f411ve connect resets the chip to unprotect it
 # (bench-history.md, stm32f411ve_discovery)
 SESSION_DEVICE = {'stm32f411ve': 'Cortex-M4'}
-# ms the install's verify session waits before its halt after the flash target's unlock, empirical
+# ms the install's verify session waits before its halt after the flash's unlock, empirical
 # (bench-history.md, stm32f411ve_discovery)
 INSTALL_SETTLE_MS = {'stm32f411ve': 1000}
 
@@ -1175,7 +1175,7 @@ def judge_esp_target(code, out, segments):
   wrote = sorted(int(a, 16) for a in re.findall(r'^Wrote \d+ bytes \(\d+ compressed\) at 0x([0-9a-f]{8}) in ', out, re.M))
   if code or wrote != sorted(off for off, _ in segments) or out.count('Hash of data verified.') != len(segments) or \
      'Hard resetting via RTS pin' not in out:
-    raise StepFail(f'the flash target failed (exit {code})', {'tail': out.strip().splitlines()[-5:]})
+    raise StepFail(f'the esptool flash failed (exit {code})', {'tail': out.strip().splitlines()[-5:]})
   return {'wrote': [hex(a) for a in wrote]}
 
 
@@ -1392,7 +1392,7 @@ def check_preserved(before, after, by):
 
 
 def esp_verify(tool, board, segments, workdir, snapshot):
-  """After the flash target: every segment read back byte for byte in one connection of the runner's, then one
+  """After the flash: every segment read back byte for byte in one connection of the runner's, then one
   reset. The preserved regions' MD5s must equal `snapshot`, taken before the install."""
   reads = [(off, path, workdir / f'readback-{off:x}.bin') for off, path in segments]
   keep = board['regions']['preserved']
@@ -2062,7 +2062,7 @@ def verify_record(record_path, board, facts, workdir):
       raise Refused(f'build inputs are not clean: {bad} (commit, or rebuild from a clean checkout)')
   root = cb.ROOT / row['buildDir']
   flash = admit_flash(record_path, row, root, board)
-  # the runner reads its own copies of the BIN, segments and blinky: the build dir's lock covers the flash target
+  # the runner reads its own copies of the BIN, segments and blinky: the build dir's lock covers the flash
   # only, and a rebuild may replace the dir after it
   copy = workdir / 'record'
   if want == 'idf':
@@ -2929,7 +2929,7 @@ def clean_up(row, code, bat, fh, board, helper, files):
       if bat.fail_at == 'cleanup':
         raise StepFail('--fail-at cleanup: injected cleanup failure (acceptance only)')
       row['cleanup'] = dict(bat.restore(files, row['firmware']['version']), heldAfter=False)
-      stuck = settle_children()   # the restore's own children and containers, before the lock is released
+      stuck = settle_children()   # the restore's own children, before the lock is released
       if stuck:
         raise StepFail('the restore left children that survived SIGKILL')
     else:

@@ -1060,7 +1060,7 @@ class EspFlash(EspFake):
         self.install()
 
   def test_a_failed_or_timed_out_flash_fails_touched_with_its_operation(self):
-    for what, result, err in (('exit 2', (2, 'A fatal error occurred: Failed to connect\n'), 'the flash target failed'),
+    for what, result, err in (('exit 2', (2, 'A fatal error occurred: Failed to connect\n'), 'the esptool flash failed'),
                               ('timeout', ht.SpawnTimeout('esptool timed out', 'Writing at 0x00000000', []),
                                f'esptool timed out after {ht.ESP_TIMEOUT}s')):
       def esptool(cmd, k):
@@ -1098,7 +1098,7 @@ class EspFlash(EspFake):
              ('a hash not verified', 0, out.replace('Hash of data verified.\n', '', 1)),
              ('no reset', 0, out.replace('Hard resetting via RTS pin...', '')), ('nothing', 0, ''))
     for what, code, text in cases:
-      with self.subTest(what), self.assertRaisesRegex(ht.StepFail, 'the flash target failed'):
+      with self.subTest(what), self.assertRaisesRegex(ht.StepFail, 'the esptool flash failed'):
         ht.judge_esp_target(code, text, self.segments)
 
   def admitted(self):
