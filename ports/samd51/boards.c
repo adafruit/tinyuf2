@@ -115,7 +115,7 @@ void board_init(void) {
   dwt_enable();
   bod33_init();
 
-  pin_output(NEOPIXEL_POWER_PORT, NEOPIXEL_POWER_PIN, true);
+  pin_output(NEOPIXEL_POWER_PORT, NEOPIXEL_POWER_PIN, NEOPIXEL_POWER_STATE);
   pin_output(NEOPIXEL_PORT, NEOPIXEL_PIN, false);
 
   PORT->Group[BUTTON_PORT].PINCFG[BUTTON_PIN].reg = PORT_PINCFG_INEN | PORT_PINCFG_PULLEN;

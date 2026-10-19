@@ -20,9 +20,10 @@
 #define NEOPIXEL_PORT       1
 #define NEOPIXEL_PIN        30
 
-// Neopixel supply enable, active high
-#define NEOPIXEL_POWER_PORT 2
-#define NEOPIXEL_POWER_PIN  14
+// Neopixel supply enable, STATE is the level that switches it on
+#define NEOPIXEL_POWER_PORT  2
+#define NEOPIXEL_POWER_PIN   14
+#define NEOPIXEL_POWER_STATE 1
 
 //--------------------------------------------------------------------+
 // Flash
