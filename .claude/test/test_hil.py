@@ -1296,10 +1296,10 @@ class RouteRoster(Tmp):
       with self.subTest(what), self.assertRaises(ht.Refused):
         ht.load_board(cfg, name)
 
-  def test_the_p4_roster_entry_is_a_pending_openocd_esp_route_of_its_board(self):
+  def test_the_p4_roster_entry_is_a_commissioned_openocd_esp_route_of_its_board(self):
     b = ht.load_board(ROOT / 'test/hil/local.json', 'espressif_p4_function_ev')
     self.assertEqual(b['routes'], {'openocd_esp': {'flasher': {'name': 'openocd_esp', 'uid': '30:ED:A0:E0:C9:02',
-                                                               'args': '-f board/esp32p4-builtin.cfg'}, 'pending': True}})
+                                                               'args': '-f board/esp32p4-builtin.cfg'}, 'pending': False}})
 
   def test_the_route_needs_the_verified_openocd_and_the_runners_esptool(self):
     b = ht.select_route(self.load(route_roster(self.tmp), S3), 'openocd_esp')
