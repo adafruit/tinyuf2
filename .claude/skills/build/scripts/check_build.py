@@ -28,6 +28,7 @@ import shutil
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -743,7 +744,7 @@ def ninja_in(backend, idf_mode, image, root, args, runner=None, container=None):
   if backend == 'idf' and idf_mode == 'docker':
     if runner and not container:
       raise Fail(f'{root.name}: a ninja query runner must name the container it tracks')
-    container = container or f'tinyuf2-query-{os.getpid()}'
+    container = container or f'tinyuf2-query-{os.getpid()}-{uuid.uuid4().hex}'
     cmd = idf_docker(root, name=container) + [image, *cmd]   # the entrypoint sources export.sh, then runs cmd
   else:
     container = None

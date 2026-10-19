@@ -882,12 +882,13 @@ class HilRecord(unittest.TestCase):
     self.assertEqual([pid for pid in self.hung() if alive(pid)], [])
 
   def test_a_timed_out_idf_query_removes_its_named_container_or_names_the_one_left(self):
-    root, name, bound = self.tmp / 'b', f'tinyuf2-query-{os.getpid()}', 0.5
+    root, name, bound = self.tmp / 'b', f'tinyuf2-query-{os.getpid()}-deadbeef', 0.5
     timed_out = re.escape(f'b: ninja -n -v timed out after {bound}s')
     cases = (('removed', {}, '$'), ('created after the kill', {'CREATE_AFTER': str(bound + 0.1)}, '$'),
              ('still listed', {'RM_EXIT': '1'}, re.escape(f'; container {name} still exists: docker rm -f {name}') + '$'))
     for what, env, tail in cases:
       with self.subTest(what), self.fake_tools(HANG='1', **env), mock.patch.object(cb, 'git', return_value=str(self.tmp)), \
+           mock.patch.object(cb.uuid, 'uuid4', return_value=mock.Mock(hex='deadbeef')), \
            mock.patch.object(cb, 'NINJA_QUERY_TIMEOUT', bound), mock.patch.object(cb, 'CONTAINER_SETTLE', 1), \
            mock.patch.object(cb, 'CONTAINER_GONE_WAIT', 3), self.assertRaisesRegex(cb.Fail, '^' + timed_out + tail):
         try:
@@ -907,12 +908,13 @@ class HilRecord(unittest.TestCase):
       calls.append(cmd)
       raise subprocess.TimeoutExpired(cmd, bound) if len(calls) == 1 else FileNotFoundError('docker')
     with mock.patch.object(cb, 'git', return_value=str(self.tmp)), mock.patch.object(cb, 'NINJA_QUERY_TIMEOUT', bound), \
+         mock.patch.object(cb.uuid, 'uuid4', return_value=mock.Mock(hex='deadbeef')), \
          mock.patch.object(cb.subprocess, 'run', no_docker), \
          self.assertRaisesRegex(cb.Fail, '^' + timed_out + re.escape(f'; docker failed (docker), so container {name} may be left')):
       cb.ninja_in('idf', 'docker', 'idf:image', root, ['-n', '-v'])
 
   def test_an_interrupted_idf_query_is_killed_and_its_container_removed_and_the_interruption_kept(self):
-    root, name, communicate = self.tmp / 'b', f'tinyuf2-query-{os.getpid()}', subprocess.Popen.communicate
+    root, name, communicate = self.tmp / 'b', f'tinyuf2-query-{os.getpid()}-deadbeef', subprocess.Popen.communicate
     for what, env, err in (('removed', {}, ''), ('still listed', {'RM_EXIT': '1'},
                                                  f'b: interrupted ninja -n -v; container {name} still exists: docker rm -f {name}\n')):
       interrupted = []
@@ -924,6 +926,7 @@ class HilRecord(unittest.TestCase):
         return communicate(p, *a, **k)
       stderr = io.StringIO()
       with self.subTest(what), self.fake_tools(HANG='1', **env), mock.patch.object(cb, 'git', return_value=str(self.tmp)), \
+           mock.patch.object(cb.uuid, 'uuid4', return_value=mock.Mock(hex='deadbeef')), \
            mock.patch.object(subprocess.Popen, 'communicate', ctrl_c), mock.patch.object(cb, 'CONTAINER_SETTLE', 0.2), \
            mock.patch.object(cb, 'CONTAINER_GONE_WAIT', 0.5), contextlib.redirect_stderr(stderr), \
            self.assertRaises(KeyboardInterrupt):
@@ -932,6 +935,16 @@ class HilRecord(unittest.TestCase):
       self.assertEqual((stderr.getvalue(), (self.tmp / 'container').exists()), (err, bool(env)))
       self.assertIn(['rm', '-f', name], self.tool_calls('docker'))
       self.assertFalse(alive(interrupted[0]))
+
+  def test_each_unbound_idf_query_gets_a_distinct_container_name(self):
+    root = self.tmp / 'b'
+    ids = [mock.Mock(hex='first'), mock.Mock(hex='second')]
+    with self.fake_tools(), mock.patch.object(cb, 'git', return_value=str(self.tmp)), \
+         mock.patch.object(cb.uuid, 'uuid4', side_effect=ids):
+      cb.ninja_in('idf', 'docker', 'idf:image', root, ['-n', '-v'])
+      cb.ninja_in('idf', 'docker', 'idf:image', root, ['-t', 'commands'])
+    names = [c[c.index('--name') + 1] for c in self.tool_calls('docker') if c[0] == 'run']
+    self.assertEqual(names, [f'tinyuf2-query-{os.getpid()}-first', f'tinyuf2-query-{os.getpid()}-second'])
 
   def test_a_runner_gets_the_docker_wrapped_query_and_must_name_its_container(self):
     root, calls = self.tmp / 'b', []
