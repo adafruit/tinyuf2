@@ -1374,7 +1374,7 @@ class JtagRoute(EspFake):
     for p in (mock.patch.dict(os.environ, {'HIL_OPENOCD_ESP': str(exe), 'FAKE_BANNER': AG.BANNER,
                                            'FAKE_EVENTS': str(self.flash) + '.sessions', 'FAKE_FLASH': str(self.flash),
                                            'FAKE_BANK_SIZE': hex(0x800000)}),
-              mock.patch.object(ht, 'OPENOCD_TIMEOUT', 3), mock.patch.object(ht, 'OPENOCD_BOOT_SETTLE', 0.2),
+              mock.patch.object(ht, 'OPENOCD_TIMEOUT', 3), mock.patch.object(ht, 'OPENOCD_BOOT_SETTLE', 0),
               mock.patch.object(ht.openocd_esp(), 'CLEANUP_TIMEOUT', 3)):
       p.start()
       self.addCleanup(p.stop)
@@ -1476,9 +1476,10 @@ class JtagRoute(EspFake):
     run, flash = ht.Esptool.run, ht.openocd_esp().flash_openocd_esp
     with mock.patch.object(ht.Esptool, 'run', lambda *a: (run(*a), ended.append(time.monotonic()))[0]), \
          mock.patch.object(ht.openocd_esp(), 'flash_openocd_esp',
-                           lambda *a, **k: (started.append(time.monotonic()), flash(*a, **k))[1]):
+                           lambda *a, **k: (started.append(time.monotonic()), flash(*a, **k))[1]), \
+         mock.patch.object(ht, 'OPENOCD_BOOT_SETTLE', 0.2):
       self.install()
-    self.assertGreaterEqual(started[0] - ended[0], ht.OPENOCD_BOOT_SETTLE)
+      self.assertGreaterEqual(started[0] - ended[0], ht.OPENOCD_BOOT_SETTLE)
 
   def test_a_ci_job_is_refused_before_the_security_and_snapshot_session(self):
     with mock.patch.dict(os.environ, {'GITHUB_ACTIONS': ''}), mock.patch.object(ht.Esptool, 'run') as run, \
@@ -2571,7 +2572,7 @@ class BuildLockLifetime(Tmp):
     self.assertEqual(([s['pid'] for s in kept['survivors']], kept['buildDir']), ([late.pid], 'build'))
     self.assertNotIn('inProcess', kept['keeper'])
     keeper = kept['keeper']['pid']
-    self.addCleanup(lambda: _kill(keeper))
+    self.addCleanup(lambda: end_child(keeper))
     with open(ht.cb.build_lock_file(self.root), 'a') as f, self.assertRaises(OSError):
       ht.fcntl.flock(f, ht.fcntl.LOCK_EX | ht.fcntl.LOCK_NB)   # the keeper holds it after this process let go
     ready, _, _ = select.select([self.contended.stdout], [], [], 0.3)
@@ -2589,7 +2590,7 @@ class BuildLockLifetime(Tmp):
          self.assertRaisesRegex(ht.StepFail, 'children survived SIGKILL') as cm:
       self.flash_with('pass')
     self.assertEqual((cm.exception.evidence['survivors'], self.bat.kept[0]['survivors']), (left, left))
-    self.addCleanup(lambda: _kill(self.bat.kept[0]['keeper']['pid']))
+    self.addCleanup(lambda: end_child(self.bat.kept[0]['keeper']['pid']))
     with open(ht.cb.build_lock_file(self.root), 'a') as f, self.assertRaises(OSError):
       ht.fcntl.flock(f, ht.fcntl.LOCK_EX | ht.fcntl.LOCK_NB)
 
@@ -2645,7 +2646,7 @@ class Locks(Tmp):
     fh = self.helper.acquire_board_lock(BOARD)
     with mock.patch.dict(os.environ, {ht.JOB_TRACKING: 'job-7'}):
       holder = ht.hand_off(fh, BOARD, 'cleanup failed', [{'pid': 99, 'start': 1, 'cmd': ['mcopy']}])
-    self.addCleanup(lambda: _kill(holder['pid']))
+    self.addCleanup(lambda: end_child(holder['pid']))
     self.assertTrue(holder['ready'])
     self.assertNotIn('inProcess', holder)
     # the holder is the re-executed `keep-held`, outside the Actions job's process tracking
@@ -2732,7 +2733,7 @@ class Locks(Tmp):
     fh = self.helper.acquire_board_lock(BOARD)
     with ht.signals(signal.SIG_BLOCK):   # cleanup blocks SIGTERM and SIGINT; the holder must not care
       holder = ht.hand_off(fh, BOARD, 'cleanup failed')
-    self.addCleanup(lambda: _kill(holder['pid']))
+    self.addCleanup(lambda: end_child(holder['pid']))
     os.kill(holder['pid'], signal.SIGUSR1)
     ht.wait_for(lambda: ht.flock_free(self.lock), 5, 'release')
 
@@ -2752,17 +2753,9 @@ class Locks(Tmp):
   def test_the_holder_keeps_none_of_the_callers_stdio(self):
     fh = self.helper.acquire_board_lock(BOARD)
     holder = ht.hand_off(fh, BOARD, 'x')
-    self.addCleanup(lambda: _kill(holder['pid']))
+    self.addCleanup(lambda: end_child(holder['pid']))
     ht.wait_for(lambda: not any(Path(f'/proc/{holder["pid"]}/fd/{std}').exists() for std in (0, 1, 2)), 5,
                 'the holder closing its stdio')
-
-
-def _kill(pid):
-  try:
-    os.kill(pid, signal.SIGKILL)
-    os.waitpid(pid, 0)
-  except (ProcessLookupError, ChildProcessError):
-    pass
 
 
 class RunBoard(Tmp):
@@ -3192,9 +3185,11 @@ class FakeRig:
 class BatteryRun(Tmp):
   """Battery.run end to end over a fake probe transcript and a fake drive: the plumbing, not the rig."""
 
-  def battery(self, reentry='retained-register', corrupt=None, commissioning=False):
+  def battery(self, reentry='retained-register', corrupt=None, commissioning=False, device=None):
     board = self.load(roster(self.tmp, tinyuf2={'reentry': reentry}))
     facts = ht.source_facts(board)
+    if device:
+      board['device'] = device
     bat = ht.Battery(board, facts, self.tmp, commissioning=commissioning)
     bootloader_bin(self.tmp / 'c.bin')
     rig = FakeRig(bat)
@@ -3228,16 +3223,12 @@ class BatteryRun(Tmp):
     return bat, rig
 
   def test_the_f411_install_verify_waits_out_the_option_byte_rewrite_before_its_halt(self):
-    bat, rig = self.battery()
-    bat.b['device'] = 'stm32f411ve'
-    bat.probe.__init__(bat.b, bat.probe.dir, bat.probe.log)
+    bat, rig = self.battery(device='stm32f411ve')
     bat.install(self.files)
     self.assertEqual(rig.scripts[1][:2], ['sleep 1000', 'h'])
 
   def test_the_install_is_the_providers_jlink_flash_of_the_record_hex_and_runs_no_ninja(self):
-    bat, rig = self.battery()
-    bat.b['device'] = 'stm32f411ve'   # the flash connects as the roster device; only sessions connect as the core
-    bat.probe.__init__(bat.b, bat.probe.dir, bat.probe.log)   # as built for that board
+    bat, rig = self.battery(device='stm32f411ve')   # the flash connects as the roster device; only sessions connect as the core
     calls, spawn = [], rig.spawn
     with mock.patch.object(ht, 'spawn', lambda cmd, *a, **k: calls.append((list(cmd), k.get('cwd'))) or spawn(cmd, *a, **k)):
       ev = bat.install(self.files)
@@ -3780,6 +3771,12 @@ class PendingMark(Tmp):
 
 
 class Main(Tmp):
+  def setUp(self):
+    super().setUp()
+    p = mock.patch.object(ht, 'probe_users', lambda b: [])   # not the host's J-Link tools
+    p.start()
+    self.addCleanup(p.stop)
+
   def test_manual_install_runs_the_record_and_brings_up_dfu_with_reentry_only_on_trial(self):
     for what, reentry, extra, want, calls in (
         ('uncommissioned', None, [], 0, [('install', None), ('dfu', 'v')]),
@@ -3790,7 +3787,6 @@ class Main(Tmp):
       with self.subTest(what), contextlib.redirect_stdout(io.StringIO()), \
            mock.patch.object(ht.cb, 'BUILD_DIR', Path(tempfile.mkdtemp(dir=self.tmp))), \
            mock.patch.object(ht, 'load_helper', lambda: None), mock.patch.object(ht, 'manual_holder', lambda *a: None), \
-           mock.patch.object(ht, 'probe_users', lambda b: []), \
            mock.patch.object(ht, 'admit_record', lambda *a: ({'bin': 'b'}, {'version': 'v'})), \
            mock.patch.object(ht.Battery, 'install', lambda bat, f: seen.append(('install', bat.b['reentry'])) or {}), \
            mock.patch.object(ht.Battery, 'dfu_after_install', lambda bat, v: seen.append(('dfu', v)) or {}):
@@ -3819,7 +3815,7 @@ class Main(Tmp):
       out = io.StringIO()
       with self.subTest(argv[0]), contextlib.redirect_stdout(out), \
            mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / argv[0]), mock.patch.object(ht, 'load_helper', lambda: None), \
-           mock.patch.object(ht, 'manual_holder', lambda *a: None), mock.patch.object(ht, 'probe_users', lambda b: []), \
+           mock.patch.object(ht, 'manual_holder', lambda *a: None), \
            mock.patch.object(ht, 'admit_record', lambda *a: (files, {'version': 'v'})), mock.patch.object(ht, 'spawn', spawn), \
            mock.patch.object(ht.Probe, 'run', lambda *a, **k: ''), \
            mock.patch.object(ht.Battery, 'dfu_after_install', lambda bat, v: {'usb': '1-2'}), \
@@ -3857,7 +3853,7 @@ class Main(Tmp):
     out = io.StringIO()
     with contextlib.redirect_stdout(out), mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / 'b'), \
          mock.patch.object(ht, 'load_helper', lambda: None), mock.patch.object(ht, 'manual_holder', lambda *a: None), \
-         mock.patch.object(ht, 'probe_users', lambda b: []), mock.patch.object(ht, 'write_mark', enospc), \
+         mock.patch.object(ht, 'write_mark', enospc), \
          mock.patch.object(ht, 'MARK_ERRORS', []), mock.patch.object(ht, 'outstanding_sessions', lambda d: left), \
          mock.patch.object(ht, 'admit_record', lambda *a: ({}, {'version': 'v'})), \
          mock.patch.object(ht.Battery, 'install', lambda bat, f: {}), \
@@ -3875,7 +3871,7 @@ class Main(Tmp):
         raise ht.StepFail('the J-Link flash failed (exit 1)')
       with self.subTest(touched), contextlib.redirect_stdout(io.StringIO()), \
            mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / f'i{want}'), mock.patch.object(ht, 'load_helper', lambda: None), \
-           mock.patch.object(ht, 'manual_holder', lambda *a: None), mock.patch.object(ht, 'probe_users', lambda b: []), \
+           mock.patch.object(ht, 'manual_holder', lambda *a: None), \
            mock.patch.object(ht, 'admit_record', lambda *a: ({}, {'version': 'v'})), mock.patch.object(ht.Battery, 'install', fail):
         self.assertEqual(ht.main(['install', '-b', BOARD, '--build-record', 'r.json', '--under-hold', 'x', str(cfg)]), want)
 
@@ -3887,7 +3883,7 @@ class Main(Tmp):
         raise ht.StepFail('the DFU device came back after the blinky copy')
       with self.subTest(touched), contextlib.redirect_stdout(io.StringIO()), \
            mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / str(want)), mock.patch.object(ht, 'load_helper', lambda: None), \
-           mock.patch.object(ht, 'manual_holder', lambda *a: None), mock.patch.object(ht, 'probe_users', lambda b: []), \
+           mock.patch.object(ht, 'manual_holder', lambda *a: None), \
            mock.patch.object(ht, 'admit_record', lambda *a: ({}, {'version': 'v'})), mock.patch.object(ht.Battery, 'restore', fail):
         self.assertEqual(ht.main(['restore', '-b', BOARD, '--build-record', 'r.json', '--under-hold', 'x', str(cfg)]), want)
 
@@ -3931,7 +3927,7 @@ class Main(Tmp):
            mock.patch.object(ht, 'load_helper', mock.Mock), \
            mock.patch.object(ht, 'admit_record', lambda *a: ({}, {'version': 'v'})), \
            mock.patch.object(ht, 'recovery_lock', lambda *a: mock.Mock()), mock.patch.object(ht, 'prove_hold', lambda *a, **k: {}), \
-           mock.patch.object(ht, 'probe_users', lambda b: []), mock.patch.object(ht.os, 'kill', lambda *a: None), \
+           mock.patch.object(ht.os, 'kill', lambda *a: None), \
            mock.patch.object(ht, 'wait_for', lambda *a: True), \
            mock.patch.object(ht.EspBattery, 'restore', lambda bat, f, v: seen.append(bat.preserved) or {'pass': True}):
         code = ht.main(['restore', '-b', S3, '--build-record', 'r.json', '--recover-holder', str(p.pid), '--report',

@@ -664,22 +664,17 @@ def spawn(cmd, log, timeout, cwd=None, stderr_to_log=False, env=None):
       out, _ = p.communicate(timeout=timeout)
     except subprocess.TimeoutExpired as e:
       left = reap(p)
-      partial = decoded(p, e.output)
+      partial = text(e.output, p.stdout.encoding)
       f.write(partial)
       raise SpawnTimeout(f'{Path(str(cmd[0])).name} timed out after {timeout}s', partial, left)
     except Interrupted as e:   # left for cleanup's reap; what communicate read so far is only in its own buffer
-      e.stdout = decoded(p, b''.join(getattr(p, '_fileobj2output', {}).get(p.stdout, [])))
+      e.stdout = text(b''.join(getattr(p, '_fileobj2output', {}).get(p.stdout, [])), p.stdout.encoding)
       f.write(e.stdout)
       raise
     f.write(out)
     if not session(p.pid):   # else a process it started lives on, tracked for cleanup's reap
       CHILDREN.remove(p)
     return p.returncode, out
-
-
-def decoded(p, out):
-  """A text-mode child's partial output, which communicate's timeout gives as bytes, in its stream's encoding."""
-  return text(out, p.stdout.encoding)
 
 
 def proc_stat(pid):
@@ -1782,13 +1777,12 @@ def check_lock_pin():
 
 
 def load_helper():
-  path = LOCK_HELPER
-  mod = load_pinned(path, 'hil_lock', (), 'lock helper')
+  mod = load_pinned(LOCK_HELPER, 'hil_lock', (), 'lock helper')
   lu = getattr(mod, 'LockUnavailable', None)
   if getattr(mod, 'PROTECTED_REASONS', None) != PROTECTED or getattr(mod, 'CI_REASON', None) != 'hil_test.py' or \
      getattr(mod, 'CLEANUP_ROLE', None) != HOLDER_ROLE or not (isinstance(lu, type) and issubclass(lu, RuntimeError)) \
      or not all(callable(getattr(mod, f, None)) for f in ('_open_dir', '_open_file', '_read_file')):
-    raise Refused(f'lock helper {path}: protected reasons are not {sorted(PROTECTED)}, its CI reason is not '
+    raise Refused(f'lock helper {LOCK_HELPER}: protected reasons are not {sorted(PROTECTED)}, its CI reason is not '
                   f"'hil_test.py', its cleanup role is not {HOLDER_ROLE!r}, it has no LockUnavailable or no checked file opens; "
                   'recheck this contract')
   return mod
