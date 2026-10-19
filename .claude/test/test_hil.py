@@ -3975,6 +3975,40 @@ class Main(Tmp):
                      (2, f'{BOARD}: another recovery holds x.lock.recover'))
     self.assertEqual(busy.call_count, 1)
 
+  def test_a_recovery_is_refused_while_a_session_of_the_failed_run_is_unresolved_without_a_pending_mark(self):
+    holder = self.tmp / 'hil_test.py'
+    holder.write_text('import time; time.sleep(30)')
+    p = subprocess.Popen([sys.executable, str(holder)])
+    self.addCleanup(lambda: (p.kill(), p.wait()))
+    end = time.monotonic() + 10
+    while b'hil_test.py' not in Path(f'/proc/{p.pid}/cmdline').read_bytes() and time.monotonic() < end:
+      time.sleep(0.01)
+    cfg = roster(self.tmp, tinyuf2={'reentry': None})
+    receipt = self.tmp / 'oocd' / 'receipt.json'
+    receipt.parent.mkdir()
+    receipt.write_text(json.dumps({'tool': 'hil_openocd_esp', 'closed': True, 'cleanup': 'pending'}))
+    report = self.tmp / 'failed.json'
+    report.write_text(json.dumps({'results': [{'board': BOARD, 'cleanup': {
+        'holder': {'pid': p.pid}, 'survivors': [{'cmd': 'openocd', 'receipt': str(receipt)}]}}]}))
+    mark = ht.PendingMark(None, ht.load_board(cfg, BOARD)['lock'])
+    for what, reviewed, want in (('unreviewed', False, 2), ('cleared after a reviewed recovery', True, 0)):
+      if reviewed:
+        ht.mark_pending(mark, [{'cmd': 'openocd', 'receipt': str(receipt)}])
+        ht.clear_pending_mark(mark, 'server ended by the reviewed recovery in #9', {})
+      self.assertFalse(Path(mark).exists())
+      killed, out = [], io.StringIO()
+      with self.subTest(what), contextlib.redirect_stdout(out), mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / str(want)), \
+           mock.patch.object(ht, 'load_helper', mock.Mock), mock.patch.object(ht, 'check_jlink', lambda: None), \
+           mock.patch.object(ht, 'admit_record', lambda *a: ({}, {'version': 'v'})), \
+           mock.patch.object(ht, 'recovery_lock', lambda *a: mock.Mock()), mock.patch.object(ht, 'prove_hold', lambda *a, **k: {}), \
+           mock.patch.object(ht.os, 'kill', lambda *a: killed.append(a)), mock.patch.object(ht, 'wait_for', lambda *a: True), \
+           mock.patch.object(ht.Battery, 'restore', lambda bat, f, v: {'pass': True}):
+        code = ht.main(['restore', '-b', BOARD, '--build-record', 'r.json', '--recover-holder', str(p.pid), '--report',
+                        str(report), str(cfg)])
+        self.assertEqual((code, killed), (want, [] if want else [(p.pid, signal.SIGUSR1)]))
+        if want:
+          self.assertIn(str(receipt), json.loads(out.getvalue().splitlines()[-1])['error'])
+
   def test_an_esptool_recovery_checks_the_snapshot_in_the_failed_report(self):
     holder = self.tmp / 'hil_test.py'
     holder.write_text('import time; time.sleep(30)')

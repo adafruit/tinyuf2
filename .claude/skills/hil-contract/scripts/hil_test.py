@@ -910,6 +910,23 @@ def clear_pending_mark(mark, note=None, hold=None):
     raise Refused(f'the pending mark {mark} could not be checked: {e}') from None
 
 
+def reviewed_receipts(mark):
+  """Every receipt a reviewed recovery's clear-pending recorded in <mark>.cleared.jsonl: the mark's sessions and the
+  survivors of the cleanup holder it proved."""
+  try:
+    with mark_locked(mark):
+      data = mark.helper._read_file(mark.lock, PENDING_MARK + CLEARED_LOG) or b''
+  except OSError as e:
+    raise Refused(f'the cleared log of {mark} could not be read: {e}') from None
+  found = []
+  for line in data.splitlines():
+    with contextlib.suppress(ValueError, TypeError, AttributeError):
+      x = json.loads(line)
+      found += [e['receipt'] for e in (x.get('sessions') or []) + ((x.get('hold') or {}).get('survivors') or [])
+                if isinstance(e, dict) and 'receipt' in e]
+  return found
+
+
 def refuse_pending(workdir, mark=None):
   left = outstanding_sessions(workdir)
   err = mark_pending(mark, left)
@@ -3099,7 +3116,15 @@ def main(argv=None):
           snapshot = report_snapshot(failed[0], board['regions']['preserved'])
         recovery = recovery_lock(helper, board['lock'])
         rec = prove_cleanup_holder(helper, board['lock'], args.recover_holder)
-        alive = still_alive(held[0].get('survivors', []) + rec.get('survivors', []))
+        survivors = held[0].get('survivors', []) + rec.get('survivors', [])
+        reviewed = reviewed_receipts(board['pendingMark'])
+        pending = [s['receipt'] for s in survivors
+                   if 'receipt' in s and session_state(s) != 'ended' and s['receipt'] not in reviewed]
+        if pending:   # the pending mark may be missing (markErrors); the report still names the sessions
+          raise Refused(f"the failed run's openocd_esp sessions {pending} are not ended: end each with "
+                        '`hil_openocd_esp.py end --receipt <receipt>`, or clear-pending after a separately reviewed '
+                        'recovery (SKILL.md Recovery)')
+        alive = still_alive(survivors)
         if alive:
           raise Refused(f'the failed run\'s children {alive} are still alive; recovery may not overlap them')
       else:
