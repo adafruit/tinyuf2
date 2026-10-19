@@ -2102,7 +2102,9 @@ class Locks(Tmp):
           self.helper.flock_nb(BOARD)
         rec = ht.prove_hold(self.helper, BOARD, parent, reason='hil_test.py', role=ht.HOLDER_ROLE)
         self.assertEqual(rec['detail'], 'cleanup failed')
-        ht.HELD_IN_PROCESS.pop().close()
+        held = ht.HELD_IN_PROCESS.pop()
+        self.helper.clear_record(held)   # a cleanup holder's record left on a free flock is a recovery blocker
+        held.close()
 
   def test_with_no_descriptor_left_the_runner_itself_holds_and_releases_only_on_sigusr1(self):
     script = textwrap.dedent(f'''
