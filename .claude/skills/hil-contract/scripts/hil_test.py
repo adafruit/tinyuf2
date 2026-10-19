@@ -697,8 +697,8 @@ def still_alive(survivors):
 def ninja_query(backend, idf_mode, image, board, log, root, args):
   """Run a build-tree query as a bounded, tracked HIL child, its stderr in `log` only so check_build parses ninja's
   stdout alone. An IDF query runs in container tinyuf2-hil-<board>-query, tracked until docker no longer lists it:
-  one left by an earlier query, or still listed after this one, fails the step and stays for cleanup; a timed-out
-  query's is removed here, before the caller's build lock is released."""
+  one left by an earlier query, or still listed after this one, fails the step and stays for cleanup; a timed-out or
+  interrupted query's is removed here, once its launcher is gone, before the caller's build lock is released."""
   name = f'tinyuf2-hil-{board}-query' if backend == 'idf' and idf_mode == 'docker' else None
   if name:
     present = container_present(name)
@@ -708,23 +708,36 @@ def ninja_query(backend, idf_mode, image, board, log, root, args):
       raise StepFail(f'container {name} from an earlier ninja query still exists; nothing was flashed, and cleanup '
                      'removes the container')
 
+  started = []
+
   def run(cmd):
+    started.append([str(c) for c in cmd])
     code, out = spawn(cmd, log, NINJA_QUERY_TIMEOUT, cwd=ROOT, stderr_to_log=True)
     return subprocess.CompletedProcess(cmd, code, out, '')
 
-  try:
-    r = cb.ninja_in(backend, idf_mode, image, root, args, runner=run, container=name)
-  except StepFail:   # spawn's timeout, the client's session reaped
-    left = name and not container_gone(name)
-    if name and not left:
+  def end_query():
+    """The query's launcher reaped, then its container removed; a launcher that outlives SIGKILL could still create
+    it, so then both stay for cleanup. True once no query container is tracked."""
+    survivors = [reap(p) for p in list(CHILDREN) if p.args in started]
+    if name in CONTAINERS and not any(survivors) and container_gone(name):
       CONTAINERS.remove(name)
-    raise StepFail(f'{root.name}: ninja query {" ".join(args)} timed out after {NINJA_QUERY_TIMEOUT}s' +
-                   (f'; container {name} is not confirmed gone' if left else '')) from None
-  if name:
-    if container_present(name):
-      raise StepFail(f'container {name} still exists after its ninja query; nothing was flashed, and cleanup '
-                     'removes the container')
-    CONTAINERS.remove(name)
+    return name not in CONTAINERS
+
+  try:
+    try:
+      r = cb.ninja_in(backend, idf_mode, image, root, args, runner=run, container=name)
+    except StepFail:   # spawn's timeout
+      left = not end_query()
+      raise StepFail(f'{root.name}: ninja query {" ".join(args)} timed out after {NINJA_QUERY_TIMEOUT}s' +
+                     (f'; container {name} is not confirmed gone' if left else '')) from None
+    if name:
+      if container_present(name):
+        raise StepFail(f'container {name} still exists after its ninja query; nothing was flashed, and cleanup '
+                       'removes the container')
+      CONTAINERS.remove(name)
+  except Interrupted:
+    end_query()
+    raise
   return r
 
 

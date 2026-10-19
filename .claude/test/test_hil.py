@@ -1030,6 +1030,29 @@ class EspFlash(EspFake):
       self.install()
     self.assertEqual((self.bat.touched, (self.tmp / 'flash.img.sessions').exists(), self.targets), (False, False, []))
 
+  def test_an_interrupted_dry_run_removes_its_container_under_the_build_lock(self):
+    files, removed = self.admitted(), []
+    root, run_flash = files['flash']['root'], self.docker
+
+    def docker(cmd):
+      if cmd[1] != 'run':
+        return run_flash(cmd)
+      raise ht.Interrupted('interrupted by SIGTERM')
+
+    def gone(name):
+      try:
+        with ht.cb.build_lock(root, wait=False):
+          removed.append((name, 'unlocked'))
+      except BlockingIOError:
+        removed.append((name, 'locked'))
+      return True
+    self.docker = docker
+    self.bat = ht.EspBattery(self.board, self.facts, self.work)
+    with mock.patch.object(ht.cb, 'flash_ready', FLASH_READY), mock.patch.object(ht, 'container_gone', gone), \
+         self.assertRaisesRegex(ht.Interrupted, 'SIGTERM'):
+      self.bat.install(files)
+    self.assertEqual((removed, ht.CONTAINERS), ([(f'tinyuf2-hil-{S3}-query', 'locked')], [f'tinyuf2-hil-{S3}']))
+
   def test_the_install_snapshot_round_trips_through_the_report(self):
     keep = self.board['regions']['preserved']
     md5 = ht.preserved_md5(keep, ht.Esptool(self.board, self.work, self.work / 'hil.log').run(ht.preserved_ops(keep), 'no-reset'))
@@ -1813,6 +1836,45 @@ class Spawn(Tmp):
         ht.ninja_query(backend, mode, 'idf:image', 'board', log, root, ['-n', '-v'])
       self.assertEqual(ht.CONTAINERS, tracked)
       ht.CONTAINERS.clear()
+
+  def test_an_interrupted_ninja_query_is_reaped_then_its_container_removed_unless_the_launcher_survives(self):
+    log, root, name = self.tmp / 'hil.log', self.tmp / 'build', 'tinyuf2-hil-board-query'
+    for backend, mode, survivors, order, tracked in (
+        ('cmake', None, [], ['reap'], []), ('idf', 'docker', [], ['reap', 'container'], []),
+        ('idf', 'docker', [99], ['reap'], [name])):   # a launcher alive after SIGKILL could still create it
+      events, launcher = [], mock.Mock()
+
+      def interrupted(cmd, *a, **k):   # as an Interrupted out of spawn's communicate leaves its child
+        launcher.args = [str(c) for c in cmd]
+        ht.CHILDREN.append(launcher)
+        raise ht.Interrupted('interrupted by SIGTERM')
+
+      def reap(p):
+        events.append('reap')
+        if not survivors:
+          ht.CHILDREN.remove(p)
+        return survivors
+      with self.subTest(backend=backend, survivors=survivors), mock.patch.object(ht, 'spawn', interrupted), \
+           mock.patch.object(ht, 'reap', reap), mock.patch.object(ht, 'container_present', lambda n: False), \
+           mock.patch.object(ht, 'container_gone', lambda n: events.append('container') or True), \
+           self.assertRaisesRegex(ht.Interrupted, 'SIGTERM'):
+        ht.ninja_query(backend, mode, 'idf:image', 'board', log, root, ['-n', '-v'])
+      self.assertEqual((events, ht.CONTAINERS, ht.CHILDREN), (order, tracked, [launcher] if survivors else []))
+      ht.CONTAINERS.clear()
+      ht.CHILDREN.clear()
+
+  def test_a_signal_during_a_ninja_query_ends_the_query_before_it_unwinds(self):
+    tools = self.tmp / 'bin'
+    tools.mkdir()
+    (tools / 'ninja').write_text(f'#!/bin/sh\necho $$ > {self.tmp / "pid"}\nexec sleep 30\n')
+    (tools / 'ninja').chmod(0o755)
+    timer = threading.Timer(1, os.kill, (os.getpid(), signal.SIGTERM))
+    self.addCleanup(timer.cancel)
+    timer.start()
+    with mock.patch.dict(os.environ, {'PATH': f'{tools}:{os.environ["PATH"]}'}), \
+         self.assertRaisesRegex(ht.Interrupted, 'SIGTERM'):
+      ht.ninja_query('cmake', None, None, 'board', self.tmp / 'hil.log', self.tmp / 'build', ['-n', '-v'])
+    self.assertEqual((ht.CHILDREN, ht.proc_stat(int((self.tmp / 'pid').read_text()))), ([], None))
 
   def test_a_docker_that_fails_hangs_or_is_missing_is_a_step_failure_when_listing_a_container(self):
     for what, run in (('exit 1', lambda cmd, **k: subprocess.CompletedProcess(cmd, 1, '', 'daemon down')),
