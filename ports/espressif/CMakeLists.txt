@@ -34,6 +34,9 @@ cmake_print_variables(GIT_VERSION GIT_SUBMODULE_VERSIONS)
 
 project(tinyuf2)
 
+# The post-build merge and self-update source need every flash image first.
+add_dependencies(app bootloader partition_table_bin blank_ota_data)
+
 # Create post-build script for combined.bin / combined-ota.bin
 file(WRITE ${CMAKE_BINARY_DIR}/tinyuf2.postbuild.sh
   "#!/bin/bash\n"

@@ -37,4 +37,7 @@ repos:
     entry: python3 -m unittest discover -s .claude/test -p 'test_*.py'
     language: system
     pass_filenames: false
-    files: ^(\.claude/|\.github/workflows/|ports/|test/hil/|tools/get_deps\.py$)
+    # a gitlink is tagged a directory, which the default types: [file] drops
+    files: ^(\.claude/|\.github/workflows/|ports/|test/hil/|tools/get_deps\.py$|lib/agentrc$)
+    types: []
+    types_or: [file, directory]
