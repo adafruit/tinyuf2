@@ -27,6 +27,7 @@ import select
 import shlex
 import shutil
 import signal
+import socket
 import struct
 import subprocess
 import sys
@@ -39,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True   # nothing the runner imports may write into a checkout it binds
 import check_build as cb  # noqa: E402
 import hil_esp as esp  # noqa: E402
+import hil_run_report as run_report  # noqa: E402
 
 # [floor, ceiling) the runner ever programs, per J-Link device, independent of roster and source:
 # LPC55S69 PFR starts at 0x9DE00 and a bad CMPA write can lock the part (UM11126 Table 173, Table 1064);
@@ -85,6 +87,7 @@ ESP_BAUD, ESP_TIMEOUT = 921600, 300
 # the provider's children an Espressif battery spawns, at the pin (agentrc `hil`); admission refuses without them
 ESP_SESSION = LOCK_HELPER.with_name('esptool_session.py')
 USB_DFU = LOCK_HELPER.with_name('usb_dfu.py')
+REPORT_CORE = LOCK_HELPER.with_name('hil_report_core.py')   # the report document (agentrc `hil` Reporting)
 NONCE_MAGIC, NONCE_BLOCK = b'TUF2NONC', 256   # apps/dfu_runtime/src/dfu_runtime.h
 JLINK_IF, JLINK_SPEED = 'SWD', '4000'
 STM32_PROGRAMMER_CLI = 'STM32_Programmer_CLI'
@@ -946,6 +949,8 @@ PROVIDER_API = ('flash_jlink', 'flash_stlink', 'run_jlink_commands', 'run_stlink
                 'sysresetreq_stlink', 'Operation', 'Attempt')
 OPENOCD = []    # and its openocd_esp module (openocd_esp())
 OPENOCD_API = ('admit', 'find_openocd', 'usj_location', 'flash_openocd_esp', 'ci_refusal')
+CORE = []       # and the report core (report_core())
+CORE_API = ('BodySchema', 'READABLE', 'ReportError', 'read_document', 'start_attempt', 'make_meta', 'publish', 'table')
 
 
 def load_pinned(path, name, api, what='flash provider'):
@@ -981,6 +986,13 @@ def openocd_esp():
   if not OPENOCD:
     OPENOCD.append(load_pinned(OPENOCD_ESP, 'agentrc_hil_openocd_esp', OPENOCD_API))
   return OPENOCD[0]
+
+
+def report_core():
+  """hil_report_core.py, once per process: every report this runner writes or a recovery reads goes through it."""
+  if not CORE:
+    CORE.append(load_pinned(REPORT_CORE, 'agentrc_hil_report_core', CORE_API, 'report core'))
+  return CORE[0]
 
 
 def command_argv(cmd):
@@ -1983,13 +1995,19 @@ def predecessor_evidence(pred, reported, reviewed):
   return survivors
 
 
-def failed_row(report, board, holder):
-  """The row of `report` (a failed run's hil_report.json) whose cleanup holder is pid `holder` on `board`."""
-  try:
-    rows = json.loads(Path(report).read_text())['results']
-  except (OSError, ValueError, KeyError, TypeError) as e:
-    raise Refused(f'cannot read {report}: {e}')
-  failed = [x for x in rows if isinstance(x, dict) and isinstance(x.get('cleanup'), dict) and
+def read_report(report):
+  """A failed run's hil_report.json, read through the report core before any recovery lock or probe: a legacy one
+  (no `_hil`) by this runner's adapter; a missing or corrupt one, or an unknown `_hil` or body version, is refused."""
+  core = report_core()
+  reading = core.read_document(report, run_report.schema(core))
+  if reading.outcome not in core.READABLE:
+    raise Refused(f'cannot read {report}: {reading.outcome}: {reading.detail}')
+  return reading.body
+
+
+def failed_row(body, report, board, holder):
+  """The row of `body` (read_report of `report`) whose cleanup holder is pid `holder` on `board`."""
+  failed = [x for x in body['results'] if isinstance(x.get('cleanup'), dict) and
             ((x['cleanup'].get('holder') or {}).get('pid') == holder and x.get('board') == board['name'])]
   if len(failed) != 1:
     raise Refused(f'{report} names no cleanup holder {holder} of {board["name"]}')
@@ -2821,6 +2839,7 @@ BATTERIES = {'jlink': Battery, 'stlink': StlinkBattery, 'esp': EspBattery}
 
 
 TERM_SIGNALS = {signal.SIGTERM, signal.SIGINT}
+INTERRUPTS = []   # every signal on_signal took: the run ended `aborted` (report `_hil.termination`)
 
 
 @contextlib.contextmanager
@@ -2835,6 +2854,7 @@ def signals(how):
 def on_signal(signum, _):
   # blocked again before raising: no later signal can break into the unwinding or the cleanup
   signal.pthread_sigmask(signal.SIG_BLOCK, TERM_SIGNALS)
+  INTERRUPTS.append(signum)
   if REGISTERING['on']:
     REGISTERING['signum'] = REGISTERING['signum'] or signum
     return
@@ -3137,6 +3157,35 @@ def settle_manual(result, bat, board, run_dir):
   result.update(bat.kept and {'buildLocksKept': bat.kept} or {})
 
 
+def build_provenance(result):
+  """The admitted record's firmware, as the report's rows name it, or {} when no row does: never filled in."""
+  for r in result['results']:
+    fw = r.get('firmware') or r.get('installed')
+    if isinstance(fw, dict):
+      return {k: fw[k] for k in ('buildRecord', 'path', 'sha256', 'version') if fw.get(k) is not None}
+  return {}
+
+
+def publish_report(result, run_dir, args, argv):
+  """`result` as the run dir's hil_report.json and .md through the report core (`hil` Reporting): `_hil` beside
+  the native fields, attempt id the run dir's own unique name. A failure never raises: it sets `reportError`, and
+  `reportPath` to None unless the JSON was written, for the stdout report and the holder that follow."""
+  try:
+    core = report_core()
+    schema = run_report.schema(core)
+    attempt = core.start_attempt(run_dir, schema, False, run_dir.name)
+    digest = sha256(args.config)
+    meta = core.make_meta(schema, attempt, termination='aborted' if INTERRUPTS else 'completed',
+                          invocation=['hil_test.py', *map(str, argv)], selection=[args.board], host=socket.gethostname(),
+                          roster={'path': str(args.config), **({'sha256': digest} if digest else {})},
+                          build=build_provenance(result) or None)
+    core.publish(run_dir, schema, result, meta)
+  except Exception as e:   # the run's own outcome, its stdout report and any hold stand whatever failed here
+    if result['reportPath'] not in getattr(e, 'published', ()):
+      result['reportPath'] = None
+    result['reportError'] = f'report not published: {type(e).__name__}: {e}'
+
+
 def main(argv=None):
   ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
   sub = ap.add_subparsers(dest='cmd', required=True)
@@ -3214,6 +3263,7 @@ def main(argv=None):
     keep_build(args.survivors)
   for sig in TERM_SIGNALS:
     signal.signal(sig, on_signal)
+  INTERRUPTS.clear()
   # absolute: a provider command file is written in it while the working directory is
   run_dir = ((getattr(args, 'run_root', None) or cb.BUILD_DIR / 'hil') /
              f'run-{time.strftime("%Y%m%d-%H%M%S")}-{os.getpid()}').resolve()
@@ -3255,7 +3305,7 @@ def main(argv=None):
           raise Refused('--try-reentry is for a restore under your own hold, not a recovery')
         if not args.report:
           raise Refused("--recover-holder needs --report, the failed run's report naming that holder")
-        failed = failed_row(args.report, board, args.recover_holder)
+        failed = failed_row(read_report(args.report), args.report, board, args.recover_holder)
         held = [failed['cleanup']]
         if board['kind'] == 'esp':
           snapshot = report_snapshot(failed, board['regions']['preserved'])
@@ -3275,13 +3325,14 @@ def main(argv=None):
       elif args.recover_takeover:
         if args.try_reentry:
           raise Refused('--try-reentry is for a restore under your own hold, not a recovery')
+        body = read_report(args.report) if args.report else None
         recovery = recovery_lock(helper, board['lock'])
         rec = takeover_predecessor(helper, board['lock'], args.recover_takeover)
         reported = []
         if rec.get('role') == HOLDER_ROLE:   # its run's report names it: that run's evidence, snapshot included
           if not args.report:
             raise Refused("a dead cleanup holder's recovery needs --report, the failed run's report naming it")
-          failed = failed_row(args.report, board, rec.get('pid'))
+          failed = failed_row(body, args.report, board, rec.get('pid'))
           reported = failed['cleanup'].get('survivors') or []
           if board['kind'] == 'esp':
             snapshot = report_snapshot(failed, board['regions']['preserved'])
@@ -3334,10 +3385,8 @@ def main(argv=None):
   if MARK_ERRORS:   # the board stays a blocker however the operation went: no later invocation sees its sessions
     result.update(markErrors=MARK_ERRORS[:], **{'pass': False})
     code = max(code, 4)
-  try:
-    Path(result['reportPath']).write_text(json.dumps(result, indent=1))
-  except OSError:
-    pass
+  result.update(exitCode=code, heldInProcess=bool(HELD_IN_PROCESS))
+  publish_report(result, run_dir, args, sys.argv[1:] if argv is None else argv)
   print(json.dumps(result), flush=True)
   if HELD_IN_PROCESS:
     keep_held(HELD_IN_PROCESS[0])

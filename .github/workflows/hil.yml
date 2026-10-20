@@ -93,10 +93,35 @@ jobs:
           python3 .claude/skills/hil-contract/scripts/hil_ci.py --board $BOARDS ${FAIL_AT:+--fail-at "$FAIL_AT"} \
             --roster test/hil/ci.json --out "$HIL_OUT"
 
+      # a report view hil_ci.py could neither check, replace nor remove (summary.json unsafeArtifacts) is never uploaded;
+      # without a readable summary hil_ci.py did not finish, so no view is trusted
+      - name: List the report views not to upload
+        id: unsafe
+        if: always()
+        run: |
+          python3 - <<'EOF'
+          import json, os
+          out = os.environ['HIL_OUT']
+          try:
+              paths = [p for r in json.load(open(os.path.join(out, 'summary.json')))['boards']
+                       for p in r.get('unsafeArtifacts', [])]
+          except (OSError, ValueError, KeyError, TypeError, AttributeError):
+              paths = None
+          # an exclusion is a glob: a path holding glob characters cannot be named literally
+          if paths is None or any(c in p for p in paths for c in '*?['):
+              paths = [os.path.join(out, '**', 'hil_report.md')]
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write('exclude<<EXCLUDE_EOF\n' + ''.join(f'!{p}\n' for p in paths) + 'EXCLUDE_EOF\n')
+          EOF
+
       - name: Upload the records, reports and logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: hil-ci-lan-${{ github.run_attempt }}
-          path: ${{ env.HIL_OUT }}
+          # the listing step failed: exclude every view rather than none
+          path: |
+            ${{ env.HIL_OUT }}
+            ${{ steps.unsafe.outputs.exclude }}
+            ${{ steps.unsafe.outcome != 'success' && format('!{0}/**/hil_report.md', env.HIL_OUT) || '' }}
           if-no-files-found: ignore

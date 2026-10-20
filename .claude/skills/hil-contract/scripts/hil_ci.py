@@ -10,7 +10,8 @@ record, each board's run directory (`hil_test.py run --run-root`: its report, hi
 `<board>.started` / `<board>.done` markers go there. A `.started` without its `.done` in any earlier run is a
 run that ended without a report or kept a cleanup holder (SKILL.md Recovery): that board is a blocker here
 until recovery removes the marker. Runs older than PRUNE_DAYS with every marker done are removed; one with a
-marker left is kept, whatever its age.
+marker left is kept, whatever its age. Each battery's report pair is prepared for the upload (prepare()), and
+summary.json carries the shared run rules' `sharedVerdict` beside each native `verdict`, which alone decides the exit.
 
 Exit 0: every board passed. 1: a board failed or was not run (held past `--lock-wait`, its build or admission
 refused). 2: a blocker (a run without a report, a failed cleanup, a cleanup holder, a dead battery's record or a
@@ -25,9 +26,18 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.dont_write_bytecode = True   # as hil_test.py: nothing CI imports writes into the checkout it builds
+import hil_run_report as run_report  # noqa: E402
+from hil_run_report import verdict  # noqa: E402   the report adapter's mapping (SKILL.md Verdicts)
+
 ROOT = Path(__file__).resolve().parents[4]
 CHECK_BUILD = ROOT / '.claude' / 'skills' / 'build' / 'scripts' / 'check_build.py'
 HIL_TEST = Path(__file__).resolve().with_name('hil_test.py')
+# the pinned report core, which every battery's own pin check covered in this checkout
+REPORT_CORE = ROOT / 'lib' / 'agentrc' / 'skills' / 'hil' / 'scripts' / 'hil_report_core.py'
+UNPREPARED = 'report not prepared'
+NOTICE = '**HIL report unavailable'   # the core's NOTICE, which this must write when the core itself failed
 STEPS = ('install', 'dfu', 'copy', 'app-ran', 'reenter', 'recopy', 'cleanup')   # hil_test.py --fail-at
 LOCK_WAIT = 600
 PRUNE_DAYS = 30
@@ -107,30 +117,44 @@ def battery(board, roster, record, where, lock_wait, fail_at=None):
   return code, report
 
 
-def verdict(code, report, board):
-  """The `hil` verdict of one run from the report's row (SKILL.md Verdicts): (verdict, detail)."""
-  if report is None:
-    return 'blocker', f'run ended without a report (exit {code})'
-  row = next((r for r in report.get('results', []) if r.get('board') == board), None)
-  if row is None:
-    return 'blocker', f'report has no row for {board} (exit {code}): {report.get("caveat") or report.get("error")}'
-  cleanup = row.get('cleanup') or {}
-  if code in (4, None) or row.get('ran') is None or cleanup.get('heldAfter'):
-    return 'blocker', f'cleanup failed or no report; board held: {row.get("detail")} {cleanup}'[:400]
-  if row.get('probeUsers') or row.get('recoveryBlocker') and not row.get('locked'):
-    return 'blocker', str(row.get('detail'))
-  if row.get('locked'):
-    return ('blocker' if row.get('recoveryBlocker') else 'not-run'), f'locked: {row.get("detail")}'
-  if not row.get('ran'):
-    return 'not-run', str(row.get('detail') or report.get('error'))
-  failed = next((s for s in row.get('steps', []) if not s.get('pass')), None)
-  if row.get('pass') and cleanup.get('pass'):
-    return 'pass', ''
-  if failed is None:
-    return 'blocker', f'aborted: {row.get("detail")}'
-  if cleanup.get('state') == 'untouched':
-    return 'not-run', f'{failed["step"]}: {failed.get("detail")} (nothing written)'
-  return 'fail', f'{failed["step"]}: {failed.get("detail")}'
+def prepare(code, where, board):
+  """Each run dir's report pair under `where` made consistent before the artifact exposes it (the core's
+  prepare_pair: the Markdown regenerated from the JSON, else an explicit unavailable notice, never a stale view), and
+  the shared run rules' verdict of its JSON (run_report.shared_run), kept beside the native one."""
+  try:
+    core = run_report.load_core(REPORT_CORE)
+    schema = run_report.schema(core)
+    readings = [core.prepare_pair(d, schema) for d in sorted(where.glob('run-*')) if d.is_dir()]
+    reading = readings[-1] if readings else core.Reading('missing', None, None, f'no run directory under {where}')
+    shared = run_report.shared_run(core, code, reading, [board])['rows'][0]
+    return {'sharedVerdict': shared['verdict'], 'sharedDetail': shared['detail']}
+  except Exception as e:   # the battery's exit, markers and any holder stand: only this board's shared view is lost
+    why = f'{UNPREPARED}: {type(e).__name__}: {e}'
+    unsafe = withhold(where, why)
+    return {'sharedVerdict': 'blocker', 'sharedDetail': why, **({'unsafeArtifacts': unsafe} if unsafe else {})}
+
+
+def withhold(where, why):
+  """Each run dir's Markdown under `where` replaced by an unavailable notice, the view the run left kept below it only
+  as labelled text, or removed when that cannot be written. Returns the views that could be neither, which the
+  workflow's upload excludes (summary.json `unsafeArtifacts`): an unchecked view never reaches the artifact."""
+  unsafe = []
+  for d in where.glob('run-*'):
+    md = d / 'hil_report.md'
+    try:
+      old = md.read_text(encoding='utf-8', errors='replace') if md.is_file() else ''
+      text = f'{NOTICE}: hil_report.json was not checked ({why}).** No verdict is read from this view.\n'
+      if old.strip():
+        text += '\n_Legacy text: the view the run left, never checked against its JSON._\n\n' + old
+      tmp = d / '.hil_report.md.withheld'
+      tmp.write_text(text, encoding='utf-8')
+      os.replace(tmp, md)
+    except OSError:
+      try:
+        md.unlink(missing_ok=True)
+      except OSError:
+        unsafe.append(str(md))
+  return unsafe
 
 
 def run_board(board, roster, out, state, lock_wait, fail_at=None):
@@ -146,12 +170,26 @@ def run_board(board, roster, out, state, lock_wait, fail_at=None):
   v, detail = verdict(code, report, board)
   if v != 'blocker':
     (out / f'{board}.done').touch()
-  return {'board': board, 'verdict': v, 'detail': detail, 'run': str(out / board)}
+  row = {'board': board, 'verdict': v, 'detail': detail, 'run': str(out / board)}
+  if (report or {}).get('reportError'):   # its run dir's report is missing or incomplete; stdout.txt keeps the JSON
+    row['reportError'] = report['reportError']
+  row.update(prepare(code, out / board, board))
+  return row
 
 
 def summary(rows, roster):
-  lines = [f'HIL on `{roster}`', '', '| board | verdict | detail |', '|---|---|---|']
-  lines += [f'| {r["board"]} | {r["verdict"]} | {r["detail"].replace("|", "/")} |' for r in rows]
+  """The rows as a table: the native verdict, which decides the exit, and the shared run rules' verdict where it
+  differs or the report could not be prepared."""
+  def cell(text):
+    return ' '.join(text.replace('|', '/').splitlines())
+
+  def shared(r):
+    if 'sharedVerdict' not in r or (r['sharedVerdict'] == r['verdict'] and not r['sharedDetail'].startswith(UNPREPARED)):
+      return ''
+    kept = f' (not uploaded: {", ".join(r["unsafeArtifacts"])})' if r.get('unsafeArtifacts') else ''
+    return cell(f'{r["sharedVerdict"]}: {r["sharedDetail"]}{kept}')
+  lines = [f'HIL on `{roster}`', '', '| board | native verdict | detail | shared run rules |', '|---|---|---|---|']
+  lines += [f'| {r["board"]} | {r["verdict"]} | {cell(r["detail"])} | {shared(r)} |' for r in rows]
   return '\n'.join(lines) + '\n'
 
 

@@ -3,6 +3,7 @@
 # The CI job's orchestration of the battery (hil_ci.py): record, one run per board, verdicts, markers, pruning
 # and the exit. check_build is stubbed; the battery is a stand-in script that prints a canned report into the run
 # root it is given, so the streaming, the run directory and the in-process holder path run for real.
+import contextlib
 import io
 import json
 import os
@@ -18,6 +19,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / '.claude' / 'skills' / 'hil-contract' / 'scripts'))
 import hil_ci  # noqa: E402
+import hil_run_report as run_report  # noqa: E402
 import hil_test as ht  # noqa: E402
 
 BOARD = 'imxrt1064_evk'
@@ -30,7 +32,12 @@ os.makedirs(run_dir)
 open(os.path.join(run_dir, "hil.log"), "w").write("log\\n")
 report = {"pass": one["row"].get("pass", False), "caveat": "", "results": [dict(board=sys.argv[sys.argv.index("-b") + 1], **one["row"])],
           "reportPath": os.path.join(run_dir, "hil_report.json")}
-open(report["reportPath"], "w").write(json.dumps(report))
+report.update(one.get("report", {}))
+doc = json.dumps(dict(report, _hil=one["meta"]) if "meta" in one else report)
+# a run interrupted between its JSON and Markdown replacement: the JSON cut short, or an earlier Markdown left
+open(report["reportPath"], "w").write(doc[:one["cut"]] if "cut" in one else doc)
+if "md" in one:
+    open(os.path.join(run_dir, "hil_report.md"), "w").write(one["md"])
 print("noise", " ".join(sys.argv[1:]))
 print(json.dumps(report), flush=True)
 if one.get("hang"):
@@ -38,6 +45,49 @@ if one.get("hang"):
     os.close(1); time.sleep(30)
 sys.exit(one.get("exit", 0 if report["pass"] else 1))
 '''
+
+
+# hil_ci.verdict() before it moved into the report adapter (tinyuf2 dbe43d3), over the report core's tinyuf2 inputs
+# (lib/agentrc tests/data/hil_report_core/inputs.json) and phase A's unfinished-attempt row: (exit, report, verdict)
+HELD_ROW = {'board': 'B', 'ran': True, 'pass': False, 'steps': [{'step': 'install', 'pass': True}]}
+GOLDEN = {
+  'no_report': (137, None, ('blocker', 'run ended without a report (exit 137)')),
+  'no_row': (1, {'results': [], 'error': 'boom'}, ('blocker', 'report has no row for B (exit 1): boom')),
+  'ran_none': (1, {'results': [{'board': 'B', 'ran': None, 'pass': False}]},
+               ('blocker', 'cleanup failed or no report; board held: None {}')),
+  'refused_before_hardware': (2, {'results': [{'board': 'B', 'ran': False, 'detail': 'no probe'}]}, ('not-run', 'no probe')),
+  'probe_users': (2, {'results': [{'board': 'B', 'ran': False, 'probeUsers': [5], 'detail': 'p'}]}, ('blocker', 'p')),
+  'untouched_failure': (1, {'results': [{'board': 'B', 'ran': True, 'pass': False,
+                                         'steps': [{'step': 'install', 'pass': False, 'detail': 'x'}],
+                                         'cleanup': {'pass': True, 'state': 'untouched'}}]},
+                        ('not-run', 'install: x (nothing written)')),
+  'abort_without_failed_step': (1, {'results': [{'board': 'B', 'ran': True, 'pass': False, 'steps': [],
+                                                 'cleanup': {'pass': True, 'state': 'untouched'}}]},
+                                ('blocker', 'aborted: None')),
+  'held_after_cleanup': (4, {'results': [dict(HELD_ROW, cleanup={'pass': False, 'state': 'blinky copied', 'heldAfter': True,
+                                                                 'holder': {'pid': 9}})]},
+                         ('blocker', "cleanup failed or no report; board held: None {'pass': False, 'state': 'blinky "
+                                     "copied', 'heldAfter': True, 'holder': {'pid': 9}}")),
+  'in_process_holder': (None, {'results': [dict(HELD_ROW, cleanup={'pass': False, 'heldAfter': True,
+                                                                   'holder': {'pid': 9, 'inProcess': True}})]},
+                        ('blocker', "cleanup failed or no report; board held: None {'pass': False, 'heldAfter': True, "
+                                    "'holder': {'pid': 9, 'inProcess': True}}")),
+  'locked': (1, {'results': [{'board': 'B', 'ran': False, 'pass': False, 'locked': True, 'recoveryBlocker': False,
+                              'detail': 'held by pid 7'}]}, ('not-run', 'locked: held by pid 7')),
+  'locked_recovery_blocker': (1, {'results': [{'board': 'B', 'ran': False, 'pass': False, 'locked': True,
+                                               'recoveryBlocker': True, 'detail': 'cleanup holder 8'}]},
+                              ('blocker', 'locked: cleanup holder 8')),
+  'pass': (0, {'results': [{'board': 'B', 'ran': True, 'pass': True, 'steps': [{'step': 'install', 'pass': True}],
+                            'cleanup': {'pass': True, 'state': 'blinky copied', 'heldAfter': False}}]}, ('pass', '')),
+  'fail_after_write': (1, {'results': [{'board': 'B', 'ran': True, 'pass': False,
+                                        'steps': [{'step': 'install', 'pass': True},
+                                                  {'step': 'copy', 'pass': False, 'detail': 'drive vanished'}],
+                                        'cleanup': {'pass': True, 'state': 'blinky copied', 'heldAfter': False}}]},
+                       ('fail', 'copy: drive vanished')),
+  'unfinished_attempt': (1, {'results': [{'board': 'B', 'ran': False, 'pass': False, 'locked': False, 'recoveryBlocker': True,
+                                          'unfinishedAttempts': ['r1'], 'detail': 'CI run r1 has no .done'}]},
+                         ('blocker', 'CI run r1 has no .done')),
+}
 
 
 def completed(stdout='', code=0, stderr=''):
@@ -140,6 +190,140 @@ class Stubbed(unittest.TestCase):
     self.assertLess(time.monotonic() - t0, 20)
     self.assertEqual(self.rows()[0]['verdict'], 'blocker')
     self.assertFalse((self.out / f'{BOARD}.done').exists())
+
+  def test_the_verdicts_are_the_report_adapters_and_unchanged(self):
+    self.assertIs(hil_ci.verdict, run_report.verdict)
+    for name, (code, report, want) in GOLDEN.items():
+      with self.subTest(name):
+        self.assertEqual(hil_ci.verdict(code, report, 'B'), want)
+
+  def test_a_report_the_battery_could_not_publish_is_named_in_the_summary(self):
+    ok = {'row': {'ran': True, 'pass': True, 'cleanup': {'pass': True, 'state': 'blinky copied'}},
+          'report': {'reportError': 'report not published: ReportError: replace: disk full'}}
+    self.assertEqual(self.main('--board', BOARD, battery=ok), 0)   # the run's own outcome stands
+    r = self.rows()[0]
+    self.assertEqual((r['verdict'], r['reportError']), ('pass', ok['report']['reportError']))
+
+  def meta(self, termination='completed'):
+    core = run_report.load_core(hil_ci.REPORT_CORE)
+    return core.make_meta(run_report.schema(core), core.Attempt('run-1', None, None, None, None), termination=termination,
+                          invocation=['hil_test.py', 'run'], selection=[BOARD], host='h', roster={'path': 'ci.json'})
+
+  def test_the_shared_run_rules_tighten_the_native_verdict_and_never_decide_the_exit(self):
+    passed = {'ran': True, 'pass': True, 'cleanup': {'pass': True, 'state': 'blinky copied'}}
+    waited = {'ran': False, 'pass': False, 'locked': True, 'recoveryBlocker': False,
+              'detail': 'board locked: pid 7; interrupted by SIGTERM while waiting for the lock'}
+    for what, battery, exit_, native, shared, why in (
+        ('a pass', {'row': passed, 'meta': self.meta()}, 0, 'pass', 'pass', ''),
+        ('a lock wait a signal aborted', {'row': waited, 'meta': self.meta('aborted')}, 1, 'not-run', 'blocker',
+         'run aborted'),
+        ('a pass under a run caveat', {'row': passed, 'report': {'caveat': 'probe firmware unverified'},
+                                       'meta': self.meta()}, 0, 'pass', 'blocker', 'run caveat denies a pass'),
+        ('a legacy report', {'row': passed}, 0, 'pass', 'pass', '')):
+      with self.subTest(what):
+        out = self.state / what.replace(' ', '-')
+        self.assertEqual(self.main('--board', BOARD, battery=battery, out=out), exit_)
+        r = self.rows(out)[0]
+        self.assertEqual((r['verdict'], r['sharedVerdict']), (native, shared))
+        self.assertIn(why, r['sharedDetail'])
+
+  def test_the_report_pair_is_prepared_before_the_upload_and_never_left_stale(self):
+    passed = {'ran': True, 'pass': True, 'cleanup': {'pass': True, 'state': 'blinky copied'}}
+    core = run_report.load_core(hil_ci.REPORT_CORE)
+    for what, battery, md_starts, shared in (
+        ('the Markdown never replaced', {'row': passed, 'meta': self.meta()}, 'HIL run: pass\n', 'pass'),
+        ('an earlier Markdown left', {'row': passed, 'meta': self.meta(), 'md': 'HIL run: fail\n'}, 'HIL run: pass\n',
+         'pass'),
+        ('the JSON cut short', {'row': passed, 'meta': self.meta(), 'cut': 40, 'md': 'HIL run: pass\n'}, core.NOTICE,
+         'blocker')):
+      with self.subTest(what):
+        out = self.state / what.replace(' ', '-')
+        self.assertEqual(self.main('--board', BOARD, battery=battery, out=out), 0)   # the battery's own exit stands
+        md = (out / BOARD / 'run-1' / 'hil_report.md').read_text(encoding='utf-8')
+        self.assertTrue(md.startswith(md_starts), md)
+        if 'md' in battery and 'cut' in battery:   # the earlier view is kept only as labelled legacy text
+          self.assertIn('_Legacy text:', md)
+        r = self.rows(out)[0]
+        self.assertEqual((r['verdict'], r['sharedVerdict']), ('pass', shared))
+        self.assertTrue((out / f'{BOARD}.done').exists())
+
+  def test_a_battery_that_left_no_run_dir_gets_a_blocker(self):
+    self.assertEqual(hil_ci.prepare(0, self.tmp / 'nowhere', BOARD)['sharedVerdict'], 'blocker')
+
+  def test_a_failed_preparation_withholds_the_runs_markdown_and_keeps_the_native_outcome(self):
+    core = run_report.load_core(hil_ci.REPORT_CORE)
+    self.assertEqual(hil_ci.NOTICE, core.NOTICE)
+    broken = run_report.load_core(hil_ci.REPORT_CORE)   # a module of its own, so the patch stays here
+
+    def boom(*a):
+      raise OSError(5, 'Input/output error')
+    broken.prepare_pair = boom
+    ok = {'row': {'ran': True, 'pass': True, 'cleanup': {'pass': True, 'state': 'blinky copied'}}, 'md': 'HIL run: pass\n'}
+    for what, failure, err in (
+        ('the core does not load', mock.patch.object(hil_ci, 'REPORT_CORE', self.tmp / 'missing.py'), 'missing.py'),
+        ('the preparation raises', mock.patch.object(hil_ci.run_report, 'load_core', lambda p: broken), 'Input/output')):
+      with self.subTest(what):
+        out = self.state / what.replace(' ', '-')
+        with failure:
+          self.assertEqual(self.main('--board', BOARD, battery=ok, out=out), 0)
+        r = self.rows(out)[0]
+        self.assertEqual((r['verdict'], r['sharedVerdict']), ('pass', 'blocker'))
+        self.assertIn('report not prepared', r['sharedDetail'])
+        self.assertIn(err, r['sharedDetail'])
+        self.assertTrue((out / f'{BOARD}.done').exists())
+        md = (out / BOARD / 'run-1' / 'hil_report.md').read_text(encoding='utf-8')
+        head, _, kept = md.partition('_Legacy text:')
+        self.assertTrue(head.startswith(core.NOTICE) and 'HIL run: pass' not in head, md)   # the pass view, unchecked,
+        self.assertIn('HIL run: pass', kept)                                                # only as labelled text
+
+  def test_a_view_that_can_be_neither_replaced_nor_removed_is_named_unsafe_for_the_upload(self):
+    ok = {'row': {'ran': True, 'pass': True, 'cleanup': {'pass': True, 'state': 'blinky copied'}}, 'md': 'HIL run: pass\n'}
+    write_text, unlink = Path.write_text, Path.unlink
+
+    def denied(real):
+      def op(path, *a, **k):
+        if path.name in ('hil_report.md', '.hil_report.md.withheld'):   # a run dir turned read-only
+          raise PermissionError(13, 'Permission denied', str(path))
+        return real(path, *a, **k)
+      return op
+    with mock.patch.object(hil_ci, 'REPORT_CORE', self.tmp / 'missing.py'), \
+         mock.patch.object(Path, 'write_text', denied(write_text)), mock.patch.object(Path, 'unlink', denied(unlink)):
+      self.assertEqual(self.main('--board', BOARD, battery=ok), 0)   # the battery's exit and markers stand
+    md = self.out / BOARD / 'run-1' / 'hil_report.md'
+    self.assertEqual(md.read_text(), 'HIL run: pass\n')
+    r = self.rows()[0]
+    self.assertEqual((r['verdict'], r['sharedVerdict'], r['unsafeArtifacts']), ('pass', 'blocker', [str(md)]))
+    self.assertTrue((self.out / f'{BOARD}.done').exists())
+    self.assertIn(f'(not uploaded: {md})', hil_ci.summary([r], 'ci.json'))
+
+  def test_the_summary_labels_the_native_verdict_and_shows_the_shared_one_where_it_differs(self):
+    passed = {'ran': True, 'pass': True, 'cleanup': {'pass': True, 'state': 'blinky copied'}}
+    step_summary = self.tmp / 'step-summary.md'
+    for what, battery, patch, shared in (
+        ('a pass', {'row': passed, 'meta': self.meta()}, contextlib.nullcontext(), ''),
+        ('a pass under a run caveat', {'row': passed, 'report': {'caveat': 'probe | unverified'}, 'meta': self.meta()},
+         contextlib.nullcontext(), 'blocker: run caveat denies a pass: probe / unverified'),
+        ('an unprepared report', {'row': passed}, mock.patch.object(hil_ci, 'REPORT_CORE', self.tmp / 'missing.py'),
+         'blocker: report not prepared')):
+      with self.subTest(what), patch, mock.patch.dict(os.environ, {'GITHUB_STEP_SUMMARY': str(step_summary)}):
+        step_summary.write_text('')
+        out = self.state / what.replace(' ', '-')
+        stdout = io.StringIO()
+        self.spec.write_text(json.dumps(battery))
+        with mock.patch.object(sys, 'stdout', stdout):
+          self.assertEqual(hil_ci.main(['--roster', 'ci.json', '--out', str(out), '--board', BOARD]), 0)
+        text = stdout.getvalue()
+        self.assertEqual(step_summary.read_text(), text)
+        self.assertIn('| board | native verdict | detail | shared run rules |', text)
+        line = text.splitlines()[-1]
+        self.assertTrue(line.startswith(f'| {BOARD} | pass |  | {shared}'), line)
+        if not shared:
+          self.assertTrue(line.endswith('|  |'), line)
+    blocked = {'board': BOARD, 'verdict': 'blocker', 'detail': 'held', 'sharedVerdict': 'blocker'}
+    lines = hil_ci.summary([dict(blocked, sharedDetail='run aborted: held'),
+                            dict(blocked, sharedDetail='report not prepared: OSError: x')], 'ci.json').splitlines()
+    self.assertEqual(lines[-2:], [f'| {BOARD} | blocker | held |  |',   # the same verdict: nothing more to show
+                                  f'| {BOARD} | blocker | held | blocker: report not prepared: OSError: x |'])
 
   def test_a_run_without_a_report_is_a_blocker(self):
     self.assertEqual(hil_ci.verdict(137, None, BOARD)[0], 'blocker')
@@ -290,6 +474,15 @@ class RealRunner(unittest.TestCase):
   def test_a_clean_exit_releases_the_protected_lock(self):
     self.assertEqual(self.main('pass', self.out, 0), 0)
     self.assertEqual(self.row(self.out)['verdict'], 'pass')
+    # the run dir's report pair, published through the pinned report core, gives the same verdict from the file alone
+    run_dir, = (self.out / LPC).glob('run-*')
+    with mock.patch.object(ht, 'check_lock_pin'):
+      core = ht.report_core()
+    reading = core.read_document(run_dir / 'hil_report.json', run_report.schema(core))
+    self.assertEqual((reading.outcome, reading.meta['attempt_id'], reading.body['exitCode']), ('valid', run_dir.name, 0))
+    self.assertEqual(run_report.verdict(run_report.exit_of(reading.body), reading.body, LPC), ('pass', ''))
+    self.assertTrue((run_dir / 'hil_report.md').read_text(encoding='utf-8').startswith('HIL run: pass\n'))
+    self.assertEqual(self.row(self.out)['sharedVerdict'], 'pass')
     self.assertTrue((self.out / f'{LPC}.done').exists())
     self.assertEqual(self.helper.record_state(LPC)[0], 'empty')
     self.helper.release_board_lock(self.helper.take_board_lock(LPC, 'next'))
@@ -308,6 +501,10 @@ class RealRunner(unittest.TestCase):
     self.assertEqual(row['verdict'], 'blocker')
     self.assertIn('without a report', row['detail'])
     self.assertFalse((self.out / f'{LPC}.done').exists())
+    run_dir, = (self.out / LPC).glob('run-*')   # the dead battery's dir uploads an explicit notice, no view
+    self.assertTrue((run_dir / 'hil_report.md').read_text(encoding='utf-8').startswith(
+      run_report.load_core(hil_ci.REPORT_CORE).NOTICE))
+    self.assertIn('report missing', row['sharedDetail'])
     rec = self.helper.read_record(LPC)
     self.assertTrue(self.helper.is_recovery_blocker(rec))   # the shared helper's view: every project refuses the board
     self.assertEqual((rec['reason'], rec['protected']), ('hil_test.py', True))

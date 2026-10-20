@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests of the HIL contract's runner. Stubs prove the plumbing only: every probe and USB path here is
 unverified until a real run on the rig (commissioning.md)."""
+import argparse
 import contextlib
 import importlib.metadata
 import importlib.util
@@ -11,6 +12,7 @@ import re
 import select
 import shutil
 import signal
+import socket
 import struct
 import subprocess
 import sys
@@ -29,9 +31,10 @@ sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location('hil_test', SCRIPT)
 ht = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ht)
-# lib/agentrc's flash provider, loaded once as main() loads it; its pin check is Roster's to test, against the real
-# checkout and a git hook's environment
+# lib/agentrc's report core and flash provider, loaded once as main() loads them; the pin check is Roster's to test,
+# against the real checkout and a git hook's environment
 with mock.patch.object(ht, 'check_lock_pin'), contextlib.suppress(ht.Refused):
+  ht.report_core()
   ht.provider()
   ht.openocd_esp()
 BOARD = 'lpcxpresso55s69'
@@ -4257,6 +4260,201 @@ class Main(Tmp):
     pin.assert_called_once_with()
     admit.assert_not_called()
     battery.assert_not_called()
+
+
+class RunReport(Tmp):
+  """The run dir's report through agentrc's report core: `_hil` beside the native fields, a Markdown view of the steps,
+  the runner's exit kept natively, and a publication failure that changes neither the stdout report nor the hold."""
+
+  FW = {'path': '/b/tinyuf2.bin', 'sha256': 'ab' * 32, 'buildRecord': 'r.json', 'defines': [], 'version': 'v'}
+  ROW = {'board': BOARD, 'lock': BOARD, 'ran': True, 'pass': True, 'locked': False, 'lockBypassed': False,
+         'steps': [{'step': 'install', 'pass': True, 'evidence': {}}], 'detail': '', 'firmware': FW,
+         'cleanup': {'pass': True, 'state': 'blinky copied', 'evidence': {}, 'heldAfter': False}}
+  HELD = {'pass': False, 'state': 'pending', 'evidence': {}, 'heldAfter': True, 'receipts': ['/r/receipt.json'],
+          'survivors': [{'cmd': 'openocd', 'receipt': '/r/receipt.json'}], 'holder': {'pid': 9, 'reason': 'hil_test.py'}}
+
+  def setUp(self):
+    super().setUp()
+    self.cfg = roster(self.tmp)
+    self.core = ht.report_core()
+    self.kept = []
+    for p in (mock.patch.object(ht, 'load_helper', lambda: None), mock.patch.object(ht, 'HELD_IN_PROCESS', []),
+              mock.patch.object(ht, 'keep_held', self.kept.append)):
+      p.start()
+      self.addCleanup(p.stop)
+
+  def run_main(self, row, code, in_process=False, cfg=None):
+    """main() over a battery that returns (row, code); `in_process` makes this process the cleanup holder."""
+    def run_board(args, board, facts, helper, workdir):
+      if in_process:
+        ht.HELD_IN_PROCESS.append('fh')
+      return json.loads(json.dumps(row)), code
+    ht.HELD_IN_PROCESS.clear()
+    root = Path(tempfile.mkdtemp(dir=self.tmp))
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out), mock.patch.object(ht, 'run_board', run_board):
+      got = ht.main(['run', '-b', BOARD, '--build-record', 'r.json', '--run-root', str(root), str(cfg or self.cfg)])
+    run_dir, = root.iterdir()
+    return got, json.loads(out.getvalue().splitlines()[-1]), run_dir
+
+  def test_the_report_carries_its_metadata_beside_the_native_fields_and_a_markdown_view(self):
+    code, out, run_dir = self.run_main(self.ROW, 0)
+    doc = json.loads((run_dir / 'hil_report.json').read_text())
+    meta = doc.pop('_hil')
+    self.assertEqual(code, 0)
+    self.assertEqual(doc, out)   # the stdout report is the file's native body
+    self.assertEqual((doc['exitCode'], doc['heldInProcess'], doc['reportPath']),
+                     (0, False, str(run_dir / 'hil_report.json')))
+    self.assertEqual({k: v for k, v in meta.items() if k != 'version'}, {
+      'body_schema': 'tinyuf2-hil-run', 'body_version': 1, 'attempt_id': run_dir.name, 'previous_attempt': None,
+      'termination': 'completed', 'selection': [BOARD], 'host': socket.gethostname(),
+      'invocation': ['hil_test.py', 'run', '-b', BOARD, '--build-record', 'r.json', '--run-root', str(run_dir.parent),
+                     str(self.cfg)],
+      'roster': {'path': str(self.cfg), 'sha256': ht.sha256(self.cfg)},
+      'build': {k: self.FW[k] for k in ('buildRecord', 'path', 'sha256', 'version')}})
+    self.assertEqual((run_dir / 'hil_report.md').read_text(encoding='utf-8'), ht.run_report.render(self.core, doc))
+
+  def test_a_refused_run_names_no_build_it_never_admitted(self):
+    cfg = roster(self.tmp, flasher={'name': 'jlink', 'uid': '1', 'args': '-device NOPE'})
+    code, out, run_dir = self.run_main(self.ROW, 0, cfg=cfg)
+    meta = json.loads((run_dir / 'hil_report.json').read_text())['_hil']
+    self.assertEqual((code, out['exitCode'], out['results'][0]['ran']), (2, 2, False))
+    self.assertNotIn('build', meta)
+    self.assertEqual(meta['termination'], 'completed')
+
+  def test_the_markdown_renders_each_boards_steps_and_cleanup(self):
+    body = {'pass': False, 'caveat': '', 'error': 'one board failed', 'reportPath': 'x', 'results': [
+      {'board': 'metro_m7_1011', 'steps': [{'step': 'install', 'pass': True}, {'step': 'copy', 'pass': False,
+                                                                               'detail': 'drive | vanished\nhere'}],
+       'cleanup': {'pass': True, 'state': 'blinky copied'}},
+      {'board': 'imxrt1064_evk', 'ran': False, 'locked': True, 'detail': 'held by pid 7', 'steps': []}]}
+    self.assertEqual(ht.run_report.render(self.core, body), textwrap.dedent('''\
+      HIL run: fail
+      Error: one board failed
+
+      ### metro_m7_1011
+
+      | Step    | Result | Detail                 |
+      | ------- | :----: | ---------------------- |
+      | install |   ✅   |                        |
+      | copy    |   ❌   | drive \\| vanished here |
+      | cleanup |   ✅   | blinky copied          |
+
+      ### imxrt1064_evk
+
+      held by pid 7
+
+      _No steps ran._
+      '''))
+
+  def test_the_runners_exit_survives_the_file_round_trip(self):
+    failed = dict(self.ROW, **{'pass': False, 'steps': [{'step': 'copy', 'pass': False, 'detail': 'drive vanished'}]})
+    for what, row, code, in_process, want in (
+        ('a pass', self.ROW, 0, False, 'pass'),
+        ('a fail', failed, 1, False, 'fail'),
+        ('a passing row whose run exits 4', self.ROW, 4, False, 'blocker'),   # e.g. a pending mark not written
+        ('an in-process holder', dict(failed, cleanup=dict(self.HELD, holder={'pid': 9, 'inProcess': True})), 4, True,
+         'blocker')):
+      with self.subTest(what):
+        got, out, run_dir = self.run_main(row, code, in_process)
+        body = ht.read_report(run_dir / 'hil_report.json')
+        seen = None if in_process else got   # hil_ci.launch gets no exit from a runner that stays the holder
+        self.assertEqual(ht.run_report.verdict(ht.run_report.exit_of(body), body, BOARD)[0], want)
+        self.assertEqual(ht.run_report.verdict(ht.run_report.exit_of(body), body, BOARD),
+                         ht.run_report.verdict(seen, out, BOARD))
+
+  def test_a_report_that_cannot_be_published_still_prints_and_keeps_the_hold(self):
+    def refuse(*a, **k):
+      raise self.core.ReportError('replace', 'No space left on device')
+    failures = (('the core refuses', lambda: mock.patch.object(self.core, 'publish', refuse), 'No space left'),
+                ('the core does not load', lambda: mock.patch.object(ht, 'report_core', mock.Mock(
+                  side_effect=ht.Refused('report core x failed to load'))), 'failed to load'))
+    for what, failure, err in failures:
+      for in_process in (True, False):
+        row = dict(self.ROW, **{'pass': False, 'cleanup': dict(self.HELD, holder=dict(self.HELD['holder'], **(
+          {'inProcess': True} if in_process else {})))})
+        self.kept.clear()
+        with self.subTest(what, in_process=in_process), failure():
+          code, out, run_dir = self.run_main(row, 4, in_process)
+          self.assertEqual((code, out['exitCode'], out['reportPath']), (4, 4, None))
+          self.assertIn(err, out['reportError'])
+          self.assertEqual(out['results'][0]['cleanup'], row['cleanup'])
+          self.assertEqual(self.kept, ['fh'] if in_process else [])   # the holder lifecycle runs after the report
+          self.assertEqual(sorted(p.name for p in run_dir.iterdir() if p.name.startswith('hil_report')), [])
+
+  def test_a_markdown_that_cannot_be_replaced_leaves_the_json_named_and_the_error_explicit(self):
+    real = os.replace
+
+    def replace(src, dst):
+      if str(dst).endswith('hil_report.md'):
+        raise OSError(28, 'No space left on device')
+      return real(src, dst)
+    with mock.patch.object(self.core.os, 'replace', replace):
+      code, out, run_dir = self.run_main(self.ROW, 0)
+    self.assertEqual((code, out['reportPath']), (0, str(run_dir / 'hil_report.json')))
+    self.assertIn('markdown', out['reportError'])
+    self.assertEqual(ht.read_report(out['reportPath'])['results'], out['results'])
+    self.assertFalse((run_dir / 'hil_report.md').exists())
+
+
+class ReportAdmission(Tmp):
+  """A recovery's --report goes through the report core's metadata and schema check before any recovery lock, then
+  this runner's own evidence checks."""
+
+  ROW = {'board': BOARD, 'ran': True, 'pass': False, 'steps': [],
+         'cleanup': {'holder': {'pid': 4242}, 'state': 'unknown', 'survivors': [], 'heldAfter': True}}
+
+  def meta(self, **over):
+    core = ht.report_core()
+    return dict(core.make_meta(ht.run_report.schema(core), core.Attempt('run-1', None, None, None, None),
+                               termination='completed', invocation=['hil_test.py', 'run'], selection=[BOARD], host='h',
+                               roster={'path': 'r.json'}), **over)
+
+  def test_an_unreadable_or_unsupported_report_is_refused_before_the_recovery_lock(self):
+    cfg = roster(self.tmp, tinyuf2={'reentry': None})
+    body = {'pass': False, 'caveat': '', 'results': [self.ROW], 'reportPath': 'x'}
+    cases = (('not JSON', '{', 'corrupt'),
+             ('a legacy report without results', {'pass': False}, 'corrupt'),
+             ('rows that are not objects', dict(body, results=['x']), 'corrupt'),
+             ('a _hil that is no object', dict(body, _hil='x'), 'corrupt'),
+             ('a _hil without its attempt id', dict(body, _hil={k: v for k, v in self.meta().items() if k != 'attempt_id'}),
+              'corrupt'),
+             ('an unknown _hil version', dict(body, _hil=self.meta(version=2)), 'unsupported'),
+             ('another body schema', dict(body, _hil=self.meta(body_schema='tinyusb-hil-report')), 'unsupported'),
+             ('an unknown body version', dict(body, _hil=self.meta(body_version=2)), 'unsupported'))
+    for flag, value in (('--recover-holder', '4242'), ('--recover-takeover', 'feedface')):
+      for what, doc, outcome in cases:
+        report = self.tmp / 'failed.json'
+        report.write_text(doc if isinstance(doc, str) else json.dumps(doc))
+        lock, out = mock.Mock(side_effect=AssertionError('recovery lock taken')), io.StringIO()
+        with self.subTest(what, flag=flag), contextlib.redirect_stdout(out), \
+             mock.patch.object(ht.cb, 'BUILD_DIR', Path(tempfile.mkdtemp(dir=self.tmp))), \
+             mock.patch.object(ht, 'load_helper', mock.Mock), mock.patch.object(ht, 'recovery_lock', lock), \
+             mock.patch.object(ht, 'admit_record', lambda *a: ({}, {'version': 'v'})), \
+             mock.patch.object(ht, 'prove_hold', side_effect=AssertionError('checked the holder')), \
+             mock.patch.object(ht, 'takeover_predecessor', side_effect=AssertionError('checked the takeover')), \
+             mock.patch.object(ht.Battery, 'restore', side_effect=AssertionError('probed')):
+          code = ht.main(['restore', '-b', BOARD, '--build-record', 'r.json', flag, value, '--report', str(report),
+                          str(cfg)])
+          self.assertEqual(code, 2)
+          self.assertTrue(json.loads(out.getvalue().splitlines()[-1])['error'].startswith(
+            f'cannot read {report}: {outcome}: '), out.getvalue())
+          lock.assert_not_called()
+
+  def test_a_legacy_report_and_one_this_runner_published_are_both_admitted(self):
+    cfg = roster(self.tmp)
+    legacy = {'pass': False, 'caveat': '', 'results': [self.ROW], 'reportPath': str(self.tmp / 'old' / 'hil_report.json'),
+              'error': 'cleanup failed'}
+    old = self.tmp / 'legacy.json'
+    old.write_text(json.dumps(legacy, indent=1))   # as every runner before `_hil` wrote it
+    run_dir = self.tmp / 'run-20261020-120000-7'
+    run_dir.mkdir()
+    published = dict(legacy, reportPath=str(run_dir / 'hil_report.json'), exitCode=4, heldInProcess=False)
+    ht.publish_report(published, run_dir, argparse.Namespace(config=cfg, board=BOARD), ['run', '-b', BOARD])
+    self.assertNotIn('reportError', published)
+    for report in (old, run_dir / 'hil_report.json'):
+      with self.subTest(report.name):
+        self.assertEqual(ht.failed_row(ht.read_report(report), report, {'name': BOARD}, 4242), self.ROW)
 
 
 H563 = {'port': 'stm32h5', 'name': 'stm32h563_nucleo', 'device': 'stm32h563zi', 'flasher': 'stlink'}
