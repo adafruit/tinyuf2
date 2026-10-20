@@ -252,8 +252,8 @@ static bool is_new_bootloader_valid(const uint8_t *bootloader_bin, uint32_t boot
     return false;
   }
 
-  // 2nd word is the reset handler, must be inside the bootloader
-  if (entry >= BOARD_FLASH_APP_START) {
+  // 2nd word is the reset handler, must be inside the bootloader and have the Thumb bit set
+  if (entry >= BOARD_FLASH_APP_START || (entry & 1u) == 0) {
     return false;
   }
 
