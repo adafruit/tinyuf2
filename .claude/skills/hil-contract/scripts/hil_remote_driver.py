@@ -2,13 +2,15 @@
 # SPDX-License-Identifier: MIT
 """The rig side of hil_remote.py (SKILL.md Execution, Remote): launched detached in its attempt directory by
 agentrc's remote core, it rebuilds the committed checkout from the staged git bundles, verifies it against the
-manifest, then per board builds the HIL record and runs one battery, and writes result.json, the attempt's outcome.
+manifest, then per board builds the HIL record and runs one battery as hil_ci.py does (its report pair prepared
+before the copy-back), and writes result.json, the attempt's outcome.
 
   python3 driver/hil_remote_driver.py manifest.json        (cwd: the attempt directory)
 
-Stdlib only until the checkout is rebuilt; from then on the checkout's own hil_ci.py (the build record, the battery
-launch) and hil_run_report.py (the verdict). The driver takes no board lock: each `hil_test.py run` locks its board
-itself, protected, and checks CI's state directory (`--ci-state-root`) once it holds the lock.
+Stdlib only until the checkout is rebuilt; from then on the checkout's own hil_ci.py (run_board(markers=False): CI's
+markers read, never written, the build record, the battery, the verdict and the report pair). The driver takes no
+board lock: each `hil_test.py run` locks its board itself, protected, and checks CI's state directory
+(`--ci-state-root`) once it holds the lock.
 
 Exit 0 every board passed, 1 a board failed or was not run, 2 a blocker, 3 refused before any build.
 """
@@ -158,31 +160,12 @@ def inventory(attempt, board):
 
 
 def run_board(hil_ci, board, m, attempt, ci_root, budget):
-  out = attempt / OUT
-  earlier = hil_ci.unfinished(ci_root, board)   # an optimisation only: the runner checks again under its lock
-  if earlier:
-    return {'board': board, 'phase': 'preflight', 'verdict': 'blocker', 'unfinishedAttempts': earlier,
-            'detail': f'CI run {", ".join(earlier)} under {ci_root} started a battery on {board} and has no .done: '
-                      'an unfinished attempt'}
-  record, ok, why = hil_ci.build_record(board, m['roster']['path'], out)
-  if not ok:
-    return {'board': board, 'phase': 'build', 'verdict': 'not-run', 'detail': why}
-  where = out / board
-  where.mkdir()
-  deadline = budget.setdefault('deadline', time.monotonic() + m['lockWait'])   # one lock wait from the first battery on
-  cmd = [sys.executable, hil_ci.HIL_TEST, 'run', '-b', board, '--build-record', record, '--run-root', where,
-         '--lock-wait', max(0, round(deadline - time.monotonic())), '--ci-state-root', ci_root,
-         *(('--fail-at', m['failAt']) if m.get('failAt') else ()), m['roster']['path']]
-  report, code, held = hil_ci.launch(cmd, where, board)
-  verdict, detail = hil_ci.verdict(code, report, board)
-  row = {'board': board, 'phase': 'battery', 'verdict': verdict, 'detail': detail, 'exit': code,
-         'heldInProcess': held, 'report': report is not None}
-  got = next((r for r in (report or {}).get('results', []) if r.get('board') == board), {})
-  holder = (got.get('cleanup') or {}).get('holder')
-  if holder:
-    row['holder'] = holder
-  if (report or {}).get('reportError'):
-    row['reportError'] = report['reportError']
+  def lock_wait():   # one budget for every battery, counted from the first one's start, after its build
+    deadline = budget.setdefault('deadline', time.monotonic() + m['lockWait'])
+    return max(0, round(deadline - time.monotonic()))
+  row = hil_ci.run_board(board, m['roster']['path'], attempt / OUT, ci_root, lock_wait, m['failAt'], markers=False)
+  if row.get('unsafeArtifacts'):   # attempt-relative, for the copy-back to withhold
+    row['unsafeArtifacts'] = [Path(p).relative_to(attempt).as_posix() for p in row['unsafeArtifacts']]
   return row
 
 
@@ -212,6 +195,7 @@ def drive(attempt, m, driver, result):
     row['artifacts'] = inventory(attempt, board)
     result['boards'].append(row)
     write_json(attempt / PROGRESS, result)
+  return hil_ci.run_report.fold_exit(r['verdict'] for r in result['boards'])
 
 
 def main(argv=None):
@@ -222,9 +206,7 @@ def main(argv=None):
   try:
     m = load_manifest(attempt / argv[0])
     result.update(runId=m['runId'], head=m['head'])
-    drive(attempt, m, driver, result)
-    verdicts = {r['verdict'] for r in result['boards']}
-    code = 2 if 'blocker' in verdicts else 1 if verdicts & {'fail', 'not-run'} else 0
+    code = drive(attempt, m, driver, result)
   except Refused as e:
     result['refused'] = str(e)
   except Exception as e:   # after the checkout: whatever ran is in boards[]; a board never reached is no pass

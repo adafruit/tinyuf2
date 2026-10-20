@@ -27,7 +27,6 @@ evidence incomplete); 6 an incomplete copy-back; 7 refused (nothing launched, un
 import argparse
 import contextlib
 import hashlib
-import importlib.util
 import json
 import os
 import re
@@ -43,6 +42,7 @@ sys.path.insert(0, str(HERE))
 sys.dont_write_bytecode = True
 import hil_ci  # noqa: E402   STEPS, the battery's --fail-at steps
 import hil_remote_driver as driver  # noqa: E402   the rig side's names: manifest schema, result, checkout, out
+import hil_run_report as run_report  # noqa: E402   the loader, the verdict fold
 
 ROOT = HERE.parents[3]
 AGENTRC = 'lib/agentrc'
@@ -55,7 +55,6 @@ HOSTS = {'ci.lan': {'hostname': 'ci', 'roster': 'test/hil/ci.json', 'base': '~/h
                     'ciStateRoot': '~/actions-runner-tinyuf2/_work/tinyuf2/hil-state'}}
 LOCK_WAIT_MAX = 3600
 INCOMPLETE, REFUSED = 6, 7
-SAFE_PART = re.compile(r'[A-Za-z0-9_.-]+')   # an inventory path's component, as the core's check_relative takes
 MANUAL = ('install', 'restore', 'clear-pending', 'fat-read', 'keep-held', 'keep-build')
 # hil_test.py's manual, recovery and commissioning options and the overrides a remote run never takes
 REFUSED_FLAGS = ('--under-hold', '--recover-holder', '--recover-takeover', '--report', '--try-reentry', '--route',
@@ -69,23 +68,12 @@ def fail(why):
   raise SystemExit(f'error: {why}') if core is None else core.RemoteError(why)
 
 
-# a git hook's GIT_DIR/GIT_INDEX_FILE would point every call at the superproject
-GIT_ENV = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
-
-
 def git(where, *argv, binary=False):
-  r = subprocess.run(['git', '-C', str(where), *argv], capture_output=True, text=not binary, env=GIT_ENV)
+  r = subprocess.run(['git', '-C', str(where), *argv], capture_output=True, text=not binary)
   if r.returncode:
     err = r.stderr.decode(errors='replace') if binary else r.stderr
     fail(f'git -C {where} {" ".join(argv)}: {err.strip()}')
   return r.stdout if binary else r.stdout.strip()
-
-
-def load_by_path(path, name):
-  spec = importlib.util.spec_from_file_location(name, path)
-  mod = importlib.util.module_from_spec(spec)
-  spec.loader.exec_module(mod)
-  return mod
 
 
 def load_core():
@@ -93,14 +81,17 @@ def load_core():
   path = HERE.parents[3] / AGENTRC / 'skills' / 'hil' / 'scripts' / 'hil_remote_core.py'
   if not path.is_file():
     fail(f'{path} is missing: git submodule update --init {AGENTRC}')
-  return load_by_path(path, 'tinyuf2_hil_remote_core')
+  return run_report.load(path, 'tinyuf2_hil_remote_core')
 
 
-def check_pin(top=HERE.parents[3]):
-  """Refuse unless lib/agentrc is clean at the commit HEAD pins: never an older provider."""
-  want, have = git(top, 'rev-parse', f'HEAD:{AGENTRC}'), git(top / AGENTRC, 'rev-parse', 'HEAD')
-  if want != have or git(top / AGENTRC, 'status', '--porcelain'):
-    fail(f'{AGENTRC} is at {have[:12]} or locally changed; HEAD pins {want[:12]}: git submodule update --init {AGENTRC}')
+def check_pin():
+  """Refuse unless lib/agentrc is its own checkout, clean at the commit HEAD pins (check_build's check): never
+  another provider."""
+  cb = check_build()
+  try:
+    cb.check_agentrc_pin()
+  except cb.Fail as e:
+    fail(str(e))
 
 
 POLL = None   # seconds between status polls, the core's own when None
@@ -121,7 +112,7 @@ def check_build():
   """The build contract's module, for the checkout identity its build records and the runner check."""
   global _cb
   if _cb is None:
-    _cb = load_by_path(CHECK_BUILD, 'tinyuf2_check_build')
+    _cb = run_report.load(CHECK_BUILD, 'tinyuf2_check_build')
   return _cb
 
 
@@ -238,9 +229,27 @@ def wait_for(tree, manifest, timeout=None):
     print(f'==> {manifest["runId"]} still running on {tree.host}', file=sys.stderr)
 
 
+def canonical(rel):
+  """Whether `rel` is a relative path the core's check_relative takes as it is spelt."""
+  try:
+    return isinstance(rel, str) and core.check_relative(rel, 'an inventory path') == rel
+  except core.RemoteError:
+    return False
+
+
+def unsafe_views(row, board):
+  """The board's report views the rig could neither prepare nor withhold (`unsafeArtifacts`), None when that list
+  names anything else."""
+  views = row.get('unsafeArtifacts', [])
+  view = re.compile(rf'{re.escape(driver.OUT)}/{re.escape(board)}/run-[^/]+/{run_report.STEM}\.md')
+  ok = isinstance(views, list) and all(canonical(v) and view.fullmatch(v) for v in views)
+  return views if ok else None
+
+
 def artifacts_missing(row, board, dest):
   """What the board's phase requires, and the rig's inventory of what it left, that did not come home. An inventory
-  path is checked to lie under the board's own out/ entries, never followed elsewhere."""
+  path is checked to lie under the board's own out/ entries, never followed elsewhere; an unsafe view is not
+  required (withhold_unsafe() removes it)."""
   need = {'build': [f'{driver.OUT}/{board}.build.json'],
           'battery': [f'{driver.OUT}/{board}.build.json', f'{driver.OUT}/{board}/stdout.txt',
                       f'{driver.OUT}/{board}/stderr.txt']}.get(row.get('phase'), [])
@@ -248,11 +257,14 @@ def artifacts_missing(row, board, dest):
   if not isinstance(listed, list):
     return ['(no artifact inventory)']
   own = (f'{driver.OUT}/{board}.build.json', f'{driver.OUT}/{board}/')
-  bad = [rel for rel in listed if not isinstance(rel, str) or not (rel == own[0] or rel.startswith(own[1])) or
-         not all(SAFE_PART.fullmatch(p) and p not in ('.', '..') for p in rel.split('/'))]
+  bad = [rel for rel in listed if not canonical(rel) or not (rel == own[0] or rel.startswith(own[1]))]
   if bad:
     return [f'(inventory entries outside {board}\'s artifacts: {bad[:3]!r})']
-  lost = [p for p in dict.fromkeys([*need, *listed]) if not (dest / p).is_file() or (dest / p).is_symlink()]
+  unsafe = unsafe_views(row, board)
+  if unsafe is None:
+    return [f'(unsafeArtifacts outside {board}\'s report views: {row.get("unsafeArtifacts")!r:.200})']
+  lost = [p for p in dict.fromkeys([*need, *listed])
+          if p not in unsafe and (not (dest / p).is_file() or (dest / p).is_symlink())]
   report_json = re.compile(rf'{re.escape(own[1])}run-[^/]+/hil_report\.json')
   if row.get('phase') == 'battery' and not any(report_json.fullmatch(p) for p in listed):
     lost.append(f'{own[1]}run-*/hil_report.json (never published{": " + row["reportError"] if row.get("reportError") else ""})')
@@ -269,16 +281,31 @@ def read_result(dest, run_id):
 
 
 def acceptance(tree, manifest):
-  """The core's completeness predicate over a collected tree: each board's required artifacts the copy-back lacks,
-  so a collection short of them is never final and a later collect fetches it again."""
+  """The core's completeness predicate over a collected tree, run under its collector lock before it publishes a
+  fetch and on a cached collection: the tree's unsafe views removed first (withhold_unsafe()), then each board's
+  required artifacts the copy-back lacks, so a collection short of them is never final and a later collect fetches
+  it again."""
   def missing(path):
     result = read_result(Path(path), manifest['runId'])
     if result is None:   # never a final collection: a later collect fetches it again
       return [f'{driver.RESULT} missing, unreadable or not run {manifest["runId"]}\'s']
     if result.get('refused'):
       return []
-    return [f'{r["board"]}: {m}' for r in board_rows(tree, manifest, Path(path), result) for m in r.get('missing', [])]
+    boards = board_rows(tree, manifest, Path(path), result)
+    withhold_unsafe(Path(path), boards)
+    return [f'{r["board"]}: {m}' for r in boards for m in r.get('missing', [])]
   return missing
+
+
+def withhold_unsafe(path, boards):
+  """Each view the rig could not check removed from a collected tree before it is published: never here as
+  evidence. A removal that fails refuses the publication, the cached collection kept as it was."""
+  for r in boards:
+    for rel in unsafe_views(r, r['board']) or []:
+      try:
+        (path / rel).unlink(missing_ok=True)
+      except OSError as e:
+        fail(f'cannot remove {rel}, a report view the rig could not check, from {path}: {e}')
 
 
 def board_rows(tree, manifest, dest, result):
@@ -292,7 +319,8 @@ def board_rows(tree, manifest, dest, result):
                      'detail': result.get('error') or 'no row in the result'})
       continue
     got = {k: row.get(k) for k in ('board', 'phase', 'verdict', 'detail', 'exit', 'heldInProcess', 'holder',
-                                   'reportError', 'unfinishedAttempts') if row.get(k) is not None}
+                                   'reportError', 'unfinishedAttempts', 'sharedVerdict', 'sharedDetail',
+                                   'unsafeArtifacts') if row.get(k) is not None}
     lost = artifacts_missing(row, b, dest)
     if lost:
       got.update(copyBack='incomplete', missing=lost)
@@ -329,12 +357,12 @@ def report(tree, manifest, collection):
     return finish(dest, {**out, 'outcome': 'refused', 'pass': False, 'detail': result['refused']}, REFUSED)
   boards = board_rows(tree, manifest, dest, result)
   verdicts = {r['verdict'] for r in boards}
-  ran = 2 if 'blocker' in verdicts else 1 if verdicts & {'fail', 'not-run'} else 0
+  ran = run_report.fold_exit(verdicts)
   # the driver's own failure, or an exit its rows do not explain, is never a success
   failed = bool(result.get('error')) or result.get('exit') != ran
   # a collection the predicate found short (acceptance()) keeps each board's verdict beside its missing evidence
   lost = collection['state'] != 'complete' or any(r.get('copyBack') for r in boards) or 'incomplete' in verdicts
-  code = 2 if 'blocker' in verdicts or failed else INCOMPLETE if lost else 1 if verdicts & {'fail', 'not-run'} else 0
+  code = 2 if ran == 2 or failed else INCOMPLETE if lost else ran
   outcome = {0: 'pass', 1: 'fail', 2: 'blocker', INCOMPLETE: 'incomplete'}[code]
   return finish(dest, {**out, 'outcome': outcome, 'pass': code == 0, 'boards': boards,
                        **({'driverFailure': result.get('error') or f'the driver exited {result.get("exit")!r}'}
@@ -419,7 +447,8 @@ def after_launch(tree, manifest, op):
 
 @contextlib.contextmanager
 def without_git_overrides():
-  """A hook's GIT_DIR or GIT_WORK_TREE would aim check_build's git at another repository."""
+  """A hook's GIT_DIR, GIT_WORK_TREE or GIT_INDEX_FILE would aim every git call, check_build's included, at another
+  repository: none reaches them, and the caller's are restored."""
   saved = {k: os.environ.pop(k) for k in [k for k in os.environ if k.startswith('GIT_')]}
   try:
     yield
@@ -427,6 +456,7 @@ def without_git_overrides():
     os.environ.update(saved)
 
 
+@without_git_overrides()
 def main(argv=None):
   argv = sys.argv[1:] if argv is None else argv
   try:
@@ -453,8 +483,7 @@ def main(argv=None):
     refuse_unsupported(argv)
     args = ap.parse_args(argv)
     if args.cmd == 'run':
-      with without_git_overrides():
-        return run(args)
+      return run(args)
     tree, manifest = core.load_attempt(ROOT, ROOT / RUNS, args.run_id), load_manifest(args.run_id)
     if args.cmd == 'wait':
       return after_launch(tree, manifest, lambda: wait_for(tree, manifest, args.timeout))

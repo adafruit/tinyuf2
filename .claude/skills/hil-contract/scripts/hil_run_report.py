@@ -2,7 +2,8 @@
 """tinyuf2's run report as agentrc's report core (`hil` Reporting) reads and writes it: the body schema, its Markdown
 view of the steps, the native `hil` verdict of a board's row (SKILL.md Results, Verdicts) and its rows normalised for
 the core's shared run rules. The core module is passed in: hil_test.py loads it through its pin check, hil_ci.py by
-load_core() from the checkout whose pin its batteries checked; verdict() needs no core."""
+load() after the same check (check_build.check_agentrc_pin); verdict() needs no core. Stdlib and portable: hil_remote.py
+imports it on any client."""
 import importlib.util
 
 NAME, VERSION, STEM = 'tinyuf2-hil-run', 1, 'hil_report'
@@ -59,12 +60,23 @@ def exit_of(body):
   return body['exitCode']
 
 
+def row_of(report, board):
+  """`board`'s row of a runner report, None when it has none or there is no report."""
+  return next((r for r in (report or {}).get('results', []) if r.get('board') == board), None)
+
+
+def fold_exit(verdicts):
+  """The one exit of a set of `hil` verdicts (SKILL.md Verdicts): 2 a blocker, 1 a fail or not-run, else 0."""
+  verdicts = set(verdicts)
+  return 2 if 'blocker' in verdicts else 1 if verdicts & {'fail', 'not-run'} else 0
+
+
 def verdict(code, report, board):
   """The `hil` verdict of one run from the report's row (SKILL.md Verdicts): (verdict, detail). `code` is the runner's
   exit, None for a runner that stayed the in-process cleanup holder."""
   if report is None:
     return 'blocker', f'run ended without a report (exit {code})'
-  row = next((r for r in report.get('results', []) if r.get('board') == board), None)
+  row = row_of(report, board)
   if row is None:
     return 'blocker', f'report has no row for {board} (exit {code}): {report.get("caveat") or report.get("error")}'
   cleanup = row.get('cleanup') or {}
@@ -86,11 +98,12 @@ def verdict(code, report, board):
   return 'fail', f'{failed["step"]}: {failed.get("detail")}'
 
 
-def load_core(path):
-  """The report core module at `path`, loaded by path, never an installed agentrc's."""
-  spec = importlib.util.spec_from_file_location('agentrc_hil_report_core', path)
+def load(path, name='agentrc_hil_report_core'):
+  """The module at `path` as `name`, loaded by path, never an installed one: every tinyuf2 script's loader of
+  lib/agentrc code (after its pin check, check_build.check_agentrc_pin) and of check_build.py."""
+  spec = importlib.util.spec_from_file_location(name, path)
   if spec is None:
-    raise ImportError(f'report core {path} not found')
+    raise ImportError(f'{path} not found')
   mod = importlib.util.module_from_spec(spec)
   spec.loader.exec_module(mod)
   return mod

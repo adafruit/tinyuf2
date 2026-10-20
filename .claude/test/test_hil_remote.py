@@ -63,25 +63,34 @@ ROSTER = {'boards': [
   {'name': ESP, 'uid': 'MAC', 'flasher': {'name': 'esptool', 'uid': 'X', 'args': '--chip esp32s3'},
    'tinyuf2': {'reentry': 'dfu-detach'}}]}
 
-# the build contract on the rig: a record of the board, ok unless FAKE_BUILD=fail, and its build dir's log
+# the build contract on the rig: run, a record of the board, ok unless FAKE_BUILD=fail, and its build dir's log;
+# loaded, the real check_build's lib/agentrc pin check (FAKE_CHECK_BUILD) over this checkout
 CHECK_BUILD = r'''
-import json, os, sys
+import importlib.util, json, os, sys
 from pathlib import Path
-board = sys.argv[sys.argv.index('--board') + 1]
-ok = os.environ.get('FAKE_BUILD', 'ok') == 'ok'
-d = Path('cmake-build') / f'cmake-build-{board}'
-d.mkdir(parents=True, exist_ok=True)
-(d / 'check_build.log').write_text('the build log\n')
-print(json.dumps({'pass': ok, 'boards': [{'board': board, 'status': 'ok' if ok else 'failed',
-                                          'firstError': '' if ok else 'boom', 'buildDir': str(d)}]}))
-sys.exit(0 if ok else 1)
+spec = importlib.util.spec_from_file_location('real_check_build', os.environ['FAKE_CHECK_BUILD'])
+real = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(real)
+real.ROOT = Path(__file__).resolve().parents[4]
+Fail, check_agentrc_pin = real.Fail, real.check_agentrc_pin
+if __name__ == '__main__':
+  board = sys.argv[sys.argv.index('--board') + 1]
+  ok = os.environ.get('FAKE_BUILD', 'ok') == 'ok'
+  d = Path('cmake-build') / f'cmake-build-{board}'
+  d.mkdir(parents=True, exist_ok=True)
+  (d / 'check_build.log').write_text('the build log\n')
+  print(json.dumps({'pass': ok, 'boards': [{'board': board, 'status': 'ok' if ok else 'failed',
+                                            'firstError': '' if ok else 'boom', 'buildDir': str(d)}]}))
+  sys.exit(0 if ok else 1)
 '''
 
 # `hil_test.py run` on the rig. It appends its argv and HIL_* environment to FAKE_ARGV, then either runs the real runner (from
 # FAKE_REAL_RUNNER, its lock in FAKE_LOCKS, admission and the probe steps stubbed; FAKE_BATTERY=die leaves the battery
 # to be killed, FAKE_CI_RACE starts a CI battery's marker just before the lock is taken) or prints a canned report:
 # FAKE_BATTERY pass, fail (after a write), die (no report), holder (stays the in-process cleanup holder) or unpublished
-# (a pass whose report the core could not publish: reportPath null, reportError).
+# (a pass whose report the core could not publish: reportPath null, reportError). Before its report it sleeps
+# FAKE_SLEEP s (only on board FAKE_SLEEP_BOARD when set) and waits up to 30 s for the file FAKE_GATE; FAKE_MD is a
+# Markdown view left beside the JSON, and FAKE_READONLY leaves the run dir read-only.
 HIL_TEST = r'''
 import json, os, sys, time
 from pathlib import Path
@@ -127,7 +136,11 @@ board = argv[argv.index('-b') + 1]
 run_dir = Path(argv[argv.index('--run-root') + 1]) / f'run-20261020-000000-{os.getpid()}'
 run_dir.mkdir(parents=True)
 (run_dir / 'hil.log').write_text('log\n')
-time.sleep(float(os.environ.get('FAKE_SLEEP', '0')))
+if os.environ.get('FAKE_SLEEP_BOARD', board) == board:
+  time.sleep(float(os.environ.get('FAKE_SLEEP', '0')))
+gate, end = os.environ.get('FAKE_GATE'), time.monotonic() + 30
+while gate and not os.path.exists(gate) and time.monotonic() < end:
+  time.sleep(0.02)
 if mode == 'die':
   sys.exit(137)
 steps = [{'step': 'install', 'pass': True}, {'step': 'dfu', 'pass': mode != 'fail', 'detail': 'no DFU'}]
@@ -143,6 +156,10 @@ if mode == 'unpublished':
   report.update(reportPath=None, reportError='report not published: OSError: disk full')
 else:
   (run_dir / 'hil_report.json').write_text(json.dumps(report))
+if os.environ.get('FAKE_MD'):
+  (run_dir / 'hil_report.md').write_text(os.environ['FAKE_MD'])
+if os.environ.get('FAKE_READONLY'):
+  run_dir.chmod(0o555)
 print('noise')
 print(json.dumps(report), flush=True)
 if mode == 'holder':
@@ -216,7 +233,8 @@ class Project(unittest.TestCase):
     env = {k: v for k, v in os.environ.items() if not k.startswith(('HIL_', 'FAKE_', 'GIT_'))}
     env.update(PATH=f'{bindir}{os.pathsep}{os.environ["PATH"]}', GIT_CONFIG_GLOBAL=str(gitconfig), GIT_CONFIG_NOSYSTEM='1',
                FAKE_LOG=str(self.tmp / 'log.jsonl'), FAKE_HOME=str(self.home), FAKE_ARGV=str(self.tmp / 'argv.json'),
-               FAKE_PID=str(self.tmp / 'battery.pid'))
+               FAKE_PID=str(self.tmp / 'battery.pid'),
+               FAKE_CHECK_BUILD=str(ROOT / '.claude' / 'skills' / 'build' / 'scripts' / 'check_build.py'))
     mock.patch.dict(os.environ, env, clear=True).start()
     self.addCleanup(mock.patch.stopall)
     self.make_project()
@@ -236,6 +254,8 @@ class Project(unittest.TestCase):
     self.dep = origin(o / 'dep', 'dep 1', 'dep 2')
     for name in ('agentrc', 'tinyusb', 'uf2'):
       origin(o / name, name)
+    core = 'skills/hil/scripts/hil_report_core.py'   # the driver prepares each report pair through it, as CI does
+    commit(o / 'agentrc', {core: (ROOT / 'lib' / 'agentrc' / core).read_text()}, 'report core')
     primary = self.tmp / 'primary'
     primary.mkdir()
     git(primary, 'init', '-q')
@@ -316,16 +336,31 @@ class Refusals(Project):
       self.refused(text='Windows client is pending')
 
   def test_lib_agentrc_off_its_pin_or_changed_is_refused(self):
-    check = CHECK_PIN
-    check(self.wt)
-    (self.wt / 'lib/agentrc/NEW').write_text('changed')
-    with self.assertRaises(hr.core.RemoteError):
-      check(self.wt)
-    git(self.wt / 'lib/agentrc', 'checkout', '-q', '--', 'NEW')
+    check = CHECK_PIN   # check_build's check, on the project (cb.ROOT)
+    check()
+    for what, change, undo in (
+        ('a changed file', lambda: (self.wt / 'lib/agentrc/NEW').write_text('changed'),
+         lambda: git(self.wt / 'lib/agentrc', 'checkout', '-q', '--', 'NEW')),
+        ('an untracked file', lambda: (self.wt / 'lib/agentrc/stray').write_text('x'),
+         lambda: (self.wt / 'lib/agentrc/stray').unlink())):
+      with self.subTest(what):
+        change()
+        with self.assertRaisesRegex(hr.core.RemoteError, 'dirty at the pinned'):
+          check()
+        undo()
     git(self.wt / 'lib/agentrc', 'checkout', '-q', 'HEAD~1')
     with self.assertRaises(hr.core.RemoteError) as e:
-      check(self.wt)
-    self.assertIn(f'HEAD pins {self.pin[:12]}', e.exception.code)
+      check()
+    self.assertIn(f'HEAD pins {self.pin}: git submodule update --init lib/agentrc', e.exception.code)
+    git(self.wt, 'add', 'lib/agentrc')   # the pin change staged: submodule update would check that out
+    with self.assertRaisesRegex(hr.core.RemoteError, 'is staged: commit or unstage'):
+      check()
+
+  def test_wait_and_collect_load_nothing_that_needs_fcntl(self):
+    # Windows has no fcntl: the pin check's check_build and every module the client imports must load without it
+    r = subprocess.run([sys.executable, '-c', "import sys; sys.modules['fcntl'] = None; import hil_remote; "
+                        "hil_remote.check_build(); print('ok')"], cwd=SCRIPTS, capture_output=True, text=True)
+    self.assertEqual(r.stdout.strip(), 'ok', r.stderr)
 
   def test_no_provider_code_runs_before_its_pin_is_checked(self):
     r = subprocess.run([sys.executable, '-c', 'import hil_remote; print(hil_remote.core)'], cwd=SCRIPTS,
@@ -400,7 +435,7 @@ class Attempt(Project):
     self.assertEqual(self.run_()[0], hr.REFUSED, 'a run id is used once')
 
   def test_boards_run_one_after_another_within_one_lock_wait(self):
-    os.environ['FAKE_SLEEP'] = '2'
+    os.environ.update(FAKE_SLEEP='2', FAKE_SLEEP_BOARD=OTHER)   # the first battery uses up 2 s of the budget
     code, out = self.run_('-b', OTHER, '--lock-wait', '100')
     self.assertEqual((code, [r['board'] for r in out['boards']]), (0, [OTHER, LPC]))
     waits = [int(b['argv'][b['argv'].index('--lock-wait') + 1]) for b in self.batteries()]
@@ -440,6 +475,46 @@ class Attempt(Project):
     self.assertEqual((code, out['outcome'], row['verdict'], row['copyBack']), (hr.INCOMPLETE, 'incomplete', 'pass', 'incomplete'))
     self.assertIn('never published: report not published: OSError: disk full', row['missing'][0])
     self.assertNotIn('reports', row['paths'])
+
+  def test_each_report_pair_is_prepared_on_the_rig_before_it_comes_home(self):
+    os.environ['FAKE_MD'] = 'HIL run: fail\n'   # a stale view beside a passing JSON
+    code, out = self.run_()
+    row, = out['boards']
+    self.assertEqual((code, out['outcome'], row['verdict'], row['sharedVerdict']), (0, 'pass', 'pass', 'pass'))
+    md, = (self.wt / hr.RUNS / 'r1' / 'out' / LPC).glob('run-*/hil_report.md')
+    self.assertTrue(md.read_text(encoding='utf-8').startswith('HIL run: pass\n'), md.read_text())
+    self.assertNotIn('HIL run: fail', md.read_text(encoding='utf-8'))
+
+  @unittest.skipUnless(os.name != 'nt' and os.geteuid(), 'root writes a read-only dir')
+  def test_a_view_the_rig_could_not_check_never_comes_home(self):
+    os.environ.update(FAKE_MD='HIL run: pass\n', FAKE_READONLY='1')   # neither prepared nor withheld on the rig
+    with mock.patch.object(hr, 'wait_for', side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
+      self.run_()
+    self.await_done()
+    run_dir, = (self.attempt() / 'out' / LPC).glob('run-*')
+    run_dir.chmod(0o755)
+    rel = (run_dir / 'hil_report.md').relative_to(self.attempt()).as_posix()
+    self.assertTrue((self.attempt() / rel).is_file(), 'still on the rig')
+    local = self.wt / hr.RUNS / 'r1'
+    unlink = Path.unlink
+
+    def stuck(path, *a, **k):
+      if path.name == 'hil_report.md':
+        raise PermissionError(13, 'Permission denied', str(path))
+      return unlink(path, *a, **k)
+    with mock.patch.object(Path, 'unlink', stuck):   # a view that cannot be removed is never published
+      self.assertEqual(run_main('collect', 'r1')[0], hr.core.INCONCLUSIVE)
+    self.assertFalse(local.exists())
+    with mock.patch.object(hr, 'report', side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
+      run_main('collect', 'r1')   # interrupted once the core published the collection
+    self.assertEqual(json.loads((local / hr.core.COLLECTION).read_text())['state'], 'complete')
+    self.assertFalse((local / rel).exists(), 'never published as evidence')
+    self.assertTrue((local / rel).with_name('hil_report.json').is_file())
+    code, out = run_main('collect', 'r1')
+    row, = out['boards']
+    self.assertEqual((code, out['outcome'], out['collection'], row['verdict'], row['sharedVerdict'], row['unsafeArtifacts']),
+                     (0, 'pass', 'complete', 'pass', 'blocker', [rel]))
+    self.assertFalse((local / rel).exists())
 
   def test_a_short_collection_recovers_once_the_rig_has_the_artifact_again(self):
     with mock.patch.object(hr, 'wait_for', side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
@@ -595,13 +670,15 @@ class Attempt(Project):
     self.assertEqual(len(launches), 1)
 
   def test_the_attempt_outlives_its_wrapper_and_partial_evidence_never_passes(self):
-    os.environ['FAKE_SLEEP'] = '3'
+    gate = self.tmp / 'gate'
+    os.environ['FAKE_GATE'] = str(gate)   # the battery holds until the gate opens, at most 30 s
     with mock.patch.object(hr, 'wait_for', side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
       self.run_()
     code, out = run_main('wait', 'r1', '--timeout', '0.2')
     self.assertEqual((code, out['outcome']), (hr.core.RUNNING, 'running'))
     code, out = run_main('collect', 'r1')
     self.assertEqual((code, out['outcome'], out['remoteState'], out['pass']), (hr.core.RUNNING, 'incomplete', 'running', False))
+    gate.touch()
     code, out = run_main('wait', 'r1', '--timeout', '30')
     self.assertEqual((code, out['outcome'], out['collection']), (0, 'pass', 'complete'))
     self.assertEqual(run_main('collect', 'r1'), (0, out))
@@ -750,8 +827,13 @@ class Driver(unittest.TestCase):
 
   def test_inventory_entries_outside_the_boards_artifacts_are_an_incomplete_copy_back(self):
     with tempfile.TemporaryDirectory() as d:
-      for listed in (['out/other.build.json'], ['out/b/../x'], ['/etc/passwd'], 'x'):
-        self.assertTrue(hr.artifacts_missing({'phase': 'battery', 'artifacts': listed}, 'b', Path(d))[0].startswith('('))
+      for listed in (['out/other.build.json'], ['out/b/../x'], ['out/b//x'], ['out/b/./x'], ['/etc/passwd'], [3], 'x'):
+        with self.subTest(listed):
+          self.assertTrue(hr.artifacts_missing({'phase': 'battery', 'artifacts': listed}, 'b', Path(d))[0].startswith('('))
+      for unsafe in (['out/b/stdout.txt'], ['out/b/run-1/../hil_report.md'], ['out/c/run-1/hil_report.md'], 'x'):
+        with self.subTest(unsafe):
+          row = {'phase': 'build', 'artifacts': [], 'unsafeArtifacts': unsafe}
+          self.assertTrue(hr.artifacts_missing(row, 'b', Path(d))[0].startswith('(unsafeArtifacts'))
 
 
 if __name__ == '__main__':

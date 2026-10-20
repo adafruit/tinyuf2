@@ -19,7 +19,6 @@ import fcntl
 import fnmatch
 import glob
 import hashlib
-import importlib.util
 import json
 import os
 import re
@@ -39,6 +38,7 @@ sys.path.insert(0, str(ROOT / '.claude' / 'skills' / 'build' / 'scripts'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True   # nothing the runner imports may write into a checkout it binds
 import check_build as cb  # noqa: E402
+import hil_ci  # noqa: E402   CI's state directory: unfinished()
 import hil_esp as esp  # noqa: E402
 import hil_run_report as run_report  # noqa: E402
 
@@ -957,12 +957,8 @@ def load_pinned(path, name, api, what='flash provider'):
   """A lib/agentrc module at the commit HEAD pins, loaded by path, never an installed agentrc's; Refused when the
   submodule is off its pin or the module lacks what the runner calls."""
   check_lock_pin()
-  spec = importlib.util.spec_from_file_location(name, path)
-  if not spec:
-    raise Refused(f'{what} {path} not found')
-  mod = importlib.util.module_from_spec(spec)
   try:
-    spec.loader.exec_module(mod)
+    mod = run_report.load(path, name)
   except Exception as e:
     raise Refused(f'{what} {path} failed to load: {e}')
   missing = [n for n in api if not hasattr(mod, n)]
@@ -1790,31 +1786,13 @@ def fat_read_main(args):
 # ------------------------------------------------------------------ locks
 
 def check_lock_pin():
-  """Refuse unless lib/agentrc is checked out, clean, at the commit HEAD pins."""
-  init = f'git submodule update --init {AGENTRC}'
-  if not LOCK_HELPER.is_file() or not cb.own_checkout(AGENTRC):
-    raise Refused(f'lock helper {LOCK_HELPER} is not checked out: {init}')
+  """Refuse unless lib/agentrc is checked out, clean, at the commit HEAD pins (check_build's check)."""
+  if not LOCK_HELPER.is_file():
+    raise Refused(f'lock helper {LOCK_HELPER} is not checked out: git submodule update --init {AGENTRC}')
   try:
-    want = cb.git('rev-parse', f'HEAD:{AGENTRC}').strip()
-    have = cb.git_in(AGENTRC, 'rev-parse', 'HEAD').strip()
+    cb.check_agentrc_pin()
   except cb.Fail as e:
-    raise Refused(f'cannot read the {AGENTRC} pin: {e}')
-  if have != want:
-    # submodule update checks out the index's gitlink, so a staged pin change would defeat the hint
-    try:
-      staged = cb.git('rev-parse', f':{AGENTRC}').strip()
-    except cb.Fail as e:
-      raise Refused(f'cannot read the staged {AGENTRC} pin: {e}')
-    if staged != want:
-      raise Refused(f'{AGENTRC} is at {have}; HEAD pins {want} but {staged} is staged: commit or unstage that '
-                    f'{AGENTRC} pin change')
-    raise Refused(f'{AGENTRC} is at {have}; HEAD pins {want}: {init}')
-  try:
-    dirty = cb.dirty_inputs([AGENTRC])
-  except cb.Fail as e:
-    raise Refused(f'cannot read the {AGENTRC} checkout state: {e}')
-  if dirty:
-    raise Refused(f'{AGENTRC} checkout is dirty at the pinned {want}: discard its local changes')
+    raise Refused(str(e))
 
 
 def load_helper():
@@ -1947,7 +1925,7 @@ def takeover_predecessor(helper, board, token):
   except (TypeError, ValueError):
     pred = None
   if not isinstance(pred, dict) or pred.get('reason') != 'hil_test.py' or \
-     not (pred.get('protected') is True or pred.get('role') == HOLDER_ROLE) or \
+     not helper.is_recovery_blocker(pred) or \
      pred.get('role') == HOLDER_ROLE and pred.get('board') != board:
     raise Refused(f'{board}: the takeover replaced {pred!r}, not a battery record of this runner on {board}: recover '
                   'it by hand')
@@ -1985,14 +1963,22 @@ def predecessor_evidence(pred, reported, reviewed):
     survivors = None
   if not isinstance(survivors, list):
     raise Refused(f'the replaced record {pred} names neither survivors nor a run dir: what the battery left is unknown')
+  refuse_live(survivors, reviewed, "the dead battery's")
+  return survivors
+
+
+def refuse_live(survivors, reviewed, whose):
+  """Refused while any of `whose` openocd_esp sessions is not ended, outside the `reviewed` receipts, or any of its
+  children lives: recovery never overlaps them."""
   pending = [s['receipt'] for s in survivors
              if 'receipt' in s and session_state(s) != 'ended' and s['receipt'] not in reviewed]
   if pending:
-    raise Refused(f"the dead battery's openocd_esp sessions {pending} are not ended (SKILL.md Recovery)")
+    raise Refused(f'{whose} openocd_esp sessions {pending} are not ended: end each with '
+                  '`hil_openocd_esp.py end --receipt <receipt>`, or clear-pending after a separately reviewed '
+                  'recovery (SKILL.md Recovery)')
   alive = still_alive(survivors)
   if alive:
-    raise Refused(f"the dead battery's children {alive} are still alive; recovery may not overlap them")
-  return survivors
+    raise Refused(f'{whose} children {alive} are still alive; recovery may not overlap them')
 
 
 def read_report(report):
@@ -2980,26 +2966,6 @@ def trial_reentry(board, method):
   return dict(board, reentry=method)
 
 
-def unfinished_ci(root, board):
-  """The runs under CI's state root `root` (hil_ci.py: `<root>/<run id>/<board>.started`) whose battery on `board`
-  started and has no `.done`, its liveness never guessed; Refused when the root cannot be read."""
-  found = []
-  try:
-    with os.scandir(root) as runs:
-      for run in runs:
-        if not run.is_dir(follow_symlinks=False):
-          continue
-        try:
-          names = set(os.listdir(run.path))
-        except FileNotFoundError:   # pruned meanwhile: hil_ci.py prunes only runs whose every battery finished
-          continue
-        if f'{board}.started' in names and f'{board}.done' not in names:
-          found.append(run.name)
-  except OSError as e:
-    raise Refused(f'CI state root {root} cannot be read: {e}')
-  return sorted(found)
-
-
 def keep_blocker(helper, fh, workdir, detail):
   """Leave this run's protected record on the board as a recovery blocker naming why: closed, never cleared. A
   failed rewrite leaves the old record or an unreadable one, a blocker either way."""
@@ -3063,7 +3029,10 @@ def run_board(args, board, facts, helper, workdir):
   row['lockBypassed'] = fh is None
   try:
     # a transition check for the remote driver: CI's markers name a battery an older driver started without this lock
-    earlier = [] if args.ci_state_root is None else unfinished_ci(args.ci_state_root, board['name'])
+    try:
+      earlier = [] if args.ci_state_root is None else hil_ci.unfinished(args.ci_state_root, board['name'])
+    except OSError as e:
+      raise Refused(f'CI state root {args.ci_state_root} cannot be read: {e}')
     if earlier:
       detail = (f'CI run {", ".join(earlier)} under {args.ci_state_root} started a battery on {board["name"]} and has '
                 'no .done: an unfinished attempt')
@@ -3143,9 +3112,7 @@ def clean_up(row, code, bat, fh, board, helper, files):
       row['cleanup']['holder'] = hand_off(fh, board['lock'], row['cleanup']['detail'], stuck, helper=helper)
       fh = None
     return 4
-  if fh is not None:
-    helper.clear_record(fh)
-    fh.close()
+  release(helper, fh)
   return code
 
 
@@ -3303,9 +3270,9 @@ def main(argv=None):
     else:
       files, fw = admit_record(args.build_record, board, facts, run_dir)
       rec = snapshot = None
+      if args.try_reentry and (args.recover_holder is not None or args.recover_takeover):
+        raise Refused('--try-reentry is for a restore under your own hold, not a recovery')
       if args.recover_holder is not None:
-        if args.try_reentry:
-          raise Refused('--try-reentry is for a restore under your own hold, not a recovery')
         if not args.report:
           raise Refused("--recover-holder needs --report, the failed run's report naming that holder")
         failed = failed_row(read_report(args.report), args.report, board, args.recover_holder)
@@ -3314,20 +3281,10 @@ def main(argv=None):
           snapshot = report_snapshot(failed, board['regions']['preserved'])
         recovery = recovery_lock(helper, board['lock'])
         rec = prove_cleanup_holder(helper, board['lock'], args.recover_holder)
-        survivors = held[0].get('survivors', []) + rec.get('survivors', [])
-        reviewed = reviewed_receipts(board['pendingMark'])
-        pending = [s['receipt'] for s in survivors
-                   if 'receipt' in s and session_state(s) != 'ended' and s['receipt'] not in reviewed]
-        if pending:   # the pending mark may be missing (markErrors); the report still names the sessions
-          raise Refused(f"the failed run's openocd_esp sessions {pending} are not ended: end each with "
-                        '`hil_openocd_esp.py end --receipt <receipt>`, or clear-pending after a separately reviewed '
-                        'recovery (SKILL.md Recovery)')
-        alive = still_alive(survivors)
-        if alive:
-          raise Refused(f'the failed run\'s children {alive} are still alive; recovery may not overlap them')
+        # the pending mark may be missing (markErrors); the report still names the sessions
+        refuse_live(held[0].get('survivors', []) + rec.get('survivors', []), reviewed_receipts(board['pendingMark']),
+                    "the failed run's")
       elif args.recover_takeover:
-        if args.try_reentry:
-          raise Refused('--try-reentry is for a restore under your own hold, not a recovery')
         body = read_report(args.report) if args.report else None
         recovery = recovery_lock(helper, board['lock'])
         rec = takeover_predecessor(helper, board['lock'], args.recover_takeover)

@@ -3113,7 +3113,7 @@ class RunBoard(Tmp):
 
   def test_an_old_ci_attempt_that_died_between_a_preflight_and_the_lock_keeps_a_blocker(self):
     root = self.args.ci_state_root = self.ci_state()
-    self.assertEqual(ht.unfinished_ci(root, BOARD), [])   # the driver's preflight: nothing unfinished
+    self.assertEqual(ht.hil_ci.unfinished(root, BOARD), [])   # the driver's preflight: nothing unfinished
     real = self.helper.acquire_board_lock
 
     def old_ci_started_and_died(board, **kw):   # its unprotected lock dropped with it; its marker stays
