@@ -553,10 +553,7 @@ class Attempt(Project):
       with self.subTest(run_id):
         with mock.patch.object(hr, 'wait_for', side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
           self.run_(run_id=run_id)
-        done = self.attempt(run_id) / '.attempt/done.json'
-        deadline = time.monotonic() + 30
-        while not done.exists() and time.monotonic() < deadline:
-          time.sleep(0.05)
+        self.await_done(run_id)
         result = self.attempt(run_id) / 'result.json'
         data = json.loads(result.read_text())
         result.write_text(json.dumps(dict(data, boards=edit(data['boards']))))
@@ -629,8 +626,8 @@ class Attempt(Project):
       self.assertEqual((code, out['outcome'], out['pass']), (hr.core.INCONCLUSIVE, 'inconclusive', False), argv)
     self.assertEqual(run_main('collect', 'nope')[0], hr.REFUSED, 'an unknown run is still a refusal')
 
-  def await_done(self):
-    done = self.attempt() / '.attempt/done.json'
+  def await_done(self, run_id='r1'):
+    done = self.attempt(run_id) / '.attempt/done.json'
     deadline = time.monotonic() + 30
     while not done.exists() and time.monotonic() < deadline:
       time.sleep(0.05)
