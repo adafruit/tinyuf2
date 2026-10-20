@@ -13,3 +13,4 @@ lib/mcu/
 lib/sct_neopixel
 __pycache__/
 *.pyc
+.hil-remote/
