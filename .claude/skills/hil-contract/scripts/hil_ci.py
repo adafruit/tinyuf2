@@ -146,6 +146,12 @@ def check_pin():
   run_report.load(CHECK_BUILD, 'tinyuf2_check_build').check_agentrc_pin()
 
 
+def run_dirs(where):
+  """The `run-*` entries under `where`, sorted; OSError when it cannot be listed, which pathlib's glob would hide."""
+  with os.scandir(where) as entries:
+    return sorted(Path(e.path) for e in entries if e.name.startswith('run-'))
+
+
 def prepare(code, where, board):
   """Each run dir's report pair under `where` made consistent before the artifact exposes it (the core's
   prepare_pair: the Markdown regenerated from the JSON, else an explicit unavailable notice, never a stale view), and
@@ -154,7 +160,7 @@ def prepare(code, where, board):
     check_pin()   # before any provider code runs
     core = run_report.load(REPORT_CORE)
     schema = run_report.schema(core)
-    readings = [core.prepare_pair(d, schema) for d in sorted(where.glob('run-*')) if d.is_dir()]
+    readings = [core.prepare_pair(d, schema) for d in run_dirs(where) if d.is_dir()]
     reading = readings[-1] if readings else core.Reading('missing', None, None, f'no run directory under {where}')
     shared = run_report.shared_run(core, code, reading, [board])['rows'][0]
     return {'sharedVerdict': shared['verdict'], 'sharedDetail': shared['detail']}
@@ -168,10 +174,14 @@ def withhold(where, why):
   """Each run dir's Markdown under `where` replaced, under the core's writer lock, by an unavailable notice, the view
   the run left kept below it only as labelled text, or removed when that cannot be written. Returns the views that
   could be neither, or whose lock was not taken (never touched outside it), which no upload or copy-back may expose
-  (summary.json `unsafeArtifacts`)."""
+  (summary.json `unsafeArtifacts`): `where` itself when it cannot be listed."""
   import fcntl   # here only: hil_remote.py imports this module on clients without it
+  try:
+    runs = run_dirs(where)
+  except OSError:
+    return [str(where)]
   unsafe = []
-  for d in sorted(where.glob('run-*')):
+  for d in runs:
     md = d / f'{run_report.STEM}.md'
     try:
       fd = os.open(d / f'.{run_report.STEM}.lock', os.O_RDWR | os.O_CREAT, 0o666)

@@ -46,6 +46,8 @@ if "md" in one:
     open(os.path.join(run_dir, "hil_report.md"), "w").write(one["md"])
 if one.get("touch_done"):   # the battery's own touch before it released the board
     open(sys.argv[sys.argv.index("--done-marker") + 1], "w").close()
+if one.get("unlistable"):   # its run root left unlistable: names still open, a listing is refused
+    os.chmod(os.path.dirname(run_dir), 0o300)
 print("noise", " ".join(sys.argv[1:]))
 print(json.dumps(report), flush=True)
 if one.get("hang"):
@@ -380,6 +382,19 @@ class Stubbed(unittest.TestCase):
     with mock.patch.object(hil_ci, 'summary', side_effect=OSError('killed')), self.assertRaises(OSError):
       self.main('--board', BOARD, battery=ok, out=later)
     self.assertEqual(self.upload_step(later), f'!{later}/**/hil_report.md')
+
+  @unittest.skipUnless(os.geteuid(), 'root lists an unlistable dir')
+  def test_a_run_root_that_cannot_be_listed_withholds_every_view(self):
+    ok = {'row': {'ran': True, 'pass': True, 'cleanup': {'pass': True, 'state': 'blinky copied'}},
+          'meta': self.meta(), 'md': 'HIL run: pass\n', 'unlistable': True}
+    self.addCleanup(lambda: (self.out / BOARD).exists() and (self.out / BOARD).chmod(0o755))
+    self.assertEqual(self.main('--board', BOARD, battery=ok), 0)   # the battery's own exit stands
+    r = self.rows()[0]
+    (self.out / BOARD).chmod(0o755)   # readable again by the upload, its view never checked
+    self.assertEqual((r['sharedVerdict'], r.get('unsafeArtifacts'), (self.out / 'upload-views').read_text(),
+                      self.upload_step(self.out)),
+                     ('blocker', [str(self.out / BOARD)], 'withhold\n', f'!{self.out}/**/hil_report.md'))
+    self.assertIn(hil_ci.UNPREPARED, r['sharedDetail'])
 
   def test_the_summary_labels_the_native_verdict_and_shows_the_shared_one_where_it_differs(self):
     passed = {'ran': True, 'pass': True, 'cleanup': {'pass': True, 'state': 'blinky copied'}}

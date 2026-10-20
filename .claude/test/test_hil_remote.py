@@ -90,7 +90,8 @@ if __name__ == '__main__':
 # FAKE_BATTERY pass, fail (after a write), die (no report), holder (stays the in-process cleanup holder) or unpublished
 # (a pass whose report the core could not publish: reportPath null, reportError). Before its report it sleeps
 # FAKE_SLEEP s (only on board FAKE_SLEEP_BOARD when set) and waits up to 30 s for the file FAKE_GATE; FAKE_MD is a
-# Markdown view left beside the JSON, and FAKE_READONLY leaves the run dir read-only.
+# Markdown view left beside the JSON, FAKE_READONLY leaves the run dir read-only and FAKE_UNLISTABLE its run root
+# unlistable.
 HIL_TEST = r'''
 import json, os, sys, time
 from pathlib import Path
@@ -160,6 +161,8 @@ if os.environ.get('FAKE_MD'):
   (run_dir / 'hil_report.md').write_text(os.environ['FAKE_MD'])
 if os.environ.get('FAKE_READONLY'):
   run_dir.chmod(0o555)
+if os.environ.get('FAKE_UNLISTABLE'):
+  run_dir.parent.chmod(0o300)
 print('noise')
 print(json.dumps(report), flush=True)
 if mode == 'holder':
@@ -517,6 +520,24 @@ class Attempt(Project):
     self.assertEqual((code, out['outcome'], out['collection'], row['verdict'], row['sharedVerdict'], row['unsafeArtifacts']),
                      (0, 'pass', 'complete', 'pass', 'blocker', [rel]))
     self.assertFalse((local / rel).exists())
+
+  @unittest.skipUnless(os.name != 'nt' and os.geteuid(), 'root lists an unlistable dir')
+  def test_a_view_under_a_run_root_the_rig_could_not_list_never_comes_home(self):
+    os.environ.update(FAKE_MD='HIL run: pass\n', FAKE_UNLISTABLE='1')
+    with mock.patch.object(hr, 'wait_for', side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
+      self.run_()
+    self.await_done()
+    board = self.attempt() / 'out' / LPC
+    board.chmod(0o755)   # readable again by the copy-back
+    md, = board.glob('run-*/hil_report.md')
+    self.assertEqual(md.read_text(encoding='utf-8'), 'HIL run: pass\n', 'never checked on the rig')
+    code, out = run_main('collect', 'r1')
+    row, = out['boards']
+    local = self.wt / hr.RUNS / 'r1' / md.relative_to(self.attempt())
+    self.assertEqual((row['verdict'], row['sharedVerdict'], local.with_name('hil_report.json').is_file(),
+                      local.exists()), ('pass', 'blocker', True, False))
+    # the rig's inventory of that board is unverified: never a final collection
+    self.assertEqual((code, out['outcome'], row['unsafeArtifacts']), (hr.INCOMPLETE, 'incomplete', [f'out/{LPC}']))
 
   def test_an_incomplete_collection_brings_home_no_unchecked_view(self):
     os.environ['FAKE_MD'] = 'HIL run: pass\n'
