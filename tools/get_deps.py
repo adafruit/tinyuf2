@@ -62,6 +62,10 @@ deps_all = {**deps_mandatory, **deps_optional}
 TOP = Path(__file__).parent.parent.resolve()
 
 
+def find_symlink_component(d):
+    return next((p for p in [*reversed(Path(d).parents), Path(d)] if (TOP / p).is_symlink()), None)
+
+
 def run_cmd(cmd):
     r = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if r.returncode != 0:
@@ -77,6 +81,12 @@ def get_a_dep(d):
     url = deps_all[d][0]
     commit = deps_all[d][1]
     families = deps_all[d][2]
+
+    symlink = find_symlink_component(d)
+    if symlink is not None:
+        print(f'Error: refusing to update {d}: {symlink} is a symlink')
+        print(f'Fetch {commit} in the checkout that owns the dependency, then link it here')
+        return 1
 
     print(f'cloning {d} with {url}')
 
