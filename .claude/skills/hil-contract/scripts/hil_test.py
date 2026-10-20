@@ -3174,10 +3174,13 @@ def publish_report(result, run_dir, args, argv):
     core = report_core()
     schema = run_report.schema(core)
     attempt = core.start_attempt(run_dir, schema, False, run_dir.name)
-    digest = sha256(args.config)
+    try:   # {name, sha256}: the same in a checkout and on a rig, where the report chain compares it whole
+      roster = core.roster_identity(args.config)
+    except OSError:
+      roster = {'name': Path(args.config).name}
     meta = core.make_meta(schema, attempt, termination='aborted' if INTERRUPTS else 'completed',
                           invocation=['hil_test.py', *map(str, argv)], selection=[args.board], host=socket.gethostname(),
-                          roster={'path': str(args.config), **({'sha256': digest} if digest else {})},
+                          roster=roster,
                           build=build_provenance(result) or None)
     core.publish(run_dir, schema, result, meta)
   except Exception as e:   # the run's own outcome, its stdout report and any hold stand whatever failed here

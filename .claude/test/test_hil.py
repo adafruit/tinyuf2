@@ -4310,7 +4310,7 @@ class RunReport(Tmp):
       'termination': 'completed', 'selection': [BOARD], 'host': socket.gethostname(),
       'invocation': ['hil_test.py', 'run', '-b', BOARD, '--build-record', 'r.json', '--run-root', str(run_dir.parent),
                      str(self.cfg)],
-      'roster': {'path': str(self.cfg), 'sha256': ht.sha256(self.cfg)},
+      'roster': {'name': self.cfg.name, 'sha256': ht.sha256(self.cfg)},
       'build': {k: self.FW[k] for k in ('buildRecord', 'path', 'sha256', 'version')}})
     self.assertEqual((run_dir / 'hil_report.md').read_text(encoding='utf-8'), ht.run_report.render(self.core, doc))
 
