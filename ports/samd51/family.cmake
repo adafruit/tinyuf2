@@ -56,6 +56,7 @@ function(family_add_board_target BOARD_TARGET)
     -nostartfiles
     --specs=nosys.specs --specs=nano.specs
     -Wl,--defsym=__flash_boot_size=${LD_FLASH_BOOT_SIZE}
+    -Wl,--defsym=__flash_size=${LD_FLASH_SIZE}
     -Wl,--defsym=__ram_size=${LD_RAM_SIZE}
     )
 endfunction()
