@@ -1013,14 +1013,15 @@ def run_tests():
 
 
 def unittest_first_error(log):
-  """Name the first failed test and retain the final line of its traceback."""
+  """The first failed test's id and its exception's first line: the first unindented line after the last
+  traceback header, since an assertion's message (a diff) or a chained exception may follow or precede it."""
   failure = re.search(r'^={70}\n((?:FAIL|ERROR): [^\n]+)\n-{70}\n(.*?)(?=^={70}\n|^-{70}\nRan \d+ test)',
                       log, re.M | re.S)
   if not failure:
     return first_error(log)
-  tail = [line.strip() for line in failure.group(2).splitlines() if line.strip()]
-  detail = f': {tail[-1]}' if tail else ''
-  return (failure.group(1) + detail)[:400]
+  frames = failure.group(2).split('Traceback (most recent call last):\n')[-1].splitlines()
+  exc = next((line for line in frames if line.strip() and not line[0].isspace()), '')
+  return (failure.group(1) + (f': {exc}' if exc else ''))[:400]
 
 
 class Parser(argparse.ArgumentParser):
