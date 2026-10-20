@@ -516,6 +516,55 @@ class Attempt(Project):
                      (0, 'pass', 'complete', 'pass', 'blocker', [rel]))
     self.assertFalse((local / rel).exists())
 
+  def test_an_incomplete_collection_brings_home_no_unchecked_view(self):
+    os.environ['FAKE_MD'] = 'HIL run: pass\n'
+    with mock.patch.object(hr, 'wait_for', side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
+      self.run_()
+    self.await_done()
+    result = self.attempt() / 'result.json'
+    good = result.read_text()
+    result.write_text('{')   # the driver's outcome unreadable: no view is known prepared
+    local = self.wt / hr.RUNS / 'r1' / 'out' / LPC
+    unlink = Path.unlink
+
+    def stuck(path, *a, **k):
+      if path.name == 'hil_report.md':
+        raise PermissionError(13, 'Permission denied', str(path))
+      return unlink(path, *a, **k)
+    with mock.patch.object(Path, 'unlink', stuck):   # an unchecked view that cannot be removed is never published
+      self.assertEqual(run_main('collect', 'r1')[0], hr.core.INCONCLUSIVE)
+    self.assertFalse(local.exists())
+    code, out = run_main('collect', 'r1')
+    self.assertEqual((code, out['outcome'], out['collection']), (hr.INCOMPLETE, 'incomplete', 'incomplete'))
+    self.assertTrue(list(local.glob('run-*/hil_report.json')))
+    self.assertEqual(list(local.glob('run-*/hil_report.md')), [], 'an unchecked view came home')
+    result.write_text(good)
+    code, out = run_main('collect', 'r1')
+    self.assertEqual((code, out['outcome'], out['collection']), (0, 'pass', 'complete'))
+    md, = local.glob('run-*/hil_report.md')   # prepared on the rig: it comes home with its result
+    self.assertTrue(md.read_text(encoding='utf-8').startswith('HIL run: pass\n'))
+
+  def test_a_board_without_a_prepared_row_brings_home_no_view(self):
+    os.environ['FAKE_MD'] = 'HIL run: pass\n'
+    for run_id, edit in (('r1', lambda rows: []),   # the driver ended before the board's row
+                         ('r2', lambda rows: [{k: v for k, v in r.items() if k not in ('sharedVerdict', 'sharedDetail')}
+                                              for r in rows])):   # a row whose report pair was never prepared
+      with self.subTest(run_id):
+        with mock.patch.object(hr, 'wait_for', side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
+          self.run_(run_id=run_id)
+        done = self.attempt(run_id) / '.attempt/done.json'
+        deadline = time.monotonic() + 30
+        while not done.exists() and time.monotonic() < deadline:
+          time.sleep(0.05)
+        result = self.attempt(run_id) / 'result.json'
+        data = json.loads(result.read_text())
+        result.write_text(json.dumps(dict(data, boards=edit(data['boards']))))
+        code, out = run_main('collect', run_id)
+        self.assertNotEqual(out['outcome'], 'pass')
+        local = self.wt / hr.RUNS / run_id / 'out' / LPC
+        self.assertTrue(list(local.glob('run-*/hil_report.json')))
+        self.assertEqual(list(local.glob('run-*/hil_report.md')), [], 'an unchecked view came home')
+
   def test_a_short_collection_recovers_once_the_rig_has_the_artifact_again(self):
     with mock.patch.object(hr, 'wait_for', side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
       self.run_()

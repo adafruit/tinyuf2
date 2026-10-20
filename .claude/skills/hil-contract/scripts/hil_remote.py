@@ -249,7 +249,7 @@ def unsafe_views(row, board):
 def artifacts_missing(row, board, dest):
   """What the board's phase requires, and the rig's inventory of what it left, that did not come home. An inventory
   path is checked to lie under the board's own out/ entries, never followed elsewhere; an unsafe view is not
-  required (withhold_unsafe() removes it)."""
+  required (withhold_unchecked() removes it)."""
   need = {'build': [f'{driver.OUT}/{board}.build.json'],
           'battery': [f'{driver.OUT}/{board}.build.json', f'{driver.OUT}/{board}/stdout.txt',
                       f'{driver.OUT}/{board}/stderr.txt']}.get(row.get('phase'), [])
@@ -282,30 +282,37 @@ def read_result(dest, run_id):
 
 def acceptance(tree, manifest):
   """The core's completeness predicate over a collected tree, run under its collector lock before it publishes a
-  fetch and on a cached collection: the tree's unsafe views removed first (withhold_unsafe()), then each board's
+  fetch and on a cached collection: the tree's unchecked views removed first (withhold_unchecked()), then each board's
   required artifacts the copy-back lacks, so a collection short of them is never final and a later collect fetches
   it again."""
   def missing(path):
-    result = read_result(Path(path), manifest['runId'])
+    path = Path(path)
+    result = read_result(path, manifest['runId'])
+    boards = [] if result is None or result.get('refused') else board_rows(tree, manifest, path, result)
+    withhold_unchecked(path, boards)
     if result is None:   # never a final collection: a later collect fetches it again
       return [f'{driver.RESULT} missing, unreadable or not run {manifest["runId"]}\'s']
-    if result.get('refused'):
-      return []
-    boards = board_rows(tree, manifest, Path(path), result)
-    withhold_unsafe(Path(path), boards)
     return [f'{r["board"]}: {m}' for r in boards for m in r.get('missing', [])]
   return missing
 
 
-def withhold_unsafe(path, boards):
-  """Each view the rig could not check removed from a collected tree before it is published: never here as
-  evidence. A removal that fails refuses the publication, the cached collection kept as it was."""
-  for r in boards:
-    for rel in unsafe_views(r, r['board']) or []:
-      try:
-        (path / rel).unlink(missing_ok=True)
-      except OSError as e:
-        fail(f'cannot remove {rel}, a report view the rig could not check, from {path}: {e}')
+def withhold_unchecked(path, boards):
+  """Each report view under a collected tree's out/ that the rig did not check removed before the tree is published,
+  never here as evidence: a board's `unsafeArtifacts`, and every view of a board whose row has no prepared report pair
+  (no `sharedVerdict`: no row, or no result at all) or an unreadable `unsafeArtifacts`, as CI's upload excludes every
+  view when hil_ci.py did not finish. A removal that fails refuses the publication, the cached collection kept as it
+  was."""
+  checked = {r['board'] for r in boards if 'sharedVerdict' in r and unsafe_views(r, r['board']) is not None}
+  out = path / driver.OUT
+  views = {p.relative_to(path).as_posix(): p.relative_to(out).parts[0]
+           for p in out.glob(f'*/run-*/{run_report.STEM}.md')}
+  drop = {*(rel for r in boards for rel in unsafe_views(r, r['board']) or []),
+          *(rel for rel, board in views.items() if board not in checked)}
+  for rel in sorted(drop):
+    try:
+      (path / rel).unlink(missing_ok=True)
+    except OSError as e:
+      fail(f'cannot remove {rel}, a report view the rig could not check, from {path}: {e}')
 
 
 def board_rows(tree, manifest, dest, result):
