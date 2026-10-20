@@ -93,10 +93,25 @@ jobs:
           python3 .claude/skills/hil-contract/scripts/hil_ci.py --board $BOARDS ${FAIL_AT:+--fail-at "$FAIL_AT"} \
             --roster test/hil/ci.json --out "$HIL_OUT"
 
+      # hil_ci.py's decision, written last (upload-views): `upload` only when no report view is unsafe; any other
+      # content, no file (hil_ci.py did not finish) or a failed step uploads no hil_report.md at all
+      - name: Read the report views' upload decision
+        id: views
+        if: always()
+        run: |
+          if [ "$(cat "$HIL_OUT/upload-views" 2>/dev/null)" = upload ]; then
+            echo "exclude=" >> "$GITHUB_OUTPUT"
+          else
+            echo "exclude=!$HIL_OUT/**/hil_report.md" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload the records, reports and logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: hil-ci-lan-${{ github.run_attempt }}
-          path: ${{ env.HIL_OUT }}
+          path: |
+            ${{ env.HIL_OUT }}
+            ${{ steps.views.outputs.exclude }}
+            ${{ steps.views.outcome != 'success' && format('!{0}/**/hil_report.md', env.HIL_OUT) || '' }}
           if-no-files-found: ignore

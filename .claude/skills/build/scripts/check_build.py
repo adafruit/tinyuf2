@@ -16,7 +16,6 @@ resolution or a missing prerequisite ("error" names the remedy), 3 uncovered pat
 
 import argparse
 import contextlib
-import fcntl
 import functools
 import hashlib
 import json
@@ -30,6 +29,11 @@ import sys
 import time
 import uuid
 from pathlib import Path
+
+try:
+  import fcntl
+except ImportError:   # Windows, where hil_remote.py's wait and collect load this module for its pin check only
+  fcntl = None
 
 ROOT = Path(__file__).resolve().parents[4]
 BUILD_YML = ROOT / '.github' / 'workflows' / 'build.yml'
@@ -446,6 +450,28 @@ def git_in(path, *args):
 
 def dirty_inputs(paths):
   return [p for p in paths if git_in(p, 'status', '--porcelain', '--untracked-files=all').strip()]
+
+
+AGENTRC = 'lib/agentrc'
+
+
+def check_agentrc_pin():
+  """Raise Fail unless lib/agentrc is a checkout of its own, clean (untracked files included) at the commit HEAD
+  pins: the one check before any tinyuf2 script runs agentrc code from it."""
+  init = f'git submodule update --init {AGENTRC}'
+  if not own_checkout(AGENTRC):
+    raise Fail(f'{AGENTRC} is not checked out: {init}')
+  want = git('rev-parse', f'HEAD:{AGENTRC}').strip()
+  have = git_in(AGENTRC, 'rev-parse', 'HEAD').strip()
+  if have != want:
+    # submodule update checks out the index's gitlink, so a staged pin change would defeat the hint
+    staged = git('rev-parse', f':{AGENTRC}').strip()
+    if staged != want:
+      raise Fail(f'{AGENTRC} is at {have}; HEAD pins {want} but {staged} is staged: commit or unstage that '
+                 f'{AGENTRC} pin change')
+    raise Fail(f'{AGENTRC} is at {have}; HEAD pins {want}: {init}')
+  if dirty_inputs([AGENTRC]):
+    raise Fail(f'{AGENTRC} checkout is dirty at the pinned {want}: discard its local changes')
 
 
 def identity(ports=()):
