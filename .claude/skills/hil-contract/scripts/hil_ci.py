@@ -7,9 +7,10 @@ run kept, a `hil` verdict per board and one exit for the job.
 
 `--out` is this run's directory under a state directory kept across runs (`<state>/<run id>`): the build
 record, each board's run directory (`hil_test.py run --run-root`: its report, hil.log and output) and the
-`<board>.started` / `<board>.done` markers go there; the battery touches `.done` before it releases the board
-(`run --done-marker`), so whoever takes the lock next sees it finished. A `.started` without its `.done` in any
-earlier run is a run that ended without a report or kept a cleanup holder (SKILL.md Recovery): that board is a
+`<board>.started` / `<board>.done` markers go there; the battery touches `.started` once it holds the board
+(`run --started-marker`) and `.done` before it releases it (`run --done-marker`), so whoever takes the lock meanwhile
+never sees a waiting battery started, and whoever takes it next sees it finished. A `.started` without its `.done` in
+any earlier run is a run that ended without a report or kept a cleanup holder (SKILL.md Recovery): that board is a
 blocker here until recovery removes the marker. Runs older than PRUNE_DAYS with every marker done are removed;
 one with a marker left is kept, whatever its age. Each battery's report pair is prepared for the upload (prepare()), and
 summary.json carries the shared run rules' `sharedVerdict` beside each native `verdict`, which alone decides the exit.
@@ -121,9 +122,10 @@ def launch(cmd, where, board):
   return report, p.wait(), False
 
 
-def battery(board, roster, record, where, lock_wait, fail_at=None, ci_state_root=None, done=None):
+def battery(board, roster, record, where, lock_wait, fail_at=None, ci_state_root=None, done=None, started=None):
   """One `hil_test.py run` with its run directory under `where`, `ci_state_root` a remote driver's (its
-  --ci-state-root), `done` CI's marker (its --done-marker). Returns launch()'s (report or None, exit or None, held)."""
+  --ci-state-root), `done` and `started` CI's markers (its --done-marker, --started-marker). Returns launch()'s (report
+  or None, exit or None, held)."""
   where.mkdir(parents=True)
   cmd = [sys.executable, HIL_TEST, 'run', '-b', board, '--build-record', record, '--run-root', where,
          '--lock-wait', lock_wait]
@@ -131,6 +133,8 @@ def battery(board, roster, record, where, lock_wait, fail_at=None, ci_state_root
     cmd += ['--ci-state-root', ci_state_root]
   if done is not None:
     cmd += ['--done-marker', done]
+  if started is not None:
+    cmd += ['--started-marker', started]
   if fail_at:
     cmd += ['--fail-at', fail_at]
   return launch(cmd + [roster], where, board)
@@ -213,15 +217,14 @@ def run_board(board, roster, out, state, lock_wait, fail_at=None, markers=True):
   record, ok, why = build_record(board, roster, out)
   if not ok:
     return {'board': board, 'phase': 'build', 'verdict': 'not-run', 'detail': why}
-  done = out / f'{board}.done' if markers else None
-  if markers:
-    (out / f'{board}.started').touch()
+  done, started = (out / f'{board}.done', out / f'{board}.started') if markers else (None, None)
   wait = lock_wait() if callable(lock_wait) else lock_wait
-  report, code, held = battery(board, roster, record, out / board, wait, fail_at, None if markers else state, done)
+  report, code, held = battery(board, roster, record, out / board, wait, fail_at, None if markers else state, done,
+                               started)
   v, detail = run_report.verdict(code, report, board)
   if done is not None and v == 'blocker':   # the battery's own touch stands only where this verdict agrees
     done.unlink(missing_ok=True)
-  elif done is not None:
+  elif done is not None and started.exists():   # a battery that never held the board leaves no marker
     done.touch()
   row = {'board': board, 'phase': 'battery', 'verdict': v, 'detail': detail, 'run': str(out / board), 'exit': code,
          'heldInProcess': held, 'report': report is not None}

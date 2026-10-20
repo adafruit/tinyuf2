@@ -31,6 +31,8 @@ CHECK_PIN = hil_ci.check_pin   # the real one: the tests patch it, as a commit's
 STAND_IN = '''
 import json, os, sys, time
 one = json.load(open(os.environ["HIL_STAND_IN"]))
+if "--started-marker" in sys.argv and not one["row"].get("locked"):   # the battery's own touch once it holds the board
+    open(sys.argv[sys.argv.index("--started-marker") + 1], "w").close()
 run_dir = os.path.join(sys.argv[sys.argv.index("--run-root") + 1], "run-1")
 os.makedirs(run_dir)
 open(os.path.join(run_dir, "hil.log"), "w").write("log\\n")
@@ -172,13 +174,15 @@ class Stubbed(unittest.TestCase):
         locked = {'row': {'ran': False, 'locked': True, 'recoveryBlocker': blocker, 'detail': 'board locked: pid 7'}}
         self.assertEqual(self.main('--board', BOARD, battery=locked, out=out), 1 if want == 'not-run' else 2)
         self.assertEqual(self.rows(out)[0]['verdict'], want)
-        self.assertEqual((out / f'{BOARD}.done').exists(), want == 'not-run')
+        # a battery that never held the board leaves no marker: no run sees it started
+        self.assertEqual(((out / f'{BOARD}.started').exists(), (out / f'{BOARD}.done').exists()), (False, False))
 
   def test_the_battery_gets_the_done_marker_and_a_blocker_verdict_keeps_none(self):
     ok = {'row': {'ran': True, 'pass': True, 'cleanup': {'pass': True, 'state': 'blinky copied'}}, 'touch_done': True}
     self.assertEqual(self.main('--board', BOARD, battery=ok), 0)
     argv = (self.out / BOARD / 'stdout.txt').read_text().splitlines()[0].split()
     self.assertEqual(argv[argv.index('--done-marker') + 1], str(self.out / f'{BOARD}.done'))
+    self.assertEqual(argv[argv.index('--started-marker') + 1], str(self.out / f'{BOARD}.started'))
     self.assertTrue((self.out / f'{BOARD}.done').exists())
     out = self.state / 'run-2'
     probe = {'row': {'ran': False, 'probeUsers': [5], 'detail': 'probe in use'}, 'exit': 2, 'touch_done': True}
@@ -501,12 +505,21 @@ spec = importlib.util.spec_from_file_location('hil_test', os.environ['HIL_RUNNER
 ht = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ht)
 ht.check_lock_pin = lambda: None
+ht.LOCK_POLL = float(os.environ.get('HIL_LOCK_POLL', ht.LOCK_POLL))
 load = ht.load_helper
 
 
 def load_helper():
   helper = load()
   helper.BOARD_LOCK_DIR = os.environ['HIL_LOCKS']
+  acquire = helper.acquire_board_lock
+
+  def acquire_noted(lock, *a, **k):   # each try at the board, for a test to order a contender after it
+    if os.environ.get('HIL_TRIES'):
+      with open(os.environ['HIL_TRIES'], 'a') as f:
+        f.write('try\\n')
+    return acquire(lock, *a, **k)
+  helper.acquire_board_lock = acquire_noted
   return helper
 
 
@@ -594,7 +607,9 @@ class RealRunner(unittest.TestCase):
     row = self.row(self.out)
     self.assertEqual(row['verdict'], 'blocker')
     self.assertIn('without a report', row['detail'])
-    self.assertFalse((self.out / f'{LPC}.done').exists())
+    # it died holding the board: its start stands without a .done, a blocker for every later run
+    self.assertEqual(((self.out / f'{LPC}.started').exists(), (self.out / f'{LPC}.done').exists()), (True, False))
+    self.assertEqual(hil_ci.unfinished(self.state, LPC), ['run-1'])
     run_dir, = (self.out / LPC).glob('run-*')   # the dead battery's dir uploads an explicit notice, no view
     self.assertTrue((run_dir / 'hil_report.md').read_text(encoding='utf-8').startswith(
       run_report.load(hil_ci.REPORT_CORE).NOTICE))
@@ -613,6 +628,30 @@ class RealRunner(unittest.TestCase):
     self.assertIn('stale record', row['detail'])
     self.assertFalse((later / f'{LPC}.done').exists())
     self.assertEqual(self.helper.read_record(LPC), rec)
+
+  def test_a_ci_battery_waiting_on_the_board_is_not_unfinished_to_a_runner_that_takes_it_meanwhile(self):
+    tries, ended = self.tmp / 'tries', {}
+    third = self.helper.take_board_lock(LPC, 'a third holder')
+    env = dict(self.env, HIL_BATTERY='pass', HIL_LOCK_POLL='4', HIL_TRIES=str(tries))
+    with mock.patch.dict(os.environ, env), mock.patch.object(sys, 'stdout', io.StringIO()):
+      ci = threading.Thread(target=lambda: ended.update(code=hil_ci.main(
+        ['--roster', 'ci.json', '--out', str(self.out), '--board', LPC, '--lock-wait', '4'])))
+      ci.start()
+      end = time.monotonic() + 20
+      while not tries.exists() and time.monotonic() < end:   # CI's battery tried the board and sleeps on it
+        time.sleep(0.02)
+      waiting = ((self.out / f'{LPC}.started').exists(), hil_ci.unfinished(self.state, LPC))
+      self.helper.release_board_lock(third)
+      # a remote driver's runner takes the board before CI's battery tries again
+      report, code, _ = hil_ci.battery(LPC, 'ci.json', self.out / f'{LPC}.build.json', self.tmp / 'remote' / LPC, 0,
+                                       ci_state_root=self.state)
+      ci.join()
+    remote = run_report.row_of(report, LPC) or {}
+    self.assertEqual((waiting, run_report.verdict(code, report, LPC), remote.get('unfinishedAttempts'),
+                      ended['code'], self.row(self.out)['verdict'],
+                      (self.out / f'{LPC}.started').exists(), (self.out / f'{LPC}.done').exists(),
+                      self.helper.record_state(LPC)[0]),
+                     ((False, []), ('pass', ''), None, 1, 'not-run', False, False, 'empty'))
 
 
 

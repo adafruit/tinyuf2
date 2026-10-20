@@ -3042,6 +3042,11 @@ def run_board(args, board, facts, helper, workdir):
       return deferred(row), 1
   row['lockBypassed'] = fh is None
   try:
+    if args.started_marker is not None:   # under the lock: a run waiting on the board is never seen started
+      try:
+        args.started_marker.touch()
+      except OSError as e:
+        raise Refused(f'started marker {args.started_marker} cannot be written: {e}')
     # a transition check for the remote driver: CI's markers name a battery an older driver started without this lock
     try:
       earlier = [] if args.ci_state_root is None else hil_ci.unfinished(args.ci_state_root, board['name'])
@@ -3189,6 +3194,8 @@ def main(argv=None):
                  'unfinished battery on the board refuses the run and keeps it a recovery blocker')
   r.add_argument('--done-marker', type=Path, help="hil_ci.py's only: its <board>.done, touched before the board is "
                  'released when the run is no blocker')
+  r.add_argument('--started-marker', type=Path, help="hil_ci.py's only: its <board>.started, touched once the board "
+                 'is locked, before any hardware access; refused, the board released, when it cannot be written')
   r.add_argument('config')
   i = sub.add_parser('install', help='program a bootloader under your own manual hold')
   i.add_argument('-b', '--board', required=True)

@@ -2698,7 +2698,7 @@ class RunBoard(Tmp):
     self.board = self.load(roster(self.tmp))
     self.facts = ht.source_facts(self.board)
     self.args = mock.Mock(build_record='rec.json', fail_at=None, try_reentry=None, lock_wait=0, ci_state_root=None,
-                          done_marker=None)
+                          done_marker=None, started_marker=None)
     for p in (mock.patch.object(ht, 'verify_record', lambda *a: ({'hex': 'x.hex', 'bin': 'x.bin'}, {'version': 'v'})),
               mock.patch.object(ht, 'parse_hex', lambda p: {0: 1}),
               mock.patch.object(ht, 'hex_matches_bin', lambda d, b, base: True),
@@ -3178,6 +3178,29 @@ class RunBoard(Tmp):
         row, code, _ = self.run_board(battery, cleanup_error=cleanup_error)
         self.assertEqual((done.exists(), ht.run_report.verdict(code, {'results': [row]}, BOARD)[0] != 'blocker'),
                          (want, want))
+
+  def test_a_ci_batterys_started_marker_is_touched_only_once_it_holds_the_board(self):
+    (self.tmp / 'ci-1').mkdir()
+    started = self.args.started_marker = self.tmp / 'ci-1' / f'{BOARD}.started'
+    seen, real = [], self.helper.acquire_board_lock
+
+    def acquire(board, **kw):   # while the board may still be another run's, no run may see CI's battery started
+      seen.append(('acquire', started.exists()))
+      return real(board, **kw)
+
+    def ran(bat, files, version):
+      seen.append(('battery', started.exists()))
+      bat.touched = True
+    with mock.patch.object(self.helper, 'acquire_board_lock', acquire):
+      row, code, cleaned = self.run_board(ran)
+    self.assertEqual((code, row['pass'], cleaned, seen), (0, True, [True], [('acquire', False), ('battery', True)]))
+
+  def test_a_started_marker_that_cannot_be_written_refuses_and_releases(self):
+    self.args.started_marker = self.tmp / 'missing' / f'{BOARD}.started'
+    with self.assertRaisesRegex(ht.Refused, 'started marker'):
+      self.run_board(lambda *a: self.fail('ran'))
+    self.assertEqual(self.helper.record_state(BOARD)[0], 'empty')
+    self.helper.release_board_lock(self.helper.take_board_lock(BOARD, 'next'))
 
   def test_an_unreadable_ci_state_root_refuses_and_releases(self):
     unreadable = self.tmp / 'unreadable'
