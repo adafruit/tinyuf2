@@ -1009,7 +1009,20 @@ def run_tests():
                      capture_output=True, text=True, cwd=ROOT)
   last = [l for l in r.stderr.splitlines() if l.strip()]
   return {'status': 'ok' if r.returncode == 0 else 'failed', 'summary': last[-1] if last else '',
-          'firstError': '' if r.returncode == 0 else first_error(r.stderr)}
+          'firstError': '' if r.returncode == 0 else unittest_first_error(r.stderr)}
+
+
+def unittest_first_error(log):
+  """The first failed test's id (without the docstring line unittest may print under it) and its exception's first
+  line: the first unindented line after the last traceback header, since an assertion's message (a diff) or a chained
+  exception may follow or precede it."""
+  failure = re.search(r'^={70}\n((?:FAIL|ERROR): [^\n]+)\n(?:[^\n]*\n)?-{70}\n(.*?)(?=^={70}\n|^-{70}\nRan \d+ test)',
+                      log, re.M | re.S)
+  if not failure:
+    return first_error(log)
+  frames = failure.group(2).split('Traceback (most recent call last):\n')[-1].splitlines()
+  exc = next((line for line in frames if line.strip() and not line[0].isspace()), '')
+  return (failure.group(1) + (f': {exc}' if exc else ''))[:400]
 
 
 class Parser(argparse.ArgumentParser):

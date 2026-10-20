@@ -1190,6 +1190,36 @@ class FirstError(unittest.TestCase):
     log = '[5/9] Building C object x/error.c.obj\nninja: error: loading build.ninja\n'
     self.assertEqual(cb.first_error(log), 'ninja: error: loading build.ninja')
 
+  def test_a_failed_script_test_is_named_with_its_exception_line(self):
+    """From unittest's own report: a multi-line assertion message, a chained exception, and a docstring that unittest
+    prints under the test's id."""
+    with tempfile.TemporaryDirectory() as tmp:
+      Path(tmp, 'test_contract.py').write_text(
+        'import unittest\n'
+        'class Contract(unittest.TestCase):\n'
+        '  def test_diff(self):\n'
+        '    self.assertEqual({"a": 1, "b": [1, 2]}, {"a": 2, "b": [1, 3]})\n'
+        '  def test_chained(self):\n'
+        '    try:\n'
+        '      {}["k"]\n'
+        '    except KeyError as e:\n'
+        '      raise RuntimeError("wrapped") from e\n'
+        '  def test_documented(self):\n'
+        '    """A docstring line."""\n'
+        '    self.fail("documented")\n')
+      for test, verdict, exc in (
+          ('test_diff', 'FAIL', "AssertionError: {'a': 1, 'b': [1, 2]} != {'a': 2, 'b': [1, 3]}"),
+          ('test_chained', 'ERROR', 'RuntimeError: wrapped'),
+          ('test_documented', 'FAIL', 'AssertionError: documented')):
+        with self.subTest(test):
+          real = subprocess.run([sys.executable, '-m', 'unittest', f'test_contract.Contract.{test}'],
+                                capture_output=True, text=True, cwd=tmp)
+          with mock.patch.object(cb.subprocess, 'run', return_value=real):
+            rec = cb.run_tests()
+          self.assertEqual(rec['status'], 'failed')
+          pattern = rf'^{verdict}: {test} \(test_contract\.Contract[^)]*\): {re.escape(exc)}$'
+          self.assertRegex(rec['firstError'], pattern)
+
 
 if __name__ == '__main__':
   unittest.main()
