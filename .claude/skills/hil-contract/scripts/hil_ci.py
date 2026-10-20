@@ -13,8 +13,8 @@ until recovery removes the marker. Runs older than PRUNE_DAYS with every marker 
 marker left is kept, whatever its age.
 
 Exit 0: every board passed. 1: a board failed or was not run (held past `--lock-wait`, its build or admission
-refused). 2: a blocker (a run without a report, a failed cleanup, a cleanup holder or a stale probe session on
-the board).
+refused). 2: a blocker (a run without a report, a failed cleanup, a cleanup holder, a dead battery's record or a
+takeover journal, or a stale probe session on the board).
 """
 import argparse
 import json
@@ -72,19 +72,15 @@ def build_record(board, roster, out):
   return record, ok, why
 
 
-def battery(board, roster, record, where, lock_wait, fail_at=None):
-  """One `hil_test.py run` with its run directory under `where`, its output streamed to `where/stdout.txt` as
-  it comes, so a killed run keeps what it printed; its last JSON line is the report (SKILL.md Results). A runner
-  left holding the board in process (`cleanup.holder.inProcess`, Recovery) never exits: it is not waited for.
-  Returns (exit or None, report or None)."""
-  where.mkdir(parents=True)
-  cmd = [sys.executable, HIL_TEST, 'run', '-b', board, '--build-record', record, '--run-root', where,
-         '--lock-wait', lock_wait]
-  if fail_at:
-    cmd += ['--fail-at', fail_at]
+def launch(cmd, where, board, cwd=None):
+  """One `hil_test.py run` of `board` (`cmd`, its argv), its output streamed to `where/stdout.txt` as it comes, so a
+  killed run keeps what it printed, and its stderr to `where/stderr.txt`; its last JSON line is the report (SKILL.md
+  Results). A runner that became the in-process cleanup holder (`cleanup.holder.inProcess`, Recovery) printed its
+  report, closed its stdio and never exits: it is left running, not waited for. Returns (report or None, exit or None,
+  held), `held` true for that live holder, whose exit is None."""
   report = None
   with open(where / 'stderr.txt', 'w') as err, open(where / 'stdout.txt', 'w') as log:
-    p = subprocess.Popen([str(c) for c in cmd + [roster]], cwd=ROOT, stdout=subprocess.PIPE, stderr=err, text=True)
+    p = subprocess.Popen([str(c) for c in cmd], cwd=cwd or ROOT, stdout=subprocess.PIPE, stderr=err, text=True)
     for line in p.stdout:
       log.write(line)
       log.flush()
@@ -95,8 +91,20 @@ def battery(board, roster, record, where, lock_wait, fail_at=None):
           pass
     p.stdout.close()
   row = next((r for r in (report or {}).get('results', []) if r.get('board') == board), {})
-  in_process = ((row.get('cleanup') or {}).get('holder') or {}).get('inProcess')
-  return (None if in_process else p.wait()), report
+  if ((row.get('cleanup') or {}).get('holder') or {}).get('inProcess') and p.poll() is None:
+    return report, None, True
+  return report, p.wait(), False
+
+
+def battery(board, roster, record, where, lock_wait, fail_at=None):
+  """One `hil_test.py run` with its run directory under `where` (launch()). Returns (exit or None, report or None)."""
+  where.mkdir(parents=True)
+  cmd = [sys.executable, HIL_TEST, 'run', '-b', board, '--build-record', record, '--run-root', where,
+         '--lock-wait', lock_wait]
+  if fail_at:
+    cmd += ['--fail-at', fail_at]
+  report, code, _ = launch(cmd + [roster], where, board)
+  return code, report
 
 
 def verdict(code, report, board):
@@ -109,7 +117,7 @@ def verdict(code, report, board):
   cleanup = row.get('cleanup') or {}
   if code in (4, None) or row.get('ran') is None or cleanup.get('heldAfter'):
     return 'blocker', f'cleanup failed or no report; board held: {row.get("detail")} {cleanup}'[:400]
-  if row.get('probeUsers'):
+  if row.get('probeUsers') or row.get('recoveryBlocker') and not row.get('locked'):
     return 'blocker', str(row.get('detail'))
   if row.get('locked'):
     return ('blocker' if row.get('recoveryBlocker') else 'not-run'), f'locked: {row.get("detail")}'
