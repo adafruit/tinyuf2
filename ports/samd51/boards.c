@@ -220,12 +220,12 @@ static inline uint8_t apply_percentage(uint8_t brightness) {
   return (uint8_t)((brightness * NEOPIXEL_BRIGHTNESS) >> 8);
 }
 
-// The strip reads a pulse as a 1 once it is high for about 0.5us. Writing the PORT registers and polling
-// the cycle counter add about 0.3us to the programmed high times, which sit in the middle of the working range.
-#define NEOPIXEL_T0H_NS    100
-#define NEOPIXEL_T1H_NS    540
-#define NEOPIXEL_PERIOD_NS 1250
-#define NEOPIXEL_RESET_NS  80000
+// The strip reads a pulse as a 1 once it is high for about 0.5us. The counts include the fixed cost of the PORT
+// writes and cycle counter reads, they are tuned for a 48MHz core and give ~0.3us/0.6us high and ~1.2us per bit.
+#define NEOPIXEL_T0H_CYCLES 4
+#define NEOPIXEL_T1H_CYCLES 25
+#define NEOPIXEL_BIT_CYCLES 36
+#define NEOPIXEL_RESET_NS   80000
 
 static uint32_t ns_to_cycles(uint32_t ns) {
   return (SystemCoreClock / 1000000) * ns / 1000;
@@ -233,21 +233,17 @@ static uint32_t ns_to_cycles(uint32_t ns) {
 
 // Runs from RAM, so the pulse widths do not depend on flash wait states or the NVM cache
 static __attribute__((section(".ramfunc"), noinline)) void neopixel_send(const uint8_t *grb, uint32_t count) {
-  const uint32_t t0     = ns_to_cycles(NEOPIXEL_T0H_NS);
-  const uint32_t t1     = ns_to_cycles(NEOPIXEL_T1H_NS);
-  const uint32_t period = ns_to_cycles(NEOPIXEL_PERIOD_NS);
-
   for (uint32_t i = 0; i < count; i++) {
     for (uint32_t c = 0; c < 3; c++) {
       for (uint8_t mask = 0x80; mask != 0; mask >>= 1) {
-        const uint32_t high  = (grb[c] & mask) ? t1 : t0;
+        const uint32_t high  = (grb[c] & mask) ? NEOPIXEL_T1H_CYCLES : NEOPIXEL_T0H_CYCLES;
         const uint32_t start = DWT->CYCCNT;
 
         PORT->Group[NEOPIXEL_PORT].OUTSET.reg = 1u << NEOPIXEL_PIN;
         while ((DWT->CYCCNT - start) < high) {}
 
         PORT->Group[NEOPIXEL_PORT].OUTCLR.reg = 1u << NEOPIXEL_PIN;
-        while ((DWT->CYCCNT - start) < period) {}
+        while ((DWT->CYCCNT - start) < NEOPIXEL_BIT_CYCLES) {}
       }
     }
   }
