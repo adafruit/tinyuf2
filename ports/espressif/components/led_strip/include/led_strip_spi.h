@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -20,13 +20,14 @@ extern "C" {
 typedef struct {
     spi_clock_source_t clk_src; /*!< SPI clock source */
     spi_host_device_t spi_bus;  /*!< SPI bus ID. Which buses are available depends on the specific chip */
-    struct {
+    struct led_strip_spi_extra_config {
         uint32_t with_dma: 1;   /*!< Use DMA to transmit data */
     } flags;                    /*!< Extra driver flags */
 } led_strip_spi_config_t;
 
 /**
  * @brief Create LED strip based on SPI MOSI channel
+ *
  * @note Although only the MOSI line is used for generating the signal, the whole SPI bus can't be used for other purposes.
  *
  * @param led_config LED strip configuration

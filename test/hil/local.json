@@ -22,7 +22,8 @@
       "name": "espressif_p4_function_ev",
       "uid": "30EDA0E0C902",
       "flasher": {"name": "esptool", "uid": "1ec47e6369c3ee119baac50f9e1b1c54", "args": "--chip esp32p4"},
-      "tinyuf2": {"reentry": "dfu-detach"}
+      "tinyuf2": {"reentry": "dfu-detach",
+                  "routes": [{"flasher": {"name": "openocd_esp", "uid": "30:ED:A0:E0:C9:02", "args": "-f board/esp32p4-builtin.cfg"}}]}
     },
     {
       "name": "stm32f303disco",
@@ -35,6 +36,12 @@
       "uid": "3A002A001051363332383332",
       "flasher": {"name": "jlink", "uid": "000770880814", "args": "-device stm32f411ve"},
       "tinyuf2": {"lock": "stm32f411disco", "reentry": "retained-register"}
+    },
+    {
+      "name": "stm32h563_nucleo",
+      "uid": "620041000751323237363130",
+      "flasher": {"name": "stlink", "uid": "002300273232510239353236", "args": "-device stm32h563zi"},
+      "tinyuf2": {"lock": "stm32h563nucleo", "reentry": "retained-register"}
     }
   ]
 }

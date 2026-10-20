@@ -50,6 +50,15 @@
 #include "esp_rom_sys.h"
 #endif
 
+#if BOARD_USB_FS_PHY_SWAP
+#include "hal/usb_serial_jtag_ll.h"
+#include "hal/usb_wrap_ll.h"
+#endif
+
+#if BOARD_USB_FS_PHY_SWAP && !(CONFIG_IDF_TARGET_ESP32P4 && BOARD_TUD_RHPORT == 0)
+#error "BOARD_USB_FS_PHY_SWAP needs ESP32-P4 OTG FS (BOARD_TUD_RHPORT 0)"
+#endif
+
 #ifndef BUILD_NO_TINYUSB
 #include "tusb.h"
 #endif
@@ -242,7 +251,7 @@ void board_init(void) {
   led_strip_config_t strip_config = {
       .strip_gpio_num = NEOPIXEL_PIN,           // The GPIO that connected to the LED strip's data line
       .max_leds = NEOPIXEL_NUMBER,              // The number of LEDs in the strip,
-      .led_pixel_format = LED_PIXEL_FORMAT_GRB, // Pixel format of your LED strip
+      .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB, // Pixel format of your LED strip
       .led_model = LED_MODEL_WS2812,            // LED strip model
       .flags.invert_out = false,                // whether to invert the output signal
   };
@@ -275,6 +284,11 @@ static void usb_disconnect_shutdown_handler(void) {
 
 static usb_phy_handle_t phy_hdl;
 void board_dfu_init(void) {
+#if BOARD_USB_FS_PHY_SWAP
+  // Disconnect Serial/JTAG before moving USB-C's GPIO24/25 to the FS OTG controller.
+  usb_serial_jtag_ll_phy_enable_pad(false);
+  vTaskDelay(pdMS_TO_TICKS(100));
+#endif
   // Configure USB PHY
   usb_phy_config_t phy_conf = {
     .controller = USB_PHY_CTRL_OTG,
@@ -284,26 +298,52 @@ void board_dfu_init(void) {
     .target = USB_PHY_TARGET_INT,
 #endif
     .otg_mode = USB_OTG_MODE_DEVICE,
+#if CONFIG_IDF_TARGET_ESP32P4 && BOARD_TUD_RHPORT == 0
+    // usb_new_phy() moves a P4 device with undefined speed onto the HS UTMI PHY
+    .otg_speed = USB_PHY_SPEED_FULL,
+#else
     // https://github.com/hathach/tinyusb/issues/2943#issuecomment-2601888322
     // Set speed to undefined (auto-detect) to avoid timinng/racing issue with S3 with host such as macOS
     .otg_speed = USB_PHY_SPEED_UNDEFINED,
+#endif
   };
 
   ESP_ERROR_CHECK(usb_new_phy(&phy_conf, &phy_hdl));
+
+#if BOARD_USB_FS_PHY_SWAP
+  // usb_new_phy() leaves OTG FS on FSLS1 (GPIO26/27); FSLS0 is GPIO24/25
+  usb_wrap_ll_phy_select(&USB_WRAP, 0);
+#endif
 
 #if (CONFIG_IDF_TARGET_ESP32P4 || CONFIG_IDF_TARGET_ESP32S31) && !defined(BUILD_NO_TINYUSB)
   esp_register_shutdown_handler(usb_disconnect_shutdown_handler);
 #endif
 }
 
+#if BOARD_USB_FS_PHY_SWAP && !defined(BUILD_NO_TINYUSB)
+static void usb_restore_serial_jtag(void) {
+  tud_disconnect();
+  vTaskDelay(pdMS_TO_TICKS(100));
+  usb_del_phy(phy_hdl);
+  usb_serial_jtag_ll_phy_select(0);
+  usb_serial_jtag_ll_phy_enable_pad(true);
+}
+#endif
+
 void board_reset(void) {
+#if BOARD_USB_FS_PHY_SWAP && !defined(BUILD_NO_TINYUSB)
+  // Restore ROM's USB routing before starting an application with Serial/JTAG.
+  usb_restore_serial_jtag();
+  esp_rom_software_reset_system();
+#else
   esp_restart();
+#endif
 }
 
 void board_dfu_complete(void) {
   // Set partition OTA0 as bootable and reset
   esp_ota_set_boot_partition(esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL));
-  esp_restart();
+  board_reset();
 }
 
 bool board_app_valid(void) {
@@ -482,6 +522,12 @@ void tud_cdc_line_state_cb(uint8_t instance, bool dtr, bool rts) {
 
     if (coding.bit_rate == 1200) {
       printf("Touch1200: Reset to bootrom\n");
+#if BOARD_USB_FS_PHY_SWAP
+      // Unlike esp_restart()'s CPU-only reset, this lets ROM reinitialize Serial/JTAG for uploads.
+      usb_restore_serial_jtag();
+      usb_persist_shutdown_handler();
+      esp_rom_software_reset_system();
+#else
       // copied from Arduino's usb_persist_restart()
       esp_register_shutdown_handler(usb_persist_shutdown_handler);
 #if CONFIG_IDF_TARGET_ESP32S3
@@ -490,6 +536,7 @@ void tud_cdc_line_state_cb(uint8_t instance, bool dtr, bool rts) {
       usb_switch_to_cdc_jtag();
 #endif
       esp_restart();
+#endif
     }
   }
 }

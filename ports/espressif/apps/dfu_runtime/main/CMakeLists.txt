@@ -16,7 +16,7 @@ idf_component_register(SRCS
     ${tusb_src}/portable/synopsys/dwc2/dcd_dwc2.c
     ${tusb_src}/portable/synopsys/dwc2/dwc2_common.c
   INCLUDE_DIRS ${app_src} ${tusb_src} ${TOP}/src ${FAMILY_PATH}/boards ${BOARD_PATH}
-  PRIV_REQUIRES esp_timer esp_partition app_update)
+  PRIV_REQUIRES esp_timer esp_partition app_update esp_hal_usb)
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
   CFG_TUSB_MCU=OPT_MCU_${target_upper}

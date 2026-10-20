@@ -2,7 +2,7 @@
 
 ## Working Rules
 
-- Worktrees — `git submodule update --init lib/tinyusb lib/uf2`, then symlink the `deps_all` paths from `tools/get_deps.py` (`lib/mcu/...`, `lib/sct_neopixel`) to the primary checkout when it holds the pinned revisions. Never run `get_deps.py` through a symlink: it `git reset --hard`s each dependency in place. Where the primary's copy has local changes, use a detached `git worktree` of that dependency at its pin instead.
+- Worktrees — `git submodule update --init lib/tinyusb lib/uf2 lib/agentrc`, then symlink the `deps_all` paths from `tools/get_deps.py` (`lib/mcu/...`, `lib/sct_neopixel`) to the primary checkout when it holds the pinned revisions. `get_deps.py` refuses to update through a symlink; fetch the pinned revision in the primary checkout before linking it. Where the primary's copy has local changes or another revision, use a detached `git worktree` of that dependency at its pin instead, outside the checkout and symlinked in.
 - Code references — ports and boards: `ports/<port>/` (`boards/<board>/`, `board_flash.c`, `boards.c`), `supported_boards.md`; bootloader: `src/` (`main.c`, `ghostfat.c`, `msc.c`, `board_api.h`, the contract every port implements); apps: `apps/`, `ports/<port>/apps/`; build: `ports/make.mk`, `ports/rules.mk`, `ports/family_support.cmake`, `.github/workflows/build.yml` (which backend builds each port); deps: `tools/get_deps.py`.
 
 ## Code Rules
@@ -21,7 +21,7 @@
 ## Build and Validate
 
 - Build contract: `.claude/skills/build/SKILL.md`. It resolves a change to boards and builds each the way CI does, outside the source tree.
-- HIL contract: `.claude/skills/hil/SKILL.md`. Hardware validation comes from its report, never from a build; what no roster board on the host covers is reported pending.
+- HIL contract: `.claude/skills/hil-contract/SKILL.md`. Hardware validation comes from its report, never from a build; what no roster board on the host covers is reported pending.
 - ESP-IDF: the build contract uses CI's docker image; for interactive work, `. "$IDF_PATH/export.sh"` and `idf.py -C ports/espressif -DBOARD=<board> flash monitor`.
 - Before submitting, and again after a rebase: `pre-commit run --all-files`.
 - For code changes: `python3 .claude/skills/build/scripts/check_build.py --base master --worktree`.

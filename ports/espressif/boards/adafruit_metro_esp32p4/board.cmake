@@ -1,0 +1,3 @@
+set(IDF_TARGET "esp32p4")
+# USB-C is on OTG FS
+set(BOARD_TUD_RHPORT 0)

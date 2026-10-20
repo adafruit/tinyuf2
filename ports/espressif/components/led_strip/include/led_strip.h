@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -8,11 +8,7 @@
 #include <stdint.h>
 #include "esp_err.h"
 #include "led_strip_rmt.h"
-#include "esp_idf_version.h"
-
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 1, 0)
 #include "led_strip_spi.h"
-#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -60,8 +56,8 @@ esp_err_t led_strip_set_pixel_rgbw(led_strip_handle_t strip, uint32_t index, uin
  * @param strip: LED strip
  * @param index: index of pixel to set
  * @param hue: hue part of color (0 - 360)
- * @param saturation: saturation part of color (0 - 255)
- * @param value: value part of color (0 - 255)
+ * @param saturation: saturation part of color (0 - 255, rescaled from 0 - 1. e.g. saturation = 0.5, rescaled to 127)
+ * @param value: value part of color (0 - 255, rescaled from 0 - 1. e.g. value = 0.5, rescaled to 127)
  *
  * @return
  *      - ESP_OK: Set HSV color for a specific pixel successfully
@@ -69,6 +65,22 @@ esp_err_t led_strip_set_pixel_rgbw(led_strip_handle_t strip, uint32_t index, uin
  *      - ESP_FAIL: Set HSV color for a specific pixel failed because other error occurred
  */
 esp_err_t led_strip_set_pixel_hsv(led_strip_handle_t strip, uint32_t index, uint16_t hue, uint8_t saturation, uint8_t value);
+
+/**
+ * @brief Set HSV for a specific pixel in 16-bit resolution
+ *
+ * @param strip: LED strip
+ * @param index: index of pixel to set
+ * @param hue: hue part of color (0 - 360)
+ * @param saturation: saturation part of color (0 - 65535, rescaled from 0 - 1. e.g. saturation = 0.5, rescaled to 32767)
+ * @param value: value part of color (0 - 65535, rescaled from 0 - 1. e.g. value = 0.5, rescaled to 32767)
+ *
+ * @return
+ *      - ESP_OK: Set HSV color for a specific pixel successfully
+ *      - ESP_ERR_INVALID_ARG: Set HSV color for a specific pixel failed because of an invalid argument
+ *      - ESP_FAIL: Set HSV color for a specific pixel failed because other error occurred
+ */
+esp_err_t led_strip_set_pixel_hsv_16(led_strip_handle_t strip, uint32_t index, uint16_t hue, uint16_t saturation, uint16_t value);
 
 /**
  * @brief Refresh memory colors to LEDs
@@ -79,10 +91,46 @@ esp_err_t led_strip_set_pixel_hsv(led_strip_handle_t strip, uint32_t index, uint
  *      - ESP_OK: Refresh successfully
  *      - ESP_FAIL: Refresh failed because some other error occurred
  *
- * @note:
- *      After updating the LED colors in the memory, a following invocation of this API is needed to flush colors to strip.
+ * @note After updating the LED colors in the memory, a following invocation of this API is needed to flush colors to strip.
  */
 esp_err_t led_strip_refresh(led_strip_handle_t strip);
+
+/**
+ * @brief Refresh memory colors to LEDs asynchronously
+ *
+ * @param strip: LED strip
+ *
+ * @return
+ *      - ESP_OK: Refresh successfully
+ *      - ESP_ERR_INVALID_ARG: Refresh failed because of an invalid argument
+ *      - ESP_ERR_INVALID_STATE: Refresh failed because another transaction is in progress
+ *      - ESP_ERR_NOT_SUPPORTED: Async refresh is not supported by this backend
+ *      - ESP_FAIL: Refresh failed because some other error occurred
+ *
+ * @note This function is non-blocking, but the driver does not have a double buffer yet. The pixel
+ *       buffer is shared with the in-flight transaction, so you must still call
+ *       `led_strip_refresh_async_done` before modifying the LED colors again. In other words, the
+ *       only gain for now is that the waiting can be deferred and overlapped with CPU work that
+ *       does not touch the strip.
+ *
+ */
+esp_err_t led_strip_refresh_async(led_strip_handle_t strip);
+
+/**
+ * @brief Wait for the async refresh to complete
+ *
+ * @param strip: LED strip
+ *
+ * @return
+ *      - ESP_OK: Wait for the async refresh to complete successfully
+ *      - ESP_ERR_INVALID_ARG: Wait failed because of an invalid argument
+ *      - ESP_ERR_INVALID_STATE: Wait failed because there is no in-flight async refresh
+ *      - ESP_ERR_NOT_SUPPORTED: Async refresh is not supported by this backend
+ *
+ * @note Pair this with `led_strip_refresh_async`. Until the double buffer is added, the pixel
+ *       buffer must not be modified before this call returns.
+ */
+esp_err_t led_strip_refresh_async_done(led_strip_handle_t strip);
 
 /**
  * @brief Clear LED strip (turn off all LEDs)
@@ -94,6 +142,24 @@ esp_err_t led_strip_refresh(led_strip_handle_t strip);
  *      - ESP_FAIL: Clear LEDs failed because some other error occurred
  */
 esp_err_t led_strip_clear(led_strip_handle_t strip);
+
+/**
+ * @brief Switch GPIO of LED strip
+ *
+ * @param strip: LED strip
+ * @param new_gpio_num: new GPIO number
+ * @param invert_output: invert output
+ *
+ * @note Only the RMT backend supports this operation
+ *
+ * @return
+ *      - ESP_OK: Switch GPIO successfully
+ *      - ESP_ERR_INVALID_ARG: Switch GPIO failed because of an invalid argument
+ *      - ESP_ERR_INVALID_STATE: Switch GPIO failed because a transaction is in progress
+ *      - ESP_ERR_NOT_SUPPORTED: Switch GPIO is not supported by this backend
+ *      - ESP_FAIL: Switch GPIO failed because some other error occurred
+ */
+esp_err_t led_strip_switch_gpio(led_strip_handle_t strip, gpio_num_t new_gpio_num, bool invert_output);
 
 /**
  * @brief Free LED strip resources

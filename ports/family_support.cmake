@@ -369,9 +369,19 @@ function(family_flash_stlink TARGET)
     set(STM32_PROGRAMMER_CLI STM32_Programmer_CLI)
   endif ()
 
+  if (ARGC GREATER 1)
+    set(BIN_FILE $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.${ARGV1})
+  else ()
+    set(BIN_FILE $<TARGET_FILE:${TARGET}>)
+  endif ()
+
+  if (DEFINED STLINK_SERIAL)
+    set(STLINK_SN sn=${STLINK_SERIAL})
+  endif ()
+
   add_custom_target(${TARGET}-stlink
     DEPENDS ${TARGET}
-    COMMAND ${STM32_PROGRAMMER_CLI} --connect port=swd --write $<TARGET_FILE:${TARGET}> --go
+    COMMAND ${STM32_PROGRAMMER_CLI} --connect port=swd ${STLINK_SN} --write ${BIN_FILE} --go
     )
 endfunction()
 

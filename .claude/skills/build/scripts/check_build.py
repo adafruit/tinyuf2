@@ -27,6 +27,8 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -80,8 +82,8 @@ CORE = ('src/', 'lib/', 'ports/family_support.cmake', 'CMakeLists.txt', 'cmake/'
 # make files every Makefile port includes: read by the make ports' builds and CodeQL's
 MAKE_SHARED = ('ports/make.mk', 'ports/rules.mk')
 CONTRACT_TESTS = ('.claude/test/test_build', '.claude/test/test_hil')
-# the HIL contract's runner and rosters: a change there re-runs the battery on every roster board
-HIL_CONTROL = ('.claude/skills/hil/scripts/', 'test/hil/')
+# the HIL contract's runner, its lock helper's pin and rosters: a change there re-runs the battery on every roster board
+HIL_CONTROL = ('.claude/skills/hil-contract/scripts/', 'test/hil/', 'lib/agentrc', '.github/workflows/hil.yml')
 # hil_test.py imports these: the identity, artifacts and build dirs the battery trusts
 HIL_IMPORTS = '.claude/skills/build/scripts/'
 BUILD_CONTROL = (HIL_IMPORTS, '.github/workflows/build.yml',
@@ -96,14 +98,20 @@ SMOKE = {'make': 'frdm_k32l2b', 'cmake': 'feather_stm32f405_express', 'idf': 'es
 
 # What a roster flasher runs to install TinyUF2: the build's own flash target, and the build-tree files that
 # target reads, which a HIL record pins so the runner can check them before it flashes.
-FLASH = {'jlink': ('tinyuf2-jlink', ('tinyuf2.jlink', 'tinyuf2.hex')),
+FLASH = {'jlink': ('tinyuf2-jlink', ('tinyuf2.jlink', 'tinyuf2.hex')), 'stlink': ('tinyuf2-stlink', ('tinyuf2.hex',)),
          'esptool': ('flash', ('flash_args', 'bootloader/bootloader.bin', 'partition_table/partition-table.bin',
                                'ota_data_initial.bin', 'tinyuf2.bin'))}
 # a roster flasher's args, whose one group is the device or chip its flash target must name
-FLASHER_ARGS = {'jlink': r'-device (\S+)', 'esptool': r'--chip (\w+)'}
+FLASHER_ARGS = {'jlink': r'-device (\S+)', 'stlink': r'-device (\S+)', 'esptool': r'--chip (\w+)'}
+# a further install route of an Espressif board (tinyuf2.routes): the chip's built-in USB-Serial/JTAG through agentrc's
+# openocd_esp, which programs the esptool binding's segments; uid is the USJ serial
+ROUTE_ARGS = {'openocd_esp': r'-f board/(esp32[a-z0-9]*)-builtin\.cfg'}
 NINJA_STEP = re.compile(r'\[\d+/\d+\] ')   # ninja's progress prefix
+NINJA_QUERY_TIMEOUT = 30   # s for one ninja query
+DOCKER_TIMEOUT, CONTAINER_GONE_WAIT = 30, 10   # s for one docker call; s a killed query's container may linger
+CONTAINER_SETTLE = 2   # s docker must list no container before a killed client's pending create counts as never landing
 # configure variables that select a probe or port: a HIL record sets them from the roster, never from -D
-SELECTION = ('JLINK_OPTION', 'OPENOCD_SERIAL', 'OPENOCD_OPTION', 'ESPPORT')
+SELECTION = ('JLINK_OPTION', 'STLINK_SERIAL', 'OPENOCD_SERIAL', 'OPENOCD_OPTION', 'ESPPORT')
 
 
 class Fail(Exception):
@@ -505,7 +513,7 @@ def path_view(records, effect=None, keys=('path', 'rule', 'effect', 'reason')):
   return [{k: r[k] for k in keys} for r in records if effect in (None, r['effect'])]
 
 
-HIL_APP = 'dfu_runtime'   # the app hil_test.py's esptool battery copies through TinyUF2
+HIL_APP = 'dfu_runtime'   # the app hil_test.py's Espressif battery copies through TinyUF2
 
 
 def hil_selection(sel, config):
@@ -516,7 +524,7 @@ def hil_selection(sel, config):
   try:
     entries = json.loads((ROOT / config).read_text())['boards']
     roster = sorted({b['name'] for b in entries})   # TinyUF2 names
-    esptool = {b['name'] for b in entries if (b.get('flasher') or {}).get('name') == 'esptool'}
+    espressif = {b['name'] for b in entries if b['name'] in boards_of('espressif')}   # whatever installs them
   except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
     raise Fail(f'cannot read boards from {config}: {e}')
   by_port = {}
@@ -554,15 +562,15 @@ def hil_selection(sel, config):
       app = parts[1] if r['rule'] == 'app' else parts[3] if len(parts) > 3 else None
       ports = {port_of(b) for b, _ in r['boards']} if r['rule'] == 'app' else {parts[1]}
       if app != HIL_APP:
-        uncovered[r['path']] = f'the battery runs the bootloader and {HIL_APP} on esptool boards, never {r["path"]}'
+        uncovered[r['path']] = f'the battery runs the bootloader and {HIL_APP} on Espressif boards, never {r["path"]}'
         continue
-      # a port that builds the app but has no esptool roster board: its battery never runs it
+      # a port that builds the app but has no Espressif roster board: its battery never runs it
       for p in sorted(ports):
-        own = [b for b in esptool if port_of(b) == p]
+        own = [b for b in espressif if port_of(b) == p]
         if own:
           boards.update(own)
         else:
-          uncovered[f'{r["path"]} on {p}'] = f'no {config} esptool board of {p} runs {HIL_APP}'
+          uncovered[f'{r["path"]} on {p}'] = f'no {config} Espressif board of {p} runs {HIL_APP}'
     elif r['rule'] == 'board':
       (b, _), = r['boards']
       if b in roster:
@@ -638,7 +646,7 @@ def run(cmd, log, verbose, cwd=ROOT):
 
 def check_deps(port):
   """Remedy for a missing submodule or family dependency, None when all are present."""
-  missing = [s for s in ('lib/tinyusb', 'lib/uf2') if not (ROOT / s).is_dir() or not any((ROOT / s).iterdir())]
+  missing = [s for s in ('lib/tinyusb', 'lib/uf2', 'lib/agentrc') if not (ROOT / s).is_dir() or not any((ROOT / s).iterdir())]
   if missing:
     return f'empty submodule {", ".join(missing)}: git submodule update --init {" ".join(missing)}'
   for dep, families in deps_rows().items():
@@ -717,11 +725,12 @@ def build_idf(board, root, defines, log, verbose, idf_mode, image):
   return not run(idf_docker(root) + [image, 'bash', '-c', inner], log, verbose), []
 
 
-def idf_docker(root, verb='run'):
-  """`docker run` (or `create`) with the checkout, its git dir and the build dir mounted at their own paths, image
-  last."""
+def idf_docker(root, name=None):
+  """`docker run` with the checkout, its git dir and the build dir mounted at their own paths, image last."""
   common = Path(git('rev-parse', '--path-format=absolute', '--git-common-dir').strip())
-  cmd = ['docker', verb, '--rm', '--user', f'{os.getuid()}:{os.getgid()}', '-e', 'HOME=/tmp', '-w', str(ROOT)]
+  cmd = ['docker', 'run', '--rm', '--user', f'{os.getuid()}:{os.getgid()}', '-e', 'HOME=/tmp', '-w', str(ROOT)]
+  if name:
+    cmd += ['--name', name]
   for m in sorted({ROOT, common, root.parent}):
     cmd += ['-v', f'{m}:{m}']
   return cmd
@@ -729,11 +738,50 @@ def idf_docker(root, verb='run'):
 
 def ninja_in(backend, idf_mode, image, root, args):
   """Runs ninja on `root` with the ninja that built it: the host's, or the IDF image's (whose build log and
-  generator a host ninja would rewrite). Callers bind the build's own backend, mode and image."""
+  generator a host ninja would rewrite). Callers bind the build's own backend, mode and image. The query runs here,
+  its process killed past NINJA_QUERY_TIMEOUT or on an interruption (only that process: `ninja -t commands` starts
+  nothing, though a docker client may), and it stays in this process group, so a kill of the group reaches it too.
+  stdout and stderr come back apart."""
   cmd = ['ninja', '-C', str(root), *args]
+  container = None
   if backend == 'idf' and idf_mode == 'docker':
-    cmd = idf_docker(root) + [image, *cmd]   # the image's entrypoint sources export.sh, then runs cmd
-  return subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT)
+    container = f'tinyuf2-query-{os.getpid()}-{uuid.uuid4().hex}'
+    cmd = idf_docker(root, name=container) + [image, *cmd]   # the entrypoint sources export.sh, then runs cmd
+  try:
+    return subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT, timeout=NINJA_QUERY_TIMEOUT)
+  except BaseException as e:   # subprocess.run has killed the query
+    left = container_left(container) if container else ''
+    if isinstance(e, subprocess.TimeoutExpired):
+      raise Fail(f'{root.name}: ninja {shlex.join(args)} timed out after {NINJA_QUERY_TIMEOUT}s{left}') from None
+    if left:
+      print(f'{root.name}: interrupted ninja {shlex.join(args)}{left}', file=sys.stderr)
+    raise
+
+
+def container_left(name):
+  """'' once docker has listed no `name` for CONTAINER_SETTLE, `docker rm -f` before each look, so a create still
+  pending when the client was killed is removed when it lands; else why, naming it, for an error message."""
+  end, absent_since = time.monotonic() + CONTAINER_GONE_WAIT, None
+  try:
+    while True:
+      subprocess.run(['docker', 'rm', '-f', name], capture_output=True, text=True, timeout=DOCKER_TIMEOUT)
+      r = subprocess.run(['docker', 'ps', '-aq', '-f', f'name=^{name}$'], capture_output=True, text=True,
+                         timeout=DOCKER_TIMEOUT)
+      if r.returncode:
+        return f'; docker ps failed ({r.stderr.strip()[-200:]}), so container {name} may be left: docker rm -f {name}'
+      now = time.monotonic()
+      if r.stdout.strip():
+        absent_since = None
+      elif absent_since is None:
+        absent_since = now
+      if absent_since is not None and now - absent_since >= CONTAINER_SETTLE:
+        return ''
+      if now > end:
+        return (f'; container {name} still exists: docker rm -f {name}' if absent_since is None else
+                f'; container {name} was listed within {CONTAINER_SETTLE}s, so it may be left: docker rm -f {name}')
+      time.sleep(0.2)
+  except (OSError, subprocess.SubprocessError) as e:
+    return f'; docker failed ({e}), so container {name} may be left: docker rm -f {name}'
 
 
 def backend_of(port):
@@ -755,12 +803,40 @@ def roster_flasher(config, board):
     raise Fail(f'cannot read {board} from {config}: {e}')
   form = FLASHER_ARGS.get(name)
   if form is None:
-    raise Fail(f'{board}: flasher {name!r} has no HIL flash target (jlink or esptool)')
+    raise Fail(f'{board}: flasher {name!r} has no HIL flash target (jlink, stlink or esptool)')
   m = re.fullmatch(form, fargs)
   if not m or not re.fullmatch(r'[\w-]+', uid):
     raise Fail(f'{board}: flasher args {fargs!r} or uid {uid!r} is not the roster form')
   flasher = {'name': name, 'uid': uid, 'device': m[1]}
-  return flasher, [f'JLINK_OPTION=-USB {uid} -ExitOnError 1 -NoGui 1'] if name == 'jlink' else []
+  defines = {'jlink': [f'JLINK_OPTION=-USB {uid} -ExitOnError 1 -NoGui 1'], 'stlink': [f'STLINK_SERIAL={uid}']}
+  return flasher, defines.get(name, [])
+
+
+def roster_routes(config, board):
+  """The board's further install routes (tinyuf2.routes), each {name, uid, device} as a record binds it."""
+  try:
+    entry = next(b for b in json.loads((ROOT / config).read_text())['boards'] if b['name'] == board)
+    routes = [(r['flasher']['name'], r['flasher']['uid'], r['flasher']['args'])
+              for r in (entry.get('tinyuf2') or {}).get('routes', [])]
+  except (OSError, ValueError, KeyError, TypeError, StopIteration, AttributeError) as e:
+    raise Fail(f'cannot read {board}\'s routes from {config}: {e}')
+  out = []
+  for name, uid, fargs in routes:
+    m = re.fullmatch(ROUTE_ARGS.get(name, r'(?!)'), fargs) if isinstance(fargs, str) else None
+    if not m or not isinstance(uid, str) or not re.fullmatch(r'[\w.:+-]+', uid):
+      raise Fail(f'{board}: route {name!r} args {fargs!r} or uid {uid!r} is not the roster form')
+    out.append({'name': name, 'uid': uid, 'device': m[1]})
+  return out
+
+
+def flash_routes(rec, routes):
+  """A passing IDF build's further routes, each bound to the files its esptool binding hashed: the segments
+  openocd_esp programs as they are, without esptool's header rewrite."""
+  fl = rec.get('flash') or {}
+  for r in routes:
+    if (fl.get('flasher') or {}).get('name') != 'esptool' or fl['flasher']['device'] != r['device']:
+      raise Fail(f'{rec["board"]}: route {r["name"]} for {r["device"]} needs the esptool binding of that chip')
+  return {r['name']: {'flasher': r, 'inputs': list(fl['inputs'])} for r in routes}
 
 
 def flash_binding(flasher, root, ninja):
@@ -769,7 +845,7 @@ def flash_binding(flasher, root, ninja):
   build's environment."""
   target, inputs = FLASH[flasher['name']]
   r = ninja(root, ['-t', 'commands', target])
-  tool = 'JLinkExe' if flasher['name'] == 'jlink' else 'run_serial_tool.cmake'
+  tool = {'jlink': 'JLinkExe', 'stlink': 'STM32_Programmer_CLI'}.get(flasher['name'], 'run_serial_tool.cmake')
   cmds = [l for l in r.stdout.splitlines() if tool in l] if r.returncode == 0 else []
   ok = len(cmds) == 1
   if ok and flasher['name'] == 'jlink':
@@ -779,6 +855,12 @@ def flash_binding(flasher, root, ninja):
       '-device', flasher['device'], '-USB', flasher['uid'], '-ExitOnError', '1', '-NoGui', '1', '-if', 'swd',
       '-JTAGConf', '-1,-1', '-speed', 'auto', '-CommandFile', str(root / inputs[0])] and \
       (root / inputs[0]).is_file() and (root / inputs[0]).read_text() == f'halt\nloadfile {root / inputs[1]}\nr\ngo\nexit'
+  elif ok and flasher['name'] == 'stlink':
+    # the device is the roster's to name: the CLI identifies the chip itself, which the runner checks every session
+    cd, _, cmd = cmds[0].partition(' && ')
+    argv = shlex.split(cmd)
+    ok = cd == f'cd {root}' and Path(argv[0]).name == 'STM32_Programmer_CLI' and argv[1:] == [
+      '--connect', 'port=swd', f'sn={flasher["uid"]}', '--write', str(root / inputs[0]), '--go']
   elif ok:
     argv = shlex.split(cmds[0].partition(' && ')[2])
     defs = dict(v.split('=', 1) for k, v in zip(argv[1:-2], argv[2:-2]) if k == '-D' and '=' in v)
@@ -795,83 +877,12 @@ def flash_binding(flasher, root, ninja):
     ok = ok and sorted(l.split()[1] for l in segs if l.strip()) == sorted(inputs[1:])
   if not ok:
     raise Fail(f'{root.name}: target {target} does not flash {flasher} with the build\'s image: '
-               f'{cmds if cmds else r.stderr.strip()[-200:]}')
+               f'{cmds if cmds else (r.stderr or r.stdout).strip()[-200:]}')
   return {'target': target, 'flasher': flasher, 'command': cmds[0], 'inputs': list(inputs)}
 
 
-def dry_run(ninja, root, target=None):
-  """The commands `ninja -n -v` would run; whatever precedes ninja's own output (the IDF image's entrypoint
-  banner) is skipped. None when ninja failed or its output is not ninja's."""
-  r = ninja(root, ['-n', '-v'] + ([target] if target else []))
-  lines = r.stdout.splitlines()
-  start = next((i for i, l in enumerate(lines) if l.startswith('ninja: Entering directory')), None)
-  if r.returncode or start is None:
-    return None
-  steps = [l for l in lines[start + 1:] if l.strip() and l != 'ninja: no work to do.']
-  return None if any(not NINJA_STEP.match(l) for l in steps) else [l.split('] ', 1)[1] for l in steps]
-
-
-def idf_step_writes_no_input(cmd, root, chip):
-  """True for a command ESP-IDF's flash target always runs before its flasher, segment by `&&` segment in one
-  of the forms TinyUF2's port and IDF generate: the bootloader subproject's build (its own tree is dry-run too),
-  stamps, read-only size checks, the port's post-build (combined.bin, copies into _bin, the update app's C
-  array). None of them writes a flash input; anything else, a shell operator included, is refused."""
-  cwd, py, cm = None, r'\S*/python[\d.]*', r'\S*/cmake'
-  # a path resolved, against a boundary resolved only up to the build root, so no symlink inside the tree moves
-  # either; a write never lands on a flash input
-  real = Path(os.path.realpath(root))
-  inputs = {Path(os.path.realpath(root / i)) for i in FLASH['esptool'][1]}
-  under = lambda p, d='': Path(os.path.realpath(p)).is_relative_to(real / d)   # noqa: E731
-  writes = lambda p, d='': under(p, d) and Path(os.path.realpath(p)) not in inputs   # noqa: E731
-  postbuild = root / 'tinyuf2.postbuild.sh'
-  for seg in cmd.split(' && '):
-    if re.search(r'[;|<>&$`(){}\\]', seg):
-      return False
-    argv = shlex.split(seg)
-    head, tail = ' '.join(argv[:3]), argv[3:]
-    ok = argv[:1] == ['cd'] and len(argv) == 2 and under(argv[1]) or \
-      re.fullmatch(cm, argv[0]) and (
-        argv[1:] == ['--build', '.'] and cwd == root / 'bootloader' or
-        argv[1:] == ['-E', 'echo_append'] or argv[1:3] == ['-E', 'echo'] and len(argv) == 4 or
-        argv[1:3] in (['-E', 'make_directory'], ['-E', 'touch']) and len(argv) == 4 and writes(argv[3]) or
-        argv[1:3] == ['-E', 'copy'] and len(argv) == 5 and writes(argv[4], '_bin')) or \
-      re.fullmatch(py + r' \S*/partition_table/check_sizes\.py --offset', head) and (
-        tail[1:] in (
-          ['partition', '--type', 'app', str(root / 'partition_table/partition-table.bin'), str(root / 'tinyuf2.bin')],
-          ['partition', '--type', 'app', '--subtype', 'factory', str(root / 'partition_table/partition-table.bin'),
-           str(root / 'tinyuf2.bin')]) or
-        len(tail) == 4 and tail[1] == 'bootloader' and re.fullmatch(r'0x[0-9a-f]+', tail[2]) and
-        tail[3] == str(root / 'bootloader/bootloader.bin')) or \
-      re.fullmatch(py + r' \S*/lib/uf2/utils/uf2conv\.py --carray', head) and \
-      tail == ['-o', str(root / 'apps/update_tinyuf2/bootloader_bin.c'), str(root / 'tinyuf2.bin')] and writes(tail[1]) or \
-      argv == ['bash', str(postbuild)] and cwd == root and writes(root / 'combined.bin') and postbuild.is_file() and \
-      postbuild.read_text() == (
-        '#!/bin/bash\necho "Creating combined.bin"\n'
-        f"esptool --chip {chip} merge-bin --output combined.bin $(tr '\\n' ' ' < {root / 'flash_args'})\n")
-    if not ok:
-      return False
-    if argv[0] == 'cd':
-      cwd = Path(argv[1])
-  return True
-
-
-def flash_ready(root, flash, ninja):
-  """Before a HIL flash, under the build lock and with its inputs hash-checked: a dry run shows the target would run
-  the recorded command once and nothing else that could write a flash input: no rebuild, relink or CMake re-run
-  (ESP-IDF re-runs CMake after any commit, through its git describe dependency). `ninja(dir, args)` runs ninja in
-  the build's environment."""
-  steps = dry_run(ninja, root, flash['target'])
-  extra = None
-  if steps is not None:
-    others = [c for c in steps if c != flash['command']]
-    if flash['flasher']['name'] == 'esptool':
-      nested = dry_run(ninja, root / 'bootloader')   # always: the outer build step runs whatever it needs
-      others += ['bootloader: ninja -n failed'] if nested is None else nested
-      others = [c for c in others if not idf_step_writes_no_input(c, root, flash['flasher']['device'])]
-    extra = others if steps.count(flash['command']) == 1 else others + ['no flash command']
-  if extra is None or extra:
-    raise Fail(f'{root.name}: target {flash["target"]} would not run only its flasher: '
-               f'{"ninja -n failed" if extra is None else extra[:3]}; rebuild the record')
+def build_lock_file(root):
+  return root.with_name(root.name + '.lock')
 
 
 @contextlib.contextmanager
@@ -879,7 +890,7 @@ def build_lock(root, wait=True):
   """Excludes a rebuild of a shared build dir while another build or a HIL flash uses it; without `wait`, a held
   lock raises BlockingIOError."""
   root.parent.mkdir(parents=True, exist_ok=True)
-  with open(root.with_name(root.name + '.lock'), 'a') as f:
+  with open(build_lock_file(root), 'a') as f:
     fcntl.flock(f, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
     yield
 
@@ -1000,7 +1011,20 @@ def run_tests():
                      capture_output=True, text=True, cwd=ROOT)
   last = [l for l in r.stderr.splitlines() if l.strip()]
   return {'status': 'ok' if r.returncode == 0 else 'failed', 'summary': last[-1] if last else '',
-          'firstError': '' if r.returncode == 0 else first_error(r.stderr)}
+          'firstError': '' if r.returncode == 0 else unittest_first_error(r.stderr)}
+
+
+def unittest_first_error(log):
+  """The first failed test's id (without the docstring line unittest may print under it) and its exception's first
+  line: the first unindented line after the last traceback header, since an assertion's message (a diff) or a chained
+  exception may follow or precede it."""
+  failure = re.search(r'^={70}\n((?:FAIL|ERROR): [^\n]+)\n(?:[^\n]*\n)?-{70}\n(.*?)(?=^={70}\n|^-{70}\nRan \d+ test)',
+                      log, re.M | re.S)
+  if not failure:
+    return first_error(log)
+  frames = failure.group(2).split('Traceback (most recent call last):\n')[-1].splitlines()
+  exc = next((line for line in frames if line.strip() and not line[0].isspace()), '')
+  return (failure.group(1) + (f': {exc}' if exc else ''))[:400]
 
 
 class Parser(argparse.ArgumentParser):
@@ -1073,7 +1097,11 @@ def main(argv=None):
         idf['version'] = (v.stdout or v.stderr).strip()
         idf['matchesCi'] = ci in idf['version']
     flashers = {b: roster_flasher(args.hil_config, b) for b, _ in sel['boards']} if args.hil_config else {}
+    routes = {b: roster_routes(args.hil_config, b) for b, _ in sel['boards']} if args.hil_config else {}
     records = [build_board(b, backend, args, idf, flashers.get(b)) for (b, backend) in sel['boards']]
+    for r in records:
+      if routes.get(r['board']) and r['status'] == 'ok':
+        r['flashRoutes'] = flash_routes(r, routes[r['board']])
     for r in records:
       r['selectedBy'] = sel['boards'][(r['board'], r['backend'])]
     # an input that moved while building, even if restored before the HIL checks it, leaves firmware
