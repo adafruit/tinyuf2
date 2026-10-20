@@ -950,7 +950,8 @@ PROVIDER_API = ('flash_jlink', 'flash_stlink', 'run_jlink_commands', 'run_stlink
 OPENOCD = []    # and its openocd_esp module (openocd_esp())
 OPENOCD_API = ('admit', 'find_openocd', 'usj_location', 'flash_openocd_esp', 'ci_refusal')
 CORE = []       # and the report core (report_core())
-CORE_API = ('BodySchema', 'READABLE', 'ReportError', 'read_document', 'start_attempt', 'make_meta', 'publish', 'table')
+CORE_API = ('BodySchema', 'READABLE', 'ReportError', 'read_document', 'start_attempt', 'make_meta', 'publish', 'table',
+            'roster_identity')
 
 
 def load_pinned(path, name, api, what='flash provider'):
@@ -1799,13 +1800,15 @@ def load_helper():
   mod = load_pinned(LOCK_HELPER, 'hil_lock', (), 'lock helper')
   errors = [getattr(mod, e, None) for e in ('LockUnavailable', 'RecoveryBlocked', 'ReleaseRefused')]
   if getattr(mod, 'PROTECTED_REASONS', None) != PROTECTED or getattr(mod, 'CI_REASON', None) != 'hil_test.py' or \
-     getattr(mod, 'CLEANUP_ROLE', None) != HOLDER_ROLE or \
+     getattr(mod, 'CLEANUP_ROLE', None) != HOLDER_ROLE or not isinstance(getattr(mod, 'HOLD_KIND', None), str) or \
      not all(isinstance(e, type) and issubclass(e, RuntimeError) for e in errors) or \
      not all(callable(getattr(mod, f, None)) for f in ('_open_dir', '_open_file', '_read_file', 'journal_state',
-                                                        'release_token', 'write_record', 'proc_start')):
+                                                        'release_token', 'write_record', 'proc_start',
+                                                        'is_recovery_blocker')):
     raise Refused(f'lock helper {LOCK_HELPER}: protected reasons are not {sorted(PROTECTED)}, its CI reason is not '
                   f"'hil_test.py', its cleanup role is not {HOLDER_ROLE!r}, it has no LockUnavailable, RecoveryBlocked or "
-                  'ReleaseRefused, no checked file opens or no takeover journal and token release; recheck this contract')
+                  'ReleaseRefused, no checked file opens, no takeover journal, hold kind and token release, or no '
+                  'recovery-blocker check; recheck this contract')
   return mod
 
 

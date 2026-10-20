@@ -313,6 +313,8 @@ class Roster(Tmp):
                             'LockUnavailable = 1\nclass _LockUnavailable(RuntimeError):'),
                            ('no RecoveryBlocked', 'class RecoveryBlocked(BoardLocked):', 'class _RecoveryBlocked(BoardLocked):'),
                            ('no token release', 'def release_token(', 'def _release_token('),
+                           ('no hold kind', "HOLD_KIND = 'hil_lock-hold'", "_HOLD_KIND = 'hil_lock-hold'"),
+                           ('no recovery-blocker check', 'def is_recovery_blocker(', 'def _is_recovery_blocker('),
                            ('protected reasons not iterable', reasons, 'PROTECTED_REASONS = 1'),
                            ('protected reasons unhashable', reasons, 'PROTECTED_REASONS = [[CI_REASON]]')):
       self.assertIn(old, text)
@@ -2231,6 +2233,15 @@ class FlashProvider(Tmp):
          mock.patch.object(ht, 'check_lock_pin', side_effect=ht.Refused('lib/agentrc is at x; HEAD pins y')), \
          self.assertRaisesRegex(ht.Refused, 'HEAD pins'):
       ht.provider()
+
+  def test_a_report_core_without_what_the_runner_calls_is_refused_at_load(self):
+    text = ht.REPORT_CORE.read_text()
+    self.assertIn('def roster_identity(', text)
+    off = self.tmp / 'core.py'
+    off.write_text(text.replace('def roster_identity(', 'def _roster_identity('))
+    with mock.patch.object(ht, 'CORE', []), mock.patch.object(ht, 'REPORT_CORE', off), \
+         mock.patch.object(ht, 'check_lock_pin'), self.assertRaisesRegex(ht.Refused, "lacks \\['roster_identity'\\]"):
+      ht.report_core()
 
   def test_a_shell_string_runs_as_argv_with_its_assignments_as_environment(self):
     self.assertEqual(ht.command_argv("NO_COLOR=1 esptool --chip esp32s3 -p /dev/ttyACM0 write_flash 0x0 'a b.bin'"),
