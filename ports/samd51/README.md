@@ -34,6 +34,8 @@ copy the application again afterwards.
 
 - The bootloader protects itself on every boot: if the BOOTPROT fuse in the user page does not match the 16 KB boot size, it is rewritten
   and the board resets once. The self-update lifts the protection until the next reset (`SBPDIS`) to write the new bootloader.
+- Rewriting the BOOTPROT fuse erases the user page before it is programmed again. A power cut in between leaves the user page blank,
+  and the bootloader then leaves it alone: restore it with an SWD probe.
 - Updating between `intech_grid` and `intech_wrid` works the same way, the drive label shows which one is installed.
 - A power cut while the bootloader area is erased leaves the board without a bootloader: recover it with an SWD probe. To program the
   bootloader over SWD, first remove the protection with `atsame5 bootloader 0` in OpenOCD and reset.
