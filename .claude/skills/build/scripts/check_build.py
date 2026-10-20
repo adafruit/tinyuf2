@@ -1013,9 +1013,10 @@ def run_tests():
 
 
 def unittest_first_error(log):
-  """The first failed test's id and its exception's first line: the first unindented line after the last
-  traceback header, since an assertion's message (a diff) or a chained exception may follow or precede it."""
-  failure = re.search(r'^={70}\n((?:FAIL|ERROR): [^\n]+)\n-{70}\n(.*?)(?=^={70}\n|^-{70}\nRan \d+ test)',
+  """The first failed test's id (without the docstring line unittest may print under it) and its exception's first
+  line: the first unindented line after the last traceback header, since an assertion's message (a diff) or a chained
+  exception may follow or precede it."""
+  failure = re.search(r'^={70}\n((?:FAIL|ERROR): [^\n]+)\n(?:[^\n]*\n)?-{70}\n(.*?)(?=^={70}\n|^-{70}\nRan \d+ test)',
                       log, re.M | re.S)
   if not failure:
     return first_error(log)
