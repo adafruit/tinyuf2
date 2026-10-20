@@ -36,7 +36,7 @@ jobs:
           submodules: true
 
       - name: Fetch tags
-        run: git fetch --tags
+        run: git fetch --tags --no-recurse-submodules
 
       - name: Setup Toolchain
         id: setup-toolchain
