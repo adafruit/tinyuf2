@@ -15,24 +15,17 @@ spec.loader.exec_module(gd)
 
 class SymlinkGuard(unittest.TestCase):
   def setUp(self):
-    self.tmp = tempfile.TemporaryDirectory()
-    self.root = Path(self.tmp.name) / 'checkout'
+    tmp = tempfile.TemporaryDirectory()
+    self.addCleanup(tmp.cleanup)
+    self.tmp = Path(tmp.name)
+    self.root = self.tmp / 'checkout'
     self.root.mkdir()
     self.dep = 'lib/mcu/vendor/sdk'
     self.pin = '0123456789abcdef'
-    self.patches = (
-      mock.patch.object(gd, 'TOP', self.root),
-      mock.patch.object(gd, 'deps_all', {self.dep: ['https://example.invalid/sdk.git', self.pin, 'port']}),
-      mock.patch.object(gd, 'run_cmd'),
-    )
-    self.run_cmd = self.patches[-1].start()
-    for patch in self.patches[:-1]:
-      patch.start()
-
-  def tearDown(self):
-    for patch in reversed(self.patches):
-      patch.stop()
-    self.tmp.cleanup()
+    mock.patch.object(gd, 'TOP', self.root).start()
+    mock.patch.object(gd, 'deps_all', {self.dep: ['https://example.invalid/sdk.git', self.pin, 'port']}).start()
+    self.run_cmd = mock.patch.object(gd, 'run_cmd').start()
+    self.addCleanup(mock.patch.stopall)
 
   def run_dep(self):
     output = io.StringIO()
@@ -49,7 +42,7 @@ class SymlinkGuard(unittest.TestCase):
     self.run_cmd.assert_not_called()
 
   def test_dependency_symlink_is_refused_before_git_runs(self):
-    target = Path(self.tmp.name) / 'primary-sdk'
+    target = self.tmp / 'primary-sdk'
     path = self.root / self.dep
     path.parent.mkdir(parents=True)
     path.symlink_to(target, target_is_directory=True)
@@ -57,7 +50,7 @@ class SymlinkGuard(unittest.TestCase):
     self.assert_refused(self.dep)
 
   def test_symlinked_ancestor_is_refused_before_git_runs(self):
-    target = Path(self.tmp.name) / 'primary-mcu'
+    target = self.tmp / 'primary-mcu'
     target.mkdir()
     path = self.root / 'lib' / 'mcu'
     path.parent.mkdir(parents=True)
