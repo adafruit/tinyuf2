@@ -30,10 +30,17 @@
 #include "esp_private/system_internal.h"
 #include "esp_private/usb_phy.h"
 #include "esp_rom_sys.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "board_api.h"
 #include "dfu_runtime.h"
 #include "tusb.h"
+
+#if BOARD_USB_FS_PHY_SWAP
+#include "hal/usb_serial_jtag_ll.h"
+#include "hal/usb_wrap_ll.h"
+#endif
 
 // Espressif glue for the DFU runtime example, without the bootloader's boards component
 
@@ -70,6 +77,10 @@ void board_timer_stop(void) {
 
 void board_usb_init(void) {
   // same PHY setup as TinyUF2's boards.c board_dfu_init()
+#if BOARD_USB_FS_PHY_SWAP
+  usb_serial_jtag_ll_phy_enable_pad(false);
+  vTaskDelay(pdMS_TO_TICKS(100));
+#endif
   usb_phy_config_t const phy_conf = {
     .controller = USB_PHY_CTRL_OTG,
 #if BOARD_TUD_RHPORT == 1 || CONFIG_IDF_TARGET_ESP32S31
@@ -78,10 +89,17 @@ void board_usb_init(void) {
     .target = USB_PHY_TARGET_INT,
 #endif
     .otg_mode = USB_OTG_MODE_DEVICE,
+#if CONFIG_IDF_TARGET_ESP32P4 && BOARD_TUD_RHPORT == 0
+    .otg_speed = USB_PHY_SPEED_FULL,
+#else
     // https://github.com/hathach/tinyusb/issues/2943#issuecomment-2601888322
     .otg_speed = USB_PHY_SPEED_UNDEFINED,
+#endif
   };
   ESP_ERROR_CHECK(usb_new_phy(&phy_conf, &phy_hdl));
+#if BOARD_USB_FS_PHY_SWAP
+  usb_wrap_ll_phy_select(&USB_WRAP, 0);
+#endif
 }
 
 uint8_t board_usb_get_serial(uint8_t serial_id[16]) {
