@@ -322,7 +322,7 @@ class Refusals(Project):
                        (('clear-pending', '-b', LPC), 'manual or recovery operation')):
       self.refused(*argv, text=text)
     for flag in ('--under-hold=x', '--recover-holder', '--recover-takeover', '--try-reentry', '--route', '--run-root',
-                 '--ci-state-root', '--build-record'):
+                 '--ci-state-root', '--done-marker', '--build-record'):
       self.refused('run', '-b', LPC, flag, 'v', text='takes no manual, recovery, commissioning or override option')
 
   def test_boards_and_run_ids(self):
@@ -414,6 +414,7 @@ class Attempt(Project):
     argv = ran['argv']
     self.assertEqual((argv[0], argv[argv.index('--ci-state-root') + 1], argv[argv.index('--lock-wait') + 1], argv[-1]),
                      ('run', str(self.state), '0', 'test/hil/ci.json'))
+    self.assertNotIn('--done-marker', argv)   # CI's markers stay CI's
     self.assertEqual(ran['hil'], [])
     # home: the records, run dir, report and output, the paths recovery needs on the rig beside their local copies
     local = self.wt / hr.RUNS / 'r1'

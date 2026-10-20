@@ -42,6 +42,8 @@ doc = json.dumps(dict(report, _hil=one["meta"]) if "meta" in one else report)
 open(report["reportPath"], "w").write(doc[:one["cut"]] if "cut" in one else doc)
 if "md" in one:
     open(os.path.join(run_dir, "hil_report.md"), "w").write(one["md"])
+if one.get("touch_done"):   # the battery's own touch before it released the board
+    open(sys.argv[sys.argv.index("--done-marker") + 1], "w").close()
 print("noise", " ".join(sys.argv[1:]))
 print(json.dumps(report), flush=True)
 if one.get("hang"):
@@ -171,6 +173,17 @@ class Stubbed(unittest.TestCase):
         self.assertEqual(self.main('--board', BOARD, battery=locked, out=out), 1 if want == 'not-run' else 2)
         self.assertEqual(self.rows(out)[0]['verdict'], want)
         self.assertEqual((out / f'{BOARD}.done').exists(), want == 'not-run')
+
+  def test_the_battery_gets_the_done_marker_and_a_blocker_verdict_keeps_none(self):
+    ok = {'row': {'ran': True, 'pass': True, 'cleanup': {'pass': True, 'state': 'blinky copied'}}, 'touch_done': True}
+    self.assertEqual(self.main('--board', BOARD, battery=ok), 0)
+    argv = (self.out / BOARD / 'stdout.txt').read_text().splitlines()[0].split()
+    self.assertEqual(argv[argv.index('--done-marker') + 1], str(self.out / f'{BOARD}.done'))
+    self.assertTrue((self.out / f'{BOARD}.done').exists())
+    out = self.state / 'run-2'
+    probe = {'row': {'ran': False, 'probeUsers': [5], 'detail': 'probe in use'}, 'exit': 2, 'touch_done': True}
+    self.assertEqual(self.main('--board', BOARD, battery=probe, out=out), 2)
+    self.assertFalse((out / f'{BOARD}.done').exists())
 
   def test_a_failed_cleanup_is_a_blocker_that_keeps_its_marker_and_blocks_the_next_run(self):
     held = {'row': {'ran': True, 'pass': False, 'steps': [{'step': 'install', 'pass': True}],

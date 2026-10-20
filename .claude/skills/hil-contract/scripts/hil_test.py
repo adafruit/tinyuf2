@@ -2983,6 +2983,17 @@ def release(helper, fh):
     fh.close()
 
 
+def release_finished(helper, fh, row, code, done):
+  """Release the board, touching CI's `done` marker (hil_ci.py's `<board>.done`) first when the row is no blocker:
+  a run that takes the lock next never sees CI's finished battery as unfinished. hil_ci.py touches it again after
+  its own verdict."""
+  if done is not None and not MARK_ERRORS and \
+     run_report.verdict(code, {'results': [row]}, row['board'])[0] != 'blocker':
+    with contextlib.suppress(OSError):
+      done.touch()
+  release(helper, fh)
+
+
 def run_board(args, board, facts, helper, workdir):
   row = {'board': board['name'], 'lock': board['lock'], 'ran': False, 'pass': False, 'locked': False,
          'lockBypassed': False, 'steps': [], 'cleanup': None, 'detail': ''}
@@ -3047,7 +3058,7 @@ def run_board(args, board, facts, helper, workdir):
       users = probe_users(board)
     except StepFail as e:   # an Espressif board without exactly one tty: not run, nothing touched
       row['detail'] = f'probe check: {e}'
-      release(helper, fh)
+      release_finished(helper, fh, row, 1, args.done_marker)
       return deferred(row), 1
     if users:   # a session from an earlier run, left on this probe: nothing may overlap it (SKILL.md Recovery)
       row.update(probeUsers=users, detail=f'probe {board["probe"]} is still in use by pids {users}; no session may overlap them')
@@ -3068,7 +3079,7 @@ def run_board(args, board, facts, helper, workdir):
     row['detail'] = f'{bat.at}: {e}' if isinstance(e, StepFail) else f'{bat.at}: {type(e).__name__}: {e}'
     code = 1
   row['steps'] = bat.steps
-  code = clean_up(row, code, bat, fh, board, helper, files)
+  code = clean_up(row, code, bat, fh, board, helper, files, args.done_marker)
   row.update(bat.report_fields())   # after the cleanup, whose install may take the snapshot a recovery needs
   if row.get('commissioning'):
     row['reentryDecision'] = reentry_decision(row)
@@ -3082,9 +3093,10 @@ def deferred(row):
   return row
 
 
-def clean_up(row, code, bat, fh, board, helper, files):
-  """Restore a touched board to the record's TinyUF2 with blinky copied, then release it. A child that survived
-  SIGKILL, or any unsuccessful cleanup, leaves the board held (exit 4), touched or not."""
+def clean_up(row, code, bat, fh, board, helper, files, done=None):
+  """Restore a touched board to the record's TinyUF2 with blinky copied, then release it (release_finished(), `done`
+  CI's marker). A child that survived SIGKILL, or any unsuccessful cleanup, leaves the board held (exit 4), touched or
+  not."""
   stuck = []
   try:
     refuse_pending(bat.dir, board.get('pendingMark'))
@@ -3115,7 +3127,7 @@ def clean_up(row, code, bat, fh, board, helper, files):
       row['cleanup']['holder'] = hand_off(fh, board['lock'], row['cleanup']['detail'], stuck, helper=helper)
       fh = None
     return 4
-  release(helper, fh)
+  release_finished(helper, fh, row, code, done)
   return code
 
 
@@ -3175,6 +3187,8 @@ def main(argv=None):
   r.add_argument('--route', help="an install route from the board's tinyuf2.routes (default its roster flasher)")
   r.add_argument('--ci-state-root', type=Path, help="transition only, from a driver: CI's state directory, whose "
                  'unfinished battery on the board refuses the run and keeps it a recovery blocker')
+  r.add_argument('--done-marker', type=Path, help="hil_ci.py's only: its <board>.done, touched before the board is "
+                 'released when the run is no blocker')
   r.add_argument('config')
   i = sub.add_parser('install', help='program a bootloader under your own manual hold')
   i.add_argument('-b', '--board', required=True)

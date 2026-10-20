@@ -2697,7 +2697,8 @@ class RunBoard(Tmp):
       self.helper = pinned_helper(self, self.tmp / 'locks')
     self.board = self.load(roster(self.tmp))
     self.facts = ht.source_facts(self.board)
-    self.args = mock.Mock(build_record='rec.json', fail_at=None, try_reentry=None, lock_wait=0, ci_state_root=None)
+    self.args = mock.Mock(build_record='rec.json', fail_at=None, try_reentry=None, lock_wait=0, ci_state_root=None,
+                          done_marker=None)
     for p in (mock.patch.object(ht, 'verify_record', lambda *a: ({'hex': 'x.hex', 'bin': 'x.bin'}, {'version': 'v'})),
               mock.patch.object(ht, 'parse_hex', lambda p: {0: 1}),
               mock.patch.object(ht, 'hex_matches_bin', lambda d, b, base: True),
@@ -3142,6 +3143,41 @@ class RunBoard(Tmp):
     with self.assertRaises(self.helper.RecoveryBlocked):
       self.helper.take_board_lock(BOARD, 'next')
     self.assertEqual(sorted(p.name for p in (root / 'run-3').iterdir()), [f'{BOARD}.started'])   # CI's state unwritten
+
+  def test_a_ci_batterys_done_marker_is_visible_before_its_lock_is_free(self):
+    root = self.tmp / 'hil-state'
+    (root / 'ci-1').mkdir(parents=True)
+    (root / 'ci-1' / f'{BOARD}.started').touch()
+    done = self.args.done_marker = root / 'ci-1' / f'{BOARD}.done'
+    seen, real = [], ht.release
+
+    def release(helper, fh):   # a remote runner taking the lock right after this release sees nothing unfinished
+      seen.append((done.exists(), ht.hil_ci.unfinished(root, BOARD)))
+      real(helper, fh)
+    with mock.patch.object(ht, 'release', release):
+      row, code, cleaned = self.run_board(lambda bat, f, v: setattr(bat, 'touched', True))
+    self.assertEqual((code, row['pass'], cleaned, seen), (0, True, [True], [(True, [])]))
+    self.args.done_marker, self.args.ci_state_root = None, root
+    row, code, cleaned = self.run_board(lambda bat, f, v: setattr(bat, 'touched', True))
+    self.assertEqual((code, row['pass'], cleaned, 'unfinishedAttempts' in row), (0, True, [True], False))
+
+  def test_only_a_battery_that_is_no_blocker_touches_its_done_marker(self):
+    def touched_then_failed(bat, files, version):
+      bat.touched = True
+      bat.step('app-ran', lambda: (_ for _ in ()).throw(ht.StepFail('pc not in the loop')))
+
+    def aborted(bat, files, version):   # no failed step: an abort, a blocker
+      raise ValueError('boom')
+    holder = mock.patch.object(ht, 'hand_off', lambda fh, b, d, s, **_: (self.helper.clear_record(fh), fh.close(),
+                                                                          {'pid': 1, 'reason': 'hil_test.py'})[2])
+    for name, battery, cleanup_error, want in (('fail', touched_then_failed, None, True),
+                                                ('aborted', aborted, None, False),
+                                                ('cleanup holder', touched_then_failed, ht.StepFail('verify'), False)):
+      with self.subTest(name), holder:
+        done = self.args.done_marker = self.tmp / f'{name}.done'
+        row, code, _ = self.run_board(battery, cleanup_error=cleanup_error)
+        self.assertEqual((done.exists(), ht.run_report.verdict(code, {'results': [row]}, BOARD)[0] != 'blocker'),
+                         (want, want))
 
   def test_an_unreadable_ci_state_root_refuses_and_releases(self):
     unreadable = self.tmp / 'unreadable'

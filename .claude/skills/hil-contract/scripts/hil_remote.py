@@ -58,7 +58,7 @@ INCOMPLETE, REFUSED = 6, 7
 MANUAL = ('install', 'restore', 'clear-pending', 'fat-read', 'keep-held', 'keep-build')
 # hil_test.py's manual, recovery and commissioning options and the overrides a remote run never takes
 REFUSED_FLAGS = ('--under-hold', '--recover-holder', '--recover-takeover', '--report', '--try-reentry', '--route',
-                 '--build-record', '--run-root', '--ci-state-root', '--after-reviewed-recovery')
+                 '--build-record', '--run-root', '--ci-state-root', '--done-marker', '--after-reviewed-recovery')
 
 core = None   # the provider, loaded by provider() only once check_pin() passed
 
