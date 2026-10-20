@@ -18,14 +18,14 @@ APP, DATA = 0x00, 0x01
 SUBTYPE = {(APP, 'factory'): 0x00, (APP, 'ota_0'): 0x10, (APP, 'ota_1'): 0x11, (DATA, 'ota'): 0x00,
            (DATA, 'nvs'): 0x02, (DATA, 'fat'): 0x81}
 TYPE = {'app': APP, 'data': DATA}
-# the IDF build's own segments, the flash target's inputs after flash_args: build-dir path -> the segment's name
+# the IDF build's own segments, the flash's inputs after flash_args: build-dir path -> the segment's name
 # (its roster region)
 SEGMENT_PATHS = {p: Path(p).name for p in FLASH['esptool'][1][1:]}
 SEGMENTS = tuple(SEGMENT_PATHS.values())
 NATIVE = {v: k for k, v in SEGMENT_PATHS.items()}
 APP_UF2 = f'_bin/apps/{HIL_APP}.uf2'   # the battery's app, copied through TinyUF2
 BLINKY_UF2 = '_bin/apps/blinky.uf2'   # what cleanup leaves running
-RECORD_FILES = (APP_UF2, BLINKY_UF2, *IDF_CONFIG)   # besides the flash target's inputs, which admit_flash checks
+RECORD_FILES = (APP_UF2, BLINKY_UF2, *IDF_CONFIG)   # besides the flash's inputs, which admit_flash checks
 IMAGE_MAGIC = 0xE9
 
 
@@ -145,7 +145,7 @@ def admit(root, board, f, lay):
   """The segments an install writes, [(offset, path)], from an IDF build dir already hash-checked against
   its record: flash_args, the generated sdkconfig and partition table must agree with the candidate's
   source, and every segment must sit inside its own region. Paths are the build tree's own files, which
-  ESP-IDF's flash target writes, not the _bin copies."""
+  the flash writes, not the _bin copies."""
   gen = sdkconfig((root / 'sdkconfig').read_text())
   want = {'CONFIG_IDF_TARGET': f'"{board["device"]}"', 'CONFIG_PARTITION_TABLE_OFFSET': hex(PARTITION_TABLE[0]),
           'CONFIG_PARTITION_TABLE_CUSTOM_FILENAME': f'"{f["partitionCsv"]}"',

@@ -1,0 +1,10 @@
+{
+  "boards": [
+    {
+      "name": "imxrt1064_evk",
+      "uid": "BAE96FB95AFA6DBB8F00005002001200",
+      "flasher": {"name": "jlink", "uid": "000725299165", "args": "-device MIMXRT1064xxx6A"},
+      "tinyuf2": {"lock": "mimxrt1064_evk", "reentry": "retained-register"}
+    }
+  ]
+}
