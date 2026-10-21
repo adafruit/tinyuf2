@@ -152,14 +152,6 @@ jobs:
           name: hil-selection
           path: hil-selection
 
-      # the rig uploads its HIL_OUT, summary.json at the artifact's root
-      - name: Download the records, reports and logs
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: hil-ci-lan-${{ github.run_attempt }}
-          path: hil-out
-
       - name: Check this run is the newest for the PR head
         id: fresh
         env:
@@ -173,6 +165,15 @@ jobs:
             [ "$code" = 1 ] || exit "$code"
             echo "::notice title=HIL report not posted::$why"
           fi
+
+      # the rig uploads its HIL_OUT, summary.json at the artifact's root
+      - name: Download the records, reports and logs
+        if: steps.fresh.outputs.post == 'true'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: hil-ci-lan-${{ github.run_attempt }}
+          path: hil-out
 
       - name: Render the report
         if: steps.fresh.outputs.post == 'true'

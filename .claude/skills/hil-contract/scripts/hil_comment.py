@@ -16,17 +16,18 @@ import json
 import re
 import subprocess
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import hil_ci  # noqa: E402   its battery steps
+import hil_run_report as run_report  # noqa: E402   its step marks and cell escaping
 
 TITLE = '## Hardware-in-the-loop (HIL) Test Report'
-STEPS = ('install', 'dfu', 'copy', 'app-ran', 'reenter', 'recopy')
-PASS, FAIL, ABSENT = '✅', '❌', '—'
+STEPS = tuple(s for s in hil_ci.STEPS if s != 'cleanup')   # the cleanup is the blinky column
+ABSENT = '—'
+cell = run_report.cell   # report text kept on one Markdown line and out of the table's column syntax
 KINDS = (('passed', '✅'), ('failed', '❌'), ('blocked', '⛔'), ('not run', '⚪'))
 LEGEND = "✅ passed · ❌ failed · blank not run · — not in this board's run · run time includes lock wait and blinky"
-
-
-def cell(text):
-  """Report-derived text kept on one Markdown line and out of the table's column syntax."""
-  return ' '.join(str(text).replace('|', '/').splitlines())
 
 
 def duration(s):
@@ -65,11 +66,11 @@ def step_cell(r, step):
     return ''
   if step == 'recopy' and not r.get('espressif'):
     return ABSENT   # only the Espressif battery has recopy
-  return {True: PASS, False: FAIL}.get(steps.get(step), '')
+  return run_report.STEP_MARK.get(steps.get(step), '')
 
 
 def table_row(r):
-  blinky = '' if withheld(r) else {True: PASS, False: FAIL}.get(r.get('cleanupPass'), '')
+  blinky = '' if withheld(r) else run_report.STEP_MARK.get(r.get('cleanupPass'), '')
   cells = [cell(r['board']), *(step_cell(r, s) for s in STEPS), blinky, duration(r.get('buildS')),
            duration(r.get('runS'))]
   return '| ' + ' | '.join(cells) + ' |'
@@ -161,7 +162,7 @@ def fresh(api, repo, pr, head, run_id, attempt):
     return False, f'no HIL run listed for {head[:7]}'
   if int(runs[0]['id']) != int(run_id):
     return False, f'run {runs[0]["id"]} is newer than run {run_id} for {head[:7]}'
-  latest = api(f'repos/{repo}/actions/runs/{run_id}')['run_attempt']
+  latest = runs[0]['run_attempt']
   if int(latest) != int(attempt):
     return False, f'run {run_id} attempt {latest} is newer than attempt {attempt}'
   return True, 'fresh'

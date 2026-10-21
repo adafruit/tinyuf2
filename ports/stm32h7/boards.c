@@ -154,27 +154,25 @@ bool board_app_valid(void)
   uint32_t app_vector[2u] = { 0u, 0u };
   board_flash_read(app_addr, app_vector, 8u);
 
-  // 1st word should be in SRAM region and aligned
-  switch ((app_vector[0] & 0xFFFF0003u))
+  // 1st word should be a stack top in an SRAM region (RM0433 Table 7): above its base, up to its end, aligned
+  static const struct { uint32_t base; uint32_t size; } sram_regions[] = {
+    { 0x00000000u, 0x10000u }, // ITCM 64K
+    { 0x20000000u, 0x20000u }, // DTCM 128K
+    { 0x24000000u, 0x80000u }, // AXI SRAM 512K
+    { 0x30000000u, 0x48000u }, // SRAM1-3 288K
+    { 0x38000000u, 0x10000u }, // SRAM4 64K
+    { 0x38800000u, 0x01000u }, // Backup SRAM 4K
+  };
+  uint32_t const sp = app_vector[0];
+  bool sp_valid = false;
+  for ( uint32_t i = 0; i < sizeof(sram_regions) / sizeof(sram_regions[0]); i++ )
   {
-    case 0x20000000u: // a stack top inside the first DTCM 64K, above its base
-      if (app_vector[0] == 0x20000000u) return false;
-      break;
-    case 0x00000000u: // ITCM 64K       [0x0000_0000u--0x0000_FFFFu]
-    case 0x20010000u: // DTCM 64K       [0x2000_0000u--0x2000_FFFFu]
-    case 0x20020000u: // DTCM 64K       [0x2001_0000u--0x2001_FFFFu]
-    case 0x24000000u: // AXI SRAM 512K  [0x2400_0000u--0x2407_FFFFu]
-    case 0x24080000u: // AXI SRAM 512K top
-    case 0x30010000u: // SRAM1 64K      [0x3001_0000u--0x3001_FFFFu]
-    case 0x30020000u: // SRAM2 64K      [0x3002_0000u--0x3002_FFFFu]
-    case 0x30030000u: // SRAM2 64K      [0x3003_0000u--0x3003_FFFFu]
-    case 0x30040000u: // SRAM3 32K      [0x3004_0000u--0x3004_7FFFu]
-    case 0x38000000u: // SRAM4 64K      [0x3800_0000u--0x3800_FFFFu]
-    case 0x38800000u: // Backup SRAM 4K [0x3880_0000u--0x3880_0FFFu]
-      break;
-    default:
-      return false;
+    if ( (sp > sram_regions[i].base) && (sp <= sram_regions[i].base + sram_regions[i].size) && !(sp & 3u) )
+    {
+      sp_valid = true;
+    }
   }
+  if (!sp_valid) return false;
 
   // 2nd word should be application reset
 

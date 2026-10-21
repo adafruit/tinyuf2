@@ -78,8 +78,8 @@ LOCK_HELPER = ROOT / AGENTRC / 'skills' / 'hil' / 'scripts' / 'hil_lock.py'
 # the flash provider beside it (agentrc `hil` Flashers): every install, probe session and reset runs through it
 FLASH_PROVIDER = LOCK_HELPER.with_name('hil_flash.py')
 OPENOCD_ESP = LOCK_HELPER.with_name('hil_openocd_esp.py')   # an Espressif board's JTAG route (tinyuf2.routes)
-OPENOCD_TIMEOUT = 300   # s for one openocd_esp flash: every segment programmed, verified and read back, and for one
-                        # CMSIS-DAP program and verify at the max32665 cfg's 100 kHz (untimed on the rig)
+OPENOCD_TIMEOUT = 300   # s for one openocd_esp flash: every segment programmed, verified and read back
+CMSIS_DAP_TIMEOUT = 300   # s for one CMSIS-DAP program at the max32665 cfg's 100 kHz (untimed on the rig)
 HOLDER_ROLE = 'cleanup-holder'
 LOCK_POLL = 15   # s between tries at a held board within run's --lock-wait
 SCB_VTOR, SCB_AIRCR = 0xE000ED08, 0xE000ED0C
@@ -119,12 +119,10 @@ _F3_UNPROTECT_NOTE = (r'(?m)^Active write protection detected\.\nDevice will be 
                       r'Can not attach to CPU\. Trying connect under reset\.$')
 BENIGN = {'MIMXRT1062xxx6A': _RESET_VECTOR_NOTE, 'MIMXRT1011DAE5A': _RESET_VECTOR_NOTE, 'MIMXRT1064xxx6A': _RESET_VECTOR_NOTE,
           'stm32f303vc': _F3_UNPROTECT_NOTE}
-# runner sessions connect as the core: J-Link's stm32f411ve and stm32f407vg connects reset the chip to unprotect it
-# (bench-history.md, stm32f411ve_discovery, stm32f407disco)
-SESSION_DEVICE = {'stm32f411ve': 'Cortex-M4', 'stm32f407vg': 'Cortex-M4'}
-# ms the install's verify session waits before its halt after the flash's unlock, empirical
-# (bench-history.md, stm32f411ve_discovery, stm32f407disco)
-INSTALL_SETTLE_MS = {'stm32f411ve': 1000, 'stm32f407vg': 1000}
+# J-Link devices whose connect as the chip resets it to unprotect it (bench-history.md, stm32f411ve_discovery,
+# stm32f407disco): (the core runner sessions connect as instead, ms the install's verify session waits before its halt
+# after the flash's unlock, empirical)
+JLINK_CONNECT_UNLOCKS = {'stm32f411ve': ('Cortex-M4', 1000), 'stm32f407vg': ('Cortex-M4', 1000)}
 
 
 class Refused(Exception):
@@ -198,7 +196,7 @@ def load_board(config, name):
   return {'name': name, 'lock': lock, 'uid': b['uid'], 'flasher': fl['name'], 'probe': fl['uid'], 'device': m.group(1),
           'kind': 'esp' if port == 'espressif' else fl['name'], 'if': JLINK_IF, 'speed': JLINK_SPEED, 'port': port,
           'reentry': t.get('reentry'), 'usbPower': power, 'routes': board_routes(name, port, m.group(1), t), 'route': None,
-          **({'args': fl['args'], 'vidPid': fl['vid_pid']} if fl['name'] == 'openocd' else {})}
+          **({'args': fl['args'], 'vid_pid': fl['vid_pid']} if fl['name'] == 'openocd' else {})}
 
 
 def board_routes(name, port, chip, t):
@@ -361,7 +359,15 @@ def stm32_header(port, bdir):
 
 # besides the port's own files, the CMake files either stm32h7 link takes options from
 H7_SHARED_LINK = ('ports/family_support.cmake', 'cmake/toolchain/arm_gcc.cmake', 'cmake/toolchain/common.cmake')
-LD_ASSIGN = r'(?<![\w.])([A-Za-z_]\w*)\s*(<<|>>|[-+*/|&]?)=(?!=)\s*([^;]+);'
+
+
+def ld_assign(name):
+  """The pattern of a script's `NAME op= value;` for a NAME matching `name`, a pattern without groups: its groups
+  (name, op, value), op '' for a plain `=`."""
+  return rf'(?<![\w.])({name})\s*(<<|>>|[-+*/|&]?)=(?!=)\s*([^;]+);'
+
+
+LD_ASSIGN = ld_assign(r'[A-Za-z_]\w*')
 
 
 def stm32h7_sources(port, bdir):
@@ -370,8 +376,11 @@ def stm32h7_sources(port, bdir):
   --defsym=PFLASH_APP=0; the app start is board.cmake's BOARD_FLASH_APP_START, the app link's FLASH origin."""
   fam, lists, app, boards = (f'ports/{port}/{f}' for f in ('family.cmake', 'CMakeLists.txt', 'app.cmake', 'boards.h'))
   board = cb.code_lines(ROOT / bdir / 'board.cmake')
-  if [v.strip() for v in re.findall(r'\bset\s*\(\s*BOARD_PFLASH_APP_EN\b([^)]*)\)', board, re.I)] != ['1'] or \
-     re.findall(r'\bBOARD_PFLASH_APP_EN=(\S+)', board) != ['1']:
+  try:
+    app_en = cmake_var(f'{bdir}/board.cmake', 'BOARD_PFLASH_APP_EN')
+  except Refused:   # none, or more than one
+    app_en = None
+  if app_en != '1' or re.findall(r'\bBOARD_PFLASH_APP_EN=(\S+)', board) != ['1']:
     raise Refused(f'{bdir}/board.cmake: the runner supports an stm32h7 board only with an internal-flash app, '
                   f'set(BOARD_PFLASH_APP_EN 1) and the define BOARD_PFLASH_APP_EN=1; an H750 board keeps its app in '
                   f'QSPI flash or AXI SRAM')
@@ -418,9 +427,9 @@ def stm32h7_sources(port, bdir):
   boot, applink = h7_layout(layout, set()), h7_layout(layout, {'PFLASH_APP'})
   names = '|'.join([*boot, '_board_dfu_dbl_tap'])
   if '_board_dfu_dbl_tap' in boot or \
-     re.search(rf'(?<![\w.])({names})\s*(<<|>>|[-+*/|&]?)=(?!=)', ld_text(memory)) or \
+     re.search(ld_assign(names), ld_text(memory)) or \
      re.search(r'\bMEMORY\b', ld_text(common)) or \
-     [(n, op, v.strip()) for n, op, v in re.findall(LD_ASSIGN, ld_text(common)) if re.fullmatch(names, n)] != \
+     [(n, op, v.strip()) for n, op, v in re.findall(ld_assign(names), ld_text(common))] != \
      [('_board_dfu_dbl_tap', '', 'ORIGIN(NOINIT)')]:
     raise Refused(f'ports/{port}/linker: the layout symbols are not assigned in {layout} only, or _board_dfu_dbl_tap '
                   f'is not {common}\'s one ORIGIN(NOINIT)')
@@ -467,10 +476,10 @@ def maxim_sources(port, bdir):
   if fam_text.count('--defsym=') != 1 or fam_text.count('-Wl,--defsym=__FLASH_BOOT_SIZE=${FLASH_BOOT_SIZE}') != 1 or \
      len(re.findall(r'(?<!\w)FLASH_BOOT_SIZE=\$\{FLASH_BOOT_SIZE\}', fam_text)) != 1 or \
      'FLASH_BOOT_SIZE' in cb.code_lines(ROOT / bdir / 'board.cmake') or \
-     re.search(r'(?<![\w.])__FLASH_BOOT_SIZE\s*(<<|>>|[-+*/|&]?)=(?!=)', ld_text(boot) + ld_text(common)):
+     re.search(ld_assign('__FLASH_BOOT_SIZE'), ld_text(boot) + ld_text(common)):
     raise Refused(f'{fam}: FLASH_BOOT_SIZE does not reach the link as its one --defsym=__FLASH_BOOT_SIZE and the '
                   f'compile as FLASH_BOOT_SIZE, unassigned elsewhere')
-  if re.search(r'\bMEMORY\b|(?<![\w.])(_board_dfu_dbl_tap|_estack)\s*(<<|>>|[-+*/|&]?)=(?!=)', ld_text(common)):
+  if re.search(r'\bMEMORY\b', ld_text(common)) or re.search(ld_assign('_board_dfu_dbl_tap|_estack'), ld_text(common)):
     raise Refused(f'{common}: a MEMORY region or a double-tap symbol outside {boot}')
   syms = {'__FLASH_BOOT_SIZE': ld_expr(size, f'{fam} FLASH_BOOT_SIZE')}
   flash_base = ld_memory(boot, 'FLASH', syms)[0]
@@ -565,7 +574,7 @@ def defsyms(port, bdir, ld):
                        fam, re.I)
     if fam.count('--defsym=') != len(DEFSYMS) or fam.count(f'-Wl,--defsym={sym}=${{{var}}}') != 1 or \
        len(sets) != len(debug) or \
-       len(re.findall(rf'(?<![\w.]){sym}\s*(<<|>>|[-+*/|&]?)=(?!=)', text)) != 1 or \
+       len(re.findall(ld_assign(sym), text)) != 1 or \
        len(re.findall(rf'(?<![\w.]){sym}\s*=\s*DEFINED\(\s*{sym}\s*\)\s*\?\s*{sym}\s*:\s*\w+\s*;', text)) != 1:
       raise Refused(f'ports/{port}: {sym} does not reach {ld} as -Wl,--defsym={sym}=${{{var}}} over a DEFINED() default')
     syms[sym] = ld_expr(cmake_var(f'{bdir}/board.cmake', var), f'{bdir}/board.cmake {var}')
@@ -637,10 +646,10 @@ def ld_memory(ld, region, syms=None):
 
 def ld_symbol(ld, name, depth=0, syms=None):
   """A symbol the script assigns once: a literal sum, ORIGIN(R) + LENGTH(R), or another such symbol."""
-  hits = re.findall(rf'(?<![\w.]){name}\s*(<<|>>|[-+*/|&]?)=(?!=)\s*([^;]+);', ld_text(ld, syms))
-  if len(hits) != 1 or hits[0][0]:
-    raise Refused(f'{ld}: expected one plain {name} = ...;, found {[op + "=" for op, _ in hits]}')
-  rhs = hits[0][1].strip()
+  hits = re.findall(ld_assign(name), ld_text(ld, syms))
+  if len(hits) != 1 or hits[0][1]:
+    raise Refused(f'{ld}: expected one plain {name} = ...;, found {[op + "=" for _, op, _ in hits]}')
+  rhs = hits[0][2].strip()
   if re.fullmatch(r'[A-Za-z_]\w*', rhs) and depth < 2:
     return ld_symbol(ld, rhs, depth + 1, syms)
   m = re.fullmatch(r'ORIGIN\((\w+)\)\s*\+\s*LENGTH\(\1\)', rhs)
@@ -849,17 +858,15 @@ def hex_matches_bin(data, bin_path, base):
   return min(data) == base and max(data) + 1 == base + len(img) and all(img[a - base] == b for a, b in data.items())
 
 
-def verify_images(data, bin_path, base, workdir):
-  """[(address, file)] reading back what the HEX programs: the BIN when the HEX has no gap, else one file per
-  contiguous run, since a gap the BIN fills with zeros keeps the flash's erased state (lpc55: [0x130, 0x200))."""
+def verify_images(data, workdir):
+  """[(address, file)] reading back what the HEX programs: one file per contiguous run, since a gap the BIN fills
+  with zeros keeps the flash's erased state (lpc55: [0x130, 0x200))."""
   runs = []
   for a in sorted(data):
     if runs and runs[-1][0] + len(runs[-1][1]) == a:
       runs[-1][1].append(data[a])
     else:
       runs.append((a, bytearray([data[a]])))
-  if len(runs) == 1:
-    return [(base, Path(bin_path))]
   for a, run in runs:
     (Path(workdir) / f'hex-{a:x}.bin').write_bytes(run)
   return [(a, Path(workdir) / f'hex-{a:x}.bin') for a, _ in runs]
@@ -1510,10 +1517,10 @@ class Probe:
     self.b, self.dir, self.log = board, workdir, log
     self.retried = []
     self.flasher = {'name': 'jlink', 'uid': board['probe'], 'args': f'-device {board["device"]}'}
-    # SWD at 4000 kHz, autoconnect, and the core for a device whose own connect resets the chip (SESSION_DEVICE)
+    # SWD at 4000 kHz, autoconnect, and the core for a device whose own connect resets the chip (JLINK_CONNECT_UNLOCKS)
+    unlocks = JLINK_CONNECT_UNLOCKS.get(board['device'])
     self.profile = {'interface': board['if'], 'speed': board['speed'], 'autoconnect': True,
-                    'device': SESSION_DEVICE.get(board['device'], board['device']), 'timeout': PROBE_TIMEOUT,
-                    'workdir': workdir}
+                    'device': unlocks[0] if unlocks else board['device'], 'timeout': PROBE_TIMEOUT, 'workdir': workdir}
 
   def run(self, commands, judge=True):
     """One JLinkExe session. judge=False is for a last `w4` that resets the target, which may drop the
@@ -2297,22 +2304,26 @@ def failed_row(body, report, board, holder):
 def probe_users(board):
   """Processes using this board's probe: for J-Link one opened by serial (a JLinkExe or GDB server from an
   earlier session), for ST-LINK any STM32CubeProgrammer CLI (its script names the probe, not its command line), for
-  openocd openocd_users(), for esptool any process holding the bridge's tty open, for openocd_esp also any holding the USJ's usbfs node."""
-  if board['flasher'] in ('esptool', 'openocd_esp'):   # both devices resolved first, then one /proc walk
+  openocd any holding the CMSIS-DAP probe's usbfs node open and any openocd naming its serial, which may not have
+  opened it yet, for esptool any process holding the bridge's tty open, for openocd_esp also any holding the USJ's
+  usbfs node. Devices are resolved first, then one /proc walk."""
+  if board['flasher'] in ('esptool', 'openocd_esp'):
     devs = [esp_port(board['probe'])] + ([usj_node(board['probe'])] if board['flasher'] == 'openocd_esp' else [])
     return tty_users(*devs)
-  if board['flasher'] == 'openocd':
-    return openocd_users(board)
+  node = probe_node(board) if board['flasher'] == 'openocd' else None
   probe, users = board['probe'].encode(), []
   for d in Path('/proc').iterdir():
-    try:
-      cmd = (d / 'cmdline').read_bytes().split(b'\0')
-    except OSError:
-      continue
     if not d.name.isdigit() or int(d.name) == os.getpid():
       continue
-    if board['flasher'] == 'stlink' and Path(cmd[0].decode(errors='replace')).name == STM32_PROGRAMMER_CLI or \
-       board['flasher'] == 'jlink' and any(b'JLink' in c for c in cmd[:1]) and any(probe in c for c in cmd):
+    try:   # bytes: an argument need not decode, and must still name the probe
+      cmd = (d / 'cmdline').read_bytes().split(b'\0')
+    except OSError:
+      cmd = [b'']
+    name = Path(cmd[0].decode(errors='replace')).name
+    if board['flasher'] == 'stlink' and name == STM32_PROGRAMMER_CLI or \
+       board['flasher'] == 'jlink' and b'JLink' in cmd[0] and any(probe in c for c in cmd) or \
+       board['flasher'] == 'openocd' and (name == 'openocd' and any(probe in c for c in cmd) or
+                                          node is not None and holds_open(d, (node,))):
       users.append(int(d.name))
   return users
 
@@ -2335,13 +2346,13 @@ def probe_node(board):
 
 def probe_scan(board):
   """One walk of probe_node: (the node, the devices whose enumeration changed across their serial's lookup)."""
-  obs, (vid, pid) = usb_observe(), (x.removeprefix('0x').lower() for x in board['vidPid'].split())
+  obs, (vid, pid) = usb_observe(), (x.removeprefix('0x').lower() for x in board['vid_pid'].split())
   mine, silent, moved = [], [], []
   for dev in obs.usb_devices(vid_pid=(vid, pid)):
     bus, num = dev['busnum'], dev['devnum']
-    sn = obs.udev_serial(bus, num) if None not in (bus, num) else None
-    if sn is None:
-      sn = obs.read_sysfs(os.path.join(dev['dir'], 'serial'), PROBE_SERIAL_TIMEOUT)
+    # without its numbers a device is named through its directory, still refused below when its serial matches
+    sn = obs.usb_node_serial(usbfs_node(bus, num), PROBE_SERIAL_TIMEOUT) if None not in (bus, num) else \
+        obs.read_sysfs(os.path.join(dev['dir'], 'serial'), PROBE_SERIAL_TIMEOUT)
     if obs.enumeration_id(dev['dir']) != dev['ino']:   # the serial, or the numbers it was found by, may be another's
       moved.append(dev['busport'])
     elif sn is None:
@@ -2355,22 +2366,11 @@ def probe_scan(board):
                    'answer for theirs')
   if mine and None in (mine[0]['busnum'], mine[0]['devnum']):
     raise StepFail(f'probe {board["probe"]} at {mine[0]["busport"]}: no bus or device number')
-  return f'/dev/bus/usb/{mine[0]["busnum"]:03d}/{mine[0]["devnum"]:03d}' if mine else None, []
+  return usbfs_node(mine[0]['busnum'], mine[0]['devnum']) if mine else None, []
 
-def openocd_users(board):
-  """Users of a CMSIS-DAP probe: any process holding its usbfs node open, and any openocd naming its serial, which
-  may not have opened it yet."""
-  node = probe_node(board)
-  users = set(tty_users(node) if node else ())
-  for d in Path('/proc').iterdir():
-    try:
-      cmd = (d / 'cmdline').read_bytes().split(b'\0')
-    except OSError:
-      continue
-    if d.name.isdigit() and int(d.name) != os.getpid() and Path(cmd[0].decode(errors='replace')).name == 'openocd' and \
-       any(board['probe'].encode() in c for c in cmd):
-      users.add(int(d.name))
-  return sorted(users)
+
+def usbfs_node(bus, num):
+  return f'/dev/bus/usb/{bus:03d}/{num:03d}'
 
 
 def usj_node(serial):
@@ -2378,24 +2378,23 @@ def usj_node(serial):
   pins it."""
   try:
     d = Path(openocd_esp().usb_observe.SYS_USB_DEVICES) / openocd_esp().usj_location(serial)
-    return f'/dev/bus/usb/{int((d / "busnum").read_text()):03d}/{int((d / "devnum").read_text()):03d}'
+    return usbfs_node(int((d / 'busnum').read_text()), int((d / 'devnum').read_text()))
   except (RuntimeError, OSError, ValueError) as e:
     raise StepFail(f'USJ {serial}: {e}')
 
 
 def tty_users(*devs):
   """Processes holding any of `devs` open, each once."""
-  users = []
-  for d in Path('/proc').iterdir():
-    if not d.name.isdigit() or int(d.name) == os.getpid():
-      continue
-    try:
-      fds = list((d / 'fd').iterdir())
-    except OSError:
-      continue
-    if any(readlink(fd) in devs for fd in fds):
-      users.append(int(d.name))
-  return users
+  return [int(d.name) for d in Path('/proc').iterdir()
+          if d.name.isdigit() and int(d.name) != os.getpid() and holds_open(d, devs)]
+
+
+def holds_open(proc, devs):
+  """Whether the /proc/<pid> `proc` holds any of `devs` open; False once its fds cannot be listed."""
+  try:
+    return any(readlink(fd) in devs for fd in list((proc / 'fd').iterdir()))
+  except OSError:
+    return False
 
 
 def readlink(fd):
@@ -2554,7 +2553,7 @@ def admit_flash(record_path, row, root, board):
   the build), with every file the install reads hash-checked; the install reads them under the build dir's lock,
   through the provider, never the target."""
   want = {'name': board['flasher'], 'uid': board['probe'], 'device': board['device'],
-          **({'vid_pid': board['vidPid']} if board['flasher'] == 'openocd' else {})}
+          **({'vid_pid': board['vid_pid']} if board['flasher'] == 'openocd' else {})}
   if board['flasher'] in cb.ROUTE_ARGS:   # a further route: the esptool binding's segments, bound to this route
     fl, (target, inputs) = (row.get('flashRoutes') or {}).get(board['flasher']) or {}, cb.FLASH['esptool']
     bound = (fl.get('flasher'), fl.get('inputs')) == (want, list(inputs))
@@ -2858,9 +2857,27 @@ class Battery:
                                     workdir=str(self.dir))
     ev = self.flash_target(files['flash'], flash, lambda code, out: judge_jlink_target(code, out, self.b, files['hex']),
                            lambda code, out: stopped_before_target(code, out, self.b['probe']), 'JLinkExe', PROBE_TIMEOUT)
-    settle = INSTALL_SETTLE_MS.get(self.b['device'])
+    unlocks = JLINK_CONNECT_UNLOCKS.get(self.b['device'])
     verify = ['h', *(f'verifybin {path},{addr:#x}' for addr, path in files['verify']), 'r', 'g']
-    self.probe.run(([f'sleep {settle}'] if settle else []) + verify)
+    self.probe.run(([f'sleep {unlocks[1]}'] if unlocks else []) + verify)
+    return dict(ev, verified=True)
+
+  def readback(self, addr, want):
+    """A read of `want`'s length at `addr` into a file of the run dir in the tool's READ form: (the file, the
+    command). The file is the evidence, never the tool's printed result."""
+    path = self.dir / f'readback-{time.monotonic_ns()}.bin'
+    return path, self.READ.format(path=path, addr=addr, n=len(want))
+
+  def read_back_install(self, ev, files, halt, end):
+    """What the install programmed read back (verify_images) in one session of the runner's, `halt`, the reads,
+    then `end`, and compared byte for byte."""
+    reads = []
+    for addr, p in files['verify']:
+      want = Path(p).read_bytes()
+      reads.append((want, *self.readback(addr, want)))
+    self.probe.run([halt, *(op for _, _, op in reads), end])
+    if not all(uploaded(path, want) for want, path, _ in reads):
+      raise StepFail('the HEX does not read back from its flash addresses', ev)
     return dict(ev, verified=True)
 
   def after_copy(self):
@@ -2911,12 +2928,11 @@ class Battery:
 class StlinkBattery(Battery):
   """The J-Link battery's steps on an ST-LINK board, each probe session one STM32CubeProgrammer script."""
 
+  READ = '-u 0x{addr:08X} {n:#x} {path}'
+
   def __init__(self, board, facts, workdir, fail_at=None, commissioning=False):
     super().__init__(board, facts, workdir, fail_at, commissioning)
     self.probe = StlinkProbe(board, workdir, self.log)
-
-  def readback(self, addr, want):
-    return self.dir / f'readback-{time.monotonic_ns()}.bin', f'-u 0x{addr:08X} {len(want):#x}'
 
   def install(self, files):
     """The record's HEX through the provider's ST-LINK flash (the command the record's tinyuf2-stlink target runs,
@@ -2927,11 +2943,7 @@ class StlinkBattery(Battery):
                            lambda code, out: judge_stlink_target(code, out, self.b),
                            lambda code, out: stlink_failure(ANSI.sub('', out))['beforeTarget'], 'STM32_Programmer_CLI',
                            PROBE_TIMEOUT)
-    reads = [(Path(p).read_bytes(), *self.readback(addr, Path(p).read_bytes())) for addr, p in files['verify']]
-    self.probe.run(['-halt', *(f'{op} {path}' for _, path, op in reads), '-rst'])
-    if not all(uploaded(path, want) for want, path, _ in reads):
-      raise StepFail('the HEX does not read back from its flash addresses', ev)
-    return dict(ev, verified=True)
+    return self.read_back_install(ev, files, '-halt', '-rst')
 
   def sysreset(self):
     """SYSRESETREQ without the CLI's read-back, which the reset would fail (bench: `-nv` writes and exits 0, the host
@@ -2948,7 +2960,7 @@ class StlinkBattery(Battery):
     path, op = self.readback(f['appStart'], want)
     vtor = f'-r32 0x{SCB_VTOR:08X} 1'
     ops = ['-halt', '-run', f'#Delay({2 * f["dblTapDelayMs"] + 200})', '-halt', '-coreReg', vtor, '-run', '#Delay(10)',
-           '-halt', '-coreReg', f'{op} {path}', '-run']
+           '-halt', '-coreReg', op, '-run']
     out = self.probe.run(ops)
     if not uploaded(path, want):
       raise StepFail('the fixture image does not read back from the app start')
@@ -2957,11 +2969,15 @@ class StlinkBattery(Battery):
 
 
 # openocd 0.12.0+dev-g0ce743125 (the rig's build): what its CMSIS-DAP driver logs with no probe of the serial and USB ID,
-# what `program ... verify reset exit` (startup.tcl) and the closing `shutdown` echo, and a debug port read
+# what `program ... reset exit` (startup.tcl) and the closing `shutdown` echo, and a debug port read
 OPENOCD_NO_PROBE = 'unable to find a matching CMSIS-DAP device'
 OPENOCD_SHUTDOWN = 'shutdown command invoked'
-OPENOCD_PROGRAM = ('** Programming Started **', '** Programming Finished **', '** Verify Started **', '** Verified OK **',
-                   '** Resetting Target **', OPENOCD_SHUTDOWN)
+OPENOCD_PROGRAM = ('** Programming Started **', '** Programming Finished **', '** Resetting Target **', OPENOCD_SHUTDOWN)
+
+
+def openocd_error(out):
+  """Whether an openocd transcript has an error line."""
+  return re.search(r'^\s*Error', out, re.M) is not None
 
 
 def openocd_failure(out):
@@ -2971,15 +2987,14 @@ def openocd_failure(out):
 
 
 def judge_openocd_target(code, out, cmd, hex_path):
-  """The provider's openocd flash of the record's HEX (`program <hex> verify reset exit`): openocd exits 0 once the
-  proc's own shutdown ran, so success is read from the transcript too: each of program's phases echoed in order, the
-  write verified, and no error line."""
-  lines = [l.strip() for l in out.splitlines()]
-  seen = iter(lines)
-  if code or f'program {hex_path} verify reset exit' not in str(cmd) or not all(p in seen for p in OPENOCD_PROGRAM) or \
-     any(l.startswith('Error') for l in lines):
+  """The provider's openocd flash of the record's HEX (`program <hex> reset exit`, without program's verify: the
+  runner reads the image back itself): openocd exits 0 once the proc's own shutdown ran, so success is read from the
+  transcript too: each of program's phases echoed in order and no error line."""
+  seen = iter(l.strip() for l in out.splitlines())
+  if code or f'program {hex_path} reset exit' not in str(cmd) or not all(p in seen for p in OPENOCD_PROGRAM) or \
+     openocd_error(out):
     raise StepFail(f'the openocd flash failed (exit {code})', openocd_failure(out))
-  return {'flashDownload': '** Verified OK **'}
+  return {'flashDownload': '** Programming Finished **'}
 
 
 class OpenocdProbe:
@@ -2990,7 +3005,7 @@ class OpenocdProbe:
   def __init__(self, board, workdir, log):
     self.b, self.dir, self.log = board, workdir, log
     self.retried = []   # the report's jlinkRetried: an openocd session is never retried
-    self.flasher = {'name': 'openocd', 'uid': board['probe'], 'args': board['args'], 'vid_pid': board['vidPid']}
+    self.flasher = {'name': 'openocd', 'uid': board['probe'], 'args': board['args'], 'vid_pid': board['vid_pid']}
 
   def run(self, commands):
     return self.judge(provider().run_openocd_commands(self.flasher, list(commands), timeout=PROBE_TIMEOUT,
@@ -3007,7 +3022,7 @@ class OpenocdProbe:
     code, out = a.result.returncode, text(a.result.stdout)
     if a.timed_out:
       raise StepFail(f'openocd timed out after {PROBE_TIMEOUT}s', dict(openocd_failure(out), beforeTarget=False))
-    if code or OPENOCD_SHUTDOWN not in out or re.search(r'^Error', out, re.M):
+    if code or OPENOCD_SHUTDOWN not in out or openocd_error(out):
       raise StepFail(f'openocd failed (exit {code})', openocd_failure(out))
     return out
 
@@ -3053,30 +3068,22 @@ def openocd_regs(out):
 class OpenocdBattery(Battery):
   """The J-Link battery's steps on a CMSIS-DAP board, each probe session one openocd script."""
 
+  READ = 'dump_image {{{path}}} 0x{addr:08x} {n:#x}'
+
   def __init__(self, board, facts, workdir, fail_at=None, commissioning=False):
     super().__init__(board, facts, workdir, fail_at, commissioning)
     self.probe = OpenocdProbe(board, workdir, self.log)
 
-  def dump(self, addr, want):
-    """A dump_image of `want`'s length at `addr` into the run dir: (its file, the command). Its file is the evidence,
-    never its printed result."""
-    path = self.dir / f'readback-{time.monotonic_ns()}.bin'
-    return path, f'dump_image {{{path}}} 0x{addr:08x} {len(want):#x}'
-
   def install(self, files):
-    """The record's HEX through the provider's openocd flash (`program` with verify and reset, the file the record's
-    tinyuf2-openocd target programs), then what it programs read back (verify_images) and compared in a session of
-    the runner's, which ends in `reset run`."""
-    hexp, ops = str(files['hex']), []
+    """The record's HEX through the provider's openocd flash (`program` with reset, without its verify, as the
+    ST-LINK install drops the CLI's: the file the record's tinyuf2-openocd target programs), then what it programs
+    read back (verify_images) and compared in a session of the runner's, which ends in `reset run`."""
+    hexp, ops, flasher = str(files['hex']), [], dict(self.probe.flasher, verify=False)
     ev = self.flash_target(files['flash'], lambda run: ops.append(provider().flash_openocd(
-                             self.probe.flasher, hexp, timeout=OPENOCD_TIMEOUT, run=run)) or ops[-1],
+                             flasher, hexp, timeout=CMSIS_DAP_TIMEOUT, run=run)) or ops[-1],
                            lambda code, out: judge_openocd_target(code, out, ops[-1].attempts[-1].cmd, hexp),
-                           lambda code, out: openocd_failure(out)['beforeTarget'], 'openocd', OPENOCD_TIMEOUT)
-    reads = [(Path(p).read_bytes(), *self.dump(addr, Path(p).read_bytes())) for addr, p in files['verify']]
-    self.probe.run(['halt', *(op for _, _, op in reads), 'reset run'])
-    if not all(uploaded(path, want) for want, path, _ in reads):
-      raise StepFail('the HEX does not read back from its flash addresses', ev)
-    return dict(ev, verified=True)
+                           lambda code, out: openocd_failure(out)['beforeTarget'], 'openocd', CMSIS_DAP_TIMEOUT)
+    return self.read_back_install(ev, files, 'halt', 'reset run')
 
   def sysreset(self):
     return self.probe.sysreset()
@@ -3085,7 +3092,7 @@ class OpenocdBattery(Battery):
     """observe_app's session as one script: two halts in one connection, the image read back in it."""
     f = self.f
     want = Path(app_bin).read_bytes()
-    path, dump = self.dump(f['appStart'], want)
+    path, dump = self.readback(f['appStart'], want)
     regs_ = [shown(f'reg {r}') for r in OPENOCD_REGS]
     out = self.probe.run(['halt', 'resume', f'sleep {2 * f["dblTapDelayMs"] + 200}', 'halt', *regs_,
                           shown(f'mdw 0x{SCB_VTOR:08x}'), 'resume', 'sleep 10', 'halt', *regs_, dump, 'resume'])
@@ -3198,16 +3205,16 @@ class EspBattery(Battery):
   def jtag(self, files):
     """The JTAG route under the one board lock, each step only after the previous one's cleanup completed: an esptool
     session over the USJ's tty reads the security state on the ROM loader, takes the snapshot (a restore reuses
-    the run's) and hard-resets the chip out of the loader; agentrc's flash_openocd_esp programs the record's segments with verify, reads each back and ends
-    with reset run and a confirmed shutdown; then the runner's esptool read-back and preservation check. A session
-    left running is cleanup pending, and nothing follows it."""
+    the run's) and hard-resets the chip out of the loader; agentrc's flash_openocd_esp programs the record's segments
+    with verify, reads each back and ends with reset run and a confirmed shutdown; then the runner's esptool read-back
+    and preservation check. A session left running is cleanup pending, and nothing follows it."""
     refuse_ci_job(self.b['flasher'])   # before the security and snapshot session, as the provider before its own
     tty = esp_port(self.b['probe'])
     self.touched = True
     keep = self.b['regions']['preserved']
     # hard-reset: a chip left in the ROM loader faults openocd's flash stub after its reset init (PMP Load access fault);
     # the provider starts no earlier than its BOOT_SETTLE after the call, the wait this reset needs (bench-history.md)
-    res =self.tool.run([{'op': 'security'}] + (preserved_ops(keep) if self.preserved is None else []), 'hard-reset')
+    res = self.tool.run([{'op': 'security'}] + (preserved_ops(keep) if self.preserved is None else []), 'hard-reset')
     security = security_evidence(res[0], tty)
     if self.preserved is None:
       self.preserved = preserved_md5(keep, res[1:])
@@ -3446,7 +3453,7 @@ def admit_record(record_path, board, facts, workdir):
     check_ranges(data, [board['install']], FLASH_LIMITS[board['device']], files['hex'])
     if not hex_matches_bin(data, files['bin'], facts['binBase']):
       raise Refused(f'{files["hex"]} and {files["bin"]} do not hold the same bytes')
-    files['verify'] = verify_images(data, files['bin'], facts['binBase'], workdir)
+    files['verify'] = verify_images(data, workdir)
     check_bootloader_bin(files['bin'], board, facts, 'candidate')
   exclusion_configured(facts, board['uid'])
   if shutil.which('mcopy') is None:

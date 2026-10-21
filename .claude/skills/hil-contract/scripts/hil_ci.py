@@ -14,8 +14,8 @@ any earlier run is a run that ended without a report or kept a cleanup holder (S
 blocker here until recovery removes the marker. Runs older than PRUNE_DAYS with every marker done are removed;
 one with a marker left is kept, whatever its age. Each battery's report pair is prepared for the upload (prepare()), and
 summary.json carries the shared run rules' `sharedVerdict` beside each native `verdict`, which alone decides the exit,
-each battery's `steps`, `cleanupPass` and whether it is the Espressif one (`espressif`), the seconds its build (`buildS`) and battery (`runS`) took, and the
-board loop's `elapsedS`.
+each battery's `steps`, `cleanupPass` and whether it is the Espressif one (`espressif`), the seconds its build
+(`buildS`) and battery (`runS`) took, and the board loop's `elapsedS`.
 `upload-views`, written last, is the upload's decision on the report views (UPLOAD_VIEWS).
 
 Exit 0: every board passed. 1: a board failed or was not run (held past `--lock-wait`, its build or admission
@@ -60,13 +60,10 @@ def roster_boards(roster):
     raise SystemExit(f'cannot read boards from {roster}: {e}')
 
 
-def espressif(roster, board):
-  """Whether the roster installs `board` with esptool: its battery is the Espressif one, with `recopy`."""
-  try:
-    return any(b['name'] == board and b['flasher']['name'] == 'esptool'
-               for b in json.loads((ROOT / roster).read_text())['boards'])
-  except (OSError, ValueError, KeyError, TypeError):
-    return False
+def espressif(board):
+  """Whether `board` is in the espressif port (ports/<port>/boards/<board>, check_build's port rule): its battery is
+  the Espressif one, with `recopy`, and its build ESP-IDF's."""
+  return (ROOT / 'ports' / 'espressif' / 'boards' / board).is_dir()
 
 
 def unfinished(state, board):
@@ -98,7 +95,7 @@ def prune(state, keep, days=PRUNE_DAYS):
 def build_record(board, roster, out):
   record = out / f'{board}.build.json'
   # an Espressif board builds with ESP-IDF in CI's docker image (check_build's default for it), the rest with cmake
-  backend = [] if espressif(roster, board) else ['--backend', 'cmake']
+  backend = [] if espressif(board) else ['--backend', 'cmake']
   r = run([sys.executable, CHECK_BUILD, '--board', board, *backend, '--shared', '--hil-config', roster])
   record.write_text(r.stdout)
   try:
@@ -259,7 +256,7 @@ def run_board(board, roster, out, state, lock_wait, fail_at=None, markers=True):
   if native is not None:
     row['steps'] = {s['step']: bool(s.get('pass')) for s in native.get('steps') or [] if s.get('step')}
     row['cleanupPass'] = (native.get('cleanup') or {}).get('pass')
-    row['espressif'] = espressif(roster, board)
+    row['espressif'] = espressif(board)
   holder = ((native or {}).get('cleanup') or {}).get('holder')
   if holder:
     row['holder'] = holder

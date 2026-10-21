@@ -163,8 +163,9 @@ class Render(unittest.TestCase):
   def test_report_text_cannot_break_the_table_or_a_bullet(self):
     r = row('p|q', 'fail', 'fail', detail='copy: a | b\nc\r\nd', steps={'copy': False})
     body = hc.render({'boards': [r]}, selection(), META)
-    self.assertIn('| p/q | ', body)
-    self.assertIn('- `p/q` copy: a / b c d\n', body)
+    # hil_run_report's cell: one line, each pipe escaped
+    self.assertIn('| p\\|q | ', body)
+    self.assertIn('- `p\\|q` copy: a \\| b c d\n', body)
 
   def test_durations(self):
     for s, want in ((None, '—'), (0, '0s'), (49, '49s'), (60, '1m'), (270, '4m30s'), (1200, '20m'), (3600, '1h'),
@@ -178,8 +179,7 @@ class Fresh(unittest.TestCase):
   def api(self, head=None, newest=7, attempt=2):
     replies = {'repos/o/r/pulls/5': {'head': {'sha': head or self.HEAD}},
                f'repos/o/r/actions/workflows/hil.yml/runs?event=pull_request&head_sha={self.HEAD}&per_page=1':
-               {'workflow_runs': [{'id': newest}]},
-               'repos/o/r/actions/runs/7': {'run_attempt': attempt}}
+               {'workflow_runs': [{'id': newest, 'run_attempt': attempt}]}}
     return lambda path: replies[path]
 
   def fresh(self, **kw):
@@ -219,8 +219,7 @@ class Cli(unittest.TestCase):
     head = 'a' * 40
     self.ok = {'repos/o/r/pulls/5': {'head': {'sha': head}},
                f'repos/o/r/actions/workflows/hil.yml/runs?event=pull_request&head_sha={head}&per_page=1':
-               {'workflow_runs': [{'id': 7}]},
-               'repos/o/r/actions/runs/7': {'run_attempt': 1}}
+               {'workflow_runs': [{'id': 7, 'run_attempt': 1}]}}
     self.env = dict(os.environ, PATH=f'{self.tmp / "bin"}:{os.environ["PATH"]}', GH_REPLIES=str(self.replies),
                     GITHUB_REPOSITORY='o/r', PR='5', HEAD_SHA=head, GITHUB_RUN_ID='7', GITHUB_RUN_ATTEMPT='1')
 
@@ -257,12 +256,19 @@ class Cli(unittest.TestCase):
 
   def test_the_workflow_posts_when_fresh_skips_when_stale_and_fails_when_the_api_cannot_tell(self):
     self.assertEqual(self.fresh_step(self.ok)[:2], (0, 'post=true\n'))
-    stale = dict(self.ok, **{'repos/o/r/actions/runs/7': {'run_attempt': 2}})
+    runs = f'repos/o/r/actions/workflows/hil.yml/runs?event=pull_request&head_sha={"a" * 40}&per_page=1'
+    stale = dict(self.ok, **{runs: {'workflow_runs': [{'id': 7, 'run_attempt': 2}]}})
     code, output, stdout = self.fresh_step(stale)
     self.assertEqual((code, output), (0, ''))
     self.assertIn('::notice title=HIL report not posted::run 7 attempt 2 is newer than attempt 1', stdout)
     broken = {k: v for k, v in self.ok.items() if 'pulls' not in k}
     self.assertEqual(self.fresh_step(broken)[:2], (2, ''))
+
+  def test_the_rig_artifact_is_downloaded_only_once_the_run_may_post(self):
+    text = (ROOT / '.github' / 'workflows' / 'hil.yml').read_text()
+    step = re.search(r'\n      - name: Download the records, reports and logs\n((?:        .*\n)+)', text)
+    self.assertLess(text.index('        id: fresh\n'), step.start())
+    self.assertIn("        if: steps.fresh.outputs.post == 'true'\n", step.group(1))
 
 
 if __name__ == '__main__':

@@ -14,7 +14,7 @@ LD_FILES ?= \
 ifeq ($(BOARD_PFLASH_APP_EN),1)
 # Apps run from internal flash at BOARD_FLASH_APP_START, boards.c points VTOR at their vector table
 CFLAGS += -Wl,--defsym=PFLASH_APP=0
-APPLICATION_ADDR = 0x08020000
+APPLICATION_ADDR = $(BOARD_FLASH_APP_START)
 else
 CFLAGS += \
 	-DVECT_TAB_SRAM \

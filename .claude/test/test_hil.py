@@ -2072,15 +2072,14 @@ class Images(Tmp):
     p.write_text(ihex([(4, 0, b'\x60\x00'), (0, 0, b'\x01\x02'), (0, 4, b'\x06')]))   # at 0x60000000
     self.assertTrue(ht.hex_matches_bin(ht.parse_hex(p), b, 0x60000000))
 
-  def test_the_install_verifies_the_bin_or_each_run_of_a_gapped_hex(self):
-    p, b = self.tmp / 'a.hex', self.tmp / 'a.bin'
-    p.write_text(ihex([(0, 0, b'\x01\x02\x03')]))
-    b.write_bytes(b'\x01\x02\x03')
-    self.assertEqual(ht.verify_images(ht.parse_hex(p), b, 0, self.tmp), [(0, b)])
+  def test_the_install_verifies_each_run_of_the_hex(self):
+    p = self.tmp / 'a.hex'
+    p.write_text(ihex([(4, 0, b'\x60\x00'), (0, 0, b'\x01\x02\x03')]))   # at 0x60000000
+    runs = ht.verify_images(ht.parse_hex(p), self.tmp)
+    self.assertEqual([(a, f.read_bytes()) for a, f in runs], [(0x60000000, b'\x01\x02\x03')])
     # lpc55: the BIN zero-fills the gap that the HEX leaves erased
     p.write_text(ihex([(0, 0, b'\x01\x02'), (0, 4, b'\x05')]))
-    b.write_bytes(b'\x01\x02\x00\x00\x05')
-    runs = ht.verify_images(ht.parse_hex(p), b, 0, self.tmp)
+    runs = ht.verify_images(ht.parse_hex(p), self.tmp)
     self.assertEqual([(a, f.read_bytes()) for a, f in runs], [(0, b'\x01\x02'), (4, b'\x05')])
 
   def test_embedded_version(self):
@@ -5209,11 +5208,12 @@ OOCD_NO_PROBE = ('Open On-Chip Debugger 0.12.0+dev-g0ce743125\n'
                  'Error: unable to find a matching CMSIS-DAP device\n')   # local run, no probe of the serial
 
 
-def oocd_program(error='', verified='** Verified OK **\n'):
-  """The provider's `program <hex> verify reset exit`, in the phases startup.tcl's program proc echoes."""
+def oocd_program(error=''):
+  """The provider's `program <hex> reset exit`, the install's, in the phases startup.tcl's program proc echoes
+  without its verify."""
   return (OOCD_CONNECT + '** Programming Started **\nInfo : Padding image section 0 at 0x100038c2 with 2 bytes\n'
-          'Warn : Flash protection not supported on this device\n** Programming Finished **\n** Verify Started **\n'
-          f'{error}{verified}** Resetting Target **\nshutdown command invoked\n')
+          f'Warn : Flash protection not supported on this device\n{error}** Programming Finished **\n'
+          '** Resetting Target **\nshutdown command invoked\n')
 
 
 class FakeOpenocd:
@@ -5278,7 +5278,7 @@ class OpenocdRoster(Tmp):
 
   def test_an_openocd_entry_loads_as_its_target_cfgs_device_with_its_probe_pin(self):
     b = self.load(max_roster(self.tmp), 'max32666fthr')
-    self.assertEqual((b['kind'], b['flasher'], b['device'], b['probe'], b['args'], b['vidPid'], b['install'], b['app']),
+    self.assertEqual((b['kind'], b['flasher'], b['device'], b['probe'], b['args'], b['vid_pid'], b['install'], b['app']),
                      ('openocd', 'openocd', 'max32665', 'E6614C311B597D32', MAX_ENTRY['flasher']['args'], '0x2e8a 0x000c',
                       (0x10000000, 0x10008000), (0x10008000, 0x10100000)))
     self.assertEqual((ht.STEPS['openocd'], ht.REENTRY['openocd']), (ht.STEPS['jlink'], ('retained-register',)))
@@ -5310,12 +5310,13 @@ class OpenocdRoster(Tmp):
         ht.admit_flash('r.json', dict(row, flash=dict(row['flash'], flasher=fl)), root, b)
 
   def test_the_providers_flash_names_what_the_record_target_does(self):
-    # the target (check_build's binding) and the provider: the same openocd, probe serial, USB ID, cfgs and HEX; the
-    # provider adds program's verify and the reset and shutdown the target runs as separate commands
+    # the target (check_build's binding) and the install's provider flash: the same openocd, probe serial, USB ID,
+    # cfgs and HEX; the provider adds the reset and shutdown the target runs as separate commands, and the install
+    # drops program's verify, which the target has none of either
     b = self.load(max_roster(self.tmp), 'max32666fthr')
     hexp = '/b/tinyuf2.hex'
     seen = []
-    op = ht.provider().flash_openocd(ht.OpenocdProbe(b, self.tmp, None).flasher, hexp, timeout=5,
+    op = ht.provider().flash_openocd(dict(ht.OpenocdProbe(b, self.tmp, None).flasher, verify=False), hexp, timeout=5,
                                      run=lambda cmd, timeout: seen.append(cmd) or subprocess.CompletedProcess(cmd, 0, '', ''))
     argv, _ = ht.command_argv(seen[0])
     self.assertEqual(op.returncode, 0)
@@ -5326,7 +5327,7 @@ class OpenocdRoster(Tmp):
               'target/max32665.cfg'):
       self.assertIn(a, argv)
       self.assertIn(a, target)
-    self.assertEqual(argv[-1], f'program {hexp} verify reset exit')
+    self.assertEqual(argv[-1], f'program {hexp} reset exit')
 
   def test_a_missing_openocd_is_refused_before_any_session(self):
     b = self.load(max_roster(self.tmp), 'max32666fthr')
@@ -5342,11 +5343,13 @@ class OpenocdRoster(Tmp):
   def usb_tree(self, devices):
     """A sysfs device tree and udev's records for usb_observe: {busport: (vid, pid, busnum, devnum, serial, udev serial)},
     a serial of None a FIFO, whose read blocks as a wedged device's does."""
-    sysfs, udev = self.tmp / 'sys', self.tmp / 'udev'
+    sysfs, udev, char = self.tmp / 'sys', self.tmp / 'udev', self.tmp / 'char'
     udev.mkdir()
+    char.mkdir()
     for port, (vid, pid, bus, dev, serial, udev_serial) in devices.items():
       d = sysfs / port
       d.mkdir(parents=True)
+      (char / f'189:{(int(bus) - 1) * 128 + int(dev) - 1}').symlink_to(d)
       for name, value in (('idVendor', vid), ('idProduct', pid), ('busnum', bus), ('devnum', dev)):
         (d / name).write_text(f'{value}\n')
       if serial is None:
@@ -5358,25 +5361,31 @@ class OpenocdRoster(Tmp):
         (udev / f'c189:{(int(bus) - 1) * 128 + int(dev) - 1}').write_text(f'E:ID_SERIAL_SHORT={udev_serial}\n')
     obs = ht.usb_observe()
     for p in (mock.patch.object(obs, 'SYS_USB_DEVICES', str(sysfs)), mock.patch.object(obs, 'UDEV_DATA', str(udev)),
-              mock.patch.object(ht, 'PROBE_SERIAL_TIMEOUT', 0.3)):
+              mock.patch.object(obs, 'SYS_DEV_CHAR', str(char)), mock.patch.object(ht, 'PROBE_SERIAL_TIMEOUT', 0.3)):
       p.start()
       self.addCleanup(p.stop)
 
   def test_any_process_on_the_probe_node_or_an_openocd_naming_its_serial_is_a_probe_user(self):
     b = self.load(max_roster(self.tmp), 'max32666fthr')
     proc = self.tmp / 'proc'
-    for pid, argv in (('101', b'/usr/local/bin/openocd\0-c\0adapter serial E6614C311B597D32\0'),
-                      ('102', b'openocd\0-c\0adapter serial OTHER\0'), ('103', b'python3\0E6614C311B597D32\0')):
-      (proc / pid).mkdir(parents=True)
-      (proc / pid / 'cmdline').write_bytes(argv)
+    # 105's last argument does not decode; 104 and 107 (its command line unreadable) hold the probe's node open,
+    # 106 another device's
+    for pid, argv, fd in (('101', b'/usr/local/bin/openocd\0-c\0adapter serial E6614C311B597D32\0', None),
+                          ('102', b'openocd\0-c\0adapter serial OTHER\0', None),
+                          ('103', b'python3\0E6614C311B597D32\0', None), ('104', b'python3\0', '/dev/bus/usb/009/012'),
+                          ('105', b'openocd\0-c\0adapter serial E6614C311B597D32\0\xff\0', None),
+                          ('106', b'python3\0', '/dev/bus/usb/009/013'), ('107', None, '/dev/bus/usb/009/012')):
+      (proc / pid / 'fd').mkdir(parents=True)
+      if argv is not None:
+        (proc / pid / 'cmdline').write_bytes(argv)
+      if fd:
+        (proc / pid / 'fd' / '3').symlink_to(fd)
     # the probe by its sysfs serial, a peer debugprobe by udev's record, and another device's USB ID never read
     self.usb_tree({'9-1.3': ('2e8a', '000c', 9, 12, 'E6614C311B597D32', None),
                    '9-1.4': ('2e8a', '000c', 9, 13, 'PEER', 'PEER'), '9-2.2': ('0456', 'a010', 9, 14, None, None)})
-    real, nodes = ht.Path, []
-    with mock.patch.object(ht, 'Path', lambda *a: real(proc) if a == ('/proc',) else real(*a)), \
-         mock.patch.object(ht, 'tty_users', lambda *d: nodes.append(d) or [104]):
-      self.assertEqual(ht.probe_users(b), [101, 104])
-    self.assertEqual(nodes, [('/dev/bus/usb/009/012',)])
+    real = ht.Path
+    with mock.patch.object(ht, 'Path', lambda *a: real(proc) if a == ('/proc',) else real(*a)):
+      self.assertEqual(sorted(ht.probe_users(b)), [101, 104, 105, 107])
 
   def test_a_probe_that_re_enumerates_while_its_serial_is_read_is_walked_again_never_taken_by_its_old_number(self):
     # review of 4f28578e: device 12 replaced by 13 during the read must not give /dev/bus/usb/009/012
@@ -5398,6 +5407,7 @@ class OpenocdRoster(Tmp):
               os.rename(sysfs / '9-1.3', sysfs / f'gone{n}')
               shutil.copytree(sysfs / f'gone{n}', sysfs / '9-1.3')
               (sysfs / '9-1.3' / 'devnum').write_text(f'{12 + n}\n')
+              (sysfs.with_name('char') / f'189:{1035 + n}').symlink_to(sysfs / '9-1.3')   # its new devt
             return out
           with mock.patch.object(obs, lookup, lookup_during_replug):
             if want:
@@ -5416,7 +5426,7 @@ class OpenocdRoster(Tmp):
     self.assertEqual(ht.probe_node(b), '/dev/bus/usb/009/012')   # found beside the silent peer
     self.assertLess(time.monotonic() - start, 2)
     with mock.patch.object(ht.usb_observe(), 'udev_serial', lambda bus, dev: None), \
-         mock.patch.object(ht.usb_observe(), 'read_sysfs', lambda path, timeout: None if '9-1.3' in path else 'X'):
+         mock.patch.object(ht.usb_observe(), 'read_sysfs', lambda path, timeout: None if '189:1035' in path else 'X'):
       with self.assertRaisesRegex(ht.StepFail, r"did not answer"):   # it may be this probe: a probe check failure
         ht.probe_node(b)
     start = time.monotonic()
@@ -5431,7 +5441,7 @@ class Openocd(Tmp):
     super().setUp()
     self.oocd = FakeOpenocd()
     self.board = {'name': 'max32666fthr', 'probe': 'E6614C311B597D32', 'device': 'max32665', 'flasher': 'openocd',
-                  'args': MAX_ENTRY['flasher']['args'], 'vidPid': '0x2e8a 0x000c'}
+                  'args': MAX_ENTRY['flasher']['args'], 'vid_pid': '0x2e8a 0x000c'}
     self.probe = ht.OpenocdProbe(self.board, self.tmp, self.tmp / 'log')
     self.answer, self.argv = None, []
     p = mock.patch.object(ht, 'spawn', lambda cmd, log, timeout, **k: self.argv.append(list(cmd)) or (
@@ -5515,17 +5525,20 @@ class Openocd(Tmp):
       ht.openocd_regs(out.replace('r0 (/32): 0x00000006\n', ''))
 
   def test_the_flash_is_judged_from_programs_phases(self):
-    cmd, hexp = 'openocd ... -c "program /b/tinyuf2.hex verify reset exit"', '/b/tinyuf2.hex'
-    self.assertEqual(ht.judge_openocd_target(0, oocd_program(), cmd, hexp), {'flashDownload': '** Verified OK **'})
+    cmd, hexp = 'openocd ... -c "program /b/tinyuf2.hex reset exit"', '/b/tinyuf2.hex'
+    self.assertEqual(ht.judge_openocd_target(0, oocd_program(), cmd, hexp), {'flashDownload': '** Programming Finished **'})
+    failed = oocd_program().split('** Programming Finished')[0] + '** Programming Failed **\nshutdown command invoked\n'
     for what, code, out, c, before in (
         ('no probe', 1, OOCD_NO_PROBE, cmd, True),
-        ('verify failed', 1, oocd_program(verified='** Verify Failed **\n').split('** Resetting')[0], cmd, False),
+        ('programming failed', 1, failed, cmd, False),
         ('an error line', 0, oocd_program(error='Error: checksum mismatch\n'), cmd, False),
+        ('an indented error line', 0, oocd_program(error='  Error: checksum mismatch\n'), cmd, False),
         ('a nonzero exit', 1, oocd_program(), cmd, False),
-        ('phases out of order', 0, oocd_program().replace('** Verify Started **\n', '') + '** Verify Started **\n', cmd, False),
+        ('phases out of order', 0, oocd_program().replace('** Programming Finished **\n', '') +
+         '** Programming Finished **\n', cmd, False),
         ('no shutdown', 0, oocd_program().replace('shutdown command invoked\n', ''), cmd, False),
         ('another image', 0, oocd_program(), cmd.replace(hexp, '/b/other.hex'), False),
-        ('no verify', 0, oocd_program(), cmd.replace(' verify', ''), False)):
+        ('another command', 0, oocd_program(), cmd.replace(' reset', ' verify reset'), False)):
       with self.subTest(what), self.assertRaisesRegex(ht.StepFail, 'the openocd flash failed') as e:
         ht.judge_openocd_target(code, out, c, hexp)
       self.assertEqual(e.exception.evidence['beforeTarget'], before, what)
@@ -5586,12 +5599,12 @@ class OpenocdBatteryRun(Tmp):
   def test_every_step_passes_with_each_probe_session_one_script(self):
     self.bat.run(self.files, 'v1')
     self.assertEqual([x['step'] for x in self.bat.steps if x['pass']], list(ht.STEPS['openocd']))
-    self.assertEqual(self.oocd.flashes[0][-2:], ['-c', f'program {self.files["hex"]} verify reset exit'])
+    self.assertEqual(self.oocd.flashes[0][-2:], ['-c', f'program {self.files["hex"]} reset exit'])
     s = self.oocd.scripts
     self.assertEqual((s[0][:2], s[0][-2:]), (['init', 'halt'], ['reset run', 'shutdown']))
     self.assertRegex(s[0][2], r'^dump_image \{\S+readback-\d+\.bin\} 0x10000000 0x5824$')
     self.assertEqual(self.bat.steps[0]['evidence'],
-                     {'flashDownload': '** Verified OK **', 'verified': True,
+                     {'flashDownload': '** Programming Finished **', 'verified': True,
                       'operation': {'attempts': [{'kind': 'exited', 'exit': 0}], 'cleanup': 'done'}})
     self.assertEqual(s[1], ['init', 'halt', f'mww 0x{self.bat.f["dblTapReg"]:08x} 0x00000000',
                             f'echo [mdw 0x{self.bat.f["dblTapReg"]:08x}]', 'resume', 'shutdown'])   # cleared in dfu

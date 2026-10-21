@@ -883,8 +883,8 @@ def flash_binding(flasher, root, ninja):
     flasher['name'], 'run_serial_tool.cmake')
   cmds = [l for l in r.stdout.splitlines() if re.search(tool, l)] if r.returncode == 0 else []
   ok = len(cmds) == 1
+  cd, _, cmd = cmds[0].partition(' && ') if ok else ('', '', '')
   if ok and flasher['name'] == 'jlink':
-    cd, _, cmd = cmds[0].partition(' && ')
     argv = shlex.split(cmd)
     ok = cd == f'cd {root}' and Path(argv[0]).name == 'JLinkExe' and argv[1:] == [
       '-device', flasher['device'], '-USB', flasher['uid'], '-ExitOnError', '1', '-NoGui', '1', '-if', 'swd',
@@ -892,19 +892,17 @@ def flash_binding(flasher, root, ninja):
       (root / inputs[0]).is_file() and (root / inputs[0]).read_text() == f'halt\nloadfile {root / inputs[1]}\nr\ngo\nexit'
   elif ok and flasher['name'] == 'stlink':
     # the device is the roster's to name: the CLI identifies the chip itself, which the runner checks every session
-    cd, _, cmd = cmds[0].partition(' && ')
     argv = shlex.split(cmd)
     ok = cd == f'cd {root}' and Path(argv[0]).name == 'STM32_Programmer_CLI' and argv[1:] == [
       '--connect', 'port=swd', f'sn={flasher["uid"]}', '--write', str(root / inputs[0]), '--go']
   elif ok and flasher['name'] == 'openocd':
     # the probe by serial and USB ID, the roster's interface and target cfgs, and the build's HEX
-    cd, _, cmd = cmds[0].partition(' && ')
     ok = cd == f'cd {root}' and shlex.split(cmd) == [
       'openocd', '-c', 'tcl_port disabled; gdb_port disabled', '-c', f'adapter serial {flasher["uid"]}', '-c',
       f'adapter usb vid_pid {flasher["vid_pid"]}', '-f', 'interface/cmsis-dap.cfg', '-f', f'target/{flasher["device"]}.cfg',
       '-c', f'init; halt; program {root / inputs[0]}', '-c', 'reset', '-c', 'exit']
   elif ok:
-    argv = shlex.split(cmds[0].partition(' && ')[2])
+    argv = shlex.split(cmd)
     defs = dict(v.split('=', 1) for k, v in zip(argv[1:-2], argv[2:-2]) if k == '-D' and '=' in v)
     tool_argv = defs.get('SERIAL_TOOL', '').split(';')
     ok = len(argv) == 1 + 2 * len(defs) + 2 and argv[-2] == '-P' and Path(argv[-1]).name == 'run_serial_tool.cmake' and \

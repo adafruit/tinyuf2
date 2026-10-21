@@ -466,7 +466,7 @@ class Stubbed(unittest.TestCase):
     self.assertEqual(json.loads((self.out / 'summary.json').read_text())['elapsedS'], 1000)
     self.assertFalse(r['espressif'])
     self.assertEqual(self.commands[-1][self.commands[-1].index('--backend') + 1], 'cmake')
-    self.roster.write_text(json.dumps({'boards': [{'name': BOARD, 'flasher': {'name': 'esptool'}}]}))
+    (self.tmp / 'ports' / 'espressif' / 'boards' / BOARD).mkdir(parents=True)   # the port decides, not the flasher
     self.assertEqual(self.main('--board', BOARD, battery=failed, out=self.state / 'esp'), 1)
     self.assertTrue(self.rows(self.state / 'esp')[0]['espressif'])
     self.assertNotIn('--backend', self.commands[-1], 'an Espressif board builds with ESP-IDF in docker')
