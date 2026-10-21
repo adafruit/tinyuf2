@@ -5,6 +5,42 @@
       "uid": "BAE96FB95AFA6DBB8F00005002001200",
       "flasher": {"name": "jlink", "uid": "000725299165", "args": "-device MIMXRT1064xxx6A"},
       "tinyuf2": {"lock": "mimxrt1064_evk", "reentry": "retained-register"}
+    },
+    {
+      "name": "lpcxpresso55s69",
+      "uid": "35030000390300003D03000041030000",
+      "flasher": {"name": "jlink", "uid": "000727648789", "args": "-device LPC55S69_M33_0"},
+      "tinyuf2": {"reentry": "retained-register"}
+    },
+    {
+      "name": "stm32f407disco",
+      "uid": "30001A000647313332353735",
+      "flasher": {"name": "jlink", "uid": "000773661813", "args": "-device stm32f407vg"},
+      "tinyuf2": {"reentry": "retained-register"}
+    },
+    {
+      "name": "espressif_esp32s3_devkitm_1",
+      "uid": "84F703C084E4",
+      "flasher": {"name": "esptool", "uid": "3ea619acd1cdeb11a0a0b806e93fd3f1", "args": "--chip esp32s3"},
+      "tinyuf2": {"lock": "espressif_s3_devkitm", "reentry": "dfu-detach"}
+    },
+    {
+      "name": "espressif_p4_function_ev",
+      "uid": "6055F9F98715",
+      "flasher": {"name": "esptool", "uid": "4ea4f48f6bc3ee11bbb9d00f9e1b1c54", "args": "--chip esp32p4"},
+      "tinyuf2": {"reentry": "dfu-detach"}
+    },
+    {
+      "name": "stm32h743nucleo",
+      "uid": "110018000951383432343236",
+      "flasher": {"name": "stlink", "uid": "004C00343137510F39383538", "args": "-device stm32h743zi"},
+      "tinyuf2": {"reentry": "retained-register"}
+    },
+    {
+      "name": "max32666fthr",
+      "uid": "0C81464124010B20FF0A08CC2C000000",
+      "flasher": {"name": "openocd", "uid": "E6614C311B597D32", "vid_pid": "0x2e8a 0x000c", "args": "-f interface/cmsis-dap.cfg -f target/max32665.cfg"},
+      "tinyuf2": {"reentry": "retained-register"}
     }
   ]
 }
