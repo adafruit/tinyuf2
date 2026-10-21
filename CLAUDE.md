@@ -10,6 +10,7 @@
 - Formatting follows `.clang-format`: 2-space indent, no tabs.
 - Port-specific code stays in `ports/<port>/` behind the `board_api.h` interface.
 - Some files use CRLF line endings; keep each file's own line endings when editing.
+- USB VID/PID: a board's `USB_VID`/`USB_PID` are its `bootloader` row in Adafruit's allocation list, `Production/usb_vid_pid.csv` in the MBAdafruitBoards repository (`~/code/adafruit/MBAdafruitBoards`). A board without a row needs a new allocation from that directory's `generate-pid-vid.py`; ask the human before running it or editing the CSV.
 
 ## Skills
 
