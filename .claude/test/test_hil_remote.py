@@ -330,7 +330,7 @@ class Refusals(Project):
 
   def test_boards_and_run_ids(self):
     self.refused('run', '-b', 'nope', '--host', 'rig', text='not in test/hil/ci.json at HEAD')
-    self.refused('run', '-b', ESP, '--host', 'rig', text='Espressif boards are not run remotely')
+    self.assertEqual(hr.select([ESP, LPC], ROSTER, 'test/hil/ci.json'), sorted([ESP, LPC]))   # ESP-IDF builds on the rig
     self.refused('run', '-b', LPC, '--host', 'elsewhere', text='no rig elsewhere')
     self.refused('run', '-b', LPC, '--host', 'rig', '--run-id', '../x', text='a run id is')
     with mock.patch.dict(os.environ, {'HIL_NO_BOARD_LOCK': '1'}):
