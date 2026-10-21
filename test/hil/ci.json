@@ -8,7 +8,7 @@
     },
     {
       "name": "lpcxpresso55s69",
-      "uid": "35030000390300003D03000041030000",
+      "uid": "E059C3E208F9B955B3BA4C5CC7F3D13D",
       "flasher": {"name": "jlink", "uid": "000727648789", "args": "-device LPC55S69_M33_0"},
       "tinyuf2": {"reentry": "retained-register"}
     },
