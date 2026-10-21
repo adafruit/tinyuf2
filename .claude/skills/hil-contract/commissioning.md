@@ -28,10 +28,10 @@ Commissioning is the lead's, never `hil-operator`'s or a review's. It runs under
   - the app start meets VTOR's alignment for the fixture's vector table (`fixture()`);
   - its stack top, the `m_data` origin the runner reads (`ram_origin`) + 0x1000, is in RAM enabled when the bootloader hands off: the ROM default per read-doc, which TinyUF2 does not reconfigure (DTCM on imxrt1060_evk);
   - under a hold, a word just below that stack top takes a written value and reads it back, and then its saved value (0x20000FFC on imxrt1060_evk).
-- **Re-entry:** commit the roster entry without `reentry`, build the record, release the manual hold, and run the battery in commissioning mode; it locks itself and ends with the cleanup, so it also proves the restore:
+- **Re-entry:** commit the roster entry without `reentry` (`ci.json`; the untracked bench roster is saved in place, where the clean-tree check cannot see it), build the record, release the manual hold, and run the battery in commissioning mode; it locks itself and ends with the cleanup, so it also proves the restore:
 
   ```bash
-  python3 .claude/skills/hil-contract/scripts/hil_test.py run -b <board> --build-record cmake-build/hil/<board>.build.json --try-reentry retained-register test/hil/local.json
+  python3 .claude/skills/hil-contract/scripts/hil_test.py run -b <board> --build-record cmake-build/hil/<board>.build.json --try-reentry retained-register <roster>
   ```
 
   `--try-reentry` is the lead's only, and is refused once `reentry` is set. The row's `reentryDecision` names the method when the run passed or failed only at `reenter`'s `CURRENT.UF2` readback, every observation of the tried method is true (`controlBootedApp`, `dfuCameUp` and `magicConsumed` for `retained-register`), and the board was cleaned up and not held. Set `reentry` to it and commit. A null decision leaves `reentry` unset: file a `followup` issue with the observations for diagnosis, not as a diagnosed bug. When the drive copy itself fails, a fixture installed by hand with J-Link `loadbin` can isolate re-entry from the copy for diagnosis; it never sets `reentry`.

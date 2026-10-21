@@ -16,7 +16,7 @@ python3 $B --select-only (--scope ... | --base REF [--worktree] | --diff-file FI
 python3 $B --board feather_stm32f405_express [--board ...]
 python3 $B --board lpcxpresso55s69 -D LOG=2     # a define, passed to the board's backend
 python3 $B ... --shared                         # keep cmake-build/cmake-build-<board>, the dir a flash or HIL run uses
-python3 $B --board imxrt1060_evk --backend cmake --shared --hil-config test/hil/local.json   # the HIL's receipt
+python3 $B --board imxrt1064_evk --backend cmake --shared --hil-config test/hil/ci.json   # the HIL's receipt
 python3 $B ... --idf local                      # exported ESP-IDF instead of CI's docker image
 ```
 

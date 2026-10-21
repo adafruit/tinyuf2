@@ -144,6 +144,62 @@ def roster(tmp, **over):
   return cfg
 
 
+# htpc's bench roster as last tracked (test/hil/local.json is host-local and untracked now)
+BENCH = {
+  "boards": [
+    {
+      "name": "imxrt1060_evk",
+      "uid": "4629F865D2291713E000005002004200",
+      "flasher": {"name": "jlink", "uid": "000726129165", "args": "-device MIMXRT1062xxx6A"},
+      "tinyuf2": {"lock": "mimxrt1060_evk", "reentry": "retained-register"}
+    },
+    {
+      "name": "metro_m7_1011",
+      "uid": "7BE8715DD77116635100005002004200",
+      "flasher": {"name": "jlink", "uid": "000801012283", "args": "-device MIMXRT1011DAE5A"},
+      "tinyuf2": {"reentry": "retained-register"}
+    },
+    {
+      "name": "espressif_esp32s3_devkitc_1",
+      "uid": "7CDFA1E06FD0",
+      "flasher": {"name": "esptool", "uid": "8ecc58dfb1cdeb1185e7b806e93fd3f1", "args": "--chip esp32s3"},
+      "tinyuf2": {"reentry": "dfu-detach"}
+    },
+    {
+      "name": "espressif_p4_function_ev",
+      "uid": "30EDA0E0C902",
+      "flasher": {"name": "esptool", "uid": "1ec47e6369c3ee119baac50f9e1b1c54", "args": "--chip esp32p4"},
+      "tinyuf2": {"reentry": "dfu-detach",
+                  "routes": [{"flasher": {"name": "openocd_esp", "uid": "30:ED:A0:E0:C9:02", "args": "-f board/esp32p4-builtin.cfg"}}]}
+    },
+    {
+      "name": "stm32f303disco",
+      "uid": "250039001657344232383020",
+      "flasher": {"name": "jlink", "uid": "000771261572", "args": "-device stm32f303vc"},
+      "tinyuf2": {"reentry": "retained-register", "usbPower": {"hub": "PA40004", "port": 3}}
+    },
+    {
+      "name": "stm32f411ve_discovery",
+      "uid": "3A002A001051363332383332",
+      "flasher": {"name": "jlink", "uid": "000770880814", "args": "-device stm32f411ve"},
+      "tinyuf2": {"lock": "stm32f411disco", "reentry": "retained-register"}
+    },
+    {
+      "name": "stm32h563_nucleo",
+      "uid": "620041000751323237363130",
+      "flasher": {"name": "stlink", "uid": "002300273232510239353236", "args": "-device stm32h563zi"},
+      "tinyuf2": {"lock": "stm32h563nucleo", "reentry": "retained-register"}
+    }
+  ]
+}
+
+
+def bench_roster(tmp):
+  cfg = tmp / 'bench.json'
+  cfg.write_text(json.dumps(BENCH))
+  return cfg
+
+
 # the runner reads no source facts for lpc55; most tests keep its layout as synthetic facts
 LPC_FACTS = {'flashBase': 0, 'binBase': 0, 'appStart': 0x10000, 'flashSize': 0x98000, 'vid': 0x1fc9, 'pid': 0x0094,
              'boardId': 'LPC55S69-Xpresso-revA', 'family': 0x2abc77ec, 'vectors': 76, 'ram': 0x20000000,
@@ -340,15 +396,15 @@ class Roster(Tmp):
       with self.subTest(what), self.assertRaises(ht.Refused):
         ht.apply_layout(dict(b), dict(LPC_FACTS, **over))
 
-  def test_the_committed_roster_is_well_formed_and_commissioned(self):
-    b = self.load(ROOT / 'test' / 'hil' / 'local.json', 'imxrt1060_evk')
+  def test_the_bench_and_ci_rosters_are_well_formed_and_commissioned(self):
+    b = self.load(bench_roster(self.tmp), 'imxrt1060_evk')
     self.assertEqual((b['lock'], b['reentry']), ('mimxrt1060_evk', 'retained-register'))
     self.assertEqual(b['install'], (0x60000000, 0x6000C000))
-    f3 = self.load(ROOT / 'test' / 'hil' / 'local.json', 'stm32f303disco')
+    f3 = self.load(bench_roster(self.tmp), 'stm32f303disco')
     self.assertEqual((f3['reentry'], f3['usbPower'], f3['install'], f3['app']),
                      ('retained-register', {'hub': 'PA40004', 'port': 3}, (0x08000000, 0x08004000), (0x08004000, 0x08040000)))
     self.assertIsNone(b['usbPower'])
-    f4 = self.load(ROOT / 'test' / 'hil' / 'local.json', 'stm32f411ve_discovery')
+    f4 = self.load(bench_roster(self.tmp), 'stm32f411ve_discovery')
     self.assertEqual((f4['lock'], f4['reentry'], f4['usbPower'], f4['install'], f4['app']),
                      ('stm32f411disco', 'retained-register', None, (0x08000000, 0x08010000), (0x08010000, 0x08080000)))
     ci = self.load(ROOT / 'test' / 'hil' / 'ci.json', 'imxrt1064_evk')
@@ -1319,7 +1375,7 @@ class RouteRoster(Tmp):
         ht.load_board(cfg, name)
 
   def test_the_p4_roster_entry_is_a_commissioned_openocd_esp_route_of_its_board(self):
-    b = ht.load_board(ROOT / 'test/hil/local.json', 'espressif_p4_function_ev')
+    b = ht.load_board(bench_roster(self.tmp), 'espressif_p4_function_ev')
     self.assertEqual(b['routes'], {'openocd_esp': {'flasher': {'name': 'openocd_esp', 'uid': '30:ED:A0:E0:C9:02',
                                                                'args': '-f board/esp32p4-builtin.cfg'}, 'pending': False}})
 

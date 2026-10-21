@@ -554,6 +554,16 @@ class Identity(ScratchRepo):
     (self.dep / 'new.h').write_text('untracked')
     self.assertEqual(cb.identity({'lpc55'})['dirtyInputs'], ['lib/mcu/dep'])
 
+  def test_an_ignored_host_roster_leaves_the_tree_clean(self):
+    (self.repo / '.gitignore').write_text((ROOT / '.gitignore').read_text())
+    self.git('add', '.gitignore', cwd=self.repo)
+    self.git('commit', '-q', '-m', 'ignore', cwd=self.repo)
+    (self.repo / 'test' / 'hil').mkdir(parents=True)
+    (self.repo / 'test' / 'hil' / 'local.json').write_text('{"boards": []}')
+    self.assertFalse(cb.identity({'lpc55'})['dirty'])
+    (self.repo / 'x.c').write_text('changed')
+    self.assertTrue(cb.identity({'lpc55'})['dirty'])
+
 
 class Verdict(unittest.TestCase):
   def test_pass(self):
@@ -831,8 +841,13 @@ class HilRecord(unittest.TestCase):
   def test_a_route_binds_the_esptool_bindings_segments(self):
     p4 = 'espressif_p4_function_ev'
     route = {'name': 'openocd_esp', 'uid': '30:ED:A0:E0:C9:02', 'device': 'esp32p4'}
-    self.assertEqual(cb.roster_routes('test/hil/local.json', p4), [route])
-    self.assertEqual(cb.roster_routes('test/hil/local.json', 'metro_m7_1011'), [])
+    self.roster.write_text(json.dumps({'boards': [
+      {'name': p4, 'uid': 'M', 'flasher': {'name': 'esptool', 'uid': 'b', 'args': '--chip esp32p4'},
+       'tinyuf2': {'routes': [{'flasher': {'name': 'openocd_esp', 'uid': '30:ED:A0:E0:C9:02',
+                                           'args': '-f board/esp32p4-builtin.cfg'}}]}},
+      {'name': 'metro_m7_1011', 'uid': 'U', 'flasher': {'name': 'jlink', 'uid': '1', 'args': '-device MIMXRT1011DAE5A'}}]}))
+    self.assertEqual(cb.roster_routes(self.config, p4), [route])
+    self.assertEqual(cb.roster_routes(self.config, 'metro_m7_1011'), [])
     inputs = list(cb.FLASH['esptool'][1])
     rec = {'board': p4, 'flash': {'flasher': {'name': 'esptool', 'uid': 'b', 'device': 'esp32p4'}, 'inputs': inputs}}
     self.assertEqual(cb.flash_routes(rec, [route]), {'openocd_esp': {'flasher': route, 'inputs': inputs}})
