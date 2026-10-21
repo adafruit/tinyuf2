@@ -262,8 +262,8 @@ void board_init(void)
   USART_Init(UART_DEV, &uart_config, 12000000);
 #endif
 
-  // Flash needs to be initialized to check for a valid image
-  if (FLASH_Init(&_flash_config) != kStatus_Success) {
+  // Flash needs to be initialized to check for a valid image, and its PFR driver before FFR_GetUUID (UM11126 9.3.3.1)
+  if (FLASH_Init(&_flash_config) != kStatus_Success || FFR_Init(&_flash_config) != kStatus_Success) {
     TU_LOG1("\r\n\r\n\t---- FLASH ERROR! ----\r\n");
   }
 }
