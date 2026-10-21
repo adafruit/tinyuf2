@@ -20,4 +20,9 @@ family_configure_tinyuf2(tinyuf2 OPT_MCU_LPC55XX)
 family_flash_jlink(tinyuf2)
 family_flash_pyocd(tinyuf2)
 
+#------------------------------------
+# Application
+#------------------------------------
+family_add_app(blinky ${TOP}/apps/blinky)
+
 # No self-update app: board_self_update() is not implemented for lpc55

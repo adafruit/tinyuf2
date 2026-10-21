@@ -179,6 +179,7 @@
 | sparkfun_micromod_stm32 | SparkFun MicroMod STM32F405 | 0x1B4F:0x002D | https://www.sparkfun.com/products/21326 |
 | sparkfun_stm32_thing_plus | SparkFun Thing Plus - STM32 | 0x1B4F:0x002C | https://www.sparkfun.com/products/17712 |
 | stm32f401_blackpill | STM32 STM32F401CxUx | 0x239A:0x005D | https://stm32-base.org/boards/STM32F411CEU6-WeAct-Black-Pill-V2.0.html |
+| stm32f407disco | ST STM32F407 Discovery | 0x239A:0x0089 | https://www.st.com/en/evaluation-tools/stm32f4discovery.html |
 | stm32f411ce_blackpill | ST STM32F411 BlackPill | 0x239A:0x0069 | https://www.adafruit.com/product/4877 |
 | stm32f411ve_discovery | ST STM32F411 Discovery | 0x239A:0x005D | https://www.st.com/en/evaluation-tools/32f411ediscovery.html |
 

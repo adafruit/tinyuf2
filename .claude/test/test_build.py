@@ -178,7 +178,7 @@ class Selection(unittest.TestCase):
 
   def test_top_level_app_selects_ports_whose_backend_compiles_it(self):
     ports = {cb.port_of(b) for b, _ in classify('apps/blinky/src/blinky.c')[2]}
-    self.assertEqual(ports, {'espressif', 'maxim', 'mimxrt10xx', 'stm32f3', 'stm32f4', 'stm32h5'})
+    self.assertEqual(ports, {'espressif', 'lpc55', 'maxim', 'mimxrt10xx', 'stm32f3', 'stm32f4', 'stm32h5'})
 
   def test_dependency_selects_the_ports_get_deps_names(self):
     self.assertEqual(classify('lib/mcu/st/cmsis_device_f4/x.h')[2],
