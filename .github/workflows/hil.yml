@@ -178,7 +178,8 @@ jobs:
         if: steps.fresh.outputs.post == 'true'
         run: |
           python3 .claude/skills/hil-contract/scripts/hil_comment.py render --summary hil-out/summary.json \
-            --selection hil-selection/hil-selection.json --roster ci.json --head "$HEAD_SHA" --tested "$GITHUB_SHA" \
+            --selection hil-selection/hil-selection.json --views hil-out/upload-views --roster ci.json \
+            --head "$HEAD_SHA" --tested "$GITHUB_SHA" \
             --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" \
             --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --out comment.md
 

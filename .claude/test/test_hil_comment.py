@@ -85,7 +85,7 @@ class Render(unittest.TestCase):
     self.assertEqual(notes, ['- `b` dfu: not seen',
                              '- `c` blinky: cleanup failed or no report; board held',
                              '- `d` battery: locked: held by pid 7',
-                             '- `e` battery: run caveat denies a pass (shared run rules: blocker)'])
+                             '- `e` battery: run caveat denies a pass (native pass, shared run rules blocker)'])
     self.assertNotIn('verdict', body)
     self.assertIn('| d |  |  |  |  |  |  |  | 40s | 15s |', body)   # no steps: every step cell blank
 
@@ -105,10 +105,30 @@ class Render(unittest.TestCase):
         r = row('w', 'pass', 'blocker', sharedDetail='report not prepared: OSError: x', **extra)
         body = hc.render({'boards': [r]}, selection(), META)
         self.assertIn('| w |  |  |  |  |  |  |  | 40s | 15s |', body)
-        self.assertIn('- `w`: report withheld (report not prepared: OSError: x)', body)
+        self.assertIn('- `w` battery: report not prepared: OSError: x (native pass, shared run rules blocker; '
+                      'report withheld)', body)
         self.assertNotIn('✅ 1', body)
     r = row('u', 'pass', 'blocker', sharedDetail='run aborted', unsafeArtifacts=['/x'])
     self.assertIn('| u |  |', hc.render({'boards': [r]}, selection(), META))   # unsafe alone withholds
+
+  def test_a_corrupt_or_missing_report_shows_no_steps_and_keeps_the_native_detail(self):
+    for detail in ('report corrupt: Expecting value', 'report missing: no run directory'):
+      with self.subTest(detail):
+        r = row('c', 'fail', 'blocker', detail='copy: drive vanished', sharedDetail=detail,
+                steps={'install': True, 'copy': False})
+        body = hc.render({'boards': [r]}, selection(), META)
+        self.assertIn('| c |  |  |  |  |  |  |  | 40s | 15s |', body)
+        self.assertIn(f'- `c` battery: copy: drive vanished (native fail, shared run rules blocker: {detail}; '
+                      'report withheld)', body)
+
+  def test_views_the_upload_withholds_hide_every_boards_steps(self):
+    for views in ('withhold', None):
+      with self.subTest(views):
+        body = hc.render({'boards': [row('a'), row('b')]}, selection(2), META, views)
+        self.assertIn('| a |  |  |  |  |  |  |  | 40s | 15s |', body)
+        self.assertIn(f'- report views withheld by the upload (upload-views: {views or "missing"}): no steps shown',
+                      body)
+        self.assertIn('**✅ 2 passed**', body)   # the verdicts are summary.json's, not the views'
 
   def test_a_missing_summary_is_an_incomplete_run_never_a_pass(self):
     sel = selection(2, uncovered=[{'target': 'ports/ch32v20x', 'reason': 'none here'}])
@@ -209,7 +229,7 @@ class Cli(unittest.TestCase):
     out = self.tmp / 'comment.md'
     with mock.patch.object(sys, 'stdout', io.StringIO()):
       self.assertEqual(hc.main(['render', '--summary', str(self.tmp / 'none.json'), '--selection',
-                                str(self.tmp / 'bad.json'), '--roster', 'ci.json', '--head', 'h' * 40, '--tested',
+                                str(self.tmp / 'bad.json'), '--views', str(self.tmp / 'none'), '--roster', 'ci.json', '--head', 'h' * 40, '--tested',
                                 't' * 40, '--run-url', 'https://x', '--run-id', '7', '--attempt', '1', '--out',
                                 str(out)]), 0)
     body = out.read_text(encoding='utf-8')

@@ -21,7 +21,6 @@ TITLE = '## Hardware-in-the-loop (HIL) Test Report'
 STEPS = ('install', 'dfu', 'copy', 'app-ran', 'reenter', 'recopy')
 PASS, FAIL, ABSENT = '✅', '❌', '—'
 KINDS = (('passed', '✅'), ('failed', '❌'), ('blocked', '⛔'), ('not run', '⚪'))
-UNPREPARED = 'report not prepared'   # hil_ci.py's
 LEGEND = "✅ passed · ❌ failed · blank not run · — not in this board's run · run time includes lock wait and blinky"
 
 
@@ -54,9 +53,10 @@ def kind(r):
 
 
 def withheld(r):
-  """A row whose report material hil_ci.py could not prepare: none of it is shown."""
-  return bool(r.get('unsafeArtifacts')) or \
-      r.get('sharedVerdict') == 'blocker' and str(r.get('sharedDetail', '')).startswith(UNPREPARED)
+  """A row whose report the upload withholds or the shared run rules could not read (`report <outcome>: ...`, as
+  report not prepared, corrupt or missing): none of its report material is shown."""
+  return not r.get('viewsUploaded', True) or bool(r.get('unsafeArtifacts')) or r.get('report') is False or \
+      r.get('sharedVerdict') == 'blocker' and str(r.get('sharedDetail', '')).startswith('report ')
 
 
 def step_cell(r, step):
@@ -76,22 +76,26 @@ def table_row(r):
 
 
 def note(r):
-  board = cell(r['board'])
-  if withheld(r):
-    return f'- `{board}`: report withheld ({cell(r.get("sharedDetail", ""))})'
-  failed = next((s for s, ok in (r.get('steps') or {}).items() if not ok), None)
-  where = failed or ('blinky' if r.get('cleanupPass') is False else r.get('phase') or 'run')
-  detail = str(r.get('detail') or r.get('sharedDetail') or r.get('verdict'))
+  """The board's native detail, both verdicts where they differ, and whether its report is withheld."""
+  hidden = withheld(r)
+  failed = None if hidden else next((s for s, ok in (r.get('steps') or {}).items() if not ok), None)
+  where = failed or ('blinky' if not hidden and r.get('cleanupPass') is False else r.get('phase') or 'run')
+  native, shared, shared_detail = r.get('verdict'), r.get('sharedVerdict', r.get('verdict')), r.get('sharedDetail')
+  detail = str(r.get('detail') or shared_detail or native)
   if failed and detail.startswith(f'{failed}: '):
     detail = detail[len(failed) + 2:]
-  text = f'- `{board}` {where}: {cell(detail)}'
-  if r.get('sharedVerdict', r.get('verdict')) != r.get('verdict'):
-    text += f' (shared run rules: {r["sharedVerdict"]})'
-  return text
+  extra = []
+  if shared != native:
+    extra.append(f'native {native}, shared run rules {shared}' +
+                 (f': {shared_detail}' if shared_detail and shared_detail != detail else ''))
+  if hidden:
+    extra.append('report withheld')
+  return f'- `{cell(r["board"])}` {where}: {cell(detail)}' + (f' ({cell("; ".join(extra))})' if extra else '')
 
 
-def report(summary):
-  rows = summary['boards']
+def report(summary, views):
+  """`views` is the upload's decision (hil_ci.py's upload-views): anything but `upload` withholds every report."""
+  rows = [dict(r, viewsUploaded=views == 'upload') for r in summary['boards']]
   counts = [f'{icon} {sum(kind(r) == k for r in rows)} {k}' for k, icon in KINDS if any(kind(r) == k for r in rows)]
   head = f'**{" · ".join(counts)}**' if counts else '**No board results.**'
   if summary.get('elapsedS') is not None:
@@ -102,6 +106,8 @@ def report(summary):
               '| --- | ' + ' | '.join(':-:' for _ in STEPS) + ' | :-: | --: | --: |']
     lines += [table_row(r) for r in rows] + ['', LEGEND, '']
   notes = [note(r) for r in rows if kind(r) != 'passed']
+  if views != 'upload':
+    notes.append(f'- report views withheld by the upload (upload-views: {cell(views or "missing")}): no steps shown')
   return lines + (notes + [''] if notes else [])
 
 
@@ -112,7 +118,7 @@ def uncovered(selection):
   return ['Not covered on this rig:', *(f'- `{cell(u["target"])}`: {cell(u["reason"])}' for u in items), '']
 
 
-def render(summary, selection, meta):
+def render(summary, selection, meta, views='upload'):
   """The comment body. `summary` and `selection` are the parsed files or None; `meta` is {roster, head, tested,
   runUrl, runId, attempt}."""
   lines = [TITLE, '', f'### {meta["roster"]} (ci.lan)', '',
@@ -131,7 +137,7 @@ def render(summary, selection, meta):
   if summary is None:
     lines += ['**HIL report unavailable: the run ended without a summary (run incomplete).**', '']
   else:
-    lines += report(summary)
+    lines += report(summary, views)
   lines += uncovered(selection) + [f'_[Records, reports and logs]({meta["runUrl"]})_']
   return finish(lines)
 
@@ -184,6 +190,7 @@ def main(argv=None):
   r = sub.add_parser('render', help='write the comment body')
   r.add_argument('--summary', required=True, help="hil_ci.py's summary.json, which may be missing")
   r.add_argument('--selection', required=True, help="the select job's hil-selection.json, which may be missing")
+  r.add_argument('--views', required=True, help="hil_ci.py's upload-views decision file, which may be missing")
   r.add_argument('--roster', required=True, help='roster file name, e.g. ci.json')
   r.add_argument('--head', required=True, help="the PR's head SHA")
   r.add_argument('--tested', required=True, help='the merge commit the rig tested')
@@ -201,7 +208,12 @@ def main(argv=None):
   if args.cmd == 'render':
     meta = {'roster': args.roster, 'head': args.head, 'tested': args.tested,
             'runUrl': args.run_url, 'runId': args.run_id, 'attempt': args.attempt}
-    body = render(read_json(args.summary, 'boards'), read_json(args.selection, 'boards'), meta)
+    try:
+      with open(args.views, encoding='utf-8') as f:
+        views = f.read().strip()
+    except OSError:
+      views = None
+    body = render(read_json(args.summary, 'boards'), read_json(args.selection, 'boards'), meta, views)
     with open(args.out, 'w', encoding='utf-8') as out:
       out.write(body)
     return 0
