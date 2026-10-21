@@ -19,6 +19,7 @@ Commissioning is the lead's, never `hil-operator`'s or a review's. It runs under
   ```
 
   Then `sudo udevadm control --reload`.
+- **Drive access:** the runner opens the UF2 drive's block device as its own user. tinyusb's `88-tinyusb.rules` gives group `adm` to 239a and 1fc9 devices; a board of another VID needs its own line in `/etc/udev/rules.d/89-tinyuf2-hil-access.rules`, matched like the exclusion line, with `MODE="0660", GROUP="adm"` in place of the `ENV` (max32666fthr, 0456:a010). A drive the runner cannot open reads "Permission denied" from `mtype`.
 - **Bootloader:** `install` a clean HIL record of HEAD under the hold and observe DFU (add `--try-reentry retained-register` if a valid app could keep DFU away).
 - **USB serial:** confirm the enumerated serial equals `uid` (sysfs or `lsusb -v`), and record the USB port paths. If it differs, fix `uid` and the rule together, reload, and `install` again; its reset re-enumerates the board and udev applies the reloaded rules, so no replug should be needed (by mechanism, not yet observed on a uid fix).
 - **Cleanup:** `restore` under the hold and observe DFU leave after the blinky copy. Record the reset notes J-Link prints on install (`BENIGN`).
