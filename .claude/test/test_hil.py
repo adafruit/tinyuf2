@@ -1614,7 +1614,7 @@ class JtagRoute(EspFake):
     for p in (mock.patch.dict(os.environ, {'HIL_OPENOCD_ESP': str(exe), 'FAKE_BANNER': AG.BANNER,
                                            'FAKE_EVENTS': str(self.flash) + '.sessions', 'FAKE_FLASH': str(self.flash),
                                            'FAKE_BANK_SIZE': hex(0x800000)}),
-              mock.patch.object(ht, 'OPENOCD_TIMEOUT', 3), mock.patch.object(ht, 'OPENOCD_BOOT_SETTLE', 0),
+              mock.patch.object(ht, 'OPENOCD_TIMEOUT', 3), mock.patch.object(ht.openocd_esp(), 'BOOT_SETTLE', 0),
               mock.patch.object(ht.openocd_esp(), 'CLEANUP_TIMEOUT', 3)):
       p.start()
       self.addCleanup(p.stop)
@@ -1712,14 +1712,15 @@ class JtagRoute(EspFake):
     return cm.exception
 
   def test_the_provider_starts_at_least_the_settle_time_after_the_esptool_session(self):
-    ended, started = [], []
-    run, flash = ht.Esptool.run, ht.openocd_esp().flash_openocd_esp
+    # the provider's own BOOT_SETTLE, from its call to resolving the USJ, is the wait after the session's hard reset
+    oe, ended, flashing, started = ht.openocd_esp(), [], [], []
+    run, flash, usj = ht.Esptool.run, oe.flash_openocd_esp, oe.usj_location
     with mock.patch.object(ht.Esptool, 'run', lambda *a: (run(*a), ended.append(time.monotonic()))[0]), \
-         mock.patch.object(ht.openocd_esp(), 'flash_openocd_esp',
-                           lambda *a, **k: (started.append(time.monotonic()), flash(*a, **k))[1]), \
-         mock.patch.object(ht, 'OPENOCD_BOOT_SETTLE', 0.2):
+         mock.patch.object(oe, 'flash_openocd_esp', lambda *a, **k: (flashing.append(1), flash(*a, **k))[1]), \
+         mock.patch.object(oe, 'usj_location', lambda *a: (flashing and started.append(time.monotonic()), usj(*a))[1]), \
+         mock.patch.object(oe, 'BOOT_SETTLE', 0.2):
       self.install()
-      self.assertGreaterEqual(started[0] - ended[0], ht.OPENOCD_BOOT_SETTLE)
+      self.assertGreaterEqual(started[0] - max(e for e in ended if e < started[0]), oe.BOOT_SETTLE)
 
   def test_a_ci_job_is_refused_before_the_security_and_snapshot_session(self):
     with mock.patch.dict(os.environ, {'GITHUB_ACTIONS': ''}), mock.patch.object(ht.Esptool, 'run') as run, \
@@ -2468,6 +2469,7 @@ class FlashProvider(Tmp):
     self.assertIn('def roster_identity(', text)
     off = self.tmp / 'core.py'
     off.write_text(text.replace('def roster_identity(', 'def _roster_identity('))
+    shutil.copy(ht.REPORT_CORE.with_name('hil_report_notice.py'), self.tmp)   # the core loads it from beside itself
     with mock.patch.object(ht, 'CORE', []), mock.patch.object(ht, 'REPORT_CORE', off), \
          mock.patch.object(ht, 'check_lock_pin'), self.assertRaisesRegex(ht.Refused, "lacks \\['roster_identity'\\]"):
       ht.report_core()

@@ -78,9 +78,6 @@ LOCK_HELPER = ROOT / AGENTRC / 'skills' / 'hil' / 'scripts' / 'hil_lock.py'
 FLASH_PROVIDER = LOCK_HELPER.with_name('hil_flash.py')
 OPENOCD_ESP = LOCK_HELPER.with_name('hil_openocd_esp.py')   # an Espressif board's JTAG route (tinyuf2.routes)
 OPENOCD_TIMEOUT = 300   # s for one openocd_esp flash: every segment programmed, verified and read back
-# s from the esptool session's hard reset to the provider's start: on the P4 rev v1.0 a start within ms failed every
-# reset init of its session (reset-assert-post); with this wait it passed (bench 2026-10-20, agentrc #160)
-OPENOCD_BOOT_SETTLE = 1
 HOLDER_ROLE = 'cleanup-holder'
 LOCK_POLL = 15   # s between tries at a held board within run's --lock-wait
 SCB_VTOR, SCB_AIRCR = 0xE000ED08, 0xE000ED0C
@@ -2992,14 +2989,14 @@ class EspBattery(Battery):
     tty = esp_port(self.b['probe'])
     self.touched = True
     keep = self.b['regions']['preserved']
-    # hard-reset: a chip left in the ROM loader faults openocd's flash stub after its reset init (PMP Load access fault)
-    res = self.tool.run([{'op': 'security'}] + (preserved_ops(keep) if self.preserved is None else []), 'hard-reset')
+    # hard-reset: a chip left in the ROM loader faults openocd's flash stub after its reset init (PMP Load access fault);
+    # the provider starts no earlier than its BOOT_SETTLE after the call, the wait this reset needs (bench-history.md)
+    res =self.tool.run([{'op': 'security'}] + (preserved_ops(keep) if self.preserved is None else []), 'hard-reset')
     security = security_evidence(res[0], tty)
     if self.preserved is None:
       self.preserved = preserved_md5(keep, res[1:])
     segments = [{'offset': off, 'file': str(p), 'size': p.stat().st_size} for off, p in files['segments']]
     seen = []
-    time.sleep(OPENOCD_BOOT_SETTLE)
 
     def flash(run):   # the provider runs its own server, never a tracked child: run is unused
       op = None

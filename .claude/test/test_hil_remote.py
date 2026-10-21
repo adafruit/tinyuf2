@@ -257,8 +257,9 @@ class Project(unittest.TestCase):
     self.dep = origin(o / 'dep', 'dep 1', 'dep 2')
     for name in ('agentrc', 'tinyusb', 'uf2'):
       origin(o / name, name)
-    core = 'skills/hil/scripts/hil_report_core.py'   # the driver prepares each report pair through it, as CI does
-    commit(o / 'agentrc', {core: (ROOT / 'lib' / 'agentrc' / core).read_text()}, 'report core')
+    # the driver prepares each report pair through the core, as CI does; the core loads its notice from beside itself
+    core = [f'skills/hil/scripts/{n}.py' for n in ('hil_report_core', 'hil_report_notice')]
+    commit(o / 'agentrc', {p: (ROOT / 'lib' / 'agentrc' / p).read_text() for p in core}, 'report core')
     primary = self.tmp / 'primary'
     primary.mkdir()
     git(primary, 'init', '-q')
