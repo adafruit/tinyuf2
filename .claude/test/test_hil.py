@@ -2070,6 +2070,17 @@ class Images(Tmp):
     p.write_text(ihex([(4, 0, b'\x60\x00'), (0, 0, b'\x01\x02'), (0, 4, b'\x06')]))   # at 0x60000000
     self.assertTrue(ht.hex_matches_bin(ht.parse_hex(p), b, 0x60000000))
 
+  def test_the_install_verifies_the_bin_or_each_run_of_a_gapped_hex(self):
+    p, b = self.tmp / 'a.hex', self.tmp / 'a.bin'
+    p.write_text(ihex([(0, 0, b'\x01\x02\x03')]))
+    b.write_bytes(b'\x01\x02\x03')
+    self.assertEqual(ht.verify_images(ht.parse_hex(p), b, 0, self.tmp), [(0, b)])
+    # lpc55: the BIN zero-fills the gap that the HEX leaves erased
+    p.write_text(ihex([(0, 0, b'\x01\x02'), (0, 4, b'\x05')]))
+    b.write_bytes(b'\x01\x02\x00\x00\x05')
+    runs = ht.verify_images(ht.parse_hex(p), b, 0, self.tmp)
+    self.assertEqual([(a, f.read_bytes()) for a, f in runs], [(0, b'\x01\x02'), (4, b'\x05')])
+
   def test_embedded_version(self):
     b = self.tmp / 'a.bin'
     b.write_bytes(b'\0junk TinyUF2 Bootloader 0.35.0-1-gabc - tinyusb (x)\r\nModel')
@@ -3726,7 +3737,7 @@ class BatteryRun(Tmp):
     build.mkdir(exist_ok=True)
     rig.hex = build / 'tinyuf2.hex'
     rig.hex.write_text(':00000001FF\n')
-    self.files = {'bin': self.tmp / 'c.bin', 'hex': rig.hex,
+    self.files = {'bin': self.tmp / 'c.bin', 'hex': rig.hex, 'verify': [(0, self.tmp / 'c.bin')],
                   'flash': {'root': build, 'binding': {'target': 'tinyuf2-jlink'},
                             'sha256': {'tinyuf2.hex': ht.sha256(rig.hex)}}}
     (self.tmp / 'cur').mkdir()
@@ -3781,6 +3792,13 @@ class BatteryRun(Tmp):
     # what a killed tool printed so far is no proof it never reached the target
     self.assertEqual((ev['tail'], ev['beforeTarget'], bat.touched), (['Connecting to J-Link ...FAILED: x'], False, True))
     self.assertEqual(ev['operation']['attempts'], [{'kind': 'timed_out', 'exit': 124}])
+
+  def test_a_gapped_hex_is_verified_run_by_run(self):
+    bat, rig = self.battery()
+    self.files['verify'] = [(0, self.tmp / 'c.bin'), (0x200, self.tmp / 'c.bin')]
+    bat.install(self.files)
+    self.assertEqual(rig.scripts[1], ['h', f'verifybin {self.tmp / "c.bin"},0x0', f'verifybin {self.tmp / "c.bin"},0x200',
+                                      'r', 'g'])
 
   def test_every_step_passes_and_resumes_only_after_a_halt(self):
     bat, rig = self.battery()
@@ -4068,8 +4086,8 @@ class BatteryRun(Tmp):
            self.assertRaisesRegex(ht.StepFail, 'reset write was not issued'):
         f3.run(aircr, judge=False)
 
-  def test_an_f411_session_connects_as_its_core_and_others_as_the_roster_device(self):
-    for device, want in (('stm32f411ve', 'Cortex-M4'), ('stm32f303vc', 'stm32f303vc')):
+  def test_an_f4_session_connects_as_its_core_and_others_as_the_roster_device(self):
+    for device, want in (('stm32f411ve', 'Cortex-M4'), ('stm32f407vg', 'Cortex-M4'), ('stm32f303vc', 'stm32f303vc')):
       probe = ht.Probe({'probe': '1', 'device': device, 'if': 'SWD', 'speed': '4000'}, self.tmp, None)
       seen = []
       with self.subTest(device), mock.patch.object(ht, 'spawn', lambda cmd, *a, **k: seen.append(cmd) or (0, 'ok')):
@@ -4330,7 +4348,8 @@ class Main(Tmp):
     hexp.write_text(':00000001FF\n')
     blinky = self.tmp / 'blinky.uf2'
     blinky.write_bytes(ht.pack_uf2([(0x10000, bytes(256))], LPC_FACTS['family']))
-    files = {'bin': self.tmp / 'c.bin', 'hex': hexp, 'blinky': blinky, 'blinkyBlocks': 1,
+    files = {'bin': self.tmp / 'c.bin', 'hex': hexp, 'verify': [(0, self.tmp / 'c.bin')], 'blinky': blinky,
+             'blinkyBlocks': 1,
              'flash': {'root': build, 'binding': {'target': 'tinyuf2-jlink'}, 'sha256': {'tinyuf2.hex': ht.sha256(hexp)}}}
     flashed, clock = [], [0.0]
 
@@ -4927,7 +4946,7 @@ class StlinkBatteryRun(Tmp):
     build = self.tmp / 'build'
     build.mkdir()
     (build / 'tinyuf2.hex').write_text(':00000001FF\n')
-    self.files = {'bin': bin_path, 'hex': build / 'tinyuf2.hex',
+    self.files = {'bin': bin_path, 'hex': build / 'tinyuf2.hex', 'verify': [(f['binBase'], bin_path)],
                   'flash': {'root': build, 'binding': {'target': 'tinyuf2-stlink'},
                             'sha256': {'tinyuf2.hex': ht.sha256(build / 'tinyuf2.hex')}}}
 

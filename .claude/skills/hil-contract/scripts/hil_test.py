@@ -117,12 +117,12 @@ _F3_UNPROTECT_NOTE = (r'(?m)^Active write protection detected\.\nDevice will be 
                       r'Can not attach to CPU\. Trying connect under reset\.$')
 BENIGN = {'MIMXRT1062xxx6A': _RESET_VECTOR_NOTE, 'MIMXRT1011DAE5A': _RESET_VECTOR_NOTE, 'MIMXRT1064xxx6A': _RESET_VECTOR_NOTE,
           'stm32f303vc': _F3_UNPROTECT_NOTE}
-# runner sessions connect as the core: J-Link's stm32f411ve connect resets the chip to unprotect it
-# (bench-history.md, stm32f411ve_discovery)
-SESSION_DEVICE = {'stm32f411ve': 'Cortex-M4'}
+# runner sessions connect as the core: J-Link's stm32f411ve and stm32f407vg connects reset the chip to unprotect it
+# (bench-history.md, stm32f411ve_discovery, stm32f407disco)
+SESSION_DEVICE = {'stm32f411ve': 'Cortex-M4', 'stm32f407vg': 'Cortex-M4'}
 # ms the install's verify session waits before its halt after the flash's unlock, empirical
-# (bench-history.md, stm32f411ve_discovery)
-INSTALL_SETTLE_MS = {'stm32f411ve': 1000}
+# (bench-history.md, stm32f411ve_discovery, stm32f407disco)
+INSTALL_SETTLE_MS = {'stm32f411ve': 1000, 'stm32f407vg': 1000}
 
 
 class Refused(Exception):
@@ -736,10 +736,25 @@ def check_ranges(data, allowed, limits, what):
 
 
 def hex_matches_bin(data, bin_path, base):
-  """Whether a bootloader BIN is its HEX laid out from `base`: the HEX fixes the base the BIN lacks. The
-  BIN is what gets programmed, so gaps between sections are written and read back as the BIN holds them."""
+  """Whether a bootloader BIN is its HEX laid out from `base`: the HEX fixes the base the BIN lacks."""
   img = Path(bin_path).read_bytes()
   return min(data) == base and max(data) + 1 == base + len(img) and all(img[a - base] == b for a, b in data.items())
+
+
+def verify_images(data, bin_path, base, workdir):
+  """[(address, file)] reading back what the HEX programs: the BIN when the HEX has no gap, else one file per
+  contiguous run, since a gap the BIN fills with zeros keeps the flash's erased state (lpc55: [0x130, 0x200))."""
+  runs = []
+  for a in sorted(data):
+    if runs and runs[-1][0] + len(runs[-1][1]) == a:
+      runs[-1][1].append(data[a])
+    else:
+      runs.append((a, bytearray([data[a]])))
+  if len(runs) == 1:
+    return [(base, Path(bin_path))]
+  for a, run in runs:
+    (Path(workdir) / f'hex-{a:x}.bin').write_bytes(run)
+  return [(a, Path(workdir) / f'hex-{a:x}.bin') for a, _ in runs]
 
 
 def embedded_version(bin_path):
@@ -2659,14 +2674,14 @@ class Battery:
 
   def install(self, files):
     """The record's HEX through the provider's J-Link flash (the script the record's tinyuf2-jlink target runs), then
-    the BIN verified at its flash address in a session of the runner's."""
+    what it programs verified in a session of the runner's (verify_images)."""
     def flash(run):
       return provider().flash_jlink(self.probe.flasher, str(files['hex']), timeout=PROBE_TIMEOUT, run=run,
                                     workdir=str(self.dir))
     ev = self.flash_target(files['flash'], flash, lambda code, out: judge_jlink_target(code, out, self.b, files['hex']),
                            lambda code, out: stopped_before_target(code, out, self.b['probe']), 'JLinkExe', PROBE_TIMEOUT)
     settle = INSTALL_SETTLE_MS.get(self.b['device'])
-    verify = ['h', f'verifybin {files["bin"]},{self.f["binBase"]:#x}', 'r', 'g']
+    verify = ['h', *(f'verifybin {path},{addr:#x}' for addr, path in files['verify']), 'r', 'g']
     self.probe.run(([f'sleep {settle}'] if settle else []) + verify)
     return dict(ev, verified=True)
 
@@ -2727,18 +2742,17 @@ class StlinkBattery(Battery):
 
   def install(self, files):
     """The record's HEX through the provider's ST-LINK flash (the command the record's tinyuf2-stlink target runs,
-    without the CLI's verify), then the BIN read back from its flash address in a session of the runner's, which ends
-    in a system reset (bench: the core runs after `-rst`)."""
+    without the CLI's verify), then what it programs read back (verify_images) in a session of the runner's, which
+    ends in a system reset (bench: the core runs after `-rst`)."""
     ev = self.flash_target(files['flash'], lambda run: provider().flash_stlink(self.probe.flasher, str(files['hex']),
                                                                               timeout=PROBE_TIMEOUT, run=run),
                            lambda code, out: judge_stlink_target(code, out, self.b),
                            lambda code, out: stlink_failure(ANSI.sub('', out))['beforeTarget'], 'STM32_Programmer_CLI',
                            PROBE_TIMEOUT)
-    want = Path(files['bin']).read_bytes()
-    path, op = self.readback(self.f['binBase'], want)
-    self.probe.run(['-halt', f'{op} {path}', '-rst'])
-    if not uploaded(path, want):
-      raise StepFail('the BIN does not read back from its flash address', ev)
+    reads = [(Path(p).read_bytes(), *self.readback(addr, Path(p).read_bytes())) for addr, p in files['verify']]
+    self.probe.run(['-halt', *(f'{op} {path}' for _, path, op in reads), '-rst'])
+    if not all(uploaded(path, want) for want, path, _ in reads):
+      raise StepFail('the HEX does not read back from its flash addresses', ev)
     return dict(ev, verified=True)
 
   def sysreset(self):
@@ -3107,6 +3121,7 @@ def admit_record(record_path, board, facts, workdir):
     check_ranges(data, [board['install']], FLASH_LIMITS[board['device']], files['hex'])
     if not hex_matches_bin(data, files['bin'], facts['binBase']):
       raise Refused(f'{files["hex"]} and {files["bin"]} do not hold the same bytes')
+    files['verify'] = verify_images(data, files['bin'], facts['binBase'], workdir)
     check_bootloader_bin(files['bin'], board, facts, 'candidate')
   exclusion_configured(facts, board['uid'])
   if shutil.which('mcopy') is None:
