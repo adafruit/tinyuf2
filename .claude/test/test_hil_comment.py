@@ -234,6 +234,14 @@ class Cli(unittest.TestCase):
                                 str(out)]), 0)
     body = out.read_text(encoding='utf-8')
     self.assertIn('_Selection unavailable._', body)
+    (self.tmp / 'views').write_bytes(b'\xff')
+    (self.tmp / 'summary.json').write_text(json.dumps({'boards': [{'board': 'a', 'verdict': 'pass', 'steps': {'install': True}}]}))
+    with mock.patch.object(sys, 'stdout', io.StringIO()):
+      self.assertEqual(hc.main(['render', '--summary', str(self.tmp / 'summary.json'), '--selection',
+                                str(self.tmp / 'bad.json'), '--views', str(self.tmp / 'views'), '--roster', 'ci.json',
+                                '--head', 'h' * 40, '--tested', 't' * 40, '--run-url', 'https://x', '--run-id', '7',
+                                '--attempt', '1', '--out', str(out)]), 0)
+    self.assertIn('upload-views: missing', out.read_text(encoding='utf-8'))
     self.assertIn('**HIL report unavailable', body)
 
   def fresh_step(self, replies):

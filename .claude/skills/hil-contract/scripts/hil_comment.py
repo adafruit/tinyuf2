@@ -211,7 +211,7 @@ def main(argv=None):
     try:
       with open(args.views, encoding='utf-8') as f:
         views = f.read().strip()
-    except OSError:
+    except (OSError, UnicodeError):
       views = None
     body = render(read_json(args.summary, 'boards'), read_json(args.selection, 'boards'), meta, views)
     with open(args.out, 'w', encoding='utf-8') as out:
