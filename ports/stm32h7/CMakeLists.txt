@@ -25,4 +25,5 @@ family_flash_stlink(tinyuf2)
 #------------------------------------
 # Application
 #------------------------------------
+family_add_app(blinky ${TOP}/apps/blinky)
 family_add_app(erase_firmware ${TOP}/apps/erase_firmware)

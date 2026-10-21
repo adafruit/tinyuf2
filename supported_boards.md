@@ -197,6 +197,7 @@
 | --- | --- | --- | --- |
 | daisy_seed | STM32 STM32FH750IB | 0x0483:0x5740 | https://electro-smith.com/products/daisy-seed |
 | mini_stm32h750_v11 | STM32 STM32FH750VBT6 | 0x239A:0x005D | https://github.com/WeActStudio/MiniSTM32H7xx |
+| stm32h743nucleo | ST Nucleo H743ZI2 | 0x239A:0x0097 | https://www.st.com/en/evaluation-tools/nucleo-h743zi.html |
 
 ## stm32l4
 

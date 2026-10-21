@@ -120,6 +120,130 @@ static void qspi_EraseChip(void) {
   #endif
 }
 
+#if defined(BOARD_PFLASH_APP_EN) && (BOARD_PFLASH_APP_EN == 1)
+//--------------------------------------------------------------------+
+// Internal flash application: 128KB sectors (8 per bank), 256-bit flash words
+//--------------------------------------------------------------------+
+#define PFLASH_WORD_SIZE (4 * FLASH_NB_32BITWORD_IN_FLASHWORD)
+
+static bool _pflash_erased[BOARD_FLASH_SIZE / FLASH_SECTOR_SIZE];
+
+static bool pflash_is_erased(uint32_t addr, uint32_t len)
+{
+  for (uint32_t i = 0; i < len; i += 4)
+  {
+    if (*(volatile uint32_t const *) (addr + i) != 0xFFFFFFFFU) return false;
+  }
+  return true;
+}
+
+// FLASH_CR1/SR1 drive the bank mapped at 0x08000000 also when SWAP_BANK swaps them (RM0433 Table 20)
+static uint32_t pflash_bank(uint32_t addr)
+{
+  return (addr < FLASH_BANK2_BASE) ? FLASH_BANK_1 : FLASH_BANK_2;
+}
+
+// PGSERR and INCERR must be cleared before a new write (RM0433 4.3.9); the HAL samples the errors
+// before waiting for the operation, so an error left by the last one fails the next HAL call
+static void pflash_clear_errors(uint32_t bank)
+{
+  if (bank == FLASH_BANK_1)
+  {
+    __HAL_FLASH_CLEAR_FLAG_BANK1(FLASH_FLAG_ALL_ERRORS_BANK1);
+  }
+  else
+  {
+    __HAL_FLASH_CLEAR_FLAG_BANK2(FLASH_FLAG_ALL_ERRORS_BANK2);
+  }
+}
+
+// Erase the sector holding addr unless it is blank, never the bootloader's
+static bool pflash_erase_sector(uint32_t addr)
+{
+  uint32_t const sector_id = (addr - PFLASH_BASE_ADDR) / FLASH_SECTOR_SIZE;
+  uint32_t const sector_addr = PFLASH_BASE_ADDR + sector_id * FLASH_SECTOR_SIZE;
+
+  if (sector_addr < BOARD_FLASH_APP_START) return false;
+
+  if (!pflash_is_erased(sector_addr, FLASH_SECTOR_SIZE))
+  {
+    uint32_t const bank = pflash_bank(sector_addr);
+    FLASH_EraseInitTypeDef erase =
+    {
+      .TypeErase    = FLASH_TYPEERASE_SECTORS,
+      .Banks        = bank,
+      .Sector       = sector_id % FLASH_SECTOR_TOTAL,
+      .NbSectors    = 1,
+      .VoltageRange = FLASH_VOLTAGE_RANGE_4, // x64, the PSIZE reset value
+    };
+    uint32_t sector_error;
+
+    TUF2_LOG1("Erase sector at 0x%08lx\r\n", sector_addr);
+    pflash_clear_errors(bank);
+    HAL_StatusTypeDef const status = HAL_FLASHEx_Erase(&erase, &sector_error);
+    // flash is cached through the D-cache, drop the old content (RM0433 4.3.10)
+    SCB_InvalidateDCache_by_Addr((void *) sector_addr, FLASH_SECTOR_SIZE);
+
+    if (status != HAL_OK || !pflash_is_erased(sector_addr, FLASH_SECTOR_SIZE))
+    {
+      TUF2_LOG1("Error erasing sector at 0x%08lx\r\n", sector_addr);
+      return false;
+    }
+  }
+
+  _pflash_erased[sector_id] = true;
+  return true;
+}
+
+static bool pflash_write_word(uint32_t dst, uint8_t const * src)
+{
+  // aligned copy: the HAL reads the source by 32-bit words
+  uint32_t word[FLASH_NB_32BITWORD_IN_FLASHWORD];
+  memcpy(word, src, sizeof(word));
+
+  if (memcmp((void const *) dst, word, sizeof(word)) == 0) return true;
+
+  // a flash word is programmed once per erase, a second write would corrupt its ECC
+  if (!pflash_is_erased(dst, sizeof(word)))
+  {
+    TUF2_LOG1("Flash word at 0x%08lx is not erased\r\n", dst);
+    return false;
+  }
+
+  pflash_clear_errors(pflash_bank(dst));
+  HAL_StatusTypeDef const status = HAL_FLASH_Program(FLASH_TYPEPROGRAM_FLASHWORD, dst, (uint32_t) word);
+  // the write-through store also updated a cached line, verify the flash itself
+  SCB_InvalidateDCache_by_Addr((void *) dst, sizeof(word));
+
+  if (status != HAL_OK || memcmp((void const *) dst, word, sizeof(word)) != 0)
+  {
+    TUF2_LOG1("Error programming flash at 0x%08lx\r\n", dst);
+    return false;
+  }
+  return true;
+}
+
+static bool pflash_write(uint32_t addr, uint8_t const * data, uint32_t len)
+{
+  if ((addr % PFLASH_WORD_SIZE) || (len % PFLASH_WORD_SIZE)) return false;
+
+  bool ok = (HAL_FLASH_Unlock() == HAL_OK);
+  for (uint32_t offset = 0; ok && offset < len; offset += PFLASH_WORD_SIZE)
+  {
+    uint32_t const dst = addr + offset;
+    uint32_t const sector_id = (dst - PFLASH_BASE_ADDR) / FLASH_SECTOR_SIZE;
+    if (!_pflash_erased[sector_id])
+    {
+      ok = pflash_erase_sector(dst);
+    }
+    ok = ok && pflash_write_word(dst, data + offset);
+  }
+  HAL_FLASH_Lock();
+
+  return ok;
+}
+#endif // BOARD_PFLASH_APP_EN
+
 uint32_t board_get_app_start_address(void)
 {
   if (TMP_BOOT_MAGIC == 0xDEADBEEFU)
@@ -128,7 +252,11 @@ uint32_t board_get_app_start_address(void)
   }
   else
   {
+#if defined(BOARD_PFLASH_APP_EN) && (BOARD_PFLASH_APP_EN == 1)
+    return BOARD_FLASH_APP_START;
+#else
     return BOARD_QSPI_APP_ADDR;
+#endif
   }
 }
 
@@ -164,6 +292,10 @@ void board_flash_init(void)
   // Initialize SPI drivers
   W25Qx_Init();
 #endif // BOARD_SPI_FLASH_EN
+
+#if defined(BOARD_PFLASH_APP_EN) && (BOARD_PFLASH_APP_EN == 1)
+  memset(_pflash_erased, 0, sizeof(_pflash_erased));
+#endif
 }
 
 void board_flash_deinit(void)
@@ -177,8 +309,12 @@ void board_flash_deinit(void)
 
 uint32_t board_flash_size(void)
 {
+#if defined(BOARD_PFLASH_APP_EN) && (BOARD_PFLASH_APP_EN == 1)
+  return BOARD_FLASH_SIZE;
+#else
   // TODO: how do we handle more than 1 target here?
   return 8*1024*1024;
+#endif
 }
 
 void board_flash_flush(void)
@@ -206,6 +342,14 @@ void board_flash_read(uint32_t addr, void * data, uint32_t len)
     return;
   }
 #endif // BOARD_AXISRAM_EN
+
+#if defined(BOARD_PFLASH_APP_EN) && (BOARD_PFLASH_APP_EN == 1)
+  if (IS_PFLASH_APP_RANGE(addr, len))
+  {
+    memcpy(data, (void *) addr, len);
+    return;
+  }
+#endif
 
   if (IS_PFLASH_ADDR(addr))
   {
@@ -268,6 +412,16 @@ bool board_flash_write(uint32_t addr, void const * data, uint32_t len)
   }
 #endif // BOARD_AXISRAM_EN
 
+#if defined(BOARD_PFLASH_APP_EN) && (BOARD_PFLASH_APP_EN == 1)
+  if (IS_PFLASH_APP_RANGE(addr, len))
+  {
+    return pflash_write(addr, data, len);
+  }
+
+  // the bootloader sector, or outside internal flash: e.g. a UF2 for an H750 board, same family ID
+  TUF2_LOG1("Refusing write at 0x%08lx\r\n", addr);
+  return false;
+#else
   // This is not a good idea for the h750 port because
   // - There is only one flash bank available
   // - There is only one sector available
@@ -282,11 +436,22 @@ bool board_flash_write(uint32_t addr, void const * data, uint32_t len)
   // Invalid address write
   __asm("bkpt #4");
   return false;
+#endif // BOARD_PFLASH_APP_EN
 }
 
 void board_flash_erase_app(void)
 {
   board_flash_init();
+
+#if defined(BOARD_PFLASH_APP_EN) && (BOARD_PFLASH_APP_EN == 1)
+  // erasing the vector table's sector invalidates the app, the rest is erased when written
+  TUF2_LOG1("Erasing application\r\n");
+  if (HAL_FLASH_Unlock() == HAL_OK)
+  {
+    (void) pflash_erase_sector(BOARD_FLASH_APP_START);
+  }
+  HAL_FLASH_Lock();
+#endif
 
 #if defined (BOARD_QSPI_FLASH_EN) && (BOARD_QSPI_FLASH_EN == 1)
   TUF2_LOG1("Erasing QSPI Flash\r\n");
