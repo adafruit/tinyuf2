@@ -66,6 +66,10 @@ TinyUF2 sets no write protection on the H5 today: WRPSGn1 stayed 0xFFFFFFFF afte
 
 The H5's debug AP stops answering after a killed ETM trace session until a power cycle (agentrc `etm-trace` notes; seen again 2026-10-15 before commissioning). Another board's run on the same hub can reset this one: on 2026-10-15 a P4 battery's ROM-mode enumeration errors on 5-2.3 made the hub power-cycle that port and reset 5-2.7 mid-read, and `install`'s FAT read timed out (exit 4).
 
+## max32666fthr
+
+On max32666fthr (2026-10-22, ci.lan, openocd 0.12.0+dev-02620-g0ce743125 on a Raspberry Pi debugprobe E6614C311B597D32 at 9-1.3, CMSIS-DAP at the target cfg's 100 kHz), TinyUF2 enumerates 0456:a010 at 9-2.2, 480M, with serial 0C81464124010B20FF0A08CC2C000000. No host rule opened its block device to the runner's user (tinyusb's `88-tinyusb.rules` covers 239a and 1fc9), so `/etc/udev/rules.d/89-tinyuf2-hil-access.rules` gives it group `adm`. That the double-tap word 0x2008BFFC survives SYSRESETREQ is undocumented (MAX32665 UG rev 3 4.3.3 keeps RAM over a system reset; the datasheet and errata are not in the library) and was shown by hand: with blinky installed, a SYSRESETREQ with 0 there booted the app, one with the magic entered DFU and left the word 0.
+
 ## J-Link
 
 J-Link's QSPI loader is undocumented (SEGGER UM08001 has nothing on it). Historically, at sampled sentinel points on both RT boards, the runner's former `loadbin` install (no longer issued) lost the rest of its 64 KiB block past the image while a sentinel at 0x60010000, in the next block, survived; a sample, not a guarantee for every image.
@@ -91,3 +95,5 @@ The runner waits one second after its esptool session's hard reset before the pr
 ## esptool boards
 
 At the end of a UF2 copy TinyUF2 restarts while the host's usb-storage is still talking to it: the host log shows a reset of that device and read errors on its block device. Seen on the S3 and the P4; other ports are unchecked. On the P4, while an esptool session holds the chip, the host log shows a full-speed device on TinyUF2's USB path that never answers its descriptor request (htpc 2026-10-14); the battery passed with it.
+
+On ci.lan (2026-10-22) espressif_esp32s3_devkitm_1 (rev v0.1, 8 MB embedded flash) and espressif_p4_function_ev (rev v0.1, 16 MB; the build's minimum revision is v0.0, so esptool needs no `--force`) reach the host through the rig's TS3USB30 mux, whose select pin S is the chips' GPIO47. TinyUF2 never drives GPIO47 and it floats from reset; the TS3USB30 datasheet (TI, book 6585) gives S low as D1 and S high as D2 (Table 1, p12) and leaves a floating S undefined, recommending a pull (9.2.1, p13). On every install, battery and DETACH cycle that day TinyUF2 and the DFU runtime app enumerated on the host side, so the mux held that position; a `dfu` step that sees no device on these boards points here first. Ten DFU_DETACH cycles under a hold on each board (S3 on 11-1.3, P4 on 11-1.1) showed, in each DETACH window, only the app's disconnect and TinyUF2's re-enumeration, never a USB reset; the host's kernel clock read 5.02 s ahead of /proc/uptime, measured with a /dev/kmsg marker, when matching the windows.
