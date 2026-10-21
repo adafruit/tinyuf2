@@ -5067,6 +5067,95 @@ class StlinkSourceFacts(unittest.TestCase):
       ht.source_facts(dict(H563, device='unknown'))
 
 
+H743 = {'port': 'stm32h7', 'name': 'stm32h743nucleo', 'device': 'stm32h743zi', 'flasher': 'stlink'}
+H743_HEADER = 'lib/mcu/st/cmsis_device_h7/Include/stm32h743xx.h'
+H743_FACTS = {'flashBase': 0x08000000, 'binBase': 0x08000000, 'appStart': 0x08020000, 'flashSize': 0x200000,
+              'vid': 0x239a, 'pid': 0x0097, 'boardId': 'STM32H743ZI-Nucleo', 'family': 0x6db66082, 'vectors': 166,
+              'ram': 0x20000000, 'dblTapDelayMs': 500, 'dblTapReg': 0x20010000, 'dblTapMagic': 0xF01669EF}
+
+
+class Stm32h7SourceFacts(unittest.TestCase):
+  def test_stm32h743nucleo_facts_come_from_the_source_and_both_links(self):
+    # the app start: board.cmake's BOARD_FLASH_APP_START, the app link's FLASH origin under PFLASH_APP; the double tap:
+    # ORIGIN(NOINIT), past the layout's 64K DTCM RAM; WAKEUP_PIN_IRQn = 149 is the highest IRQ
+    f = ht.source_facts(H743)
+    self.assertEqual(f, H743_FACTS)
+    self.assertEqual(ht.port_sources('stm32h7', 'ports/stm32h7/boards/stm32h743nucleo')[:2],
+                     (H743_HEADER, 'ports/stm32h7/linker/h743xx.ld'))
+    b = dict(H743)
+    ht.apply_layout(b, f)
+    self.assertEqual((b['install'], b['app']), ((0x08000000, 0x08020000), (0x08020000, 0x08200000)))
+
+  def test_an_stm32h7_board_without_an_internal_flash_app_is_refused(self):
+    for name in ('daisy_seed', 'mini_stm32h750_v11'):
+      with self.subTest(name), self.assertRaisesRegex(ht.Refused, 'only with an internal-flash app'):
+        ht.source_facts({'port': 'stm32h7', 'name': name})
+
+  def test_stm32h7_refuses_any_other_form_of_its_scripts_defsyms_layout_and_app_start(self):
+    bdir = 'ports/stm32h7/boards/stm32h743nucleo'
+    files = ('ports/stm32h7/family.cmake', 'ports/stm32h7/CMakeLists.txt', 'ports/stm32h7/app.cmake',
+             'ports/stm32h7/boards.h', f'{bdir}/board.cmake', 'ports/stm32h7/linker/memory.ld',
+             'ports/stm32h7/linker/common.ld', 'ports/stm32h7/linker/h743xx.ld', f'{bdir}/board.h',
+             'ports/family_support.cmake', 'cmake/toolchain/arm_gcc.cmake', 'cmake/toolchain/common.cmake',
+             H743_HEADER, 'src/board_api.h')
+    fam, lists, app, boards, board, memory, common, layout, _, shared, _, toolchain = files[:12]
+    link_app = '  target_link_options(${TARGET} PUBLIC\n    "LINKER:--defsym=${APP_LOCATION}=0"\n    )\n'
+    board_link = lambda line: lambda x: x.replace(   # noqa: E731
+      'function(update_board TARGET)\n', f'function(update_board TARGET)\n  {line}\n')
+    defsym = '"LINKER:--defsym=${APP_LOCATION}=0"'
+    for what, rel, edit in (
+        ('a fourth script', fam, lambda x: x.replace(
+          '/linker/${MCU}.ld"', '/linker/${MCU}.ld"\n    "LINKER:--script=${CMAKE_CURRENT_FUNCTION_LIST_DIR}/x.ld"')),
+        ('the scripts reordered', fam, lambda x: x.replace('/memory.ld', '/tmp.ld').replace('/common.ld', '/memory.ld')
+         .replace('/tmp.ld', '/common.ld')),
+        ('a bootloader script', lists, lambda x: x.replace(
+          'family_add_linker_scripts(tinyuf2)',
+          'family_add_linker_scripts(tinyuf2)\ntarget_link_options(tinyuf2 PUBLIC "LINKER:-T,x.ld")')),
+        ('no bootloader scripts', lists, lambda x: x.replace('family_add_linker_scripts(tinyuf2)', '')),
+        ('a bootloader defsym', lists, lambda x: x.replace(
+          'family_add_linker_scripts(tinyuf2)', 'family_add_linker_scripts(tinyuf2)\n'
+          'target_link_options(tinyuf2 PUBLIC "LINKER:--defsym=PFLASH_APP=0")')),
+        ('the app in AXI SRAM', app, lambda x: x.replace('set(APP_LOCATION PFLASH_APP)', 'set(APP_LOCATION RAMCODE)')),
+        ('an extra app defsym', app, lambda x: x.replace(defsym, defsym + ' "LINKER:--defsym=__x=1"')),
+        # review of e0eb8351: each of these links another layout than the one the reader reports
+        ('a later APP_LOCATION', app, lambda x: x.replace('endif ()\n', 'endif ()\nset(APP_LOCATION RAMCODE)\n', 1)),
+        ('the defsym after the scripts', app, lambda x: x.replace(
+          link_app + '  family_add_linker_scripts(${TARGET})\n',
+          '  family_add_linker_scripts(${TARGET})\n' + link_app)),
+        ('a board defsym', board,
+         board_link('target_link_options(${TARGET} PUBLIC "LINKER:--defsym=_board_dfu_dbl_tap=0x20000000")')),
+        ('a board script', board, board_link('target_link_options(${TARGET} PUBLIC "LINKER:--script=x.ld")')),
+        ('a board linker script input', board, board_link('target_link_libraries(${TARGET} PUBLIC x.ld)')),
+        ('a shared script', shared, lambda x: x + '\nadd_link_options("LINKER:--script=x.ld")\n'),
+        ('a toolchain defsym', toolchain, lambda x: x.replace('-Wl,--gc-sections',
+                                                               '-Wl,--gc-sections -Wl,--defsym=PFLASH_APP=0')),
+        ('an earlier PFLASH_APP', layout, lambda x: 'PFLASH_APP = 0;\n' + x),
+        ('a PFLASH_APP in memory.ld', memory, lambda x: 'PFLASH_APP = 0;\n' + x),
+        ('a provided PFLASH_APP', common, lambda x: x + '\nPROVIDE(PFLASH_APP = 0);\n'),
+        ('another app origin', layout, lambda x: x.replace('0x08020000 : 0x08000000', '0x08040000 : 0x08000000')),
+        ('a layout reassignment', layout, lambda x: x + '\n_ram_size = 32K;\n'),
+        ('a layout region', layout, lambda x: x + '\nMEMORY { X (rx) : ORIGIN = 0, LENGTH = 4 }\n'),
+        ('a layout symbol in memory.ld', memory, lambda x: x + '\n_ram_origin = 0x24000000;\n'),
+        ('another double tap', common, lambda x: x.replace('= ORIGIN(NOINIT);', '= ORIGIN(NOINIT) + 4;')),
+        ('a second double tap', common, lambda x: x + '\n_board_dfu_dbl_tap = 0x20000000;\n'),
+        ('another app start', board, lambda x: x.replace('START=0x08020000', 'START=0x08040000')),
+        ('a second app start', board, lambda x: x.replace('    TRAP_EXC',
+                                                          '    BOARD_FLASH_APP_START=0x08040000\n    TRAP_EXC')),
+        ('a boards.h app start', boards, lambda x: x.replace('// #define BOARD_FLASH_APP_START   0x08010000',
+                                                             '#define BOARD_FLASH_APP_START   0x08010000')),
+        ('another flash base', boards, lambda x: x.replace('BASE_ADDR  0x08000000U', 'BASE_ADDR  0x08100000U')),
+        ('an MCU of another device', board, lambda x: x.replace('set(MCU h743xx)', 'set(MCU h750xx)')),
+        ('the app disabled', board, lambda x: x.replace('set(BOARD_PFLASH_APP_EN 1)', 'set(BOARD_PFLASH_APP_EN 0)')),
+        ('no compile define', board, lambda x: x.replace('    BOARD_PFLASH_APP_EN=1\n', ''))):
+      root = edited_tree(self, files, {rel: edit})
+      with self.subTest(what), mock.patch.object(ht, 'ROOT', root), mock.patch.object(ht.cb, 'ROOT', root), \
+           self.assertRaises(ht.Refused):
+        ht.source_facts(H743)
+    root = edited_tree(self, files, {})
+    with mock.patch.object(ht, 'ROOT', root), mock.patch.object(ht.cb, 'ROOT', root):
+      self.assertEqual(ht.source_facts(H743), H743_FACTS)
+
+
 class StlinkRoster(Tmp):
   def test_an_stlink_entry_needs_a_device_with_limits_and_a_chip_identity(self):
     def entry(device):
@@ -5080,6 +5169,19 @@ class StlinkRoster(Tmp):
       for device, err in (('stm32h503rb', 'no chip identity'), ('stm32h573ii', 'no programming limits')):
         with self.subTest(device), self.assertRaisesRegex(ht.Refused, err):
           ht.load_board(entry(device), 'stm32h563_nucleo')
+
+  def test_stm32h743nucleo_loads_as_an_stlink_board_and_its_chip_is_identified(self):
+    cfg = self.tmp / 'local.json'
+    cfg.write_text(json.dumps({'boards': [{'name': 'stm32h743nucleo', 'uid': 'U', 'flasher': {
+      'name': 'stlink', 'uid': '004C00343137510F39383538', 'args': '-device stm32h743zi'}, 'tinyuf2': {}}]}))
+    b = self.load(cfg, 'stm32h743nucleo')
+    self.assertEqual((b['kind'], b['port'], b['install'], b['app']),
+                     ('stlink', 'stm32h7', (0x08000000, 0x08020000), (0x08020000, 0x08200000)))
+    # bench: STM32_Programmer_CLI on the rig's NUCLEO-H743ZI, "Device ID : 0x450", "NVM size : 2 MBytes"
+    for dev, nvm, ok in (('0x450', '2 MBytes', True), ('0x450', '128 KBytes', False), ('0x450', '1 MBytes', False),
+                         ('0x484', '2 MBytes', False)):
+      with self.subTest(dev=dev, nvm=nvm):
+        self.assertEqual(ht.chip_reported(CUBE_CONNECT.format(dev=dev, nvm=nvm), b), ok)
 
 
 if __name__ == '__main__':

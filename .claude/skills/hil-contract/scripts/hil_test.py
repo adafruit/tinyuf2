@@ -54,13 +54,15 @@ import hil_run_report as run_report  # noqa: E402
 # STM32F411VE: 512 KiB main flash at 0x08000000 (RM0383 Rev 4 Table 4); option bytes at 0x1FFFC000 stay outside.
 # STM32H563ZI: 2 MiB main flash, banks at 0x08000000 and 0x08100000 (RM0481 Rev 5 Table 51); OTP at 0x08FFF000 and
 # system memory at 0x0BF80000 stay outside, and its option bytes have no memory address (RM0481 7.4.1).
+# STM32H743ZI: 2 MiB main flash, banks at 0x08000000 and 0x08100000 (RM0433 Rev 8 Table 15); system memory at
+# 0x1FF00000 stays outside, and its option bytes are registers only.
 # MAX32665/6: 1 MiB internal flash at 0x10000000, two 512 KiB blocks (MAX32665/MAX32666 UG Rev 3, 3.3.1); the
 # information block at 0x10800000 stays outside.
 FLASH_LIMITS = {'LPC55S69_M33_0': (0, 0x9D800), 'MIMXRT1062xxx6A': (0x60000000, 0x60800000),
                 'MIMXRT1011DAE5A': (0x60000000, 0x60800000), 'MIMXRT1064xxx6A': (0x70000000, 0x70400000),
                 'stm32f303vc': (0x08000000, 0x08040000), 'stm32f407vg': (0x08000000, 0x08100000),
                 'stm32f411ve': (0x08000000, 0x08080000), 'stm32h563zi': (0x08000000, 0x08200000),
-                'max32665': (0x10000000, 0x10100000)}
+                'stm32h743zi': (0x08000000, 0x08200000), 'max32665': (0x10000000, 0x10100000)}
 # by a board's kind, its firmware and battery: a J-Link or ST-LINK Cortex-M board, or an Espressif one whatever transport
 # installs it (board['flasher'])
 STEPS = {'jlink': ('install', 'dfu', 'copy', 'app-ran', 'reenter')}
@@ -97,8 +99,9 @@ NONCE_MAGIC, NONCE_BLOCK = b'TUF2NONC', 256   # apps/dfu_runtime/src/dfu_runtime
 JLINK_IF, JLINK_SPEED = 'SWD', '4000'
 STM32_PROGRAMMER_CLI = 'STM32_Programmer_CLI'
 # what STM32CubeProgrammer prints at every connect to the roster's device: its Device ID and NVM size (bench, v2.23.0);
-# 0x484 names the H56x/573 family only, so the size pins the part
-STLINK_CHIPS = {'stm32h563zi': ('0x484', '2 MBytes')}
+# 0x484 names the H56x/573 family only, so the size pins the part; 0x450 names STM32H742/743/753/750 (RM0433 Rev 8
+# DBGMCU_IDC) and 2 MBytes their xI parts, which share the H743ZI's flash map (RM0433 Rev 8 Table 15)
+STLINK_CHIPS = {'stm32h563zi': ('0x484', '2 MBytes'), 'stm32h743zi': ('0x450', '2 MBytes')}
 ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')   # any CSI sequence: esptool 5.2.0 moves the cursor off a TTY too
 # each script operation's success line, by its first word (bench, v2.23.0)
 STLINK_DONE = {'-halt': 'Core halted', '-run': 'Core run', '-rst': 'Software reset is performed',
@@ -300,7 +303,7 @@ def cmake_var(path, name, refs=None):
 
 
 STM32_DEVICE = {'stm32f3': ('STM32F3', r'STM32F3\d\dx[A-Z]'), 'stm32f4': ('STM32F4', r'STM32F4\d\dx[A-Zx]'),
-                'stm32h5': ('STM32H5', r'STM32H5\d\dxx')}
+                'stm32h5': ('STM32H5', r'STM32H5\d\dxx'), 'stm32h7': ('STM32H7', r'STM32H7\d\dxx')}
 
 
 def port_sources(port, bdir):
@@ -317,13 +320,11 @@ def port_sources(port, bdir):
     ld = cmake_script(f'ports/{port}/CMakeLists.txt', {'MCU_DIR': mcu_dir, 'MCU_CORE': core})
     flash_base = ld_memory(ld, 'm_interrupts')[0]   # the vector table, the image's first bytes
     return f'{mcu_dir}/{core}.h', ld, flash_base, flash_base, ram_origin(ld), {}, {}
+  if port == 'stm32h7':
+    return stm32h7_sources(port, bdir)
   if port in STM32_DEVICE:
     ld = cmake_script(f'ports/{port}/CMakeLists.txt')
-    series, form = STM32_DEVICE[port]
-    mcus = set(re.findall(rf'\b{form}\b', cb.code_lines(ROOT / bdir / 'board.cmake')))
-    if len(mcus) != 1:
-      raise Refused(f'{bdir}/board.cmake: expected one {series} device define, found {sorted(mcus)}')
-    header = f'{cmake_var(f"ports/{port}/family.cmake", "ST_CMSIS")}/Include/{mcus.pop().lower()}.h'
+    header = stm32_header(port, bdir)
     syms = defsyms(port, bdir, ld) if port == 'stm32h5' else {}
     flash_base, ram = ld_memory(ld, 'FLASH', syms)[0], ld_memory(ld, 'RAM', syms)[0]
     return header, ld, flash_base, flash_base, ram, syms, {}
@@ -343,6 +344,107 @@ def port_sources(port, bdir):
   bin_base = flash_base + (vals['_fcfb_origin'] & 0xFFF)
   return (f'{sdk}/devices/{mcu}/{mcu}.h', ld, flash_base, bin_base,
           ram_origin(f'{sdk}/devices/{mcu}/gcc/{mcu}xxxxx_flexspi_nor.ld'), {}, {})
+
+
+def stm32_header(port, bdir):
+  """The CMSIS device header of the board.cmake's one device define of the port's series."""
+  series, form = STM32_DEVICE[port]
+  mcus = set(re.findall(rf'\b{form}\b', cb.code_lines(ROOT / bdir / 'board.cmake')))
+  if len(mcus) != 1:
+    raise Refused(f'{bdir}/board.cmake: expected one {series} device define, found {sorted(mcus)}')
+  return f'{cmake_var(f"ports/{port}/family.cmake", "ST_CMSIS")}/Include/{mcus.pop().lower()}.h'
+
+
+# besides the port's own files, the CMake files either stm32h7 link takes options from
+H7_SHARED_LINK = ('ports/family_support.cmake', 'cmake/toolchain/arm_gcc.cmake', 'cmake/toolchain/common.cmake')
+LD_ASSIGN = r'(?<![\w.])([A-Za-z_]\w*)\s*(<<|>>|[-+*/|&]?)=(?!=)\s*([^;]+);'
+
+
+def stm32h7_sources(port, bdir):
+  """port_sources for stm32h7, a board with an internal-flash app (BOARD_PFLASH_APP_EN 1) only: both links take
+  family_add_linker_scripts' memory.ld, common.ld and the MCU's layout script and no other, the app's with its one
+  --defsym=PFLASH_APP=0; the app start is board.cmake's BOARD_FLASH_APP_START, the app link's FLASH origin."""
+  fam, lists, app, boards = (f'ports/{port}/{f}' for f in ('family.cmake', 'CMakeLists.txt', 'app.cmake', 'boards.h'))
+  board = cb.code_lines(ROOT / bdir / 'board.cmake')
+  if [v.strip() for v in re.findall(r'\bset\s*\(\s*BOARD_PFLASH_APP_EN\b([^)]*)\)', board, re.I)] != ['1'] or \
+     re.findall(r'\bBOARD_PFLASH_APP_EN=(\S+)', board) != ['1']:
+    raise Refused(f'{bdir}/board.cmake: the runner supports an stm32h7 board only with an internal-flash app, '
+                  f'set(BOARD_PFLASH_APP_EN 1) and the define BOARD_PFLASH_APP_EN=1; an H750 board keeps its app in '
+                  f'QSPI flash or AXI SRAM')
+  starts = re.findall(r'\bBOARD_FLASH_APP_START=(\S+)', board)
+  if len(starts) != 1 or 'BOARD_FLASH_APP_START' in cb.code_lines(ROOT / fam) or \
+     has_define(boards, 'BOARD_FLASH_APP_START'):
+    raise Refused(f'{bdir}/board.cmake: expected the one definition of BOARD_FLASH_APP_START, found {starts}')
+  start = num(starts[0], f'{bdir}/board.cmake BOARD_FLASH_APP_START')
+  fam_text, lists_text, app_text = (cb.code_lines(ROOT / f) for f in (fam, lists, app))
+  shared = ''.join(cb.code_lines(ROOT / f) for f in H7_SHARED_LINK)
+  scripts = r'\s*'.join(re.escape(f'"LINKER:--script=${{CMAKE_CURRENT_FUNCTION_LIST_DIR}}/linker/{s}.ld"')
+                        for s in ('memory', 'common', '${MCU}'))
+  if len(re.findall(SCRIPT_OPTION, fam_text)) != 3 or re.search(SCRIPT_OPTION, lists_text + app_text + shared) or \
+     re.search(r'\b(target_link_|link_|add_link_)|LINKER|-Wl,|-Xlinker', board, re.I) or \
+     not re.search(rf'\bfunction\s*\(\s*family_add_linker_scripts\s+TARGET\s*\)\s*target_link_options\s*\(\s*'
+                   rf'\$\{{TARGET\}}\s+PUBLIC\s*{scripts}\s*\)\s*endfunction\s*\(\s*\)', fam_text) or \
+     len(re.findall(r'\bfamily_add_linker_scripts\s*\(\s*tinyuf2\s*\)', lists_text)) != 1 or \
+     len(re.findall(r'\bfamily_add_linker_scripts\s*\(\s*\$\{TARGET\}\s*\)', app_text)) != 1:
+    raise Refused(f'ports/{port}: the bootloader and the app do not each link family_add_linker_scripts\' memory.ld, '
+                  f'common.ld and ${{MCU}}.ld, and no other script, or {bdir}/board.cmake has a link option')
+  # ld decides each DEFINED() of the layout at its place in the link: the defsym must come before the scripts
+  if '--defsym' in fam_text + lists_text + shared or app_text.count('--defsym') != 1 or \
+     app_text.count('APP_LOCATION') != 3 or app_text.count('BOARD_PFLASH_APP_EN') != 1 or \
+     'BOARD_PFLASH_APP_EN' in fam_text + lists_text + shared or \
+     not re.search(r'\bif\s*\(\s*BOARD_PFLASH_APP_EN\s*\)\s*set\s*\(\s*APP_LOCATION\s+PFLASH_APP\s*\)\s*'
+                   r'else\s*\(\s*\)\s*add_compile_definitions\s*\(\s*VECT_TAB_SRAM\s*\)\s*'
+                   r'set\s*\(\s*APP_LOCATION\s+RAMCODE\s*\)\s*'
+                   r'endif\s*\(\s*\)', app_text) or \
+     not re.search(r'\bfunction\s*\(\s*family_configure_app\s+TARGET\s*\)(?:(?!endfunction).)*?target_link_options\s*\('
+                   r'\s*\$\{TARGET\}\s+PUBLIC\s*"LINKER:--defsym=\$\{APP_LOCATION\}=0"\s*\)\s*'
+                   r'family_add_linker_scripts\s*\(\s*\$\{TARGET\}\s*\)\s*endfunction\b', app_text, re.S):
+    raise Refused(f'ports/{port}: the bootloader link takes no --defsym and the app link, with BOARD_PFLASH_APP_EN, '
+                  f'only --defsym=PFLASH_APP=0, before its scripts ({app})')
+  header = stm32_header(port, bdir)
+  mcu = cmake_var(f'{bdir}/board.cmake', 'MCU')
+  if f'stm32{mcu}' != Path(header).stem:
+    raise Refused(f'{bdir}/board.cmake: MCU {mcu!r} is not the layout of the device header {header}')
+  memory, common, layout = (f'ports/{port}/linker/{s}.ld' for s in ('memory', 'common', mcu))
+  # a DEFINED() symbol a script assigns or names elsewhere is no longer the link's --defsym alone
+  conds = set(re.findall(r'DEFINED\(\s*(\w+)\s*\)', ld_text(layout)))
+  rest = re.sub(r'DEFINED\(\s*\w+\s*\)', ' ', ''.join(ld_text(f) for f in (memory, common, layout)))
+  if any(re.search(rf'(?<![\w.]){c}(?!\w)', rest) for c in conds):
+    raise Refused(f'ports/{port}/linker: a script names one of {sorted(conds)} outside DEFINED()')
+  boot, applink = h7_layout(layout, set()), h7_layout(layout, {'PFLASH_APP'})
+  names = '|'.join([*boot, '_board_dfu_dbl_tap'])
+  if '_board_dfu_dbl_tap' in boot or \
+     re.search(rf'(?<![\w.])({names})\s*(<<|>>|[-+*/|&]?)=(?!=)', ld_text(memory)) or \
+     re.search(r'\bMEMORY\b', ld_text(common)) or \
+     [(n, op, v.strip()) for n, op, v in re.findall(LD_ASSIGN, ld_text(common)) if re.fullmatch(names, n)] != \
+     [('_board_dfu_dbl_tap', '', 'ORIGIN(NOINIT)')]:
+    raise Refused(f'ports/{port}/linker: the layout symbols are not assigned in {layout} only, or _board_dfu_dbl_tap '
+                  f'is not {common}\'s one ORIGIN(NOINIT)')
+  flash_base = ld_memory(memory, 'FLASH', boot)[0]
+  if ld_memory(memory, 'FLASH', applink)[0] != start or \
+     num(define(boards, 'PFLASH_BASE_ADDR'), 'PFLASH_BASE_ADDR') != flash_base:
+    raise Refused(f'ports/{port}: the app link\'s FLASH origin is not BOARD_FLASH_APP_START {start:#x}, or '
+                  f'PFLASH_BASE_ADDR, where boards.h ends the app\'s flash from, is not the bootloader\'s '
+                  f'{flash_base:#x}')
+  own = {'appStart': start, 'dblTapReg': ld_memory(memory, 'NOINIT', boot)[0]}
+  return header, layout, flash_base, flash_base, ld_memory(memory, 'RAM', applink)[0], boot, own
+
+
+def h7_layout(ld, defined):
+  """The symbols the MCU's layout script assigns, in order, each a sum of literals and earlier symbols or
+  DEFINED(SYM) ? <sum> : <sum>, SYM defined when it is in `defined`, the link's --defsym names; the script holds
+  nothing else."""
+  text, syms = ld_text(ld), {}
+  if re.sub(LD_ASSIGN, ' ', text).strip():
+    raise Refused(f'{ld}: holds more than symbol assignments')
+  for name, op, rhs in re.findall(LD_ASSIGN, text):
+    m = re.fullmatch(r'DEFINED\(\s*(\w+)\s*\)\s*\?\s*([^?:]+?)\s*:\s*([^?:]+)', rhs.strip())
+    expr = (m[2] if m[1] in defined else m[3]) if m else rhs
+    expr = re.sub(r'(?<![\w.])[A-Za-z_]\w*', lambda s: hex(syms[s[0]]) if s[0] in syms else s[0], expr)
+    if op or name in syms:
+      raise Refused(f'{ld}: {name} is assigned more than once')
+    syms[name] = ld_expr(expr, f'{ld} {name}')
+  return syms
 
 
 def maxim_sources(port, bdir):
@@ -601,6 +703,8 @@ def source_facts(board):
       raise Refused(f'TINYUF2_DBL_TAP_REG {reg!r} is not PERIPH->ARRAY[N]')
     base, offset, step = register_layout(header, m.group(1), m.group(2))
     facts['dblTapReg'] = base + offset + step * int(m.group(3))
+  elif 'dblTapReg' in own:
+    facts['dblTapReg'] = own['dblTapReg']
   else:   # board_api.h's default: the word the bootloader's linker script places
     facts['dblTapReg'] = ld_symbol(ld, '_board_dfu_dbl_tap', syms=syms)
   facts['dblTapMagic'] = 0xf01669ef   # board_api.h DBL_TAP_MAGIC at TINYUF2_DBL_TAP_REG_SIZE 32
