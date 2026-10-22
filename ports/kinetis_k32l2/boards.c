@@ -160,7 +160,7 @@ uint8_t board_usb_get_serial(uint8_t serial_id[16])
   serial_id[2] = wr & 0xFF;
   wr >>= 8;
   serial_id[3] = wr & 0xFF;
-  wr >>= SIM->UIDML;
+  wr = SIM->UIDML;
   serial_id[4] = wr & 0xFF;
   wr >>= 8;
   serial_id[5] = wr & 0xFF;
@@ -168,7 +168,7 @@ uint8_t board_usb_get_serial(uint8_t serial_id[16])
   serial_id[6] = wr & 0xFF;
   wr >>= 8;
   serial_id[7] = wr & 0xFF;
-  wr >>= SIM->UIDMH;
+  wr = SIM->UIDMH;
   serial_id[8] = wr & 0xFF;
   wr >>= 8;
   serial_id[9] = wr & 0xFF;
