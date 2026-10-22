@@ -222,6 +222,13 @@ class Read(unittest.TestCase):
     self.b.facts['hil_board_id'] = b'Other\0'
     self.refused('does not carry INFO_UF2')
 
+  def test_a_board_id_of_word_size_is_still_a_string(self):
+    self.b.facts['hil_board_id'] = b'ABC\0'
+    self.b.text = b'Board-ID: ABC\r\n' + b'\0' * 33
+    self.assertEqual(self.read()['boardId'], 'ABC')
+    self.b.obj_relocs['.rodata.hil_board_id'] = [(0, '_board_dfu_dbl_tap', 2, None)]
+    self.refused('hil_board_id is not a word yet has a relocation')
+
   def test_ram_is_the_one_region_holding_the_apps_data(self):
     self.b.regions = 'RAM 0x20000000 0x00000800 xrw\n'
     self.refused('not one of at least 0x1000 bytes')

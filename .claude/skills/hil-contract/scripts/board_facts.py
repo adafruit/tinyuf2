@@ -15,6 +15,7 @@ ABS32 = {(EM_ARM, SHT_REL): 2, (EM_RISCV, SHT_RELA): 1}   # R_ARM_ABS32, R_RISCV
 STACK = 0x1000   # the fixture's initial SP is ram + STACK (hil_test.fixture)
 VECTOR_NAMES = ('__isr_vector', '__Vectors', 'g_pfnVectors')   # the CMSIS startups' vector table, aliases included
 MALFORMED = (struct.error, IndexError, ValueError, UnicodeDecodeError, KeyError)
+STRINGS = {'hil_board_id', 'hil_flash_size_expr'}   # board_facts.c's char arrays, bytes whatever their size
 
 
 class Refused(Exception):
@@ -136,8 +137,8 @@ def memory_regions(map_path):
 
 
 def object_values(obj, boot):
-  """{name: int or bytes} of board_facts.o's hil_* objects: a word with its one absolute relocation resolved against
-  the bootloader's own symbol; anything else refuses."""
+  """{name: int or bytes} of board_facts.o's hil_* objects: a STRINGS array or any other non-word as its bytes, a
+  word with its one absolute relocation resolved against the bootloader's own symbol; anything else refuses."""
   out = {}
   for sym in obj.symbols:
     if not sym['name'].startswith('hil_') or sym['shndx'] == 0:
@@ -147,7 +148,7 @@ def object_values(obj, boot):
     sec_index = sym['shndx']
     raw = obj.contents(obj.sections[sec_index])[sym['value']:sym['value'] + sym['size']]
     relocs = [r for r in relocations(obj, sec_index) if sym['value'] <= r[0] < sym['value'] + sym['size']]
-    if sym['size'] != 4:
+    if sym['size'] != 4 or sym['name'] in STRINGS:
       if relocs:
         raise Refused(f'{obj.path}: {sym["name"]} is not a word yet has a relocation')
       out[sym['name']] = raw
