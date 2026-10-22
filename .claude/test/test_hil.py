@@ -359,7 +359,7 @@ class Roster(Tmp):
       helper = pinned_helper(self, self.tmp / 'locks')
     pin.assert_called_once_with()
     self.assertEqual((helper.PROTECTED_REASONS, helper.CI_REASON, helper.CLEANUP_ROLE),
-                     ({'hil_test.py', 'pool_check', 'farm_check'}, 'hil_test.py', ht.HOLDER_ROLE))
+                     ({'hil_test.py', 'farm_check'}, 'hil_test.py', ht.HOLDER_ROLE))
     self.assertTrue(all(issubclass(e, RuntimeError) for e in (helper.LockUnavailable, helper.RecoveryBlocked,
                                                               helper.ReleaseRefused)))
 
@@ -369,9 +369,9 @@ class Roster(Tmp):
       helper = ht.load_helper()
     other = type('LockUnavailable', (OSError,), {})
     for what, name, value in (('cleanup role', 'CLEANUP_ROLE', 'other'),
-                              ('protected reasons without farm_check', 'PROTECTED_REASONS', {'hil_test.py', 'pool_check'}),
+                              ('protected reasons without farm_check', 'PROTECTED_REASONS', {'hil_test.py'}),
                               ('protected reasons with another', 'PROTECTED_REASONS',
-                               {'hil_test.py', 'pool_check', 'farm_check', 'other'}),
+                               {'hil_test.py', 'farm_check', 'pool_check'}),
                               ('LockUnavailable not a RuntimeError', 'LockUnavailable', other),
                               ('LockUnavailable not a class', 'LockUnavailable', 1),
                               ('no RecoveryBlocked', 'RecoveryBlocked', None),
