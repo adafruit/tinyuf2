@@ -31,6 +31,19 @@ LEGEND = "✅ passed · ❌ failed · blank not run · — not in this board's r
 RUN_NAME = 'HIL PR #{}'   # hil.yml's run-name: a run's pull_requests lists every PR on its head, not the one it is for
 
 
+def literal(v, table=False):
+  """Report text on one line as an inline code span, so no Markdown, HTML, link or image in it renders; in a table
+  cell its pipes are escaped, which GFM unescapes inside the span."""
+  text = ' '.join(str(v).splitlines())
+  if not text:
+    return ''
+  fence = '`' * (max(map(len, re.findall('`+', text)), default=0) + 1)
+  pad = ' ' if text[0] in '` ' or text[-1] in '` ' else ''   # one space each side is stripped (CommonMark 6.1)
+  if table:
+    text = text.replace('|', '\\|')
+  return f'{fence}{pad}{text}{pad}{fence}'
+
+
 def duration(s):
   """Seconds as `49s`, `4m30s` or `1h2m`; ABSENT when there are none."""
   if s is None:
@@ -72,7 +85,7 @@ def step_cell(r, step):
 
 def table_row(r):
   blinky = '' if withheld(r) else run_report.STEP_MARK.get(r.get('cleanupPass'), '')
-  cells = [cell(r['board']), *(step_cell(r, s) for s in STEPS), blinky, duration(r.get('buildS')),
+  cells = [literal(r['board'], table=True), *(step_cell(r, s) for s in STEPS), blinky, duration(r.get('buildS')),
            duration(r.get('runS'))]
   return '| ' + ' | '.join(cells) + ' |'
 
@@ -88,11 +101,11 @@ def note(r):
     detail = detail[len(failed) + 2:]
   extra = []
   if shared != native:
-    extra.append(f'native {native}, shared run rules {shared}' +
-                 (f': {shared_detail}' if shared_detail and shared_detail != detail else ''))
+    extra.append(f'native {cell(native)}, shared run rules {cell(shared)}' +
+                 (f': {literal(shared_detail)}' if shared_detail and shared_detail != detail else ''))
   if hidden:
     extra.append('report withheld')
-  return f'- `{cell(r["board"])}` {where}: {cell(detail)}' + (f' ({cell("; ".join(extra))})' if extra else '')
+  return f'- {literal(r["board"])} {cell(where)}: {literal(detail)}' + (f' ({"; ".join(extra)})' if extra else '')
 
 
 def report(summary, views):
@@ -109,7 +122,8 @@ def report(summary, views):
     lines += [table_row(r) for r in rows] + ['', LEGEND, '']
   notes = [note(r) for r in rows if kind(r) != 'passed']
   if views != 'upload':
-    notes.append(f'- report views withheld by the upload (upload-views: {cell(views or "missing")}): no steps shown')
+    shown = literal(views) if views else 'missing'
+    notes.append(f'- report views withheld by the upload (upload-views: {shown}): no steps shown')
   return lines + (notes + [''] if notes else [])
 
 
@@ -117,7 +131,7 @@ def uncovered(selection):
   items = (selection or {}).get('uncovered') or []
   if not items:
     return []
-  return ['Not covered on this rig:', *(f'- `{cell(u["target"])}`: {cell(u["reason"])}' for u in items), '']
+  return ['Not covered on this rig:', *(f'- {literal(u["target"])}: {literal(u["reason"])}' for u in items), '']
 
 
 def render(summary, selection, meta, views='upload'):

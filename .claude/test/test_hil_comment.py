@@ -58,16 +58,16 @@ class Render(unittest.TestCase):
 
       | Board | install | dfu | copy | app-ran | reenter | recopy | blinky | build | run |
       | --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | --: | --: |
-      | imxrt1064_evk | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | 49s | 22s |
-      | espressif_p4_function_ev | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 4m30s | 2m40s |
-      | stm32h743nucleo | ✅ | ✅ | ❌ |  |  | — | ✅ | 40s | 15s |
+      | `imxrt1064_evk` | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | 49s | 22s |
+      | `espressif_p4_function_ev` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 4m30s | 2m40s |
+      | `stm32h743nucleo` | ✅ | ✅ | ❌ |  |  | — | ✅ | 40s | 15s |
 
       ✅ passed · ❌ failed · blank not run · — not in this board's run · run time includes lock wait and blinky
 
-      - `stm32h743nucleo` copy: CURRENT.UF2 read-back differs at block 12
+      - `stm32h743nucleo` copy: `CURRENT.UF2 read-back differs at block 12`
 
       Not covered on this rig:
-      - `ports/ch32v20x`: no roster board on this host
+      - `ports/ch32v20x`: `no roster board on this host`
 
       _[Records, reports and logs](https://github.com/o/r/actions/runs/39512345678/attempts/1)_
       '''))
@@ -82,41 +82,41 @@ class Render(unittest.TestCase):
     self.assertIn('\n**✅ 1 passed · ❌ 1 failed · ⛔ 2 blocked · ⚪ 1 not run**\n', body)   # no elapsed: none given
     self.assertIn('_Boards the change reaches: 5._', body)
     notes = [ln for ln in lines(body) if ln.startswith('- `')]
-    self.assertEqual(notes, ['- `b` dfu: not seen',
-                             '- `c` blinky: cleanup failed or no report; board held',
-                             '- `d` battery: locked: held by pid 7',
-                             '- `e` battery: run caveat denies a pass (native pass, shared run rules blocker)'])
+    self.assertEqual(notes, ['- `b` dfu: `not seen`',
+                             '- `c` blinky: `cleanup failed or no report; board held`',
+                             '- `d` battery: `locked: held by pid 7`',
+                             '- `e` battery: `run caveat denies a pass` (native pass, shared run rules blocker)'])
     self.assertNotIn('verdict', body)
-    self.assertIn('| d |  |  |  |  |  |  |  | 40s | 15s |', body)   # no steps: every step cell blank
+    self.assertIn('| `d` |  |  |  |  |  |  |  | 40s | 15s |', body)   # no steps: every step cell blank
 
   def test_an_untouched_board_has_a_blank_blinky_cell(self):
     r = row('u', 'not-run', 'not-run', steps={'install': False}, cleanupPass=None,
             detail='install: no probe (nothing written)')
     body = hc.render({'boards': [r]}, selection(), META)
-    self.assertIn('| u | ❌ |  |  |  |  | — |  | 40s | 15s |', body)
-    self.assertIn('- `u` install: no probe (nothing written)', body)
+    self.assertIn('| `u` | ❌ |  |  |  |  | — |  | 40s | 15s |', body)
+    self.assertIn('- `u` install: `no probe (nothing written)`', body)
 
   def test_recopy_is_absent_on_a_non_espressif_battery_and_blank_with_no_steps(self):
     rows = [row('esp', steps=dict(OK, recopy=False), espressif=True), row('arm'),
             row('esp2', 'fail', 'fail', steps={'install': True, 'dfu': False}, espressif=True),
             {'board': 'pre', 'phase': 'preflight', 'verdict': 'blocker', 'detail': 'run r1 never finished'}]
     table = [ln for ln in lines(hc.render({'boards': rows}, selection(3), META)) if ln.startswith('| ')]
-    self.assertEqual(table[2:], ['| esp | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | 40s | 15s |',
-                                 '| arm | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | 40s | 15s |',
-                                 '| esp2 | ✅ | ❌ |  |  |  |  | ✅ | 40s | 15s |',
-                                 '| pre |  |  |  |  |  |  |  | — | — |'])
+    self.assertEqual(table[2:], ['| `esp` | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | 40s | 15s |',
+                                 '| `arm` | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | 40s | 15s |',
+                                 '| `esp2` | ✅ | ❌ |  |  |  |  | ✅ | 40s | 15s |',
+                                 '| `pre` |  |  |  |  |  |  |  | — | — |'])
 
   def test_a_withheld_report_shows_no_steps_and_says_why(self):
     for what, extra in (('unprepared', {}), ('unsafe', {'unsafeArtifacts': ['/x/hil_report.md']})):
       with self.subTest(what):
         r = row('w', 'pass', 'blocker', sharedDetail='report not prepared: OSError: x', **extra)
         body = hc.render({'boards': [r]}, selection(), META)
-        self.assertIn('| w |  |  |  |  |  |  |  | 40s | 15s |', body)
-        self.assertIn('- `w` battery: report not prepared: OSError: x (native pass, shared run rules blocker; '
+        self.assertIn('| `w` |  |  |  |  |  |  |  | 40s | 15s |', body)
+        self.assertIn('- `w` battery: `report not prepared: OSError: x` (native pass, shared run rules blocker; '
                       'report withheld)', body)
         self.assertNotIn('✅ 1', body)
     r = row('u', 'pass', 'blocker', sharedDetail='run aborted', unsafeArtifacts=['/x'])
-    self.assertIn('| u |  |', hc.render({'boards': [r]}, selection(), META))   # unsafe alone withholds
+    self.assertIn('| `u` |  |', hc.render({'boards': [r]}, selection(), META))   # unsafe alone withholds
 
   def test_a_corrupt_or_missing_report_shows_no_steps_and_keeps_the_native_detail(self):
     for detail in ('report corrupt: Expecting value', 'report missing: no run directory'):
@@ -124,16 +124,17 @@ class Render(unittest.TestCase):
         r = row('c', 'fail', 'blocker', detail='copy: drive vanished', sharedDetail=detail,
                 steps={'install': True, 'copy': False})
         body = hc.render({'boards': [r]}, selection(), META)
-        self.assertIn('| c |  |  |  |  |  |  |  | 40s | 15s |', body)
-        self.assertIn(f'- `c` battery: copy: drive vanished (native fail, shared run rules blocker: {detail}; '
+        self.assertIn('| `c` |  |  |  |  |  |  |  | 40s | 15s |', body)
+        self.assertIn(f'- `c` battery: `copy: drive vanished` (native fail, shared run rules blocker: `{detail}`; '
                       'report withheld)', body)
 
   def test_views_the_upload_withholds_hide_every_boards_steps(self):
     for views in ('withhold', None):
       with self.subTest(views):
         body = hc.render({'boards': [row('a'), row('b')]}, selection(2), META, views)
-        self.assertIn('| a |  |  |  |  |  |  |  | 40s | 15s |', body)
-        self.assertIn(f'- report views withheld by the upload (upload-views: {views or "missing"}): no steps shown',
+        self.assertIn('| `a` |  |  |  |  |  |  |  | 40s | 15s |', body)
+        shown = f'`{views}`' if views else 'missing'
+        self.assertIn(f'- report views withheld by the upload (upload-views: {shown}): no steps shown',
                       body)
         self.assertIn('**✅ 2 passed**', body)   # the verdicts are summary.json's, not the views'
 
@@ -141,7 +142,7 @@ class Render(unittest.TestCase):
     sel = selection(2, uncovered=[{'target': 'ports/ch32v20x', 'reason': 'none here'}])
     body = hc.render(None, sel, META)
     self.assertIn('**HIL report unavailable: the run ended without a summary (run incomplete).**', body)
-    self.assertIn('- `ports/ch32v20x`: none here', body)
+    self.assertIn('- `ports/ch32v20x`: `none here`', body)
     self.assertTrue(body.endswith(f'_[Records, reports and logs]({META["runUrl"]})_\n'))
     self.assertNotIn('| Board', body)
     self.assertNotIn('blank not run', body)   # the legend only with the table
@@ -150,14 +151,14 @@ class Render(unittest.TestCase):
     body = hc.render({'boards': [row('a')]}, None, META)
     self.assertIn('_Selection unavailable._', body)
     self.assertNotIn('No affected boards', body)
-    self.assertIn('| a |', body)
+    self.assertIn('| `a` |', body)
     self.assertIn('**HIL report unavailable', hc.render(None, None, META))
 
   def test_no_selected_board_says_so_with_what_is_uncovered(self):
     sel = selection(0, uncovered=[{'target': 'ports/ch32v20x', 'reason': 'none here'}])
     body = hc.render(None, sel, META)
     self.assertEqual(lines(body)[6:], ['_No affected boards on this rig; no HIL run for this push._', '',
-                                       'Not covered on this rig:', '- `ports/ch32v20x`: none here'])
+                                       'Not covered on this rig:', '- `ports/ch32v20x`: `none here`'])
 
   def test_mentions_are_neutralised_everywhere(self):
     r = row('m', 'fail', 'fail', detail='copy: @hathach and @org/team, mail a@b', steps={'copy': False})
@@ -170,9 +171,29 @@ class Render(unittest.TestCase):
   def test_report_text_cannot_break_the_table_or_a_bullet(self):
     r = row('p|q', 'fail', 'fail', detail='copy: a | b\nc\r\nd', steps={'copy': False})
     body = hc.render({'boards': [r]}, selection(), META)
-    # hil_run_report's cell: one line, each pipe escaped
-    self.assertIn('| p\\|q | ', body)
-    self.assertIn('- `p\\|q` copy: a \\| b c d\n', body)
+    # one line; a pipe escaped only in a table cell, where GFM unescapes it inside the code span
+    self.assertIn('| `p\\|q` | ', body)
+    self.assertIn('- `p|q` copy: `a | b c d`\n', body)
+
+  def test_report_text_renders_literally(self):
+    # a build's compiler or CMake output reaches the detail: no image, HTML, link or code span of its own renders
+    r = row('x|![b](https://e.invalid/b.svg)', 'fail', 'blocker', steps={'install': False},
+            detail='install: ![ok](https://e.invalid/p.svg) <details> [l](https://e.invalid) `a` ``b``',
+            sharedDetail='report corrupt: <img src=x> **y**')
+    sel = selection(uncovered=[{'target': 'ports/`x`', 'reason': '<b>none</b>'}])
+    body = hc.render({'boards': [r]}, sel, META, '<script>')
+    self.assertIn('| `x\\|![b](https://e.invalid/b.svg)` |', body)
+    self.assertIn('- `x|![b](https://e.invalid/b.svg)` battery: '
+                  '``` install: ![ok](https://e.invalid/p.svg) <details> [l](https://e.invalid) `a` ``b`` ``` '
+                  '(native fail, shared run rules blocker: `report corrupt: <img src=x> **y**`; report withheld)\n', body)
+    self.assertIn('(upload-views: `<script>`)', body)
+    self.assertIn('- `` ports/`x` ``: `<b>none</b>`\n', body)
+
+  def test_a_literal_is_one_code_span_whatever_its_backticks_and_spaces(self):
+    for text, want in (('a', '`a`'), ('a`b', '``a`b``'), ('`a`', '`` `a` ``'), ('a ``` b', '````a ``` b````'),
+                       (' a', '`  a `'), ('a\nb', '`a b`'), ('', ''), (None, '`None`')):
+      self.assertEqual(hc.literal(text), want, text)
+    self.assertEqual(hc.literal('a|b', table=True), '`a\\|b`')
 
   def test_durations(self):
     for s, want in ((None, '—'), (0, '0s'), (49, '49s'), (60, '1m'), (270, '4m30s'), (1200, '20m'), (3600, '1h'),
@@ -288,6 +309,20 @@ class Cli(unittest.TestCase):
     self.assertIn('::notice title=HIL report not posted::run 7 attempt 2 is newer than attempt 1', stdout)
     broken = {k: v for k, v in self.ok.items() if 'pulls' not in k}
     self.assertEqual(self.fresh_step(broken)[:2], (2, ''))
+
+  def test_the_rig_artifact_is_the_rig_jobs_attempts_and_fresh_checks_this_one(self):
+    # re-running failed jobs keeps a passed rig job's outputs and artifact, so the comment job's own attempt has none
+    text = (ROOT / '.github' / 'workflows' / 'hil.yml').read_text()
+    jobs = dict(re.findall(r'^  ([\w-]+):\n((?:(?:    .*)?\n)+)', text[text.index('\njobs:\n'):], re.M))
+    self.assertIn('    outputs:\n      attempt: ${{ github.run_attempt }}\n', jobs['ci-lan'])
+    self.assertIn('          name: hil-ci-lan-${{ github.run_attempt }}\n', jobs['ci-lan'])
+    comment = jobs['comment']
+    self.assertIn('      RIG_ATTEMPT: ${{ needs.ci-lan.outputs.attempt || github.run_attempt }}\n', comment)
+    self.assertIn('          name: hil-ci-lan-${{ env.RIG_ATTEMPT }}\n', comment)
+    self.assertIn('/attempts/$RIG_ATTEMPT" \\\n', comment)
+    self.assertIn('--attempt "$RIG_ATTEMPT" --out comment.md', comment)
+    self.assertIn('--run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT")', comment)   # fresh
+    self.assertEqual(comment.count('github.run_attempt') + comment.count('GITHUB_RUN_ATTEMPT'), 2)
 
   def test_the_rig_artifact_is_downloaded_only_once_the_run_may_post(self):
     text = (ROOT / '.github' / 'workflows' / 'hil.yml').read_text()

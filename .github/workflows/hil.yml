@@ -82,6 +82,9 @@ jobs:
     runs-on: [ self-hosted, Linux, X64, tinyuf2 ]
     # one board is a ~2 min build and a ~2 min battery; a locked board waits up to hil_ci.py's --lock-wait
     timeout-minutes: 45
+    # the attempt that uploaded the artifact: a re-run of failed jobs that does not re-run this job keeps its outputs
+    outputs:
+      attempt: ${{ github.run_attempt }}
     env:
       BOARDS: ${{ needs.select.outputs.boards }}
       FAIL_AT: ${{ github.event.inputs.fail_at }}
@@ -144,6 +147,8 @@ jobs:
     env:
       PR: ${{ github.event.pull_request.number }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      # the attempt the rig job last ran in, whose artifact this is; this attempt when the rig job was skipped
+      RIG_ATTEMPT: ${{ needs.ci-lan.outputs.attempt || github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
 
@@ -174,7 +179,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          name: hil-ci-lan-${{ github.run_attempt }}
+          name: hil-ci-lan-${{ env.RIG_ATTEMPT }}
           path: hil-out
 
       - name: Render the report
@@ -183,8 +188,8 @@ jobs:
           python3 .claude/skills/hil-contract/scripts/hil_comment.py render --summary hil-out/summary.json \
             --selection hil-selection/hil-selection.json --views hil-out/upload-views --roster ci.json \
             --head "$HEAD_SHA" --tested "$GITHUB_SHA" \
-            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" \
-            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --out comment.md
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$RIG_ATTEMPT" \
+            --run-id "$GITHUB_RUN_ID" --attempt "$RIG_ATTEMPT" --out comment.md
 
       - name: Post the report
         if: steps.fresh.outputs.post == 'true'
