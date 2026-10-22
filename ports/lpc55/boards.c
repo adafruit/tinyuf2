@@ -175,7 +175,8 @@ bool board_flash_protect_bootloader(bool protect)
 
 uint8_t board_usb_get_serial(uint8_t serial_id[16])
 {
-  FFR_GetUUID(&_flash_config, serial_id);
+  // 128-bit UUID in the flash PFR region (UM11126 48.8)
+  memcpy(serial_id, (const void*) 0x0009FC70u, 16);
   return 16;
 }
 
@@ -262,8 +263,8 @@ void board_init(void)
   USART_Init(UART_DEV, &uart_config, 12000000);
 #endif
 
-  // Flash needs to be initialized to check for a valid image, and its PFR driver before FFR_GetUUID (UM11126 9.3.3.1)
-  if (FLASH_Init(&_flash_config) != kStatus_Success || FFR_Init(&_flash_config) != kStatus_Success) {
+  // Flash needs to be initialized to check for a valid image
+  if (FLASH_Init(&_flash_config) != kStatus_Success) {
     TU_LOG1("\r\n\r\n\t---- FLASH ERROR! ----\r\n");
   }
 }
