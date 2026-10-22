@@ -129,6 +129,12 @@ class TablesMatchTheTree(unittest.TestCase):
     every = {target(b.name) for b in (ROOT / 'ports/espressif/boards').iterdir() if (b / 'board.cmake').is_file()}
     self.assertEqual({target(b) for b in cb.REPRESENTATIVES['espressif']}, every)
 
+  def test_the_hil_builds_espressif_with_idf_and_every_other_port_with_its_cmake_build(self):
+    for port, backend in cb.HIL.backends.items():
+      self.assertEqual(backend, 'idf' if cb.BACKENDS[port] == 'idf' else 'cmake', port)
+      self.assertTrue((ROOT / 'ports' / port / 'CMakeLists.txt').is_file(), port)   # what --backend cmake builds
+    self.assertEqual(set(cb.HIL.backends), set(cb.BACKENDS))
+
   def test_no_self_update_ports_echo_a_stub(self):
     for port in cb.NO_SELF_UPDATE:
       mk = (ROOT / 'ports' / port / 'Makefile').read_text()
@@ -496,6 +502,69 @@ class HilSelection(unittest.TestCase):
     h = self.hil(app, 'ports/mimxrt10xx/board_flash.c')   # a bootloader change beside it still runs the battery
     self.assertEqual((h['boards'], [u['target'] for u in h['uncovered']]), (['imxrt1060_evk'], [app]))
 
+  def test_a_make_ports_board_follows_the_hils_cmake_build(self):
+    self.roster.write_text(json.dumps({'boards': [{'name': 'swan_r5'}]}))
+    board = 'ports/stm32l4/boards/swan_r5'
+    self.assertEqual(sorted(cb.select([f'{board}/board.mk'])['boards']), [('swan_r5', 'make')])   # CI's make build
+    for path in (f'{board}/board.h', f'{board}/board.cmake', board):
+      h = self.hil(path)
+      self.assertEqual((h['boards'], h['uncovered']), (['swan_r5'], []), path)
+    self.assertEqual(self.hil(f'{board}/board.mk')['uncovered'],
+                     [{'target': f'{board}/board.mk', 'reason': f'the HIL builds with cmake, which never reads {board}/board.mk'}])
+
+  def test_a_cmake_file_only_the_hil_reads_selects_the_port(self):
+    self.roster.write_text(json.dumps({'boards': [{'name': 'swan_r5'}]}))
+    self.assertEqual(classify('ports/stm32l4/CMakeLists.txt')[:2], ('other-backend', 'gap'))   # CI builds stm32l4 with make
+    h = self.hil('ports/stm32l4/CMakeLists.txt')
+    self.assertEqual((h['full'], h['boards'], h['uncovered']), (False, ['swan_r5'], []))
+    h = self.hil('ports/stm32h7/CMakeLists.txt')
+    self.assertEqual((h['boards'], h['uncovered']),
+                     ([], [{'target': 'ports/stm32h7/CMakeLists.txt',
+                            'reason': f'no {self.config} board builds ports/stm32h7/CMakeLists.txt'}]))
+
+  def test_a_port_without_a_roster_board_is_uncovered_under_the_hils_backend(self):
+    h = self.hil('ports/stm32h7/board_flash.c', 'ports/kinetis_k32l2/boards/frdm_k32l2b/board.h')
+    self.assertEqual(h['boards'], [])
+    self.assertEqual({u['target']: u['reason'] for u in h['uncovered']},
+                     {'stm32h7': f'ports/stm32h7/board_flash.c: no {self.config} board for stm32h7',
+                      'frdm_k32l2b': f'ports/kinetis_k32l2/boards/frdm_k32l2b/board.h: frdm_k32l2b is not in {self.config}'})
+
+  def test_an_app_the_hils_build_compiles_stays_outside_the_battery(self):
+    self.roster.write_text(json.dumps({'boards': [{'name': 'daisy_seed'}]}))
+    self.assertIn(('daisy_seed', 'cmake'), cb.select(['apps/erase_firmware/src/main.c'], cb.HIL)['boards'])
+    h = self.hil('apps/erase_firmware/src/main.c', 'ports/stm32h7/apps/erase_firmware/Makefile')
+    self.assertEqual((h['boards'], [u['target'] for u in h['uncovered']]),
+                     ([], ['apps/erase_firmware/src/main.c', 'ports/stm32h7/apps/erase_firmware/Makefile']))
+
+  def test_a_dependency_pin_selects_the_roster_boards_of_its_ports(self):
+    self.roster.write_text(json.dumps({'boards': [{'name': 'daisy_seed'}, {'name': 'swan_r5'}]}))
+    h = self.hil('lib/mcu/st/stm32h7xx_hal_driver')
+    self.assertEqual((h['full'], h['boards'], h['uncovered']), (False, ['daisy_seed'], []))
+    h = self.hil('lib/mcu/nxp/mcux-sdk')   # kinetis_k32l2 (make in CI), lpc55 and mimxrt10xx
+    self.assertEqual((h['boards'], [u['target'] for u in h['uncovered']]),
+                     ([], ['kinetis_k32l2', 'lpc55', 'mimxrt10xx']))
+
+  def test_an_espressif_board_keeps_its_idf_build(self):
+    self.roster.write_text(json.dumps({'boards': [{'name': 'espressif_esp32s3_devkitc_1', 'flasher': {'name': 'esptool'}}]}))
+    board = 'ports/espressif/boards/espressif_esp32s3_devkitc_1'
+    self.assertEqual(sorted(cb.select([f'{board}/sdkconfig'], cb.HIL)['boards']),
+                     [('espressif_esp32s3_devkitc_1', 'idf')])
+    for path in (f'{board}/sdkconfig', f'{board}/board.cmake', 'ports/espressif/CMakeLists.txt'):
+      h = self.hil(path)
+      self.assertEqual((h['boards'], h['uncovered']), (['espressif_esp32s3_devkitc_1'], []), path)
+    self.assertEqual(self.hil('ports/espressif/Makefile')['uncovered'],
+                     [{'target': 'ports/espressif/Makefile',
+                       'reason': 'the HIL builds with idf, which never reads ports/espressif/Makefile'}])
+
+  def test_codeqls_make_build_is_cis_not_the_hils(self):
+    self.roster.write_text(json.dumps({'boards': [{'name': 'feather_stm32f405_express'}]}))
+    self.assertEqual(classify('ports/stm32f4/port.mk')[2], [('feather_stm32f405_express', 'make')])
+    h = self.hil('ports/stm32f4/port.mk', 'ports/stm32f4/boards/feather_stm32f405_express/board.mk')
+    self.assertEqual((h['boards'], [u['target'] for u in h['uncovered']]),
+                     ([], ['ports/stm32f4/boards/feather_stm32f405_express/board.mk', 'ports/stm32f4/port.mk']))
+    h = self.hil('.github/workflows/codeql-buildscript.sh')
+    self.assertEqual((h['full'], h['boards'], h['uncovered']), (False, [], []))
+
   def test_unreadable_roster_fails(self):
     self.roster.write_text('{}')
     with self.assertRaises(cb.Fail):
@@ -629,6 +698,15 @@ class Verdict(unittest.TestCase):
       self.assertEqual(code, 2)
       self.assertIn(error, json.loads(out.getvalue().splitlines()[-1])['error'])
 
+  def test_a_variant_needs_board_shared_and_a_plain_name(self):
+    for argv in (['--board', 'metro_m7_1011', '--variant', 'v'], ['--scope', 'src', '--shared', '--variant', 'v'],
+                 ['--board', 'metro_m7_1011', '--shared', '--variant', '../v']):
+      with self.subTest(argv), contextlib.redirect_stdout(io.StringIO()) as out, self.assertRaises(SystemExit) as e, \
+           mock.patch.object(cb, 'build_board', side_effect=AssertionError('built')):
+        cb.main(argv)
+      self.assertEqual(e.exception.code, 2)
+      self.assertIn('--variant needs --board and --shared', json.loads(out.getvalue().splitlines()[-1])['error'])
+
   def test_backend_override_builds_with_cmake(self):
     seen = []
     def build_board(board, backend, args, idf, flasher=None):
@@ -689,7 +767,7 @@ class BuildBoard(unittest.TestCase):
     for p in patches:
       p.start()
       self.addCleanup(p.stop)
-    self.args = mock.Mock(shared=False, define=['LOG=2'], verbose=False, idf='docker')
+    self.args = mock.Mock(shared=False, define=['LOG=2'], verbose=False, idf='docker', variant=None)
 
   def fake_make(self, write):
     calls = []
@@ -740,6 +818,16 @@ class BuildBoard(unittest.TestCase):
     self.assertFalse((root / 'stale.o').exists())
     self.assertEqual(set(rec['sha256']), set(rec['artifacts']))
     self.assertTrue((root / '_bin' / 'tinyuf2-lpcxpresso55s69.bin').is_file())
+
+  def test_a_variant_is_a_shared_root_of_its_own_beside_the_plain_one(self):
+    self.args.shared, self.args.variant = True, 'update'
+    run, _ = self.fake_make(lambda cmd: LPC55_ARTIFACTS if 'copy-artifact' in cmd else [])
+    with mock.patch.object(cb, 'run', run):
+      rec = cb.build_board('lpcxpresso55s69', 'make', self.args, {})
+    root = self.build_dir / 'cmake-build-lpcxpresso55s69-make-variant-update'
+    self.assertEqual((rec['status'], rec['variant'], rec['buildDir']), ('ok', 'update', str(root.relative_to(cb.ROOT))))
+    self.assertTrue((root / '_bin').is_dir())
+    self.assertFalse((self.build_dir / 'cmake-build-lpcxpresso55s69-make').exists())
 
   def test_an_idf_build_hashes_its_flash_config_and_needs_it(self):
     self.args.shared = True
@@ -824,14 +912,17 @@ class HilRecord(unittest.TestCase):
             f'-c "init; halt; program {image or root / "tinyuf2.hex"}" -c reset {extra}-c exit')
     return lambda d, args: subprocess.CompletedProcess(args, 0, f'arm-none-eabi-gcc ...\n{line}\n', '')
 
-  def idf_tree(self, root, chip='esp32s3', extra='', args_file='flash_args'):
+  def idf_tree(self, root, chip='esp32s3', extra='', args_file='flash_args', no_stub=False, stub_config=None):
     root.mkdir(parents=True, exist_ok=True)
+    if stub_config is not None:
+      (root / 'sdkconfig').write_text(f'CONFIG_IDF_TARGET="{chip}"\n{stub_config}\n')
     (root / 'flash_args').write_text('--flash-mode dio --flash-freq 80m --flash-size 8MB\n0x0 bootloader/bootloader.bin\n'
                                      '0x410000 tinyuf2.bin\n0x8000 partition_table/partition-table.bin\n'
                                      f'0xe000 ota_data_initial.bin\n{extra}')
     line = (f'cd /opt/esp/idf/components/esptool_py && cmake -D IDF_PATH=/opt/esp/idf '
             f'-D "SERIAL_TOOL=/opt/esp/python_env/idf6.1_py3.12_env/bin/python;-m;esptool;--chip;{chip}" '
-            f'-D "SERIAL_TOOL_ARGS=--before=default-reset;--after=hard-reset;write-flash;@{args_file}" '
+            f'-D "SERIAL_TOOL_ARGS=--before=default-reset;--after=hard-reset;{"--no-stub;" if no_stub else ""}'
+            f'write-flash;@{args_file}" '
             f'-D SERIAL_TOOL_IS_WRITE_FLASH=1 -D SERIAL_TOOL_FLASH_ARGS_FILE={args_file} '
             f'-D WORKING_DIRECTORY={root} -P /opt/esp/idf/components/esptool_py/run_serial_tool.cmake')
     return lambda d, args: subprocess.CompletedProcess(args, 0, line + '\n', '')
@@ -858,6 +949,21 @@ class HilRecord(unittest.TestCase):
       self.roster.write_text(json.dumps({'boards': [dict(entry, flasher=dict(fl, **({'vid_pid': vid_pid} if vid_pid else {})))]}))
       with self.subTest(vid_pid=vid_pid), self.assertRaisesRegex(cb.Fail, 'needs its probe'):
         cb.roster_flasher(self.config, 'max32666fthr')
+
+  def test_an_esptool_flasher_may_name_the_chips_usj_by_its_mac_form_serial(self):
+    usj = '30:ED:A0:F4:0A:94'
+    self.roster.write_text(json.dumps({'boards': [{'name': 'espressif_esp32s31_func_core', 'uid': '30EDA0F40A94',
+                                                   'flasher': {'name': 'esptool', 'uid': usj, 'args': '--chip esp32s31'}}]}))
+    self.assertEqual(cb.roster_flasher(self.config, 'espressif_esp32s31_func_core'),
+                     ({'name': 'esptool', 'uid': usj, 'device': 'esp32s31'}, []))
+    with tempfile.TemporaryDirectory() as d:
+      cfg = Path(d) / 'r.json'
+      for flasher in ({'name': 'esptool', 'uid': usj.lower(), 'args': '--chip esp32s3'},
+                      {'name': 'esptool', 'uid': usj + ':00', 'args': '--chip esp32s3'},
+                      {'name': 'jlink', 'uid': usj, 'args': '-device MIMXRT1011DAE5A'}):
+        cfg.write_text(json.dumps({'boards': [{'name': 'b', 'flasher': flasher}]}))
+        with self.subTest(flasher), self.assertRaisesRegex(cb.Fail, 'not the roster form'):
+          cb.roster_flasher(str(cfg), 'b')
 
   def test_a_route_binds_the_esptool_bindings_segments(self):
     p4 = 'espressif_p4_function_ev'
@@ -1088,8 +1194,23 @@ class HilRecord(unittest.TestCase):
       with self.subTest(what), self.assertRaisesRegex(cb.Fail, 'does not flash'):
         cb.flash_binding(flasher, root, self.idf_tree(root, **tree))
 
+  def test_the_idf_flash_target_runs_no_stub_only_where_the_build_disables_it(self):
+    flasher = {'name': 'esptool', 'uid': '30:ED:A0:F4:0A:94', 'device': 'esp32s31'}
+    for i, (config, no_stub, ok) in enumerate((('CONFIG_ESPTOOLPY_NO_STUB=y', True, True),
+                                               ('# CONFIG_ESPTOOLPY_NO_STUB is not set', False, True),
+                                               ('CONFIG_ESPTOOLPY_NO_STUB=y', False, False),
+                                               ('# CONFIG_ESPTOOLPY_NO_STUB is not set', True, False))):
+      root = self.tmp / f's31-{i}'
+      tree = self.idf_tree(root, chip='esp32s31', no_stub=no_stub, stub_config=config)
+      with self.subTest(config=config, no_stub=no_stub):
+        if ok:
+          self.assertEqual(cb.flash_binding(flasher, root, tree)['flasher'], flasher)
+        else:
+          with self.assertRaisesRegex(cb.Fail, 'does not flash'):
+            cb.flash_binding(flasher, root, tree)
+
   def test_a_hil_record_pins_the_target_inputs_and_holds_the_build_lock(self):
-    args = mock.Mock(shared=True, define=[], verbose=False, idf='docker')
+    args = mock.Mock(shared=True, define=[], verbose=False, idf='docker', variant=None)
     built = []
 
     def fake_cmake(port, board, root, defines, log, verbose):

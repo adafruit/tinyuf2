@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""The CI job's HIL run on this host's roster: one battery per named board from a record built here, every
-run kept, a `hil` verdict per board and one exit for the job.
+"""The CI job's HIL run on this host's roster: one battery per named board from a record built here, or with
+`--hosted` for an Espressif board admitted from a hosted runner's build (hil_hosted.py), every run kept, a `hil` verdict
+per board and one exit for the job.
 
-  hil_ci.py --board B [B ...] --roster test/hil/ci.json --out DIR [--lock-wait S] [--fail-at STEP]
+  hil_ci.py --board B [B ...] --roster test/hil/ci.json --out DIR [--hosted DIR] [--lock-wait S] [--fail-at STEP]
 
 `--out` is this run's directory under a state directory kept across runs (`<state>/<run id>`): the build
 record, each board's run directory (`hil_test.py run --run-root`: its report, hil.log and output) and the
@@ -40,8 +41,8 @@ CHECK_BUILD = ROOT / '.claude' / 'skills' / 'build' / 'scripts' / 'check_build.p
 HIL_TEST = Path(__file__).resolve().with_name('hil_test.py')
 # the pinned report core, loaded only once check_pin() passed
 REPORT_CORE = ROOT / 'lib' / 'agentrc' / 'skills' / 'hil' / 'scripts' / 'hil_report_core.py'
+REPORT_NOTICE = REPORT_CORE.with_name('hil_report_notice.py')   # the unavailable notice, loadable when the core is not
 UNPREPARED = 'report not prepared'
-NOTICE = '**HIL report unavailable'   # the core's NOTICE, which this must write when the core itself failed
 # `upload` when no view is unsafe; anything else, or no file, and the workflow uploads no hil_report.md at all
 UPLOAD_VIEWS = 'upload-views'
 STEPS = ('install', 'dfu', 'copy', 'app-ran', 'reenter', 'recopy', 'cleanup')   # hil_test.py --fail-at
@@ -53,9 +54,9 @@ def run(cmd):
   return subprocess.run([str(c) for c in cmd], cwd=ROOT, capture_output=True, text=True)
 
 
-def roster_boards(roster):
+def roster_entries(roster):
   try:
-    return sorted(b['name'] for b in json.loads((ROOT / roster).read_text())['boards'])
+    return {b['name']: b for b in json.loads((ROOT / roster).read_text())['boards']}
   except (OSError, ValueError, KeyError, TypeError) as e:
     raise SystemExit(f'cannot read boards from {roster}: {e}')
 
@@ -64,6 +65,21 @@ def espressif(board):
   """Whether `board` is in the espressif port (ports/<port>/boards/<board>, check_build's port rule): its battery is
   the Espressif one, with `recopy`, and its build ESP-IDF's."""
   return (ROOT / 'ports' / 'espressif' / 'boards' / board).is_dir()
+
+
+def roster_boards(roster):
+  return sorted(roster_entries(roster))
+
+
+def split(roster, boards, build_pending=False):
+  """The workflow's plan for `boards`: (rig, hosted, pending). The rig runs the commissioned ones (`tinyuf2.reentry`
+  set, SKILL.md Hosts/rosters); a hosted runner builds the rig's Espressif ones, and with `build_pending` (a dispatch)
+  also those pending commissioning, whose artifact commissioning admits by hand; the rest are pending."""
+  entries = roster_entries(roster)
+  rig = [b for b in boards if ((entries[b].get('tinyuf2') or {}).get('reentry'))]
+  pending = [b for b in boards if b not in rig]
+  hosted = [b for b in (boards if build_pending else rig) if espressif(b)]
+  return rig, hosted, pending
 
 
 def unfinished(state, board):
@@ -90,6 +106,15 @@ def prune(state, keep, days=PRUNE_DAYS):
     if d.is_dir() and d != keep and d.stat().st_mtime < cutoff and \
        all(p.with_suffix('.done').exists() for p in d.glob('*.started')):
       shutil.rmtree(d, ignore_errors=True)
+
+
+def hosted_record(board, roster, out, hosted):
+  """An Espressif board's record, admitted from the hosted build under `hosted` (hil_hosted.py admit)."""
+  import hil_hosted   # here only: it loads the runner, which hil_remote.py's clients never import
+  try:
+    return hil_hosted.admit(hosted / board, board, roster, out), True, ''
+  except (hil_hosted.ht.Refused, hil_hosted.cb.Fail, OSError) as e:
+    return out / f'{board}.build.json', False, f'hosted build refused: {e}'[:400]
 
 
 def build_record(board, roster, out):
@@ -166,9 +191,11 @@ def prepare(code, where, board):
   """Each run dir's report pair under `where` made consistent before the artifact exposes it (the core's
   prepare_pair: the Markdown regenerated from the JSON, else an explicit unavailable notice, never a stale view), and
   the shared run rules' verdict of its JSON (run_report.shared_run), kept beside the native one."""
+  pinned = False
   try:
     check_pin()   # before any provider code runs
-    core = run_report.load(REPORT_CORE)
+    pinned = True
+    core = run_report.load_agentrc(REPORT_CORE)
     schema = run_report.schema(core)
     readings = [core.prepare_pair(d, schema) for d in run_dirs(where) if d.is_dir()]
     reading = readings[-1] if readings else core.Reading('missing', None, None, f'no run directory under {where}')
@@ -176,55 +203,44 @@ def prepare(code, where, board):
     return {'sharedVerdict': shared['verdict'], 'sharedDetail': shared['detail']}
   except Exception as e:   # the battery's exit, markers and any holder stand: only this board's shared view is lost
     why = f'{UNPREPARED}: {type(e).__name__}: {e}'
-    unsafe = withhold(where, why)
+    unsafe = withhold(where, why, pinned)
     return {'sharedVerdict': 'blocker', 'sharedDetail': why, **({'unsafeArtifacts': unsafe} if unsafe else {})}
 
 
-def withhold(where, why):
-  """Each run dir's Markdown under `where` replaced, under the core's writer lock, by an unavailable notice, the view
-  the run left kept below it only as labelled text, or removed when that cannot be written. Returns the views that
-  could be neither, or whose lock was not taken (never touched outside it), which no upload or copy-back may expose
-  (summary.json `unsafeArtifacts`): `where` itself when it cannot be listed."""
-  import fcntl   # here only: hil_remote.py imports this module on clients without it
+def withhold(where, why, pinned):
+  """Each run dir's Markdown under `where` made agentrc's unavailable notice (hil_report_notice.write_unavailable, under
+  the core's writer lock, the view the run left kept below it only as labelled legacy text) once lib/agentrc was
+  proven at its pin (`pinned`): no provider code runs before. Returns the views left as they were, which no upload or
+  copy-back may expose (summary.json `unsafeArtifacts`): every view when the notice cannot be written (no proven pin,
+  the writer fails to load, another writer holds the view, an unwritable dir), `where` itself when it cannot be
+  listed."""
   try:
     runs = run_dirs(where)
   except OSError:
     return [str(where)]
+  views = [str(d / f'{run_report.STEM}.md') for d in runs]
+  try:
+    if not pinned:
+      return views
+    notice = run_report.load_agentrc(REPORT_NOTICE, 'tinyuf2_hil_report_notice')
+  except Exception:
+    return views
   unsafe = []
-  for d in runs:
-    md = d / f'{run_report.STEM}.md'
+  for d, md in zip(runs, views):
     try:
-      fd = os.open(d / f'.{run_report.STEM}.lock', os.O_RDWR | os.O_CREAT, 0o666)
-    except OSError:
-      unsafe.append(str(md))
-      continue
-    try:
-      fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-      try:
-        old = md.read_text(encoding='utf-8', errors='replace') if md.is_file() else ''
-        text = f'{NOTICE}: {run_report.STEM}.json was not checked ({why}).** No verdict is read from this view.\n'
-        if old.strip():
-          text += '\n_Legacy text: the view the run left, never checked against its JSON._\n\n' + old
-        tmp = d / f'.{run_report.STEM}.md.withheld'
-        tmp.write_text(text, encoding='utf-8')
-        os.replace(tmp, md)
-      except OSError:
-        try:
-          md.unlink(missing_ok=True)
-        except OSError:
-          unsafe.append(str(md))
-    except OSError:   # another writer holds it
-      unsafe.append(str(md))
-    finally:
-      os.close(fd)
+      notice.write_unavailable(d, run_report.STEM, f'{run_report.STEM}.json was not checked ({why}); no verdict is '
+                                                   'read from this view')
+    except Exception:   # WriterHeld or OSError: the view stays as it is, never exposed
+      unsafe.append(md)
   return unsafe
 
 
-def run_board(board, roster, out, state, lock_wait, fail_at=None, markers=True):
+def run_board(board, roster, out, state, lock_wait, fail_at=None, markers=True, hosted=None):
   """One board's row: CI's markers under `state`, the record, the battery, its verdict and its prepared report pair.
   `markers` false is a remote driver's: `state` is CI's state directory, read, never written, and checked again by
   the runner under its lock (--ci-state-root). `lock_wait` is seconds, or a function giving them as the battery
-  starts. Its `buildS` and `runS` are the seconds the build and the battery took, lock wait included."""
+  starts. Its `buildS` and `runS` are the seconds the build and the battery took, lock wait included. `hosted` is the
+  directory of hosted builds an Espressif board's record is admitted from; without it the rig builds that record."""
   try:
     earlier = unfinished(state, board)
   except OSError as e:
@@ -235,7 +251,8 @@ def run_board(board, roster, out, state, lock_wait, fail_at=None, markers=True):
             'detail': f'run {", ".join(earlier)} under {state} started a battery on {board} and never finished: '
                       'recover the board, then remove its marker'}
   t0 = time.monotonic()
-  record, ok, why = build_record(board, roster, out)
+  hosted_build = hosted is not None and espressif(board)
+  record, ok, why = hosted_record(board, roster, out, hosted) if hosted_build else build_record(board, roster, out)
   build_s = round(time.monotonic() - t0)
   if not ok:
     return {'board': board, 'phase': 'build', 'verdict': 'not-run', 'detail': why, 'buildS': build_s}
@@ -291,6 +308,7 @@ def main(argv=None):
   ap.add_argument('--out', required=True, type=Path, help="this run's directory under the state directory")
   ap.add_argument('--lock-wait', type=int, default=LOCK_WAIT, help='seconds each battery keeps trying a held board')
   ap.add_argument('--fail-at', choices=STEPS, help='acceptance only (SKILL.md Execution): passed to every battery')
+  ap.add_argument('--hosted', type=Path, help="the hosted builds' directory (hil_hosted.py build), one <board> each")
   args = ap.parse_args(argv)
   boards = sorted(set(args.board))
   unknown = sorted(set(boards) - set(roster_boards(args.roster)))
@@ -301,7 +319,7 @@ def main(argv=None):
   state = args.out.parent
   prune(state, keep=args.out)
   t0 = time.monotonic()
-  rows = [run_board(b, args.roster, args.out, state, args.lock_wait, args.fail_at) for b in boards]
+  rows = [run_board(b, args.roster, args.out, state, args.lock_wait, args.fail_at, hosted=args.hosted) for b in boards]
   elapsed = round(time.monotonic() - t0)
   text = summary(rows, args.roster)
   sys.stdout.write(text)

@@ -257,9 +257,9 @@ class Project(unittest.TestCase):
     self.dep = origin(o / 'dep', 'dep 1', 'dep 2')
     for name in ('agentrc', 'tinyusb', 'uf2'):
       origin(o / name, name)
-    # the driver prepares each report pair through the core, as CI does; the core loads its notice from beside itself
-    core = [f'skills/hil/scripts/{n}.py' for n in ('hil_report_core', 'hil_report_notice')]
-    commit(o / 'agentrc', {p: (ROOT / 'lib' / 'agentrc' / p).read_text() for p in core}, 'report core')
+    core = 'skills/hil/scripts/hil_report_core.py'   # the driver prepares each report pair through it, as CI does
+    staged = (core, hr.run_report.HIL_LOAD, *hr.run_report.files_of(ROOT / 'lib' / 'agentrc' / core))
+    commit(o / 'agentrc', {rel: (ROOT / 'lib' / 'agentrc' / rel).read_text() for rel in staged}, 'report core')
     primary = self.tmp / 'primary'
     primary.mkdir()
     git(primary, 'init', '-q')
@@ -326,7 +326,7 @@ class Refusals(Project):
                        (('clear-pending', '-b', LPC), 'manual or recovery operation')):
       self.refused(*argv, text=text)
     for flag in ('--under-hold=x', '--recover-holder', '--recover-takeover', '--try-reentry', '--route', '--run-root',
-                 '--ci-state-root', '--done-marker', '--started-marker', '--build-record'):
+                 '--ci-state-root', '--done-marker', '--started-marker', '--build-record', '--update-record'):
       self.refused('run', '-b', LPC, flag, 'v', text='takes no manual, recovery, commissioning or override option')
 
   def test_boards_and_run_ids(self):
