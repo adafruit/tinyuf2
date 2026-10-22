@@ -76,7 +76,7 @@ STEPS['update'] = ('install', 'dfu', 'update-variant', 'update', 'interrupt', 'r
 REENTRY = {'jlink': ('retained-register',), 'stlink': ('retained-register',), 'openocd': ('retained-register',),
            'esp': ('dfu-detach',)}
 REENTRY_METHODS = sorted({m for v in REENTRY.values() for m in v})
-PROTECTED = {'hil_test.py', 'pool_check', 'farm_check'}   # hil_lock.PROTECTED_REASONS, checked at load
+PROTECTED = {'hil_test.py', 'farm_check'}   # hil_lock.PROTECTED_REASONS, checked at load
 # the board-lock helper is the submodule's at its pinned commit, never an operator's installed agentrc
 AGENTRC = 'lib/agentrc'
 LOCK_HELPER = ROOT / AGENTRC / 'skills' / 'hil' / 'scripts' / 'hil_lock.py'
