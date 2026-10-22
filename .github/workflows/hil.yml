@@ -113,11 +113,13 @@ jobs:
               --out "$RUNNER_TEMP/hil-hosted"
           done
 
+      # overwrite: a re-run of every job builds again under the same name
       - uses: actions/upload-artifact@v4
         with:
           name: hil-hosted-build
           path: ${{ runner.temp }}/hil-hosted
           if-no-files-found: error
+          overwrite: true
 
   # a failed hosted build leaves its boards not-run here (no artifact to admit); the rest still run
   ci-lan:
