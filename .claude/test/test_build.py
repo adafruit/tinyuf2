@@ -149,6 +149,14 @@ class Selection(unittest.TestCase):
                  'ports/mimxrt10xx/apps/app.mk', 'ports/espressif/Makefile', 'ports/lpc55/Makefile'):
       self.assertEqual(classify(path)[:2], ('other-backend', 'gap'), path)
 
+  def test_an_explicit_backend_map_controls_build_file_selection(self):
+    backends = {'stm32h7': 'cmake'}
+    self.assertTrue(cb.read_by_backend('ports/stm32h7/family.cmake', 'stm32h7', backends))
+    self.assertFalse(cb.read_by_backend('ports/stm32h7/port.mk', 'stm32h7', backends))
+    selected = cb.select(['ports/stm32h7/family.cmake'], backends)
+    self.assertEqual(sorted(selected['boards']), [('daisy_seed', 'cmake')])
+    self.assertEqual(cb.select(['ports/stm32h7/port.mk'], backends)['records'][0]['effect'], 'gap')
+
   def test_shared_make_file_selects_make_ports_and_the_codeql_build(self):
     make_reps = [(b, 'make') for p, be in cb.BACKENDS.items() if be == 'make' for b in cb.REPRESENTATIVES[p]]
     for path in ('ports/make.mk', 'ports/rules.mk'):
