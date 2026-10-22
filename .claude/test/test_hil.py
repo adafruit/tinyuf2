@@ -4516,6 +4516,13 @@ class UpdateAdmission(Tmp):
     with self.assertRaisesRegex(ht.Refused, 'no update battery for ports/lpc55 .* stay uncovered'):
       ht.admit_update(rec, lpc, board_facts(lpc), self.tmp / 'run', files, fw)
 
+  def test_a_candidate_without_a_flash_cache_is_refused(self):
+    files, fw = self.candidate()
+    rec, _ = self.record('var', b'hil-update')
+    del self.facts['flashCache']
+    with self.assertRaisesRegex(ht.Refused, 'tinyuf2.elf has no _flash_cache, so the update sector is unknown'):
+      ht.admit_update(rec, self.board, self.facts, self.tmp / 'run', files, fw)
+
   def test_an_updater_must_lay_out_its_bin_in_place(self):
     b = bootloader_bin(self.tmp / 'b.bin', size=0x300, board_id=b'MIMXRT1060-EVK-revA')
     good = updater(self.tmp / 'good.uf2', b, self.facts)

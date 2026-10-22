@@ -2266,10 +2266,12 @@ def admit_update(record_path, board, facts, workdir, files, fw):
   same checkout built with check_build --variant and a define that changes the image), each laying out its BIN in
   place, the two BINs differing in a flash cache sector the interrupt's passes flush."""
   sector = facts.get('flashCache')
-  if board['kind'] != 'jlink' or board['port'] not in UPDATE_PORTS or sector is None:
+  if board['kind'] != 'jlink' or board['port'] not in UPDATE_PORTS:
     raise Refused(f'{board["name"]}: no update battery for ports/{board["port"]} on a {board["flasher"]} board; '
                   f'self-update and an interrupted update stay uncovered there (it runs on J-Link boards of '
                   f'{", ".join(sorted(UPDATE_PORTS))})')
+  if sector is None:
+    raise Refused(f'{fw["buildRecord"]}: tinyuf2.elf has no _flash_cache, so the update sector is unknown')
   if 'updater' not in files:
     raise Refused(f'{fw["buildRecord"]}: no {UPDATE_UF2} in the record (notImplemented: self-update)')
   if record_facts(record_path, board, workdir / 'variant-facts') != facts:
