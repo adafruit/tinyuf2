@@ -127,7 +127,7 @@ if os.environ.get('FAKE_REAL_RUNNER'):
       Path(os.environ['FAKE_PID']).write_text(str(os.getpid()))
       time.sleep(60)
   ht.load_helper = load_helper
-  ht.source_facts = lambda board: json.loads(os.environ['FAKE_FACTS'])
+  ht.record_facts = lambda record, board, workdir: json.loads(os.environ['FAKE_FACTS'])
   ht.admit_record = lambda *a: ({}, {'version': 'v'})
   ht.probe_users = lambda board: []
   ht.Battery.run = run

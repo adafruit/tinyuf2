@@ -668,7 +668,7 @@ def run(bat, files, version):
 
 
 ht.load_helper = load_helper
-ht.source_facts = lambda board: json.loads(os.environ['HIL_FACTS'])
+ht.record_facts = lambda record, board, workdir: json.loads(os.environ['HIL_FACTS'])
 ht.admit_record = lambda *a: ({}, {'version': 'v'})
 ht.probe_users = lambda board: []
 ht.Battery.run = run

@@ -31,6 +31,7 @@ sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location('hil_test', SCRIPT)
 ht = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ht)
+import test_board_facts  # noqa: E402   its hand-built artifacts
 # lib/agentrc's report core and flash provider, loaded once as main() loads them; the pin check is Roster's to test,
 # against the real checkout and a git hook's environment
 with mock.patch.object(ht, 'check_lock_pin'), contextlib.suppress(ht.Refused):
@@ -208,21 +209,47 @@ def bench_roster(tmp):
   return cfg
 
 
-# lpcxpresso55s69's layout, kept synthetic for the tests that run on it; SourceFacts checks they match the source
+# board_facts.read of each board's check_build HIL record, equal to the former source parser's on 2026-10-22
 LPC_FACTS = {'flashBase': 0, 'binBase': 0, 'appStart': 0x10000, 'flashSize': 0x98000, 'vid': 0x1fc9, 'pid': 0x0094,
              'boardId': 'LPC55S69-Xpresso-revA', 'family': 0x2abc77ec, 'vectors': 76, 'ram': 0x20000000,
-             'dblTapDelayMs': 500, 'dblTapReg': 0x4002C05C, 'dblTapMagic': 0xF01669EF}
-# stm32h563_nucleo's source facts, which StlinkSourceFacts checks against the source: the pre-commit job does not fetch
-# the stm32h5 CMSIS header its vector count needs
+             'dblTapDelayMs': 500, 'dblTapReg': 0x4002C05C, 'dblTapMagic': 0xF01669EF, 'flashCache': 0x200}
 H563_FACTS = {'flashBase': 0x08000000, 'binBase': 0x08000000, 'appStart': 0x08008000, 'flashSize': 0x200000,
               'vid': 0x239a, 'pid': 0x0163, 'boardId': 'STM32H563-Nucleo', 'family': 0x4e8f1c5d, 'vectors': 147,
               'ram': 0x20000000, 'dblTapDelayMs': 500, 'dblTapReg': 0x2009FFFC, 'dblTapMagic': 0xF01669EF}
-SYNTHETIC_FACTS = {'lpc55': LPC_FACTS, 'stm32h5': H563_FACTS}
-real_source_facts = ht.source_facts
+MAX_FACTS = {'flashBase': 0x10000000, 'binBase': 0x10000000, 'appStart': 0x10008000, 'flashSize': 0x100000,
+             'vid': 0x0456, 'pid': 0xa010, 'boardId': 'MAX32666-FTHR', 'family': 0xf0c30d71, 'vectors': 111,
+             'ram': 0x20000000, 'dblTapDelayMs': 500, 'dblTapReg': 0x2008BFFC, 'dblTapMagic': 0xF01669EF}
+H743_FACTS = {'flashBase': 0x08000000, 'binBase': 0x08000000, 'appStart': 0x08020000, 'flashSize': 0x200000,
+              'vid': 0x239a, 'pid': 0x0097, 'boardId': 'STM32H743ZI-Nucleo', 'family': 0x6db66082, 'vectors': 166,
+              'ram': 0x20000000, 'dblTapDelayMs': 500, 'dblTapReg': 0x20010000, 'dblTapMagic': 0xF01669EF}
+F407_FACTS = {'flashBase': 0x08000000, 'binBase': 0x08000000, 'appStart': 0x08010000, 'flashSize': 0x100000,
+              'vid': 0x239a, 'pid': 0x0089, 'boardId': 'STM32F407-Discovery-revD', 'family': 0x57755a57, 'vectors': 98,
+              'ram': 0x20000000, 'dblTapDelayMs': 500, 'dblTapReg': 0x2000FFFC, 'dblTapMagic': 0xF01669EF}
+F303_FACTS = {'flashBase': 0x08000000, 'binBase': 0x08000000, 'appStart': 0x08004000, 'flashSize': 0x40000,
+              'vid': 0xcafe, 'pid': 0xffff, 'boardId': 'STM32F303-Discovery-MB1035D', 'family': 0x6b846188,
+              'vectors': 98, 'ram': 0x20000000, 'dblTapDelayMs': 500, 'dblTapReg': 0x20009FFC, 'dblTapMagic': 0xF01669EF}
+F411_FACTS = {'flashBase': 0x08000000, 'binBase': 0x08000000, 'appStart': 0x08010000, 'flashSize': 0x80000,
+              'vid': 0x239a, 'pid': 0x005d, 'boardId': 'STM32F411-Discovery-revA', 'family': 0x57755a57, 'vectors': 102,
+              'ram': 0x20000000, 'dblTapDelayMs': 500, 'dblTapReg': 0x2000FFFC, 'dblTapMagic': 0xF01669EF}
+# SNVS->LPGPR[3] holds the double tap on every RT10xx board; _flash_cache, board_flash.c's sector, is 4 KiB
+RT1060_FACTS = {'flashBase': 0x60000000, 'binBase': 0x60000000, 'appStart': 0x6000C000, 'flashSize': 0x800000,
+                'vid': 0x239a, 'pid': 0x0083, 'boardId': 'MIMXRT1060-EVK-revA', 'family': 0x4fb2d5bd, 'vectors': 174,
+                'ram': 0x20000000, 'dblTapDelayMs': 500, 'dblTapReg': 0x400D410C, 'dblTapMagic': 0xF01669EF,
+                'flashCache': 0x1000}
+RT1064_FACTS = dict(RT1060_FACTS, flashBase=0x70000000, binBase=0x70000000, appStart=0x7000C000, flashSize=0x400000,
+                    boardId='MIMXRT1064-EVK-revA')
+# the RT1011 boots its RAM image from the FCB, 0x400 into flash (IMXRT1010RM Table 9-8)
+RT1011_FACTS = dict(RT1060_FACTS, binBase=0x60000400, pid=0x00e1, boardId='MIMXRT1011-Metro-revA', vectors=96)
+BOARD_FACTS = {'lpcxpresso55s69': LPC_FACTS, 'stm32h563_nucleo': H563_FACTS, 'max32666fthr': MAX_FACTS,
+               'stm32h743nucleo': H743_FACTS, 'stm32f407disco': F407_FACTS, 'stm32f303disco': F303_FACTS,
+               'stm32f411ve_discovery': F411_FACTS, 'imxrt1060_evk': RT1060_FACTS, 'imxrt1064_evk': RT1064_FACTS,
+               'metro_m7_1011': RT1011_FACTS}
+real_record_facts = ht.record_facts
 
 
-def source_facts(board):
-  return dict(SYNTHETIC_FACTS[board['port']]) if board['port'] in SYNTHETIC_FACTS else real_source_facts(board)
+def board_facts(board):
+  """A board's facts as the runner takes them: from its build (this table) or, on an Espressif board, the source."""
+  return dict(BOARD_FACTS[board['name']]) if board['name'] in BOARD_FACTS else ht.esp_source_facts(board)
 
 
 class Tmp(unittest.TestCase):
@@ -232,7 +259,8 @@ class Tmp(unittest.TestCase):
     self.tmp = Path(t.name)
     reap_detached(self)
     self.mark_helper = mark_helper(self, self.tmp / 'marks')
-    for p in (mock.patch.object(ht, 'source_facts', source_facts), mock.patch.object(ht, 'PROTECTED_SESSIONS', []),
+    for p in (mock.patch.object(ht, 'record_facts', lambda record, board, workdir: board_facts(board)),
+              mock.patch.object(ht, 'PROTECTED_SESSIONS', []),
               mock.patch.object(ht, 'pending_mark', lambda helper, lock: self.mark_helper.PendingSessions(lock, ht.PENDING_KIND))):
       p.start()
       self.addCleanup(p.stop)
@@ -240,7 +268,7 @@ class Tmp(unittest.TestCase):
   def load(self, cfg, name=BOARD):
     """A roster entry with its layout applied, as main() admits it."""
     b = ht.load_board(cfg, name)
-    ht.apply_layout(b, ht.source_facts(b))
+    ht.apply_layout(b, board_facts(b))
     return b
 
 
@@ -416,7 +444,7 @@ class Roster(Tmp):
     ci = self.load(ROOT / 'test' / 'hil' / 'ci.json', 'imxrt1064_evk')
     self.assertEqual((ci['lock'], ci['reentry'], ci['usbPower'], ci['install'], ci['app']),
                      ('mimxrt1064_evk', 'retained-register', None, (0x70000000, 0x7000C000), (0x7000C000, 0x70400000)))
-    facts = ht.source_facts(f4)
+    facts = board_facts(f4)
     for what, over in (('flash past the F411VE\'s 512 KiB', {'flashSize': 0x100000}),
                        ('flash below 0x08000000', {'flashBase': 0x07FF0000})):
       with self.subTest(what), self.assertRaisesRegex(ht.Refused, 'leaves the stm32f411ve flash'):
@@ -540,17 +568,14 @@ class Admission(Tmp):
   def setUp(self):
     super().setUp()
     self.board = self.load(roster(self.tmp))
-    self.facts = ht.source_facts(self.board)
+    self.facts = board_facts(self.board)
 
   def test_a_good_candidate_passes(self):
     ht.check_bootloader_bin(bootloader_bin(self.tmp / 'c.bin'), self.board, self.facts, 'candidate')
 
-  def test_candidate_refusals(self):
-    cases = {'too big for the install range': bootloader_bin(self.tmp / 'a.bin', size=0x10001),
-             'another board': bootloader_bin(self.tmp / 'b.bin', board_id=b'OTHER')}
-    for what, path in cases.items():
-      with self.subTest(what), self.assertRaises(ht.Refused):
-        ht.check_bootloader_bin(path, self.board, self.facts, 'c')
+  def test_a_candidate_too_big_for_the_install_range_is_refused(self):   # another board's: board_facts' Board-ID
+    with self.assertRaises(ht.Refused):
+      ht.check_bootloader_bin(bootloader_bin(self.tmp / 'a.bin', size=0x10001), self.board, self.facts, 'c')
 
 def rt_roster(tmp):
   return roster(tmp, name='imxrt1060_evk', flasher={'name': 'jlink', 'uid': '2', 'args': '-device MIMXRT1062xxx6A'},
@@ -563,7 +588,7 @@ class Rt1060(Tmp):
   def setUp(self):
     super().setUp()
     self.board = self.load(rt_roster(self.tmp), 'imxrt1060_evk')
-    self.facts = ht.source_facts(self.board)
+    self.facts = board_facts(self.board)
 
   def test_the_layout_comes_from_the_source_and_spans_check_against_the_flash_base(self):
     self.assertEqual((self.board['install'], self.board['app']), ((0x60000000, 0x6000C000), (0x6000C000, 0x60800000)))
@@ -646,260 +671,12 @@ class EndChild(unittest.TestCase):
     live.returncode = -signal.SIGKILL   # reaped by end_child
 
 
-MAX_HEADER = 'lib/mcu/analog/msdk/Libraries/CMSIS/Device/Maxim/MAX32665/Include/max32665.h'
 MAX = {'port': 'maxim', 'name': 'max32666fthr', 'device': 'max32665'}
-MAX_FACTS = {'flashBase': 0x10000000, 'binBase': 0x10000000, 'appStart': 0x10008000, 'flashSize': 0x100000,
-             'vid': 0x0456, 'pid': 0xa010, 'boardId': 'MAX32666-FTHR', 'family': 0xf0c30d71, 'vectors': 111,
-             'ram': 0x20000000, 'dblTapDelayMs': 500, 'dblTapReg': 0x2008BFFC, 'dblTapMagic': 0xF01669EF}
 
 
-def edited_tree(test, files, edits):
-  """A temporary checkout holding `files` (checkout-relative) with `edits` {path: text -> text} applied."""
-  t = tempfile.TemporaryDirectory()
-  test.addCleanup(t.cleanup)
-  for rel in files:
-    (Path(t.name) / rel).parent.mkdir(parents=True, exist_ok=True)
-    (Path(t.name) / rel).write_text(edits.get(rel, lambda x: x)((ROOT / rel).read_text()))
-  return Path(t.name)
+class EspSourceValues(unittest.TestCase):
+  """The CMake and #define values the Espressif facts read from the source."""
 
-
-class SourceFacts(unittest.TestCase):
-  def test_a_port_the_runner_has_no_facts_for_is_refused(self):
-    with self.assertRaisesRegex(ht.Refused, 'ports/stm32l4: the HIL runner has no source facts'):
-      ht.port_sources('stm32l4', 'ports/stm32l4/boards/x')
-
-  def test_lpcxpresso55s69_facts_come_from_the_source(self):
-    f = ht.source_facts({'port': 'lpc55', 'name': BOARD, 'device': 'LPC55S69_M33_0'})
-    # RTC->GPREG[7] at the non-secure RTC base 0x4002C000 + 0x40 + 7 * 4; NUMBER_OF_INT_VECTORS 76
-    self.assertEqual(f, LPC_FACTS)
-    header, ld = ht.port_sources('lpc55', f'ports/lpc55/boards/{BOARD}')[:2]
-    self.assertEqual((header, ld), ('lib/mcu/nxp/mcux-sdk/devices/LPC55S69/LPC55S69_cm33_core0.h',
-                                    'lib/mcu/nxp/mcux-sdk/devices/LPC55S69/gcc/LPC55S69_cm33_core0_flash.ld'))
-
-  def test_lpc55_reads_its_linker_script_and_device_from_the_exact_cmake_forms(self):
-    files = ('ports/lpc55/CMakeLists.txt', 'ports/lpc55/family.cmake', f'ports/lpc55/boards/{BOARD}/board.cmake',
-             'lib/mcu/nxp/mcux-sdk/devices/LPC55S69/gcc/LPC55S69_cm33_core0_flash.ld')
-    lists, fam, board, _ = files
-    for what, rel, edit in (
-        ('another script dir', lists, lambda x: x.replace('${MCU_DIR}/gcc/', '${SDK_DIR}/gcc/')),
-        ('a second script', lists, lambda x: x.replace('_flash.ld"', '_flash.ld"\n  "LINKER:--script=${MCU_DIR}/x.ld"')),
-        ('an unknown core reference', board, lambda x: x.replace('${MCU}_cm33_core0', '${CORE}_cm33_core0')),
-        ('an MCU_DIR elsewhere', fam, lambda x: x.replace('${SDK_DIR}/devices/${MCU}', '${OTHER}/devices/${MCU}'))):
-      root = edited_tree(self, files, {rel: edit})
-      with self.subTest(what), mock.patch.object(ht, 'ROOT', root), mock.patch.object(ht.cb, 'ROOT', root), \
-           self.assertRaises(ht.Refused):
-        ht.port_sources('lpc55', f'ports/lpc55/boards/{BOARD}')
-    root = edited_tree(self, files, {})
-    with mock.patch.object(ht, 'ROOT', root), mock.patch.object(ht.cb, 'ROOT', root):
-      self.assertEqual(ht.port_sources('lpc55', f'ports/lpc55/boards/{BOARD}')[2:], (0, 0, 0x20000000, {}, {}))
-
-  @unittest.skipUnless((ROOT / MAX_HEADER).is_file(), f'{MAX_HEADER} not fetched (tools/get_deps.py maxim)')
-  def test_max32666fthr_facts_come_from_the_source(self):
-    # app start: the flash base plus the link's __FLASH_BOOT_SIZE 0x8000; flash: MXC_FLASH_MEM_SIZE * 2; the double
-    # tap: _board_dfu_dbl_tap = _estack, the last word of the 0x8C000 - 4 SRAM; vectors: MXC_IRQ_EXT_COUNT 95 + 16
-    self.assertEqual(ht.source_facts(MAX), MAX_FACTS)
-    b = dict(MAX)
-    ht.apply_layout(b, MAX_FACTS)
-    self.assertEqual((b['install'], b['app']), ((0x10000000, 0x10008000), (0x10008000, 0x10100000)))
-
-  @unittest.skipUnless((ROOT / MAX_HEADER).is_file(), f'{MAX_HEADER} not fetched (tools/get_deps.py maxim)')
-  def test_maxim_refuses_any_other_form_of_its_boot_size_scripts_flash_and_family(self):
-    bdir = 'ports/maxim/boards/max32666fthr'
-    files = ('ports/maxim/CMakeLists.txt', 'ports/maxim/family.cmake', 'ports/maxim/boards.h', f'{bdir}/board.cmake',
-             f'{bdir}/board.h', 'ports/maxim/linker/max32665/max32665_boot.ld',
-             'ports/maxim/linker/max32665/max32665_common.ld', MAX_HEADER, 'src/board_api.h')
-    lists, fam, boards, board, _, boot, common = files[:7]
-    defsym = '-Wl,--defsym=__FLASH_BOOT_SIZE=${FLASH_BOOT_SIZE}'
-    for what, rel, edit in (
-        ('a third script', lists, lambda x: x.replace('_common.ld"', '_common.ld"\n  "LINKER:--script=${TOP}/x.ld"')),
-        # GNU ld reads a script it is passed whatever its name (review of 6b0e521)
-        ('an unrecognised script', lists, lambda x: x.replace(
-          '_common.ld"', '_common.ld"\n  "LINKER:--script=${CMAKE_CURRENT_LIST_DIR}/extra.ld.backup"')),
-        ('a -T script', lists, lambda x: x.replace('_common.ld"', '_common.ld"\n  "LINKER:-T,extra.ld"')),
-        ('a family script', fam, lambda x: x.replace('-nostartfiles', '-nostartfiles -Wl,--script=extra.ld')),
-        ('a nested flash size', boards, lambda x: x.replace(
-          '#if defined(MAX32650)', '#if MXC_ASSERT_ENABLE\n#define BOARD_FLASH_SIZE 0x80000\n#else\n#if defined(MAX32650)', 1)
-         .replace('#define BOARD_FLASH_ADDR_LAST', '#endif\n#define BOARD_FLASH_ADDR_LAST')),
-        ('the scripts swapped', lists, lambda x: x.replace('_boot.ld', '_tmp.ld').replace('_common.ld', '_boot.ld')
-         .replace('_tmp.ld', '_common.ld')),
-        ('a literal defsym', fam, lambda x: x.replace(defsym, '-Wl,--defsym=__FLASH_BOOT_SIZE=0x4000')),
-        ('an extra defsym', fam, lambda x: x.replace(defsym, defsym + ' -Wl,--defsym=__x=1')),
-        ('no compile define', fam, lambda x: x.replace('    FLASH_BOOT_SIZE=${FLASH_BOOT_SIZE}\n', '')),
-        ('a board boot size', board, lambda x: x + '\nset(FLASH_BOOT_SIZE 0x4000)\n'),
-        ('a script assignment', boot, lambda x: x + '\n__FLASH_BOOT_SIZE = 0x4000;\n'),
-        ('a double tap in the common script', common, lambda x: x + '\n_board_dfu_dbl_tap = 0x20000000;\n'),
-        ('another app start', boards, lambda x: x.replace('(BOARD_FLASH_ADDR_ZERO + FLASH_BOOT_SIZE)', '0x10010000')),
-        ('a flash size outside the branches', boards, lambda x: x.replace('#define BOARD_FLASH_ADDR_LAST',
-                                                                          '#define BOARD_FLASH_SIZE 0x80000\n#define BOARD_FLASH_ADDR_LAST')),
-        ('a flash size expression', boards, lambda x: x.replace('(MXC_FLASH_MEM_SIZE * 2)', '(MXC_FLASH_MEM_SIZE + 2)')),
-        ('the device in no branch', boards, lambda x: x.replace('defined(MAX32665) || ', '')),
-        ('the flash base off the link\'s', MAX_HEADER, lambda x: x.replace('#define MXC_FLASH0_MEM_BASE 0x10000000UL',
-                                                                           '#define MXC_FLASH0_MEM_BASE 0x10004000UL')),
-        ('a literal family', fam, lambda x: x.replace('set(UF2_FAMILY_ID ${UF2_FAMILY_ID_${MAX_DEVICE_UPPER}})',
-                                                      'set(UF2_FAMILY_ID 0x1)'))):
-      root = edited_tree(self, files, {rel: edit})
-      with self.subTest(what), mock.patch.object(ht, 'ROOT', root), mock.patch.object(ht.cb, 'ROOT', root), \
-           self.assertRaises(ht.Refused):
-        ht.source_facts(MAX)
-    root = edited_tree(self, files, {})
-    with mock.patch.object(ht, 'ROOT', root), mock.patch.object(ht.cb, 'ROOT', root):
-      self.assertEqual(ht.source_facts(MAX), MAX_FACTS)
-
-  def test_a_device_define_comes_from_the_one_branch_naming_the_device(self):
-    t = tempfile.TemporaryDirectory()
-    self.addCleanup(t.cleanup)
-    head = '#ifndef G_\n#define G_\n#if __has_include("x.h")\n#include "x.h"\n#endif\n'
-    chain = ('#if defined(MAX1)\n#define SIZE 1\n#elif defined(MAX2) || defined(MAX3)\n#define SIZE (M * 2) // two\n'
-             '#elif defined(MAX4)\n#define SIZE 3\n#endif\n')
-    ok = head + chain + '#endif\n'
-    with mock.patch.object(ht, 'ROOT', Path(t.name)):
-      (Path(t.name) / 'ok.h').write_text(ok)
-      self.assertEqual([ht.device_define('ok.h', f'MAX{n}', 'SIZE') for n in (1, 3, 4)], ['1', '(M * 2)', '3'])
-      (Path(t.name) / 'bare.h').write_text(chain)
-      self.assertEqual(ht.device_define('bare.h', 'MAX4', 'SIZE'), '3')
-      # the compiler takes the outer branch's 0x80000 whenever MXC_ASSERT_ENABLE is set (review of 6b0e521)
-      nested = head + '#if MXC_ASSERT_ENABLE\n#define SIZE 0x80000\n#else\n' + chain + '#endif\n#endif\n'
-      for what, text, macro in (
-          ('no branch', ok, 'MAX5'), ('an #else', ok.replace('#elif defined(MAX4)', '#else'), 'MAX4'),
-          ('outside the chain', ok + '#define SIZE 4\n', 'MAX1'),
-          ('another condition', ok.replace('#elif defined(MAX4)', '#elif MAX4'), 'MAX4'),
-          ('twice in a branch', ok.replace('#define SIZE 1\n', '#define SIZE 1\n#define SIZE 5\n'), 'MAX1'),
-          ('an unmatched #endif', '#endif\n' + ok, 'MAX1'), ('an unclosed #if', head + chain, 'MAX1'),
-          ('a chain nested in an #if', nested, 'MAX1'),
-          ('a chain nested in an #ifndef', head + '#ifndef X\n' + chain + '#endif\n#endif\n', 'MAX1'),
-          ('a chain nested in a device branch', head + '#if defined(MAX9)\n' + chain + '#endif\n#endif\n', 'MAX1'),
-          ('a define nested in the branch', ok.replace('#define SIZE 3\n', '#ifdef X\n#define SIZE 3\n#endif\n'), 'MAX4'),
-          ('an earlier opaque branch', ok.replace('#elif defined(MAX2) || defined(MAX3)', '#elif X'), 'MAX4'),
-          ('a non-device name', ok.replace('defined(MAX2) || ', 'defined(DEBUG) || '), 'MAX3'),
-          ('not a device', ok, 'DEBUG')):
-        (Path(t.name) / 'bad.h').write_text(text)
-        with self.subTest(what), self.assertRaises(ht.Refused):
-          ht.device_define('bad.h', macro, 'SIZE')
-
-  def test_stm32f407disco_facts_come_from_the_source(self):
-    f = ht.source_facts({'port': 'stm32f4', 'name': 'stm32f407disco', 'device': 'stm32f407vg'})
-    self.assertEqual((f['flashBase'], f['binBase'], f['appStart'], f['flashSize'], f['vid'], f['pid'], f['boardId']),
-                     (0x08000000, 0x08000000, 0x08010000, 0x100000, 0x239a, 0x0089, 'STM32F407-Discovery-revD'))
-    # _board_dfu_dbl_tap = _estack, the last word of the boot script's 64K RAM; FPU_IRQn = 81 is the highest IRQ
-    self.assertEqual((f['dblTapReg'], f['ram'], f['vectors'], f['family']), (0x2000FFFC, 0x20000000, 98, 0x57755a57))
-    b = {'port': 'stm32f4', 'name': 'stm32f407disco', 'device': 'stm32f407vg'}
-    ht.apply_layout(b, f)
-    self.assertEqual((b['install'], b['app']), ((0x08000000, 0x08010000), (0x08010000, 0x08100000)))
-
-  def test_rt1060_facts_come_from_the_source(self):
-    f = ht.source_facts(RT)
-    self.assertEqual((f['flashBase'], f['appStart'], f['flashSize'], f['vid'], f['pid'], f['boardId']),
-                     (0x60000000, 0x6000C000, 0x800000, 0x239a, 0x0083, 'MIMXRT1060-EVK-revA'))
-    self.assertEqual((f['dblTapReg'], f['ram'], f['vectors']), (0x400D410C, 0x20000000, 174))   # SNVS LPGPR[3]
-    self.assertEqual(f['family'], 0x4fb2d5bd)
-
-  def test_rt1011_facts_put_the_bin_at_the_fcb(self):
-    f = ht.source_facts({'port': 'mimxrt10xx', 'name': 'metro_m7_1011'})
-    self.assertEqual((f['flashBase'], f['binBase'], f['appStart'], f['flashSize'], f['pid'], f['boardId']),
-                     (0x60000000, 0x60000400, 0x6000C000, 0x800000, 0x00e1, 'MIMXRT1011-Metro-revA'))
-    self.assertEqual((f['dblTapReg'], f['ram']), (0x400D410C, 0x20000000))
-    self.assertEqual(ht.source_facts(RT)['binBase'], 0x60000000)
-
-  def test_stm32f303disco_facts_come_from_the_source(self):
-    f = ht.source_facts({'port': 'stm32f3', 'name': 'stm32f303disco'})
-    self.assertEqual((f['flashBase'], f['binBase'], f['appStart'], f['flashSize'], f['vid'], f['pid'], f['boardId']),
-                     (0x08000000, 0x08000000, 0x08004000, 0x40000, 0xcafe, 0xffff, 'STM32F303-Discovery-MB1035D'))
-    # _board_dfu_dbl_tap = _estack, the last word of the 40K SRAM; FPU_IRQn = 81 is the highest IRQ
-    self.assertEqual((f['dblTapReg'], f['ram'], f['vectors'], f['family']), (0x20009FFC, 0x20000000, 98, 0x6b846188))
-
-  def test_stm32f411ve_discovery_facts_come_from_the_source(self):
-    f = ht.source_facts({'port': 'stm32f4', 'name': 'stm32f411ve_discovery'})
-    self.assertEqual((f['flashBase'], f['binBase'], f['appStart'], f['flashSize'], f['vid'], f['pid'], f['boardId']),
-                     (0x08000000, 0x08000000, 0x08010000, 0x80000, 0x239a, 0x005d, 'STM32F411-Discovery-revA'))
-    # _board_dfu_dbl_tap = _estack, the last word of the boot script's 64K RAM; SPI5_IRQn = 85 is the highest IRQ
-    self.assertEqual((f['dblTapReg'], f['ram'], f['vectors'], f['family']), (0x2000FFFC, 0x20000000, 102, 0x57755a57))
-
-  def test_an_stm32_board_needs_exactly_one_device_define_of_its_series(self):
-    real = ht.cb.code_lines
-    for port, board, text in (('stm32f4', 'stm32f411ve_discovery', 'STM32F411xE STM32F407xG'),
-                              ('stm32f4', 'stm32f411ve_discovery', 'STM32F303xC'),
-                              ('stm32f3', 'stm32f303disco', 'STM32F411xE')):
-      fake = lambda path, text=text: text if Path(path).name == 'board.cmake' else real(path)
-      with self.subTest(port=port, text=text), mock.patch.object(ht.cb, 'code_lines', side_effect=fake), \
-           self.assertRaisesRegex(ht.Refused, f'expected one {port.upper()} device define'):
-        ht.source_facts({'port': port, 'name': board})
-
-  def test_linker_values_are_literal_sums_and_symbols_resolve_once(self):
-    t = tempfile.TemporaryDirectory()
-    self.addCleanup(t.cleanup)
-    (Path(t.name) / 'a.ld').write_text(textwrap.dedent('''\
-      _estack = ORIGIN(RAM) + LENGTH(RAM);   /* end of RAM */
-      _board_dfu_dbl_tap = _estack;
-      _loop = _loop2; _loop2 = _loop;
-      _twice = 1; _twice = 2;
-      _moved = 0x20009FFC; _moved -= 4;
-      _shifted = 0x20009FFC; _shifted >>= 1;
-      _shift = 1 << 4;
-      MEMORY
-      {
-        FLASH (rx)  : ORIGIN = 0x8000000, LENGTH = 16K
-        RAM (xrw)   : ORIGIN = 0x20000000, LENGTH = 40K - 4    /* reserve 4 bytes */
-        RAM2 (xrw)  : ORIGIN = 0x10000000, LENGTH = 8K * 2
-      }
-      '''))
-    with mock.patch.object(ht, 'ROOT', Path(t.name)):
-      self.assertEqual(ht.ld_memory('a.ld', 'RAM'), (0x20000000, 40 * 1024 - 4))
-      self.assertEqual(ht.ld_symbol('a.ld', '_board_dfu_dbl_tap'), 0x20009FFC)
-      for what, call in (('product', lambda: ht.ld_memory('a.ld', 'RAM2')), ('no region', lambda: ht.ld_memory('a.ld', 'CCM')),
-                         ('cycle', lambda: ht.ld_symbol('a.ld', '_loop')), ('twice', lambda: ht.ld_symbol('a.ld', '_twice')),
-                         ('compound', lambda: ht.ld_symbol('a.ld', '_moved')), ('shift', lambda: ht.ld_symbol('a.ld', '_shift')),
-                         ('compound shift', lambda: ht.ld_symbol('a.ld', '_shifted'))):
-        with self.subTest(what), self.assertRaises(ht.Refused):
-          call()
-
-  def test_the_msdk_vector_count_is_its_irqn_enum_count_entry(self):
-    t = tempfile.TemporaryDirectory()
-    self.addCleanup(t.cleanup)
-    enum = ('typedef enum {{\n  SysTick_IRQn = -1,\n  PF_IRQn = 0, /* 16 */\n  WDT0_IRQn,\n  {last}\n}} IRQn_Type;\n'
-            '#define MXC_IRQ_COUNT {count}\n')
-    with mock.patch.object(ht, 'ROOT', Path(t.name)):
-      (Path(t.name) / 'ok.h').write_text(enum.format(last='USB_IRQn = 7,\n  RTC_IRQn,\n  MXC_IRQ_EXT_COUNT',
-                                                     count='(MXC_IRQ_EXT_COUNT + 16)'))
-      self.assertEqual(ht.vector_count('ok.h'), 16 + 9)
-      for what, last, count in (('no count entry', 'USB_IRQn', '(MXC_IRQ_EXT_COUNT + 16)'),
-                                ('another count', 'MXC_IRQ_EXT_COUNT', '(MXC_IRQ_EXT_COUNT + 15)'),
-                                ('a hex entry', 'USB_IRQn = 0x7,\n  MXC_IRQ_EXT_COUNT', '(MXC_IRQ_EXT_COUNT + 16)'),
-                                ('an expression entry', 'USB_IRQn = 6 + 1,\n  MXC_IRQ_EXT_COUNT', '(MXC_IRQ_EXT_COUNT + 16)')):
-        (Path(t.name) / 'bad.h').write_text(enum.format(last=last, count=count))
-        with self.subTest(what), self.assertRaises(ht.Refused):
-          ht.vector_count('bad.h')
-
-  @unittest.skipUnless((ROOT / MAX_HEADER).is_file(), f'{MAX_HEADER} not fetched (tools/get_deps.py maxim)')
-  def test_max32665_vector_count_comes_from_its_cmsis_header(self):
-    self.assertEqual(ht.vector_count(MAX_HEADER), 111)
-
-  def test_the_vector_count_takes_decimal_irqn_entries_only(self):
-    t = tempfile.TemporaryDirectory()
-    self.addCleanup(t.cleanup)
-    enum = 'typedef enum {{\n  NonMaskableInt_IRQn = -14, /* = 200 */\n  USB_IRQn = 42,\n  {last}\n}} IRQn_Type;\n'
-    with mock.patch.object(ht, 'ROOT', Path(t.name)):
-      (Path(t.name) / 'ok.h').write_text(enum.format(last='FPU_IRQn = 81,   // last'))
-      self.assertEqual(ht.vector_count('ok.h'), 98)
-      for what, last in (('hex', 'FPU_IRQn = 0x51'), ('expression', 'FPU_IRQn = 80 + 1'), ('implicit', 'FPU_IRQn')):
-        (Path(t.name) / 'bad.h').write_text(enum.format(last=last))
-        with self.subTest(what), self.assertRaises(ht.Refused):
-          ht.vector_count('bad.h')
-
-  def test_the_linker_script_is_the_whole_script_argument(self):
-    t = tempfile.TemporaryDirectory()
-    self.addCleanup(t.cleanup)
-    with mock.patch.object(ht, 'ROOT', Path(t.name)):
-      (Path(t.name) / 'ok.txt').write_text('target_link_options(t PUBLIC "LINKER:--script=${CMAKE_CURRENT_LIST_DIR}/linker/a.ld")\n')
-      self.assertEqual(ht.cmake_script('ok.txt'), './linker/a.ld')
-      (Path(t.name) / 'refs.txt').write_text('target_link_options(t PUBLIC "LINKER:--script=${D}/gcc/${C}_flash.ld")\n')
-      self.assertEqual(ht.cmake_script('refs.txt', {'D': 'lib/sdk', 'C': 'core0'}), 'lib/sdk/gcc/core0_flash.ld')
-      for what, arg in (('a longer name', '${CMAKE_CURRENT_LIST_DIR}/a.ld.backup'),
-                        ('a variable suffix', '${CMAKE_CURRENT_LIST_DIR}/a.ld${X}'),
-                        ('an unknown reference', '${D}/gcc/${X}_flash.ld'), ('no directory reference', 'gcc/a.ld'),
-                        ('two scripts', '${D}/a.ld" "LINKER:--script=${D}/b.ld')):
-        (Path(t.name) / 'bad.txt').write_text(f'target_link_options(t PUBLIC "LINKER:--script={arg}")\n')
-        with self.subTest(what), self.assertRaises(ht.Refused):
-          ht.cmake_script('bad.txt', {'D': 'lib/sdk'})
 
   def test_a_cmake_value_is_one_plain_set(self):
     t = tempfile.TemporaryDirectory()
@@ -908,19 +685,16 @@ class SourceFacts(unittest.TestCase):
                                           'set(Q "a")\nset(F 0x1)\nSET (F 0x2)\nset(E)\n')
     with mock.patch.object(ht, 'ROOT', Path(t.name)):
       self.assertEqual(ht.cmake_var('x.cmake', 'SDK_DIR'), 'lib/sdk')
-      self.assertEqual(ht.cmake_var('x.cmake', 'V', {'OTHER': 'lib/o'}), 'lib/o/x')
       for name in ('ID', 'V', 'Q', 'F', 'E', 'NONE'):
         with self.subTest(name), self.assertRaises(ht.Refused):
           ht.cmake_var('x.cmake', name)
 
-  def test_only_literals_and_the_supported_expressions_are_read(self):
+  def test_only_a_literal_or_a_product_of_literals_is_read(self):
     self.assertEqual(ht.product('(8*1024*1024)', 'x'), 0x800000)
     self.assertEqual(ht.product('(0x98000U)', 'x'), 0x98000)
-    self.assertEqual(ht.flash_addr('0x10000', None, 'x'), 0x10000)
-    self.assertEqual(ht.flash_addr('(FLASH_BASE + 0xC000)', 0x60000000, 'x'), 0x6000C000)
-    for expr, base in (('(FLASH_BASE + 0xC000)', None), ('(OTHER + 0xC000)', 0), ('FLASH_BASE - 4', 0), ('(1 << 20)', 0)):
+    for expr in ('(FLASH_BASE + 0xC000)', 'FLASH_BASE - 4', '(1 << 20)'):
       with self.subTest(expr), self.assertRaises(ht.Refused):
-        ht.flash_addr(expr, base, 'x') if 'BASE' in expr or 'OTHER' in expr else ht.product(expr, 'x')
+        ht.product(expr, 'x')
 
 S3 = 'espressif_esp32s3_devkitc_1'
 S3_PARTS = [('nvs', 1, 0x02, 0x9000, 0x5000), ('otadata', 1, 0x00, 0xe000, 0x2000), ('ota_0', 0, 0x10, 0x10000, 0x200000),
@@ -977,7 +751,7 @@ class EspCase(Tmp):
   def setUp(self):
     super().setUp()
     self.board = self.load(s3_roster(self.tmp, **self.roster), self.name)
-    self.facts = ht.source_facts(self.board)
+    self.facts = board_facts(self.board)
     self.now = {'head': 'h', 'submodules': {}, 'deps': {}, 'dirty': False}
 
   def record(self, row, idf=None):
@@ -1204,7 +978,7 @@ class EspFake(Tmp):
   def setUp(self):
     super().setUp()
     self.board = self.load(s3_roster(self.tmp), S3)
-    self.facts = ht.source_facts(self.board)
+    self.facts = board_facts(self.board)
     self.flash = self.tmp / 'flash.img'
     self.flash.write_bytes(bytes(range(256)) * (0x800000 // 256))
     fake = self.tmp / 'fake_esp.py'
@@ -2341,7 +2115,7 @@ class CopyFlush(Tmp):
     (bindir / 'mcopy').write_text('#!/bin/sh\nexit 0\n')
     (bindir / 'mcopy').chmod(0o755)
     board = self.load(roster(self.tmp))
-    self.bat, self.left, self.events = ht.Battery(board, ht.source_facts(board), self.tmp), True, []
+    self.bat, self.left, self.events = ht.Battery(board, board_facts(board), self.tmp), True, []
     self.bat.usb_path, self.dev = '1-2', self.tmp / 'drive'
     self.dev.write_bytes(bytes(512))
 
@@ -2815,7 +2589,7 @@ class BuildLockLifetime(Tmp):
   def setUp(self):
     super().setUp()
     board = self.load(roster(self.tmp))
-    self.bat = ht.Battery(board, ht.source_facts(board), self.tmp)
+    self.bat = ht.Battery(board, board_facts(board), self.tmp)
     self.root = self.tmp / 'build'
     self.root.mkdir()
     self.flash = {'root': self.root, 'sha256': {}}
@@ -3148,7 +2922,7 @@ class RunBoard(Tmp):
     with mock.patch.object(ht, 'check_lock_pin'):
       self.helper = pinned_helper(self, self.tmp / 'locks')
     self.board = self.load(roster(self.tmp))
-    self.facts = ht.source_facts(self.board)
+    self.facts = board_facts(self.board)
     self.args = mock.Mock(build_record='rec.json', fail_at=None, try_reentry=None, update_record=None, lock_wait=0,
                           ci_state_root=None, done_marker=None, started_marker=None)
     for p in (mock.patch.object(ht, 'verify_record', lambda *a: ({'hex': 'x.hex', 'bin': 'x.bin'}, {'version': 'v'})),
@@ -3996,7 +3770,7 @@ class BatteryRun(Tmp):
 
   def battery(self, reentry='retained-register', corrupt=None, commissioning=False, device=None):
     board = self.load(roster(self.tmp, tinyuf2={'reentry': reentry}))
-    facts = ht.source_facts(board)
+    facts = board_facts(board)
     if device:
       board['device'] = device
     bat = ht.Battery(board, facts, self.tmp, commissioning=commissioning)
@@ -4670,11 +4444,12 @@ class UpdateAdmission(Tmp):
   def setUp(self):
     super().setUp()
     self.board = self.load(rt_roster(self.tmp), 'imxrt1060_evk')
-    self.facts = ht.source_facts(self.board)
+    self.facts = dict(board_facts(self.board), flashCache=0x1000)   # board_flash.c's _flash_cache
     self.now = {'head': 'h', 'submodules': {}, 'deps': {}, 'dirty': False}
-    p = mock.patch.object(ht.cb, 'identity', lambda ports: self.now)
-    p.start()
-    self.addCleanup(p.stop)
+    for p in (mock.patch.object(ht.cb, 'identity', lambda ports: self.now),
+              mock.patch.object(ht, 'record_facts', lambda record, board, workdir: self.facts)):
+      p.start()
+      self.addCleanup(p.stop)
 
   def record(self, name, version, size=0x2100, uf2=True, data=None):
     build = self.tmp / name
@@ -4739,7 +4514,14 @@ class UpdateAdmission(Tmp):
       ht.admit_update(rec, self.board, self.facts, self.tmp / 'run', {'bin': files['bin']}, fw)
     lpc = self.load(roster(self.tmp))
     with self.assertRaisesRegex(ht.Refused, 'no update battery for ports/lpc55 .* stay uncovered'):
-      ht.admit_update(rec, lpc, ht.source_facts(lpc), self.tmp / 'run', files, fw)
+      ht.admit_update(rec, lpc, board_facts(lpc), self.tmp / 'run', files, fw)
+
+  def test_a_candidate_without_a_flash_cache_is_refused(self):
+    files, fw = self.candidate()
+    rec, _ = self.record('var', b'hil-update')
+    del self.facts['flashCache']
+    with self.assertRaisesRegex(ht.Refused, 'tinyuf2.elf has no _flash_cache, so the update sector is unknown'):
+      ht.admit_update(rec, self.board, self.facts, self.tmp / 'run', files, fw)
 
   def test_an_updater_must_lay_out_its_bin_in_place(self):
     b = bootloader_bin(self.tmp / 'b.bin', size=0x300, board_id=b'MIMXRT1060-EVK-revA')
@@ -4986,6 +4768,63 @@ class PendingMark(Tmp):
     self.assertEqual([(x['note'], x['notEnded'], x['hold']['reason'], x['hold']['pid']) for x in log],
                      [('server ended by the reviewed recovery in #123', [self.unresolved['receipt']], 'mine',
                        os.getpid())])
+
+
+class RecordFacts(Tmp):
+  """A non-Espressif board's facts: board_facts.read over hash-checked copies of the record's own artifacts."""
+
+  def setUp(self):
+    super().setUp()
+    self.board = self.load(roster(self.tmp))
+    self.now = {'head': 'h', 'submodules': {}, 'deps': {}, 'dirty': False}
+    self.build = test_board_facts.Build(self.tmp / 'build').write()
+    self.want = bf_read(self.build)
+    for p in (mock.patch.object(ht, 'record_facts', real_record_facts),
+              mock.patch.object(ht.cb, 'identity', lambda ports: self.now)):
+      p.start()
+      self.addCleanup(p.stop)
+
+  def record(self, rels=(*ht.cb.FACTS_FILES, '_bin/tinyuf2.bin', '_bin/tinyuf2.hex')):
+    rec = self.tmp / 'r.json'
+    row = {'board': BOARD, 'status': 'ok', 'backend': 'cmake', 'buildDir': str(self.build),
+           'sha256': {r: ht.sha256(self.build / r) for r in rels}}
+    rec.write_text(json.dumps({'pass': True, 'input': self.now, 'boards': [row]}))
+    return rec
+
+  def test_the_facts_are_read_from_copies_of_the_records_artifacts(self):
+    self.assertEqual(ht.record_facts(self.record(), self.board, self.tmp / 'run'), self.want)
+    self.assertEqual((self.tmp / 'run' / 'facts' / 'tinyuf2.elf').read_bytes(), (self.build / 'tinyuf2.elf').read_bytes())
+
+  def test_a_record_without_its_facts_or_with_a_changed_artifact_refuses(self):
+    with self.assertRaisesRegex(ht.Refused, 'no board facts in the record .*rebuild it'):
+      ht.record_facts(self.record(rels=('_bin/tinyuf2.bin',)), self.board, self.tmp / 'run')
+    rec = self.record()
+    (self.build / 'board_facts.o').write_bytes(b'x')
+    with self.assertRaisesRegex(ht.Refused, 'changed since the build record'):
+      ht.record_facts(rec, self.board, self.tmp / 'run2')
+
+  def test_a_pinned_record_is_admitted_once_for_its_facts_and_images(self):
+    rec = self.record()
+    self.addCleanup(ht.RECORDS.clear)
+    ht.pin_records(rec)
+    with mock.patch.object(ht.cb, 'identity', wraps=ht.cb.identity) as identity:
+      first = ht.record_row(rec, self.board)
+      rec.write_text('{"pass": false}')   # a replacement after admission is never read
+      self.assertIs(ht.record_row(rec, self.board), first)
+      ht.record_facts(rec, self.board, self.tmp / 'run')
+    self.assertEqual(identity.call_count, 1)
+
+  def test_run_refuses_a_record_without_facts_before_any_lock(self):
+    rec = self.record(rels=('_bin/tinyuf2.bin',))
+    with contextlib.redirect_stdout(io.StringIO()) as out, \
+         mock.patch.object(ht, 'load_helper', side_effect=AssertionError('the lock helper was loaded')):
+      code = ht.main(['run', '-b', BOARD, '--build-record', str(rec), str(roster(self.tmp))])
+    self.assertEqual(code, 2)
+    self.assertIn('no board facts in the record', out.getvalue())
+
+
+def bf_read(build):
+  return test_board_facts.bf.read(build, (test_board_facts.BOOT, test_board_facts.BOOT + 0x100000))
 
 
 class Main(Tmp):
@@ -5605,7 +5444,7 @@ class StlinkBatteryRun(Tmp):
     cfg.write_text(json.dumps({'boards': [{'name': 'stm32h563_nucleo', 'uid': 'UID', 'flasher': {
       'name': 'stlink', 'uid': '0023', 'args': '-device stm32h563zi'}, 'tinyuf2': {'reentry': 'retained-register'}}]}))
     board = self.load(cfg, 'stm32h563_nucleo')
-    self.bat = bat = ht.StlinkBattery(board, ht.source_facts(board), self.tmp)
+    self.bat = bat = ht.StlinkBattery(board, board_facts(board), self.tmp)
     cube, f = FakeCube(), bat.f
     self.cube, self.present = cube, [True]
     bin_path = bootloader_bin(self.tmp / 'c.bin', board_id=b'STM32H563-Nucleo')
@@ -5694,137 +5533,7 @@ class StlinkBatteryRun(Tmp):
       self.bat.sysreset()
 
 
-H563_HEADER = 'lib/mcu/st/cmsis_device_h5/Include/stm32h563xx.h'
-
-
-class StlinkSourceFacts(unittest.TestCase):
-  def test_stm32h563_nucleo_facts_come_from_the_source_and_the_link_defsyms(self):
-    with mock.patch.object(ht, 'vector_count', return_value=H563_FACTS['vectors']) as count:
-      f = ht.source_facts(H563)
-    count.assert_called_once_with(H563_HEADER)
-    # __ram_size 640K: _board_dfu_dbl_tap = _estack, the last word of SRAM3
-    self.assertEqual(f, H563_FACTS)
-
-  @unittest.skipUnless((ROOT / H563_HEADER).is_file(), f'{H563_HEADER} not fetched (tools/get_deps.py stm32h5)')
-  def test_stm32h563_vector_count_comes_from_its_cmsis_header(self):
-    self.assertEqual(ht.vector_count(H563_HEADER), H563_FACTS['vectors'])
-
-  def test_a_change_to_how_the_defsyms_reach_the_link_is_refused(self):
-    files = {k: (ROOT / k).read_text() for k in ('ports/stm32h5/family.cmake', 'ports/stm32h5/linker/stm32h5_boot.ld',
-                                                 'ports/stm32h5/boards/stm32h563_nucleo/board.cmake')}
-    fam, ld, _ = files
-
-    def defsyms(**edits):
-      t = tempfile.TemporaryDirectory()
-      self.addCleanup(t.cleanup)
-      for rel, text in files.items():
-        (Path(t.name) / rel).parent.mkdir(parents=True, exist_ok=True)
-        (Path(t.name) / rel).write_text(edits.get(rel, lambda x: x)(text))
-      with mock.patch.object(ht, 'ROOT', Path(t.name)), mock.patch.object(ht.cb, 'ROOT', Path(t.name)):
-        return ht.defsyms('stm32h5', 'ports/stm32h5/boards/stm32h563_nucleo', 'ports/stm32h5/linker/stm32h5_boot.ld')
-    self.assertEqual(defsyms(), {'__flash_boot_size': 32 * 1024, '__ram_size': 640 * 1024})
-    ram = '-Wl,--defsym=__ram_size=${LD_RAM_SIZE}'
-    for what, rel, edit in (
-        ('another defsym', fam, lambda x: x.replace(ram, '-Wl,--defsym=__ram_size=64K')),
-        ('an extra defsym', fam, lambda x: x.replace(ram, ram + ' -Wl,--defsym=__x=1')),
-        ('an unconditional set', fam, lambda x: x + '\nset(LD_RAM_SIZE 64K)\n'),
-        ('no script default', ld, lambda x: x.replace('__ram_size = DEFINED(__ram_size) ? __ram_size : 32K;', '__ram_size = 32K;')),
-        ('a second assignment', ld, lambda x: x + '\n__flash_boot_size += 1K;\n')):
-      with self.subTest(what), self.assertRaisesRegex(ht.Refused, 'does not reach'):
-        defsyms(**{rel: edit})
-
-  def test_flash_size_from_the_cmsis_register_read_is_the_roster_device_flash(self):
-    with self.assertRaisesRegex(ht.Refused, 'BOARD_FLASH_SIZE'):
-      ht.source_facts(dict(H563, device='unknown'))
-
-
 H743 = {'port': 'stm32h7', 'name': 'stm32h743nucleo', 'device': 'stm32h743zi', 'flasher': 'stlink'}
-H743_HEADER = 'lib/mcu/st/cmsis_device_h7/Include/stm32h743xx.h'
-H743_FACTS = {'flashBase': 0x08000000, 'binBase': 0x08000000, 'appStart': 0x08020000, 'flashSize': 0x200000,
-              'vid': 0x239a, 'pid': 0x0097, 'boardId': 'STM32H743ZI-Nucleo', 'family': 0x6db66082, 'vectors': 166,
-              'ram': 0x20000000, 'dblTapDelayMs': 500, 'dblTapReg': 0x20010000, 'dblTapMagic': 0xF01669EF}
-
-
-class Stm32h7SourceFacts(unittest.TestCase):
-  def test_stm32h743nucleo_facts_come_from_the_source_and_both_links(self):
-    # the app start: board.cmake's BOARD_FLASH_APP_START, the app link's FLASH origin under PFLASH_APP; the double tap:
-    # ORIGIN(NOINIT), past the layout's 64K DTCM RAM; WAKEUP_PIN_IRQn = 149 is the highest IRQ
-    f = ht.source_facts(H743)
-    self.assertEqual(f, H743_FACTS)
-    self.assertEqual(ht.port_sources('stm32h7', 'ports/stm32h7/boards/stm32h743nucleo')[:2],
-                     (H743_HEADER, 'ports/stm32h7/linker/h743xx.ld'))
-    b = dict(H743)
-    ht.apply_layout(b, f)
-    self.assertEqual((b['install'], b['app']), ((0x08000000, 0x08020000), (0x08020000, 0x08200000)))
-
-  def test_an_stm32h7_board_without_an_internal_flash_app_is_refused(self):
-    for name in ('daisy_seed', 'mini_stm32h750_v11'):
-      with self.subTest(name), self.assertRaisesRegex(ht.Refused, 'only with an internal-flash app'):
-        ht.source_facts({'port': 'stm32h7', 'name': name})
-
-  def test_stm32h7_refuses_any_other_form_of_its_scripts_defsyms_layout_and_app_start(self):
-    bdir = 'ports/stm32h7/boards/stm32h743nucleo'
-    files = ('ports/stm32h7/family.cmake', 'ports/stm32h7/CMakeLists.txt', 'ports/stm32h7/app.cmake',
-             'ports/stm32h7/boards.h', f'{bdir}/board.cmake', 'ports/stm32h7/linker/memory.ld',
-             'ports/stm32h7/linker/common.ld', 'ports/stm32h7/linker/h743xx.ld', f'{bdir}/board.h',
-             'ports/family_support.cmake', 'cmake/toolchain/arm_gcc.cmake', 'cmake/toolchain/common.cmake',
-             H743_HEADER, 'src/board_api.h')
-    fam, lists, app, boards, board, memory, common, layout, _, shared, _, toolchain = files[:12]
-    link_app = '  target_link_options(${TARGET} PUBLIC\n    "LINKER:--defsym=${APP_LOCATION}=0"\n    )\n'
-    board_link = lambda line: lambda x: x.replace(   # noqa: E731
-      'function(update_board TARGET)\n', f'function(update_board TARGET)\n  {line}\n')
-    defsym = '"LINKER:--defsym=${APP_LOCATION}=0"'
-    for what, rel, edit in (
-        ('a fourth script', fam, lambda x: x.replace(
-          '/linker/${MCU}.ld"', '/linker/${MCU}.ld"\n    "LINKER:--script=${CMAKE_CURRENT_FUNCTION_LIST_DIR}/x.ld"')),
-        ('the scripts reordered', fam, lambda x: x.replace('/memory.ld', '/tmp.ld').replace('/common.ld', '/memory.ld')
-         .replace('/tmp.ld', '/common.ld')),
-        ('a bootloader script', lists, lambda x: x.replace(
-          'family_add_linker_scripts(tinyuf2)',
-          'family_add_linker_scripts(tinyuf2)\ntarget_link_options(tinyuf2 PUBLIC "LINKER:-T,x.ld")')),
-        ('no bootloader scripts', lists, lambda x: x.replace('family_add_linker_scripts(tinyuf2)', '')),
-        ('a bootloader defsym', lists, lambda x: x.replace(
-          'family_add_linker_scripts(tinyuf2)', 'family_add_linker_scripts(tinyuf2)\n'
-          'target_link_options(tinyuf2 PUBLIC "LINKER:--defsym=PFLASH_APP=0")')),
-        ('the app in AXI SRAM', app, lambda x: x.replace('set(APP_LOCATION PFLASH_APP)', 'set(APP_LOCATION RAMCODE)')),
-        ('an extra app defsym', app, lambda x: x.replace(defsym, defsym + ' "LINKER:--defsym=__x=1"')),
-        # review of e0eb8351: each of these links another layout than the one the reader reports
-        ('a later APP_LOCATION', app, lambda x: x.replace('endif ()\n', 'endif ()\nset(APP_LOCATION RAMCODE)\n', 1)),
-        ('the defsym after the scripts', app, lambda x: x.replace(
-          link_app + '  family_add_linker_scripts(${TARGET})\n',
-          '  family_add_linker_scripts(${TARGET})\n' + link_app)),
-        ('a board defsym', board,
-         board_link('target_link_options(${TARGET} PUBLIC "LINKER:--defsym=_board_dfu_dbl_tap=0x20000000")')),
-        ('a board script', board, board_link('target_link_options(${TARGET} PUBLIC "LINKER:--script=x.ld")')),
-        ('a board linker script input', board, board_link('target_link_libraries(${TARGET} PUBLIC x.ld)')),
-        ('a shared script', shared, lambda x: x + '\nadd_link_options("LINKER:--script=x.ld")\n'),
-        ('a toolchain defsym', toolchain, lambda x: x.replace('-Wl,--gc-sections',
-                                                               '-Wl,--gc-sections -Wl,--defsym=PFLASH_APP=0')),
-        ('an earlier PFLASH_APP', layout, lambda x: 'PFLASH_APP = 0;\n' + x),
-        ('a PFLASH_APP in memory.ld', memory, lambda x: 'PFLASH_APP = 0;\n' + x),
-        ('a provided PFLASH_APP', common, lambda x: x + '\nPROVIDE(PFLASH_APP = 0);\n'),
-        ('another app origin', layout, lambda x: x.replace('0x08020000 : 0x08000000', '0x08040000 : 0x08000000')),
-        ('a layout reassignment', layout, lambda x: x + '\n_ram_size = 32K;\n'),
-        ('a layout region', layout, lambda x: x + '\nMEMORY { X (rx) : ORIGIN = 0, LENGTH = 4 }\n'),
-        ('a layout symbol in memory.ld', memory, lambda x: x + '\n_ram_origin = 0x24000000;\n'),
-        ('another double tap', common, lambda x: x.replace('= ORIGIN(NOINIT);', '= ORIGIN(NOINIT) + 4;')),
-        ('a second double tap', common, lambda x: x + '\n_board_dfu_dbl_tap = 0x20000000;\n'),
-        ('another app start', board, lambda x: x.replace('START=0x08020000', 'START=0x08040000')),
-        ('a second app start', board, lambda x: x.replace('    TRAP_EXC',
-                                                          '    BOARD_FLASH_APP_START=0x08040000\n    TRAP_EXC')),
-        ('a boards.h app start', boards, lambda x: x.replace('// #define BOARD_FLASH_APP_START   0x08010000',
-                                                             '#define BOARD_FLASH_APP_START   0x08010000')),
-        ('another flash base', boards, lambda x: x.replace('BASE_ADDR  0x08000000U', 'BASE_ADDR  0x08100000U')),
-        ('an MCU of another device', board, lambda x: x.replace('set(MCU h743xx)', 'set(MCU h750xx)')),
-        ('the app disabled', board, lambda x: x.replace('set(BOARD_PFLASH_APP_EN 1)', 'set(BOARD_PFLASH_APP_EN 0)')),
-        ('no compile define', board, lambda x: x.replace('    BOARD_PFLASH_APP_EN=1\n', ''))):
-      root = edited_tree(self, files, {rel: edit})
-      with self.subTest(what), mock.patch.object(ht, 'ROOT', root), mock.patch.object(ht.cb, 'ROOT', root), \
-           self.assertRaises(ht.Refused):
-        ht.source_facts(H743)
-    root = edited_tree(self, files, {})
-    with mock.patch.object(ht, 'ROOT', root), mock.patch.object(ht.cb, 'ROOT', root):
-      self.assertEqual(ht.source_facts(H743), H743_FACTS)
 
 
 class StlinkRoster(Tmp):
@@ -5939,12 +5648,6 @@ class FakeOpenocd:
 
 
 class OpenocdRoster(Tmp):
-  def setUp(self):
-    super().setUp()
-    p = mock.patch.object(ht, 'source_facts', lambda b: dict(MAX_FACTS))
-    p.start()
-    self.addCleanup(p.stop)
-
   def test_an_openocd_entry_loads_as_its_target_cfgs_device_with_its_probe_pin(self):
     b = self.load(max_roster(self.tmp), 'max32666fthr')
     self.assertEqual((b['kind'], b['flasher'], b['device'], b['probe'], b['args'], b['vid_pid'], b['install'], b['app']),
@@ -6224,11 +5927,8 @@ class OpenocdBatteryRun(Tmp):
 
   def setUp(self):
     super().setUp()
-    p = mock.patch.object(ht, 'source_facts', lambda b: dict(MAX_FACTS))
-    p.start()
-    self.addCleanup(p.stop)
     board = self.load(max_roster(self.tmp), 'max32666fthr')
-    self.bat = bat = ht.OpenocdBattery(board, ht.source_facts(board), self.tmp)
+    self.bat = bat = ht.OpenocdBattery(board, board_facts(board), self.tmp)
     oocd, f = FakeOpenocd(), bat.f
     self.oocd, self.present = oocd, [True]
     bin_path = bootloader_bin(self.tmp / 'c.bin', board_id=b'MAX32666-FTHR')

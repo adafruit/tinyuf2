@@ -875,6 +875,46 @@ class BuildBoard(unittest.TestCase):
     self.assertEqual((rec['status'], rec['firstError']), ('error', 'lib/mcu/nxp/mcux-sdk missing'))
 
 
+class CompileFacts(unittest.TestCase):
+  """board_facts.o replays the tinyuf2 target's src/main.c compile, its flags and defines exactly."""
+
+  def setUp(self):
+    tmp = build_tmpdir()
+    self.addCleanup(tmp.cleanup)
+    self.root = Path(tmp.name)
+    self.log = self.root / 'log'
+    self.log.write_text('')
+
+  def commands(self, *entries):
+    (self.root / 'compile_commands.json').write_text(json.dumps([
+      {'directory': str(self.root), 'file': str(ROOT / f), 'output': out, 'command': cmd} for f, out, cmd in entries]))
+
+  def test_the_compile_drops_lto_and_dependency_output_and_swaps_source_and_object(self):
+    obj = 'CMakeFiles/tinyuf2.dir/src/main.c.obj'
+    self.commands(('src/main.c', obj, f'gcc -DB="x y" -I/inc -flto -MD -MT {obj} -MF{obj}.d -o {obj} -c {ROOT}/src/main.c'),
+                  ('src/main.c', 'apps/blinky.dir/main.c.obj', 'gcc -DAPP -c src/main.c'))
+    ran = []
+    with mock.patch.object(cb, 'run', lambda cmd, log, verbose, cwd: ran.append((cmd, cwd)) or 0):
+      self.assertEqual(cb.compile_facts(self.root, self.log, False), '')
+    self.assertEqual(ran, [(['gcc', '-DB=x y', '-I/inc', '-flto', '-o', str(self.root / 'board_facts.o'), '-c',
+                             str(cb.FACTS_SOURCE), '-fno-lto'], str(self.root))])
+
+  def test_no_single_tinyuf2_main_c_command_or_a_failed_compile_fails(self):
+    self.assertIn('compile_commands.json', cb.compile_facts(self.root, self.log, False))
+    self.commands(('src/ghostfat.c', 'CMakeFiles/tinyuf2.dir/g.obj', 'gcc -c g.c'))
+    self.assertIn('found 0', cb.compile_facts(self.root, self.log, False))
+    self.commands(('src/main.c', 'CMakeFiles/tinyuf2.dir/m.obj', f'gcc -o m.obj -c {ROOT}/src/main.c'))
+    self.log.write_text('board_facts.c:9:1: error: initializer element is not constant\n')
+    with mock.patch.object(cb, 'run', lambda *a, **k: 1):
+      self.assertIn('initializer element is not constant', cb.compile_facts(self.root, self.log, False))
+
+  def test_a_preprocessor_dependency_option_is_refused_rather_than_split(self):
+    self.commands(('src/main.c', 'CMakeFiles/tinyuf2.dir/m.obj',
+                   f'gcc -Wp,-MD,m.d,-DHIL_VALUE=7 -o m.obj -c {ROOT}/src/main.c'))
+    with mock.patch.object(cb, 'run', lambda *a, **k: self.fail('compiled')):
+      self.assertIn("would write the build's own dependency file", cb.compile_facts(self.root, self.log, False))
+
+
 class HilRecord(unittest.TestCase):
   """A HIL record binds the build's own flash target to the roster's probe or bridge."""
 
@@ -1218,20 +1258,26 @@ class HilRecord(unittest.TestCase):
       lock = root.with_name(root.name + '.lock')
       with open(lock) as f, self.assertRaises(BlockingIOError):   # held while the build runs
         cb.fcntl.flock(f, cb.fcntl.LOCK_EX | cb.fcntl.LOCK_NB)
-      for rel in ('_bin/tinyuf2.bin', '_bin/tinyuf2.hex', '_bin/apps/blinky.uf2', 'tinyuf2.hex'):
+      for rel in ('_bin/tinyuf2.bin', '_bin/tinyuf2.hex', '_bin/apps/blinky.uf2', 'tinyuf2.hex',
+                  *(f for f in cb.FACTS_FILES if f != 'board_facts.o')):
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text(rel)
       return True, []
+
+    def fake_facts(root, log, verbose):
+      (root / 'board_facts.o').write_text('o')
+      return ''
     build_dir = self.tmp / 'cmake-build'   # absent: the first shared build creates it before its lock
     with mock.patch.object(cb, 'BUILD_DIR', build_dir), mock.patch.object(cb, 'check_deps', lambda p: None), \
          mock.patch.object(cb, 'check_tools', lambda *a: None), mock.patch.object(cb, 'build_cmake', fake_cmake), \
-         mock.patch.object(cb, 'expected_artifacts', lambda *a: []), \
+         mock.patch.object(cb, 'expected_artifacts', lambda *a: []), mock.patch.object(cb, 'compile_facts', fake_facts), \
          mock.patch.object(cb, 'ninja_in', lambda backend, mode, image, root, args: self.jlink_tree(root)(root, args)):
       rec = cb.build_board('metro_m7_1011', 'cmake', args, {}, cb.roster_flasher(self.config, 'metro_m7_1011'))
     self.assertEqual(rec['status'], 'ok', rec)
     self.assertEqual(built, [['JLINK_OPTION=-USB 000801012283 -ExitOnError 1 -NoGui 1']])
     self.assertIn('tinyuf2.hex', rec['sha256'])
     self.assertIn('tinyuf2.jlink', rec['sha256'])
+    self.assertLessEqual(set(cb.FACTS_FILES), set(rec['sha256']))   # what the runner reads the board facts from
     self.assertEqual(rec['flash']['defines'], ['JLINK_OPTION=-USB 000801012283 -ExitOnError 1 -NoGui 1'])
 
   def test_a_hil_record_takes_probe_selection_only_from_the_roster(self):
