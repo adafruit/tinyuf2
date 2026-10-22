@@ -40,6 +40,7 @@ ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT / '.claude' / 'skills' / 'build' / 'scripts'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True   # nothing the runner imports may write into a checkout it binds
+import board_facts as bf  # noqa: E402
 import check_build as cb  # noqa: E402
 import hil_ci  # noqa: E402   CI's state directory: unfinished()
 import hil_esp as esp  # noqa: E402
@@ -113,9 +114,9 @@ STLINK_DONE = {'-halt': 'Core halted', '-run': 'Core run', '-rst': 'Software res
                '-u': 'Data read successfully', '#Delay': 'The system go to sleep for'}
 CMAKE_RECORD_FILES = ('_bin/tinyuf2.bin', '_bin/apps/blinky.uf2')   # besides the flash's inputs
 UPDATE_UF2 = '_bin/apps/update-tinyuf2.uf2'
-# ports whose update-tinyuf2.uf2 is the bootloader BIN itself, written in place (ports/mimxrt10xx/CMakeLists.txt), and
-# the flash cache sector board_flash.c erases and programs (SECTOR_SIZE); every other port's is a self_update app
-UPDATE_PORTS = {'mimxrt10xx': 0x1000}
+# ports whose update-tinyuf2.uf2 is the bootloader BIN itself, written in place (ports/mimxrt10xx/CMakeLists.txt); the
+# sector board_flash.c erases and programs is its _flash_cache's size (flashCache); every other port's is a self_update app
+UPDATE_PORTS = {'mimxrt10xx'}
 # the interrupt's raw write (SKILL.md Update, step 5): its alternating passes, its byte offset on the drive (TinyUF2
 # takes a UF2 block anywhere: src/ghostfat.c uf2_write_block) and the child's bound in s
 INTERRUPT_PASSES, INTERRUPT_OFFSET, INTERRUPT_TIMEOUT = 25, 0x100000, 120
@@ -754,6 +755,28 @@ def source_facts(board):
   facts['dblTapMagic'] = 0xf01669ef   # board_api.h DBL_TAP_MAGIC at TINYUF2_DBL_TAP_REG_SIZE 32
   if 'TINYUF2_DBL_TAP_REG_SIZE' in (ROOT / f'ports/{port}/boards.h').read_text():
     raise Refused(f'ports/{port} overrides TINYUF2_DBL_TAP_REG_SIZE: the magic would need its shift')
+  return facts
+
+
+def record_facts(record_path, board, workdir):
+  """The board's facts from its build record: board_facts.read over hash-checked copies of the files it reads, which
+  must equal the source's (source_facts) until the source parser goes. Espressif facts stay the source's."""
+  old = source_facts(board)
+  if board.get('kind') == 'esp':
+    return old
+  _, row, root, _ = record_row(record_path, board)
+  rels = (*cb.FACTS_FILES, CMAKE_RECORD_FILES[0], '_bin/tinyuf2.hex')
+  if not all(r in row.get('sha256', {}) for r in rels):
+    raise Refused(f'{record_path}: no board facts in the record (rebuild it: check_build.py --board {board["name"]} '
+                  f'--backend cmake --shared --hil-config <roster>)')
+  copied(root, rels, row, workdir / 'facts')
+  try:
+    facts = bf.read(workdir / 'facts', FLASH_LIMITS[board['device']])
+  except (bf.Refused, OSError) as e:
+    raise Refused(f'{record_path}: {e}')
+  differ = {k: (old.get(k), facts.get(k)) for k in old if old[k] != facts.get(k)}
+  if differ:
+    raise Refused(f'{record_path}: build facts differ from the source\'s: {differ}')
   return facts
 
 
@@ -2580,13 +2603,29 @@ def firmware_fields(record_path, rec, built, copy):
           'version': embedded_version(copy)}
 
 
+RECORDS = {}   # main's build records, by the path it was given, as it first read them; empty outside main
+
+
+def pin_records(*paths):
+  """Hold each build record to the bytes read now, for the rest of main: facts and images come from one record."""
+  RECORDS.clear()
+  for p in filter(None, paths):
+    try:
+      RECORDS[os.path.abspath(p)] = Path(p).read_bytes()
+    except OSError as e:
+      raise Refused(f'cannot read build record {p}: {e}')
+
+
 def record_row(record_path, board):
   """(record, its row of this board, build dir, backend) of a passing --shared build of this board on the checkout
   now, clean, in the backend the HIL takes for it."""
   try:
-    rec = json.loads(Path(record_path).read_text())
+    data = Path(record_path).read_bytes()
+    rec = json.loads(data)
   except (OSError, ValueError) as e:
     raise Refused(f'cannot read build record {record_path}: {e}')
+  if RECORDS and RECORDS.get(os.path.abspath(record_path)) != data:
+    raise Refused(f'{record_path}: not the record this run first read')
   rows = [r for r in rec.get('boards', []) if r.get('board') == board['name']]
   if not rec.get('pass') or len(rows) != 1 or rows[0].get('status') != 'ok' or rows[0].get('removed'):
     raise Refused(f'{record_path}: not a passing --shared build of {board["name"]}')
@@ -2729,13 +2768,15 @@ def admit_update(record_path, board, facts, workdir, files, fw):
   """The update battery's two updaters: the candidate record's own update-tinyuf2.uf2 and a variant record's (the
   same checkout built with check_build --variant and a define that changes the image), each laying out its BIN in
   place, the two BINs differing in a flash cache sector the interrupt's passes flush."""
-  sector = UPDATE_PORTS.get(board['port'])
-  if board['kind'] != 'jlink' or sector is None:
+  sector = facts.get('flashCache')
+  if board['kind'] != 'jlink' or board['port'] not in UPDATE_PORTS or sector is None:
     raise Refused(f'{board["name"]}: no update battery for ports/{board["port"]} on a {board["flasher"]} board; '
                   f'self-update and an interrupted update stay uncovered there (it runs on J-Link boards of '
                   f'{", ".join(sorted(UPDATE_PORTS))})')
   if 'updater' not in files:
     raise Refused(f'{fw["buildRecord"]}: no {UPDATE_UF2} in the record (notImplemented: self-update)')
+  if record_facts(record_path, board, workdir / 'variant-facts') != facts:
+    raise Refused(f'{record_path}: its board facts are not the candidate\'s')
   rec, row, root, _ = record_row(record_path, board)
   if UPDATE_UF2 not in row.get('sha256', {}):
     raise Refused(f'{record_path}: no {UPDATE_UF2} in the record')
@@ -4098,7 +4139,8 @@ def main(argv=None):
   try:
     run_dir.mkdir(parents=True)
     board = select_route(load_board(args.config, args.board), args.route, run=args.cmd == 'run')
-    facts = source_facts(board)
+    pin_records(args.build_record, getattr(args, 'update_record', None))
+    facts = record_facts(args.build_record, board, run_dir)
     apply_layout(board, facts)
     helper = load_helper()
     provider()
@@ -4194,6 +4236,7 @@ def main(argv=None):
   except (StepFail, Interrupted) as e:
     result['error'] = str(e)
     code = 4 if bat is not None and bat.touched else 1   # a failed restore keeps the hold
+  RECORDS.clear()
   if recovery:
     recovery.close()
   if result.get('survivors'):   # a manual operation's survivor: keep your hold until it is gone

@@ -31,6 +31,7 @@ sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location('hil_test', SCRIPT)
 ht = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ht)
+import test_board_facts  # noqa: E402   its hand-built artifacts
 # lib/agentrc's report core and flash provider, loaded once as main() loads them; the pin check is Roster's to test,
 # against the real checkout and a git hook's environment
 with mock.patch.object(ht, 'check_lock_pin'), contextlib.suppress(ht.Refused):
@@ -219,6 +220,7 @@ H563_FACTS = {'flashBase': 0x08000000, 'binBase': 0x08000000, 'appStart': 0x0800
               'ram': 0x20000000, 'dblTapDelayMs': 500, 'dblTapReg': 0x2009FFFC, 'dblTapMagic': 0xF01669EF}
 SYNTHETIC_FACTS = {'lpc55': LPC_FACTS, 'stm32h5': H563_FACTS}
 real_source_facts = ht.source_facts
+real_record_facts, real_pin_records = ht.record_facts, ht.pin_records
 
 
 def source_facts(board):
@@ -232,7 +234,10 @@ class Tmp(unittest.TestCase):
     self.tmp = Path(t.name)
     reap_detached(self)
     self.mark_helper = mark_helper(self, self.tmp / 'marks')
-    for p in (mock.patch.object(ht, 'source_facts', source_facts), mock.patch.object(ht, 'PROTECTED_SESSIONS', []),
+    for p in (mock.patch.object(ht, 'source_facts', source_facts),
+              mock.patch.object(ht, 'record_facts', lambda record, board, workdir: source_facts(board)),
+              mock.patch.object(ht, 'pin_records', lambda *paths: None),   # main's records are stand-ins here
+              mock.patch.object(ht, 'PROTECTED_SESSIONS', []),
               mock.patch.object(ht, 'pending_mark', lambda helper, lock: self.mark_helper.PendingSessions(lock, ht.PENDING_KIND))):
       p.start()
       self.addCleanup(p.stop)
@@ -4670,11 +4675,12 @@ class UpdateAdmission(Tmp):
   def setUp(self):
     super().setUp()
     self.board = self.load(rt_roster(self.tmp), 'imxrt1060_evk')
-    self.facts = ht.source_facts(self.board)
+    self.facts = dict(ht.source_facts(self.board), flashCache=0x1000)   # board_flash.c's _flash_cache
     self.now = {'head': 'h', 'submodules': {}, 'deps': {}, 'dirty': False}
-    p = mock.patch.object(ht.cb, 'identity', lambda ports: self.now)
-    p.start()
-    self.addCleanup(p.stop)
+    for p in (mock.patch.object(ht.cb, 'identity', lambda ports: self.now),
+              mock.patch.object(ht, 'record_facts', lambda record, board, workdir: self.facts)):
+      p.start()
+      self.addCleanup(p.stop)
 
   def record(self, name, version, size=0x2100, uf2=True, data=None):
     build = self.tmp / name
@@ -4986,6 +4992,81 @@ class PendingMark(Tmp):
     self.assertEqual([(x['note'], x['notEnded'], x['hold']['reason'], x['hold']['pid']) for x in log],
                      [('server ended by the reviewed recovery in #123', [self.unresolved['receipt']], 'mine',
                        os.getpid())])
+
+
+class RecordFacts(Tmp):
+  """A non-Espressif board's facts: board_facts.read over hash-checked copies of the record's own artifacts."""
+
+  def setUp(self):
+    super().setUp()
+    self.board = self.load(roster(self.tmp))
+    self.now = {'head': 'h', 'submodules': {}, 'deps': {}, 'dirty': False}
+    self.build = test_board_facts.Build(self.tmp / 'build').write()
+    self.want = bf_read(self.build)
+    old = {k: v for k, v in self.want.items() if k != 'flashCache'}
+    for p in (mock.patch.object(ht, 'record_facts', real_record_facts),
+              mock.patch.object(ht, 'pin_records', real_pin_records),
+              mock.patch.object(ht, 'source_facts', lambda board: old),
+              mock.patch.object(ht.cb, 'identity', lambda ports: self.now)):
+      p.start()
+      self.addCleanup(p.stop)
+
+  def record(self, rels=(*ht.cb.FACTS_FILES, '_bin/tinyuf2.bin', '_bin/tinyuf2.hex')):
+    rec = self.tmp / 'r.json'
+    row = {'board': BOARD, 'status': 'ok', 'backend': 'cmake', 'buildDir': str(self.build),
+           'sha256': {r: ht.sha256(self.build / r) for r in rels}}
+    rec.write_text(json.dumps({'pass': True, 'input': self.now, 'boards': [row]}))
+    return rec
+
+  def test_the_facts_are_read_from_copies_of_the_records_artifacts(self):
+    self.assertEqual(ht.record_facts(self.record(), self.board, self.tmp / 'run'), self.want)
+    self.assertEqual((self.tmp / 'run' / 'facts' / 'tinyuf2.elf').read_bytes(), (self.build / 'tinyuf2.elf').read_bytes())
+
+  def test_a_record_without_its_facts_or_with_a_changed_artifact_refuses(self):
+    with self.assertRaisesRegex(ht.Refused, 'no board facts in the record .*rebuild it'):
+      ht.record_facts(self.record(rels=('_bin/tinyuf2.bin',)), self.board, self.tmp / 'run')
+    rec = self.record()
+    (self.build / 'board_facts.o').write_bytes(b'x')
+    with self.assertRaisesRegex(ht.Refused, 'changed since the build record'):
+      ht.record_facts(rec, self.board, self.tmp / 'run2')
+
+  def test_a_record_replaced_after_main_read_it_refuses(self):
+    rec = self.record()
+    link = self.tmp / 'link.json'
+    link.symlink_to(rec)
+    other = self.tmp / 'other.json'
+    other.write_text(rec.read_text().replace('"pass": true', '"pass": true, "x": 1'))
+    self.addCleanup(ht.RECORDS.clear)
+    for path, replace in ((rec, lambda: rec.write_text(other.read_text())),
+                          (link, lambda: (link.unlink(), link.symlink_to(other)))):
+      with self.subTest(str(path.name)):
+        self.record()
+        ht.pin_records(path)
+        replace()
+        with self.assertRaisesRegex(ht.Refused, 'not the record this run first read'):
+          ht.record_facts(path, self.board, self.tmp / 'run')
+    with self.assertRaisesRegex(ht.Refused, 'cannot read build record'):
+      ht.pin_records(self.tmp / 'absent.json')
+    with self.assertRaisesRegex(ht.Refused, 'not the record this run first read'):   # pinned: no other record
+      ht.pin_records(rec)
+      ht.record_facts(other, self.board, self.tmp / 'run')
+
+  def test_facts_that_differ_from_the_sources_refuse(self):
+    with mock.patch.object(ht, 'source_facts', lambda board: dict(self.want, vectors=1)), \
+         self.assertRaisesRegex(ht.Refused, "differ from the source's: {'vectors'"):
+      ht.record_facts(self.record(), self.board, self.tmp / 'run')
+
+  def test_run_refuses_a_record_without_facts_before_any_lock(self):
+    rec = self.record(rels=('_bin/tinyuf2.bin',))
+    with contextlib.redirect_stdout(io.StringIO()) as out, \
+         mock.patch.object(ht, 'load_helper', side_effect=AssertionError('the lock helper was loaded')):
+      code = ht.main(['run', '-b', BOARD, '--build-record', str(rec), str(roster(self.tmp))])
+    self.assertEqual(code, 2)
+    self.assertIn('no board facts in the record', out.getvalue())
+
+
+def bf_read(build):
+  return test_board_facts.bf.read(build, (test_board_facts.BOOT, test_board_facts.BOOT + 0x100000))
 
 
 class Main(Tmp):

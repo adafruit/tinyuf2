@@ -731,6 +731,9 @@ def expected_artifacts(port, board, backend, root):
 
 # what an IDF build's flash layout also depends on: the HIL admits its segments only against these
 IDF_CONFIG = ('sdkconfig',)
+# what a cmake HIL record's board facts are read from (hil-contract Build), besides the bootloader BIN and blinky
+FACTS_SOURCE = ROOT / '.claude/skills/hil-contract/scripts/board_facts.c'
+FACTS_FILES = ('tinyuf2.elf', 'board_facts.o', 'apps/blinky/blinky.elf', 'apps/blinky/blinky.elf.map')
 
 
 def build_make(port, board, root, defines, log, verbose, rec):
@@ -754,9 +757,39 @@ def build_make(port, board, root, defines, log, verbose, rec):
 
 
 def build_cmake(port, board, root, defines, log, verbose):
-  cfg = ['cmake', '-B', root, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=MinSizeRel', f'-DBOARD={board}',
+  cfg = ['cmake', '-B', root, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=MinSizeRel', '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON',
+         f'-DBOARD={board}',
          f'-DARTIFACT_PATH={root / "_bin"}', *[f'-D{d}' for d in defines], ports_dir(port)]
   return not (run(cfg, log, verbose) or run(['cmake', '--build', root], log, verbose)), []
+
+
+def compile_facts(root, log, verbose):
+  """board_facts.o: FACTS_SOURCE compiled with the exact command of the tinyuf2 target's src/main.c, without LTO,
+  whose objects hold no plain data, and without dependency output; '' or why not."""
+  try:
+    cmds = json.loads((root / 'compile_commands.json').read_text())
+  except (OSError, ValueError) as e:
+    return f'compile_commands.json: {e}'
+  main = [c for c in cmds if Path(c.get('file', '')) == ROOT / 'src' / 'main.c' and
+          '/tinyuf2.dir/' in c.get('output', c.get('command', ''))]
+  if len(main) != 1 or 'command' not in main[0]:
+    return f'{root}/compile_commands.json: expected one command of the tinyuf2 target\'s src/main.c, found {len(main)}'
+  argv, it = [], iter(shlex.split(main[0]['command']))
+  for a in it:
+    if a in ('-MF', '-MT', '-MQ'):
+      next(it, None)
+    elif a == '-o':
+      next(it, None)
+      argv += ['-o', str(root / 'board_facts.o')]
+    elif a in (main[0]['file'], 'src/main.c') or Path(main[0]['directory'], a) == ROOT / 'src' / 'main.c':
+      argv.append(str(FACTS_SOURCE))
+    elif a not in ('-MD', '-MMD'):
+      argv.append(a)
+  if str(FACTS_SOURCE) not in argv or '-o' not in argv:
+    return f'{root}/compile_commands.json: no source or -o in the tinyuf2 src/main.c command'
+  if run(argv + ['-fno-lto'], log, verbose, cwd=main[0]['directory']):
+    return 'board facts: ' + first_error(log.read_text(errors='replace'))
+  return ''
 
 
 def build_idf(board, root, defines, log, verbose, idf_mode, image):
@@ -1025,6 +1058,14 @@ def build_root(board, port, backend, root, rec, args, idf, flasher):
       return rec
     rec['flash']['defines'] = extra
     rec['artifacts'] += [a for a in rec['flash']['inputs'] if a not in rec['artifacts']]
+    if backend == 'cmake':
+      problem = compile_facts(root, log, args.verbose)
+      missing = [a for a in FACTS_FILES if not (root / a).is_file()]
+      problem = problem or missing and 'missing board fact artifact(s): ' + ', '.join(missing)
+      if problem:
+        rec.update(status='failed', firstError=problem, log=str(log.relative_to(ROOT)))
+        return rec
+      rec['artifacts'] += [a for a in FACTS_FILES if a not in rec['artifacts']]
   if args.shared:
     rec['sha256'] = {a: hashlib.sha256((root / a).read_bytes()).hexdigest() for a in rec['artifacts']}
   else:
