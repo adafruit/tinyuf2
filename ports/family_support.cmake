@@ -396,7 +396,7 @@ function(family_flash_pyocd TARGET)
 endfunction()
 
 
-# Add flash openocd target
+# Add flash openocd target, optional parameter is the extension of the binary file
 function(family_flash_openocd TARGET)
   if (NOT DEFINED OPENOCD)
     set(OPENOCD openocd)
@@ -406,6 +406,11 @@ function(family_flash_openocd TARGET)
     set(OPENOCD_OPTION2 "")
   endif ()
 
+  # the probe's "0xVVVV 0xPPPP": discovery then opens no other USB device
+  if (DEFINED OPENOCD_VID_PID)
+    set(OPENOCD_OPTION "-c \"adapter usb vid_pid ${OPENOCD_VID_PID}\" ${OPENOCD_OPTION}")
+  endif ()
+
   if (DEFINED OPENOCD_SERIAL)
     set(OPENOCD_OPTION "-c \"adapter serial ${OPENOCD_SERIAL}\" ${OPENOCD_OPTION}")
   endif ()
@@ -413,10 +418,16 @@ function(family_flash_openocd TARGET)
   separate_arguments(OPTION_LIST UNIX_COMMAND ${OPENOCD_OPTION})
   separate_arguments(OPTION_LIST2 UNIX_COMMAND ${OPENOCD_OPTION2})
 
+  if (ARGC GREATER 1)
+    set(BIN_FILE $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.${ARGV1})
+  else ()
+    set(BIN_FILE $<TARGET_FILE:${TARGET}>)
+  endif ()
+
   # note skip verify since it has issue with rp2040
   add_custom_target(${TARGET}-openocd
     DEPENDS ${TARGET}
-    COMMAND ${OPENOCD} -c "tcl_port disabled; gdb_port disabled" ${OPTION_LIST} -c "init; halt; program $<TARGET_FILE:${TARGET}>" -c reset ${OPTION_LIST2} -c exit
+    COMMAND ${OPENOCD} -c "tcl_port disabled; gdb_port disabled" ${OPTION_LIST} -c "init; halt; program ${BIN_FILE}" -c reset ${OPTION_LIST2} -c exit
     VERBATIM
     )
 endfunction()
@@ -432,10 +443,12 @@ function(family_flash_openocd_wch TARGET)
 endfunction()
 
 
-# Add flash openocd adi (Analog Devices) target
+# Add flash openocd adi (Analog Devices) target, of the HEX the HIL installs
 # included with msdk or compiled from release branch of https://github.com/analogdevicesinc/openocd
 function(family_flash_openocd_adi TARGET)
-  if (DEFINED MAXIM_PATH)
+  if (DEFINED OPENOCD)
+    # the caller's openocd, whose own scripts have the ADI targets
+  elseif (DEFINED MAXIM_PATH)
     # use openocd from msdk with MAXIM_PATH cmake variable first if the user
     # specified it
     set(OPENOCD ${MAXIM_PATH}/Tools/OpenOCD/openocd)
@@ -455,7 +468,7 @@ function(family_flash_openocd_adi TARGET)
     set(OPENOCD_OPTION2 "-s ${OPENOCD_ADI_PATH}/tcl")
   endif ()
 
-  family_flash_openocd(${TARGET})
+  family_flash_openocd(${TARGET} hex)
 endfunction()
 
 

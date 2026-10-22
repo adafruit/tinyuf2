@@ -25,7 +25,7 @@ def legacy(raw):
   return raw
 
 
-def _cell(v):
+def cell(v):
   return ' '.join(str(v).splitlines()).replace('|', '\\|')
 
 
@@ -33,16 +33,16 @@ def render(core, body):
   lines = [f'HIL run: {"pass" if body.get("pass") else "fail"}']
   for k in ('error', 'caveat'):
     if body.get(k):
-      lines.append(f'{k.capitalize()}: {_cell(body[k])}')
+      lines.append(f'{k.capitalize()}: {cell(body[k])}')
   for r in body['results']:
-    steps = [[_cell(s.get('step', '?')), STEP_MARK[bool(s.get('pass'))], _cell(s.get('detail', ''))]
+    steps = [[cell(s.get('step', '?')), STEP_MARK[bool(s.get('pass'))], cell(s.get('detail', ''))]
              for s in r.get('steps') or [] if isinstance(s, dict)]
     cleanup = r.get('cleanup')
     if isinstance(cleanup, dict) and cleanup:
-      steps.append(['cleanup', STEP_MARK[bool(cleanup.get('pass'))], _cell(cleanup.get('state', ''))])
-    lines += ['', f'### {_cell(r.get("board", "?"))}', '']
+      steps.append(['cleanup', STEP_MARK[bool(cleanup.get('pass'))], cell(cleanup.get('state', ''))])
+    lines += ['', f'### {cell(r.get("board", "?"))}', '']
     if r.get('detail'):
-      lines += [_cell(r['detail']), '']
+      lines += [cell(r['detail']), '']
     lines.append(core.table(['Step', 'Result', 'Detail'], steps, center={1}) if steps else '_No steps ran._')
   return '\n'.join(lines) + '\n'
 

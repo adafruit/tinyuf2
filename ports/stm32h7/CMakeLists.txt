@@ -20,9 +20,10 @@ family_add_linker_scripts(tinyuf2)
 
 family_configure_tinyuf2(tinyuf2 OPT_MCU_STM32H7)
 family_flash_jlink(tinyuf2)
-family_flash_stlink(tinyuf2)
+family_flash_stlink(tinyuf2 hex)
 
 #------------------------------------
 # Application
 #------------------------------------
+family_add_app(blinky ${TOP}/apps/blinky)
 family_add_app(erase_firmware ${TOP}/apps/erase_firmware)

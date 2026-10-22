@@ -449,6 +449,59 @@ class Stubbed(unittest.TestCase):
     self.assertIn('boom', r['detail'])
     self.assertFalse((self.out / f'{BOARD}.started').exists())
 
+  def clock(self, *ticks):
+    """hil_ci's monotonic clock reading `ticks` in turn: main's loop start, the build's start and end, the battery's
+    start and end, main's loop end."""
+    return mock.patch.object(hil_ci, 'time', mock.Mock(time=time.time, monotonic=mock.Mock(side_effect=ticks)))
+
+  def test_a_battery_row_carries_its_steps_cleanup_and_timing_and_the_summary_its_elapsed_time(self):
+    failed = {'row': {'ran': True, 'pass': False, 'steps': [{'step': 'install', 'pass': True},
+                                                            {'step': 'dfu', 'pass': False, 'detail': 'not seen'}],
+                      'cleanup': {'pass': True, 'state': 'blinky copied'}}}
+    with self.clock(0, 10, 59.6, 100, 222.4, 1000):
+      self.assertEqual(self.main('--board', BOARD, battery=failed), 1)
+    r = self.rows()[0]
+    self.assertEqual((r['steps'], r['cleanupPass'], r['buildS'], r['runS']),
+                     ({'install': True, 'dfu': False}, True, 50, 122))
+    self.assertEqual(json.loads((self.out / 'summary.json').read_text())['elapsedS'], 1000)
+    self.assertFalse(r['espressif'])
+    self.assertEqual(self.commands[-1][self.commands[-1].index('--backend') + 1], 'cmake')
+    (self.tmp / 'ports' / 'espressif' / 'boards' / BOARD).mkdir(parents=True)   # the port decides, not the flasher
+    self.assertEqual(self.main('--board', BOARD, battery=failed, out=self.state / 'esp'), 1)
+    self.assertTrue(self.rows(self.state / 'esp')[0]['espressif'])
+    self.assertNotIn('--backend', self.commands[-1], 'an Espressif board builds with ESP-IDF in docker')
+    out = self.state / 'no-cleanup'
+    locked = {'row': {'ran': False, 'locked': True, 'recoveryBlocker': False, 'detail': 'board locked: pid 7'}}
+    self.assertEqual(self.main('--board', BOARD, battery=locked, out=out), 1)
+    r = self.rows(out)[0]
+    self.assertEqual((r['steps'], r['cleanupPass'], type(r['runS'])), ({}, None, int))
+
+  def test_an_untouched_board_has_no_cleanup_result(self):
+    untouched = {'row': {'ran': True, 'pass': False, 'steps': [{'step': 'install', 'pass': False, 'detail': 'x'}],
+                         'cleanup': {'pass': True, 'state': 'untouched'}}}
+    self.assertEqual(self.main('--board', BOARD, battery=untouched), 1)
+    r = self.rows()[0]
+    self.assertEqual((r['verdict'], r['steps'], r['cleanupPass']), ('not-run', {'install': False}, None))
+
+  def test_a_report_without_the_boards_row_gives_no_steps_or_cleanup(self):
+    no_row = {'row': {'ran': True, 'pass': True}, 'report': {'results': []}}
+    self.assertEqual(self.main('--board', BOARD, battery=no_row), 2)
+    r = self.rows()[0]
+    self.assertEqual((r['verdict'], 'steps' in r, 'cleanupPass' in r, type(r['runS'])), ('blocker', False, False, int))
+
+  def test_a_failed_build_has_its_build_time_only_and_a_preflight_blocker_neither(self):
+    self.build_ok = False
+    with self.clock(0, 10, 13.2, 20):
+      self.assertEqual(self.main('--board', BOARD), 1)
+    r = self.rows()[0]
+    self.assertEqual((r['buildS'], 'runS' in r, 'steps' in r), (3, False, False))
+    (self.out / f'{BOARD}.started').touch()   # an earlier run that never finished
+    later = self.state / 'run-2'
+    self.assertEqual(self.main('--board', BOARD, out=later), 2)
+    r = self.rows(later)[0]
+    self.assertEqual((r['phase'], 'buildS' in r, 'runS' in r), ('preflight', False, False))
+    self.assertIsInstance(json.loads((later / 'summary.json').read_text())['elapsedS'], int)
+
   def test_a_board_outside_the_roster_and_a_bad_step_are_usage_errors(self):
     with self.assertRaises(SystemExit), mock.patch.object(sys, 'stderr', io.StringIO()):
       self.main('--board', BOARD, 'frdm_k64f')

@@ -101,10 +101,13 @@ SMOKE = {'make': 'frdm_k32l2b', 'cmake': 'feather_stm32f405_express', 'idf': 'es
 # What a roster flasher runs to install TinyUF2: the build's own flash target, and the build-tree files that
 # target reads, which a HIL record pins so the runner can check them before it flashes.
 FLASH = {'jlink': ('tinyuf2-jlink', ('tinyuf2.jlink', 'tinyuf2.hex')), 'stlink': ('tinyuf2-stlink', ('tinyuf2.hex',)),
+         'openocd': ('tinyuf2-openocd', ('tinyuf2.hex',)),
          'esptool': ('flash', ('flash_args', 'bootloader/bootloader.bin', 'partition_table/partition-table.bin',
                                'ota_data_initial.bin', 'tinyuf2.bin'))}
 # a roster flasher's args, whose one group is the device or chip its flash target must name
-FLASHER_ARGS = {'jlink': r'-device (\S+)', 'stlink': r'-device (\S+)', 'esptool': r'--chip (\w+)'}
+FLASHER_ARGS = {'jlink': r'-device (\S+)', 'stlink': r'-device (\S+)', 'esptool': r'--chip (\w+)',
+                'openocd': r'-f interface/cmsis-dap\.cfg -f target/(\w+)\.cfg'}
+VID_PID = r'0x[0-9a-fA-F]{4} 0x[0-9a-fA-F]{4}'   # an openocd flasher's one `adapter usb vid_pid` pair, its probe's
 # a further install route of an Espressif board (tinyuf2.routes): the chip's built-in USB-Serial/JTAG through agentrc's
 # openocd_esp, which programs the esptool binding's segments; uid is the USJ serial
 ROUTE_ARGS = {'openocd_esp': r'-f board/(esp32[a-z0-9]*)-builtin\.cfg'}
@@ -113,7 +116,7 @@ NINJA_QUERY_TIMEOUT = 30   # s for one ninja query
 DOCKER_TIMEOUT, CONTAINER_GONE_WAIT = 30, 10   # s for one docker call; s a killed query's container may linger
 CONTAINER_SETTLE = 2   # s docker must list no container before a killed client's pending create counts as never landing
 # configure variables that select a probe or port: a HIL record sets them from the roster, never from -D
-SELECTION = ('JLINK_OPTION', 'STLINK_SERIAL', 'OPENOCD_SERIAL', 'OPENOCD_OPTION', 'ESPPORT')
+SELECTION = ('JLINK_OPTION', 'STLINK_SERIAL', 'OPENOCD', 'OPENOCD_SERIAL', 'OPENOCD_VID_PID', 'OPENOCD_OPTION', 'ESPPORT')
 
 
 class Fail(Exception):
@@ -823,16 +826,23 @@ def roster_flasher(config, board):
     if entry is None:
       raise Fail(f'{board} is not on {config}')
     name, uid, fargs = (entry['flasher'][k] for k in ('name', 'uid', 'args'))
-  except (OSError, ValueError, KeyError, TypeError) as e:
+    vid_pid = entry['flasher'].get('vid_pid')
+  except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
     raise Fail(f'cannot read {board} from {config}: {e}')
   form = FLASHER_ARGS.get(name)
   if form is None:
-    raise Fail(f'{board}: flasher {name!r} has no HIL flash target (jlink, stlink or esptool)')
+    raise Fail(f'{board}: flasher {name!r} has no HIL flash target (jlink, stlink, openocd or esptool)')
   m = re.fullmatch(form, fargs)
   if not m or not re.fullmatch(r'[\w-]+', uid):
     raise Fail(f'{board}: flasher args {fargs!r} or uid {uid!r} is not the roster form')
   flasher = {'name': name, 'uid': uid, 'device': m[1]}
-  defines = {'jlink': [f'JLINK_OPTION=-USB {uid} -ExitOnError 1 -NoGui 1'], 'stlink': [f'STLINK_SERIAL={uid}']}
+  if name == 'openocd':   # unpinned, CMSIS-DAP discovery opens every USB device on the host
+    if not isinstance(vid_pid, str) or not re.fullmatch(VID_PID, vid_pid):
+      raise Fail(f'{board}: an openocd flasher needs its probe\'s "vid_pid": "0xVVVV 0xPPPP", not {vid_pid!r}')
+    flasher['vid_pid'] = vid_pid
+  # openocd: the one on PATH, which the runner's flash provider runs too
+  defines = {'jlink': [f'JLINK_OPTION=-USB {uid} -ExitOnError 1 -NoGui 1'], 'stlink': [f'STLINK_SERIAL={uid}'],
+             'openocd': ['OPENOCD=openocd', f'OPENOCD_SERIAL={uid}', f'OPENOCD_VID_PID={vid_pid}']}
   return flasher, defines.get(name, [])
 
 
@@ -869,11 +879,12 @@ def flash_binding(flasher, root, ninja):
   build's environment."""
   target, inputs = FLASH[flasher['name']]
   r = ninja(root, ['-t', 'commands', target])
-  tool = {'jlink': 'JLinkExe', 'stlink': 'STM32_Programmer_CLI'}.get(flasher['name'], 'run_serial_tool.cmake')
-  cmds = [l for l in r.stdout.splitlines() if tool in l] if r.returncode == 0 else []
+  tool = {'jlink': 'JLinkExe', 'stlink': 'STM32_Programmer_CLI', 'openocd': r'(^| && )openocd '}.get(
+    flasher['name'], 'run_serial_tool.cmake')
+  cmds = [l for l in r.stdout.splitlines() if re.search(tool, l)] if r.returncode == 0 else []
   ok = len(cmds) == 1
+  cd, _, cmd = cmds[0].partition(' && ') if ok else ('', '', '')
   if ok and flasher['name'] == 'jlink':
-    cd, _, cmd = cmds[0].partition(' && ')
     argv = shlex.split(cmd)
     ok = cd == f'cd {root}' and Path(argv[0]).name == 'JLinkExe' and argv[1:] == [
       '-device', flasher['device'], '-USB', flasher['uid'], '-ExitOnError', '1', '-NoGui', '1', '-if', 'swd',
@@ -881,12 +892,17 @@ def flash_binding(flasher, root, ninja):
       (root / inputs[0]).is_file() and (root / inputs[0]).read_text() == f'halt\nloadfile {root / inputs[1]}\nr\ngo\nexit'
   elif ok and flasher['name'] == 'stlink':
     # the device is the roster's to name: the CLI identifies the chip itself, which the runner checks every session
-    cd, _, cmd = cmds[0].partition(' && ')
     argv = shlex.split(cmd)
     ok = cd == f'cd {root}' and Path(argv[0]).name == 'STM32_Programmer_CLI' and argv[1:] == [
       '--connect', 'port=swd', f'sn={flasher["uid"]}', '--write', str(root / inputs[0]), '--go']
+  elif ok and flasher['name'] == 'openocd':
+    # the probe by serial and USB ID, the roster's interface and target cfgs, and the build's HEX
+    ok = cd == f'cd {root}' and shlex.split(cmd) == [
+      'openocd', '-c', 'tcl_port disabled; gdb_port disabled', '-c', f'adapter serial {flasher["uid"]}', '-c',
+      f'adapter usb vid_pid {flasher["vid_pid"]}', '-f', 'interface/cmsis-dap.cfg', '-f', f'target/{flasher["device"]}.cfg',
+      '-c', f'init; halt; program {root / inputs[0]}', '-c', 'reset', '-c', 'exit']
   elif ok:
-    argv = shlex.split(cmds[0].partition(' && ')[2])
+    argv = shlex.split(cmd)
     defs = dict(v.split('=', 1) for k, v in zip(argv[1:-2], argv[2:-2]) if k == '-D' and '=' in v)
     tool_argv = defs.get('SERIAL_TOOL', '').split(';')
     ok = len(argv) == 1 + 2 * len(defs) + 2 and argv[-2] == '-P' and Path(argv[-1]).name == 'run_serial_tool.cmake' and \

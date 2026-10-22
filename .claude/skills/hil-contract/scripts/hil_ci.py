@@ -13,7 +13,9 @@ never sees a waiting battery started, and whoever takes it next sees it finished
 any earlier run is a run that ended without a report or kept a cleanup holder (SKILL.md Recovery): that board is a
 blocker here until recovery removes the marker. Runs older than PRUNE_DAYS with every marker done are removed;
 one with a marker left is kept, whatever its age. Each battery's report pair is prepared for the upload (prepare()), and
-summary.json carries the shared run rules' `sharedVerdict` beside each native `verdict`, which alone decides the exit.
+summary.json carries the shared run rules' `sharedVerdict` beside each native `verdict`, which alone decides the exit,
+each battery's `steps`, `cleanupPass` (null when the board was untouched) and whether it is the Espressif one
+(`espressif`), the seconds its build (`buildS`) and battery (`runS`) took, and the board loop's `elapsedS`.
 `upload-views`, written last, is the upload's decision on the report views (UPLOAD_VIEWS).
 
 Exit 0: every board passed. 1: a board failed or was not run (held past `--lock-wait`, its build or admission
@@ -58,6 +60,12 @@ def roster_boards(roster):
     raise SystemExit(f'cannot read boards from {roster}: {e}')
 
 
+def espressif(board):
+  """Whether `board` is in the espressif port (ports/<port>/boards/<board>, check_build's port rule): its battery is
+  the Espressif one, with `recopy`, and its build ESP-IDF's."""
+  return (ROOT / 'ports' / 'espressif' / 'boards' / board).is_dir()
+
+
 def unfinished(state, board):
   """The runs under `state` (`<state>/<run id>/<board>.started`) whose battery on `board` started and has no `.done`,
   its liveness never guessed; a linked run dir is skipped. OSError when `state` or a run in it cannot be listed."""
@@ -86,7 +94,9 @@ def prune(state, keep, days=PRUNE_DAYS):
 
 def build_record(board, roster, out):
   record = out / f'{board}.build.json'
-  r = run([sys.executable, CHECK_BUILD, '--board', board, '--backend', 'cmake', '--shared', '--hil-config', roster])
+  # an Espressif board builds with ESP-IDF in CI's docker image (check_build's default for it), the rest with cmake
+  backend = [] if espressif(board) else ['--backend', 'cmake']
+  r = run([sys.executable, CHECK_BUILD, '--board', board, *backend, '--shared', '--hil-config', roster])
   record.write_text(r.stdout)
   try:
     rec = json.loads(r.stdout)
@@ -214,7 +224,7 @@ def run_board(board, roster, out, state, lock_wait, fail_at=None, markers=True):
   """One board's row: CI's markers under `state`, the record, the battery, its verdict and its prepared report pair.
   `markers` false is a remote driver's: `state` is CI's state directory, read, never written, and checked again by
   the runner under its lock (--ci-state-root). `lock_wait` is seconds, or a function giving them as the battery
-  starts."""
+  starts. Its `buildS` and `runS` are the seconds the build and the battery took, lock wait included."""
   try:
     earlier = unfinished(state, board)
   except OSError as e:
@@ -224,21 +234,32 @@ def run_board(board, roster, out, state, lock_wait, fail_at=None, markers=True):
     return {'board': board, 'phase': 'preflight', 'verdict': 'blocker', 'unfinishedAttempts': earlier,
             'detail': f'run {", ".join(earlier)} under {state} started a battery on {board} and never finished: '
                       'recover the board, then remove its marker'}
+  t0 = time.monotonic()
   record, ok, why = build_record(board, roster, out)
+  build_s = round(time.monotonic() - t0)
   if not ok:
-    return {'board': board, 'phase': 'build', 'verdict': 'not-run', 'detail': why}
+    return {'board': board, 'phase': 'build', 'verdict': 'not-run', 'detail': why, 'buildS': build_s}
   done, started = (out / f'{board}.done', out / f'{board}.started') if markers else (None, None)
   wait = lock_wait() if callable(lock_wait) else lock_wait
+  t0 = time.monotonic()
   report, code, held = battery(board, roster, record, out / board, wait, fail_at, None if markers else state, done,
                                started)
+  run_s = round(time.monotonic() - t0)
   v, detail = run_report.verdict(code, report, board)
   if done is not None and v == 'blocker':   # the battery's own touch stands only where this verdict agrees
     done.unlink(missing_ok=True)
   elif done is not None and started.exists():   # a battery that never held the board leaves no marker
     done.touch()
   row = {'board': board, 'phase': 'battery', 'verdict': v, 'detail': detail, 'run': str(out / board), 'exit': code,
-         'heldInProcess': held, 'report': report is not None}
-  holder = ((run_report.row_of(report, board) or {}).get('cleanup') or {}).get('holder')
+         'heldInProcess': held, 'report': report is not None, 'buildS': build_s, 'runS': run_s}
+  native = run_report.row_of(report, board)
+  if native is not None:
+    row['steps'] = {s['step']: bool(s.get('pass')) for s in native.get('steps') or [] if s.get('step')}
+    cleanup = native.get('cleanup') or {}
+    # an untouched board passes its cleanup with nothing done: no blinky was copied
+    row['cleanupPass'] = None if cleanup.get('state') == 'untouched' else cleanup.get('pass')
+    row['espressif'] = espressif(board)
+  holder = ((native or {}).get('cleanup') or {}).get('holder')
   if holder:
     row['holder'] = holder
   if (report or {}).get('reportError'):   # its run dir's report is missing or incomplete; stdout.txt keeps the JSON
@@ -279,13 +300,15 @@ def main(argv=None):
   (args.out / UPLOAD_VIEWS).unlink(missing_ok=True)
   state = args.out.parent
   prune(state, keep=args.out)
+  t0 = time.monotonic()
   rows = [run_board(b, args.roster, args.out, state, args.lock_wait, args.fail_at) for b in boards]
+  elapsed = round(time.monotonic() - t0)
   text = summary(rows, args.roster)
   sys.stdout.write(text)
   if os.environ.get('GITHUB_STEP_SUMMARY'):
     with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
       f.write(text)
-  (args.out / 'summary.json').write_text(json.dumps({'boards': rows}, indent=1))
+  (args.out / 'summary.json').write_text(json.dumps({'boards': rows, 'elapsedS': elapsed}, indent=1))
   decide_views(args.out, rows)
   return run_report.fold_exit(r['verdict'] for r in rows)
 

@@ -257,8 +257,9 @@ class Project(unittest.TestCase):
     self.dep = origin(o / 'dep', 'dep 1', 'dep 2')
     for name in ('agentrc', 'tinyusb', 'uf2'):
       origin(o / name, name)
-    core = 'skills/hil/scripts/hil_report_core.py'   # the driver prepares each report pair through it, as CI does
-    commit(o / 'agentrc', {core: (ROOT / 'lib' / 'agentrc' / core).read_text()}, 'report core')
+    # the driver prepares each report pair through the core, as CI does; the core loads its notice from beside itself
+    core = [f'skills/hil/scripts/{n}.py' for n in ('hil_report_core', 'hil_report_notice')]
+    commit(o / 'agentrc', {p: (ROOT / 'lib' / 'agentrc' / p).read_text() for p in core}, 'report core')
     primary = self.tmp / 'primary'
     primary.mkdir()
     git(primary, 'init', '-q')
@@ -330,7 +331,7 @@ class Refusals(Project):
 
   def test_boards_and_run_ids(self):
     self.refused('run', '-b', 'nope', '--host', 'rig', text='not in test/hil/ci.json at HEAD')
-    self.refused('run', '-b', ESP, '--host', 'rig', text='Espressif boards are not run remotely')
+    self.assertEqual(hr.select([ESP, LPC], ROSTER, 'test/hil/ci.json'), sorted([ESP, LPC]))   # ESP-IDF builds on the rig
     self.refused('run', '-b', LPC, '--host', 'elsewhere', text='no rig elsewhere')
     self.refused('run', '-b', LPC, '--host', 'rig', '--run-id', '../x', text='a run id is')
     with mock.patch.dict(os.environ, {'HIL_NO_BOARD_LOCK': '1'}):

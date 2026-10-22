@@ -175,7 +175,8 @@ bool board_flash_protect_bootloader(bool protect)
 
 uint8_t board_usb_get_serial(uint8_t serial_id[16])
 {
-  FFR_GetUUID(&_flash_config, serial_id);
+  // 128-bit UUID in the flash PFR region (UM11126 48.8)
+  memcpy(serial_id, (const void*) 0x0009FC70u, 16);
   return 16;
 }
 

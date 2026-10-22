@@ -37,6 +37,7 @@ with mock.patch.object(ht, 'check_lock_pin'), contextlib.suppress(ht.Refused):
   ht.report_core()
   ht.provider()
   ht.openocd_esp()
+  ht.usb_observe()
 BOARD = 'lpcxpresso55s69'
 RT = {'port': 'mimxrt10xx', 'name': 'imxrt1060_evk', 'lock': 'mimxrt1060_evk'}
 
@@ -144,7 +145,63 @@ def roster(tmp, **over):
   return cfg
 
 
-# the runner reads no source facts for lpc55; most tests keep its layout as synthetic facts
+# htpc's bench roster as last tracked (test/hil/local.json is host-local and untracked now)
+BENCH = {
+  "boards": [
+    {
+      "name": "imxrt1060_evk",
+      "uid": "4629F865D2291713E000005002004200",
+      "flasher": {"name": "jlink", "uid": "000726129165", "args": "-device MIMXRT1062xxx6A"},
+      "tinyuf2": {"lock": "mimxrt1060_evk", "reentry": "retained-register"}
+    },
+    {
+      "name": "metro_m7_1011",
+      "uid": "7BE8715DD77116635100005002004200",
+      "flasher": {"name": "jlink", "uid": "000801012283", "args": "-device MIMXRT1011DAE5A"},
+      "tinyuf2": {"reentry": "retained-register"}
+    },
+    {
+      "name": "espressif_esp32s3_devkitc_1",
+      "uid": "7CDFA1E06FD0",
+      "flasher": {"name": "esptool", "uid": "8ecc58dfb1cdeb1185e7b806e93fd3f1", "args": "--chip esp32s3"},
+      "tinyuf2": {"reentry": "dfu-detach"}
+    },
+    {
+      "name": "espressif_p4_function_ev",
+      "uid": "30EDA0E0C902",
+      "flasher": {"name": "esptool", "uid": "1ec47e6369c3ee119baac50f9e1b1c54", "args": "--chip esp32p4"},
+      "tinyuf2": {"reentry": "dfu-detach",
+                  "routes": [{"flasher": {"name": "openocd_esp", "uid": "30:ED:A0:E0:C9:02", "args": "-f board/esp32p4-builtin.cfg"}}]}
+    },
+    {
+      "name": "stm32f303disco",
+      "uid": "250039001657344232383020",
+      "flasher": {"name": "jlink", "uid": "000771261572", "args": "-device stm32f303vc"},
+      "tinyuf2": {"reentry": "retained-register", "usbPower": {"hub": "PA40004", "port": 3}}
+    },
+    {
+      "name": "stm32f411ve_discovery",
+      "uid": "3A002A001051363332383332",
+      "flasher": {"name": "jlink", "uid": "000770880814", "args": "-device stm32f411ve"},
+      "tinyuf2": {"lock": "stm32f411disco", "reentry": "retained-register"}
+    },
+    {
+      "name": "stm32h563_nucleo",
+      "uid": "620041000751323237363130",
+      "flasher": {"name": "stlink", "uid": "002300273232510239353236", "args": "-device stm32h563zi"},
+      "tinyuf2": {"lock": "stm32h563nucleo", "reentry": "retained-register"}
+    }
+  ]
+}
+
+
+def bench_roster(tmp):
+  cfg = tmp / 'bench.json'
+  cfg.write_text(json.dumps(BENCH))
+  return cfg
+
+
+# lpcxpresso55s69's layout, kept synthetic for the tests that run on it; SourceFacts checks they match the source
 LPC_FACTS = {'flashBase': 0, 'binBase': 0, 'appStart': 0x10000, 'flashSize': 0x98000, 'vid': 0x1fc9, 'pid': 0x0094,
              'boardId': 'LPC55S69-Xpresso-revA', 'family': 0x2abc77ec, 'vectors': 76, 'ram': 0x20000000,
              'dblTapDelayMs': 500, 'dblTapReg': 0x4002C05C, 'dblTapMagic': 0xF01669EF}
@@ -340,15 +397,15 @@ class Roster(Tmp):
       with self.subTest(what), self.assertRaises(ht.Refused):
         ht.apply_layout(dict(b), dict(LPC_FACTS, **over))
 
-  def test_the_committed_roster_is_well_formed_and_commissioned(self):
-    b = self.load(ROOT / 'test' / 'hil' / 'local.json', 'imxrt1060_evk')
+  def test_the_bench_and_ci_rosters_are_well_formed_and_commissioned(self):
+    b = self.load(bench_roster(self.tmp), 'imxrt1060_evk')
     self.assertEqual((b['lock'], b['reentry']), ('mimxrt1060_evk', 'retained-register'))
     self.assertEqual(b['install'], (0x60000000, 0x6000C000))
-    f3 = self.load(ROOT / 'test' / 'hil' / 'local.json', 'stm32f303disco')
+    f3 = self.load(bench_roster(self.tmp), 'stm32f303disco')
     self.assertEqual((f3['reentry'], f3['usbPower'], f3['install'], f3['app']),
                      ('retained-register', {'hub': 'PA40004', 'port': 3}, (0x08000000, 0x08004000), (0x08004000, 0x08040000)))
     self.assertIsNone(b['usbPower'])
-    f4 = self.load(ROOT / 'test' / 'hil' / 'local.json', 'stm32f411ve_discovery')
+    f4 = self.load(bench_roster(self.tmp), 'stm32f411ve_discovery')
     self.assertEqual((f4['lock'], f4['reentry'], f4['usbPower'], f4['install'], f4['app']),
                      ('stm32f411disco', 'retained-register', None, (0x08000000, 0x08010000), (0x08010000, 0x08080000)))
     ci = self.load(ROOT / 'test' / 'hil' / 'ci.json', 'imxrt1064_evk')
@@ -584,10 +641,145 @@ class EndChild(unittest.TestCase):
     live.returncode = -signal.SIGKILL   # reaped by end_child
 
 
+MAX_HEADER = 'lib/mcu/analog/msdk/Libraries/CMSIS/Device/Maxim/MAX32665/Include/max32665.h'
+MAX = {'port': 'maxim', 'name': 'max32666fthr', 'device': 'max32665'}
+MAX_FACTS = {'flashBase': 0x10000000, 'binBase': 0x10000000, 'appStart': 0x10008000, 'flashSize': 0x100000,
+             'vid': 0x0456, 'pid': 0xa010, 'boardId': 'MAX32666-FTHR', 'family': 0xf0c30d71, 'vectors': 111,
+             'ram': 0x20000000, 'dblTapDelayMs': 500, 'dblTapReg': 0x2008BFFC, 'dblTapMagic': 0xF01669EF}
+
+
+def edited_tree(test, files, edits):
+  """A temporary checkout holding `files` (checkout-relative) with `edits` {path: text -> text} applied."""
+  t = tempfile.TemporaryDirectory()
+  test.addCleanup(t.cleanup)
+  for rel in files:
+    (Path(t.name) / rel).parent.mkdir(parents=True, exist_ok=True)
+    (Path(t.name) / rel).write_text(edits.get(rel, lambda x: x)((ROOT / rel).read_text()))
+  return Path(t.name)
+
+
 class SourceFacts(unittest.TestCase):
   def test_a_port_the_runner_has_no_facts_for_is_refused(self):
-    with self.assertRaisesRegex(ht.Refused, 'ports/lpc55: the HIL runner has no source facts'):
-      ht.source_facts({'port': 'lpc55', 'name': BOARD})
+    with self.assertRaisesRegex(ht.Refused, 'ports/stm32l4: the HIL runner has no source facts'):
+      ht.port_sources('stm32l4', 'ports/stm32l4/boards/x')
+
+  def test_lpcxpresso55s69_facts_come_from_the_source(self):
+    f = ht.source_facts({'port': 'lpc55', 'name': BOARD, 'device': 'LPC55S69_M33_0'})
+    # RTC->GPREG[7] at the non-secure RTC base 0x4002C000 + 0x40 + 7 * 4; NUMBER_OF_INT_VECTORS 76
+    self.assertEqual(f, LPC_FACTS)
+    header, ld = ht.port_sources('lpc55', f'ports/lpc55/boards/{BOARD}')[:2]
+    self.assertEqual((header, ld), ('lib/mcu/nxp/mcux-sdk/devices/LPC55S69/LPC55S69_cm33_core0.h',
+                                    'lib/mcu/nxp/mcux-sdk/devices/LPC55S69/gcc/LPC55S69_cm33_core0_flash.ld'))
+
+  def test_lpc55_reads_its_linker_script_and_device_from_the_exact_cmake_forms(self):
+    files = ('ports/lpc55/CMakeLists.txt', 'ports/lpc55/family.cmake', f'ports/lpc55/boards/{BOARD}/board.cmake',
+             'lib/mcu/nxp/mcux-sdk/devices/LPC55S69/gcc/LPC55S69_cm33_core0_flash.ld')
+    lists, fam, board, _ = files
+    for what, rel, edit in (
+        ('another script dir', lists, lambda x: x.replace('${MCU_DIR}/gcc/', '${SDK_DIR}/gcc/')),
+        ('a second script', lists, lambda x: x.replace('_flash.ld"', '_flash.ld"\n  "LINKER:--script=${MCU_DIR}/x.ld"')),
+        ('an unknown core reference', board, lambda x: x.replace('${MCU}_cm33_core0', '${CORE}_cm33_core0')),
+        ('an MCU_DIR elsewhere', fam, lambda x: x.replace('${SDK_DIR}/devices/${MCU}', '${OTHER}/devices/${MCU}'))):
+      root = edited_tree(self, files, {rel: edit})
+      with self.subTest(what), mock.patch.object(ht, 'ROOT', root), mock.patch.object(ht.cb, 'ROOT', root), \
+           self.assertRaises(ht.Refused):
+        ht.port_sources('lpc55', f'ports/lpc55/boards/{BOARD}')
+    root = edited_tree(self, files, {})
+    with mock.patch.object(ht, 'ROOT', root), mock.patch.object(ht.cb, 'ROOT', root):
+      self.assertEqual(ht.port_sources('lpc55', f'ports/lpc55/boards/{BOARD}')[2:], (0, 0, 0x20000000, {}, {}))
+
+  @unittest.skipUnless((ROOT / MAX_HEADER).is_file(), f'{MAX_HEADER} not fetched (tools/get_deps.py maxim)')
+  def test_max32666fthr_facts_come_from_the_source(self):
+    # app start: the flash base plus the link's __FLASH_BOOT_SIZE 0x8000; flash: MXC_FLASH_MEM_SIZE * 2; the double
+    # tap: _board_dfu_dbl_tap = _estack, the last word of the 0x8C000 - 4 SRAM; vectors: MXC_IRQ_EXT_COUNT 95 + 16
+    self.assertEqual(ht.source_facts(MAX), MAX_FACTS)
+    b = dict(MAX)
+    ht.apply_layout(b, MAX_FACTS)
+    self.assertEqual((b['install'], b['app']), ((0x10000000, 0x10008000), (0x10008000, 0x10100000)))
+
+  @unittest.skipUnless((ROOT / MAX_HEADER).is_file(), f'{MAX_HEADER} not fetched (tools/get_deps.py maxim)')
+  def test_maxim_refuses_any_other_form_of_its_boot_size_scripts_flash_and_family(self):
+    bdir = 'ports/maxim/boards/max32666fthr'
+    files = ('ports/maxim/CMakeLists.txt', 'ports/maxim/family.cmake', 'ports/maxim/boards.h', f'{bdir}/board.cmake',
+             f'{bdir}/board.h', 'ports/maxim/linker/max32665/max32665_boot.ld',
+             'ports/maxim/linker/max32665/max32665_common.ld', MAX_HEADER, 'src/board_api.h')
+    lists, fam, boards, board, _, boot, common = files[:7]
+    defsym = '-Wl,--defsym=__FLASH_BOOT_SIZE=${FLASH_BOOT_SIZE}'
+    for what, rel, edit in (
+        ('a third script', lists, lambda x: x.replace('_common.ld"', '_common.ld"\n  "LINKER:--script=${TOP}/x.ld"')),
+        # GNU ld reads a script it is passed whatever its name (review of 6b0e521)
+        ('an unrecognised script', lists, lambda x: x.replace(
+          '_common.ld"', '_common.ld"\n  "LINKER:--script=${CMAKE_CURRENT_LIST_DIR}/extra.ld.backup"')),
+        ('a -T script', lists, lambda x: x.replace('_common.ld"', '_common.ld"\n  "LINKER:-T,extra.ld"')),
+        ('a family script', fam, lambda x: x.replace('-nostartfiles', '-nostartfiles -Wl,--script=extra.ld')),
+        ('a nested flash size', boards, lambda x: x.replace(
+          '#if defined(MAX32650)', '#if MXC_ASSERT_ENABLE\n#define BOARD_FLASH_SIZE 0x80000\n#else\n#if defined(MAX32650)', 1)
+         .replace('#define BOARD_FLASH_ADDR_LAST', '#endif\n#define BOARD_FLASH_ADDR_LAST')),
+        ('the scripts swapped', lists, lambda x: x.replace('_boot.ld', '_tmp.ld').replace('_common.ld', '_boot.ld')
+         .replace('_tmp.ld', '_common.ld')),
+        ('a literal defsym', fam, lambda x: x.replace(defsym, '-Wl,--defsym=__FLASH_BOOT_SIZE=0x4000')),
+        ('an extra defsym', fam, lambda x: x.replace(defsym, defsym + ' -Wl,--defsym=__x=1')),
+        ('no compile define', fam, lambda x: x.replace('    FLASH_BOOT_SIZE=${FLASH_BOOT_SIZE}\n', '')),
+        ('a board boot size', board, lambda x: x + '\nset(FLASH_BOOT_SIZE 0x4000)\n'),
+        ('a script assignment', boot, lambda x: x + '\n__FLASH_BOOT_SIZE = 0x4000;\n'),
+        ('a double tap in the common script', common, lambda x: x + '\n_board_dfu_dbl_tap = 0x20000000;\n'),
+        ('another app start', boards, lambda x: x.replace('(BOARD_FLASH_ADDR_ZERO + FLASH_BOOT_SIZE)', '0x10010000')),
+        ('a flash size outside the branches', boards, lambda x: x.replace('#define BOARD_FLASH_ADDR_LAST',
+                                                                          '#define BOARD_FLASH_SIZE 0x80000\n#define BOARD_FLASH_ADDR_LAST')),
+        ('a flash size expression', boards, lambda x: x.replace('(MXC_FLASH_MEM_SIZE * 2)', '(MXC_FLASH_MEM_SIZE + 2)')),
+        ('the device in no branch', boards, lambda x: x.replace('defined(MAX32665) || ', '')),
+        ('the flash base off the link\'s', MAX_HEADER, lambda x: x.replace('#define MXC_FLASH0_MEM_BASE 0x10000000UL',
+                                                                           '#define MXC_FLASH0_MEM_BASE 0x10004000UL')),
+        ('a literal family', fam, lambda x: x.replace('set(UF2_FAMILY_ID ${UF2_FAMILY_ID_${MAX_DEVICE_UPPER}})',
+                                                      'set(UF2_FAMILY_ID 0x1)'))):
+      root = edited_tree(self, files, {rel: edit})
+      with self.subTest(what), mock.patch.object(ht, 'ROOT', root), mock.patch.object(ht.cb, 'ROOT', root), \
+           self.assertRaises(ht.Refused):
+        ht.source_facts(MAX)
+    root = edited_tree(self, files, {})
+    with mock.patch.object(ht, 'ROOT', root), mock.patch.object(ht.cb, 'ROOT', root):
+      self.assertEqual(ht.source_facts(MAX), MAX_FACTS)
+
+  def test_a_device_define_comes_from_the_one_branch_naming_the_device(self):
+    t = tempfile.TemporaryDirectory()
+    self.addCleanup(t.cleanup)
+    head = '#ifndef G_\n#define G_\n#if __has_include("x.h")\n#include "x.h"\n#endif\n'
+    chain = ('#if defined(MAX1)\n#define SIZE 1\n#elif defined(MAX2) || defined(MAX3)\n#define SIZE (M * 2) // two\n'
+             '#elif defined(MAX4)\n#define SIZE 3\n#endif\n')
+    ok = head + chain + '#endif\n'
+    with mock.patch.object(ht, 'ROOT', Path(t.name)):
+      (Path(t.name) / 'ok.h').write_text(ok)
+      self.assertEqual([ht.device_define('ok.h', f'MAX{n}', 'SIZE') for n in (1, 3, 4)], ['1', '(M * 2)', '3'])
+      (Path(t.name) / 'bare.h').write_text(chain)
+      self.assertEqual(ht.device_define('bare.h', 'MAX4', 'SIZE'), '3')
+      # the compiler takes the outer branch's 0x80000 whenever MXC_ASSERT_ENABLE is set (review of 6b0e521)
+      nested = head + '#if MXC_ASSERT_ENABLE\n#define SIZE 0x80000\n#else\n' + chain + '#endif\n#endif\n'
+      for what, text, macro in (
+          ('no branch', ok, 'MAX5'), ('an #else', ok.replace('#elif defined(MAX4)', '#else'), 'MAX4'),
+          ('outside the chain', ok + '#define SIZE 4\n', 'MAX1'),
+          ('another condition', ok.replace('#elif defined(MAX4)', '#elif MAX4'), 'MAX4'),
+          ('twice in a branch', ok.replace('#define SIZE 1\n', '#define SIZE 1\n#define SIZE 5\n'), 'MAX1'),
+          ('an unmatched #endif', '#endif\n' + ok, 'MAX1'), ('an unclosed #if', head + chain, 'MAX1'),
+          ('a chain nested in an #if', nested, 'MAX1'),
+          ('a chain nested in an #ifndef', head + '#ifndef X\n' + chain + '#endif\n#endif\n', 'MAX1'),
+          ('a chain nested in a device branch', head + '#if defined(MAX9)\n' + chain + '#endif\n#endif\n', 'MAX1'),
+          ('a define nested in the branch', ok.replace('#define SIZE 3\n', '#ifdef X\n#define SIZE 3\n#endif\n'), 'MAX4'),
+          ('an earlier opaque branch', ok.replace('#elif defined(MAX2) || defined(MAX3)', '#elif X'), 'MAX4'),
+          ('a non-device name', ok.replace('defined(MAX2) || ', 'defined(DEBUG) || '), 'MAX3'),
+          ('not a device', ok, 'DEBUG')):
+        (Path(t.name) / 'bad.h').write_text(text)
+        with self.subTest(what), self.assertRaises(ht.Refused):
+          ht.device_define('bad.h', macro, 'SIZE')
+
+  def test_stm32f407disco_facts_come_from_the_source(self):
+    f = ht.source_facts({'port': 'stm32f4', 'name': 'stm32f407disco', 'device': 'stm32f407vg'})
+    self.assertEqual((f['flashBase'], f['binBase'], f['appStart'], f['flashSize'], f['vid'], f['pid'], f['boardId']),
+                     (0x08000000, 0x08000000, 0x08010000, 0x100000, 0x239a, 0x0089, 'STM32F407-Discovery-revD'))
+    # _board_dfu_dbl_tap = _estack, the last word of the boot script's 64K RAM; FPU_IRQn = 81 is the highest IRQ
+    self.assertEqual((f['dblTapReg'], f['ram'], f['vectors'], f['family']), (0x2000FFFC, 0x20000000, 98, 0x57755a57))
+    b = {'port': 'stm32f4', 'name': 'stm32f407disco', 'device': 'stm32f407vg'}
+    ht.apply_layout(b, f)
+    self.assertEqual((b['install'], b['app']), ((0x08000000, 0x08010000), (0x08010000, 0x08100000)))
 
   def test_rt1060_facts_come_from_the_source(self):
     f = ht.source_facts(RT)
@@ -655,6 +847,27 @@ class SourceFacts(unittest.TestCase):
         with self.subTest(what), self.assertRaises(ht.Refused):
           call()
 
+  def test_the_msdk_vector_count_is_its_irqn_enum_count_entry(self):
+    t = tempfile.TemporaryDirectory()
+    self.addCleanup(t.cleanup)
+    enum = ('typedef enum {{\n  SysTick_IRQn = -1,\n  PF_IRQn = 0, /* 16 */\n  WDT0_IRQn,\n  {last}\n}} IRQn_Type;\n'
+            '#define MXC_IRQ_COUNT {count}\n')
+    with mock.patch.object(ht, 'ROOT', Path(t.name)):
+      (Path(t.name) / 'ok.h').write_text(enum.format(last='USB_IRQn = 7,\n  RTC_IRQn,\n  MXC_IRQ_EXT_COUNT',
+                                                     count='(MXC_IRQ_EXT_COUNT + 16)'))
+      self.assertEqual(ht.vector_count('ok.h'), 16 + 9)
+      for what, last, count in (('no count entry', 'USB_IRQn', '(MXC_IRQ_EXT_COUNT + 16)'),
+                                ('another count', 'MXC_IRQ_EXT_COUNT', '(MXC_IRQ_EXT_COUNT + 15)'),
+                                ('a hex entry', 'USB_IRQn = 0x7,\n  MXC_IRQ_EXT_COUNT', '(MXC_IRQ_EXT_COUNT + 16)'),
+                                ('an expression entry', 'USB_IRQn = 6 + 1,\n  MXC_IRQ_EXT_COUNT', '(MXC_IRQ_EXT_COUNT + 16)')):
+        (Path(t.name) / 'bad.h').write_text(enum.format(last=last, count=count))
+        with self.subTest(what), self.assertRaises(ht.Refused):
+          ht.vector_count('bad.h')
+
+  @unittest.skipUnless((ROOT / MAX_HEADER).is_file(), f'{MAX_HEADER} not fetched (tools/get_deps.py maxim)')
+  def test_max32665_vector_count_comes_from_its_cmsis_header(self):
+    self.assertEqual(ht.vector_count(MAX_HEADER), 111)
+
   def test_the_vector_count_takes_decimal_irqn_entries_only(self):
     t = tempfile.TemporaryDirectory()
     self.addCleanup(t.cleanup)
@@ -673,10 +886,15 @@ class SourceFacts(unittest.TestCase):
     with mock.patch.object(ht, 'ROOT', Path(t.name)):
       (Path(t.name) / 'ok.txt').write_text('target_link_options(t PUBLIC "LINKER:--script=${CMAKE_CURRENT_LIST_DIR}/linker/a.ld")\n')
       self.assertEqual(ht.cmake_script('ok.txt'), './linker/a.ld')
-      for what, arg in (('a longer name', 'a.ld.backup'), ('a variable suffix', 'a.ld${X}')):
-        (Path(t.name) / 'bad.txt').write_text(f'target_link_options(t PUBLIC "LINKER:--script=${{CMAKE_CURRENT_LIST_DIR}}/{arg}")\n')
+      (Path(t.name) / 'refs.txt').write_text('target_link_options(t PUBLIC "LINKER:--script=${D}/gcc/${C}_flash.ld")\n')
+      self.assertEqual(ht.cmake_script('refs.txt', {'D': 'lib/sdk', 'C': 'core0'}), 'lib/sdk/gcc/core0_flash.ld')
+      for what, arg in (('a longer name', '${CMAKE_CURRENT_LIST_DIR}/a.ld.backup'),
+                        ('a variable suffix', '${CMAKE_CURRENT_LIST_DIR}/a.ld${X}'),
+                        ('an unknown reference', '${D}/gcc/${X}_flash.ld'), ('no directory reference', 'gcc/a.ld'),
+                        ('two scripts', '${D}/a.ld" "LINKER:--script=${D}/b.ld')):
+        (Path(t.name) / 'bad.txt').write_text(f'target_link_options(t PUBLIC "LINKER:--script={arg}")\n')
         with self.subTest(what), self.assertRaises(ht.Refused):
-          ht.cmake_script('bad.txt')
+          ht.cmake_script('bad.txt', {'D': 'lib/sdk'})
 
   def test_a_cmake_value_is_one_plain_set(self):
     t = tempfile.TemporaryDirectory()
@@ -685,6 +903,7 @@ class SourceFacts(unittest.TestCase):
                                           'set(Q "a")\nset(F 0x1)\nSET (F 0x2)\nset(E)\n')
     with mock.patch.object(ht, 'ROOT', Path(t.name)):
       self.assertEqual(ht.cmake_var('x.cmake', 'SDK_DIR'), 'lib/sdk')
+      self.assertEqual(ht.cmake_var('x.cmake', 'V', {'OTHER': 'lib/o'}), 'lib/o/x')
       for name in ('ID', 'V', 'Q', 'F', 'E', 'NONE'):
         with self.subTest(name), self.assertRaises(ht.Refused):
           ht.cmake_var('x.cmake', name)
@@ -1319,7 +1538,7 @@ class RouteRoster(Tmp):
         ht.load_board(cfg, name)
 
   def test_the_p4_roster_entry_is_a_commissioned_openocd_esp_route_of_its_board(self):
-    b = ht.load_board(ROOT / 'test/hil/local.json', 'espressif_p4_function_ev')
+    b = ht.load_board(bench_roster(self.tmp), 'espressif_p4_function_ev')
     self.assertEqual(b['routes'], {'openocd_esp': {'flasher': {'name': 'openocd_esp', 'uid': '30:ED:A0:E0:C9:02',
                                                                'args': '-f board/esp32p4-builtin.cfg'}, 'pending': False}})
 
@@ -1396,7 +1615,7 @@ class JtagRoute(EspFake):
     for p in (mock.patch.dict(os.environ, {'HIL_OPENOCD_ESP': str(exe), 'FAKE_BANNER': AG.BANNER,
                                            'FAKE_EVENTS': str(self.flash) + '.sessions', 'FAKE_FLASH': str(self.flash),
                                            'FAKE_BANK_SIZE': hex(0x800000)}),
-              mock.patch.object(ht, 'OPENOCD_TIMEOUT', 3), mock.patch.object(ht, 'OPENOCD_BOOT_SETTLE', 0),
+              mock.patch.object(ht, 'OPENOCD_TIMEOUT', 3), mock.patch.object(ht.openocd_esp(), 'BOOT_SETTLE', 0),
               mock.patch.object(ht.openocd_esp(), 'CLEANUP_TIMEOUT', 3)):
       p.start()
       self.addCleanup(p.stop)
@@ -1494,14 +1713,15 @@ class JtagRoute(EspFake):
     return cm.exception
 
   def test_the_provider_starts_at_least_the_settle_time_after_the_esptool_session(self):
-    ended, started = [], []
-    run, flash = ht.Esptool.run, ht.openocd_esp().flash_openocd_esp
+    # the provider's own BOOT_SETTLE, from its call to resolving the USJ, is the wait after the session's hard reset
+    oe, ended, flashing, started = ht.openocd_esp(), [], [], []
+    run, flash, usj = ht.Esptool.run, oe.flash_openocd_esp, oe.usj_location
     with mock.patch.object(ht.Esptool, 'run', lambda *a: (run(*a), ended.append(time.monotonic()))[0]), \
-         mock.patch.object(ht.openocd_esp(), 'flash_openocd_esp',
-                           lambda *a, **k: (started.append(time.monotonic()), flash(*a, **k))[1]), \
-         mock.patch.object(ht, 'OPENOCD_BOOT_SETTLE', 0.2):
+         mock.patch.object(oe, 'flash_openocd_esp', lambda *a, **k: (flashing.append(1), flash(*a, **k))[1]), \
+         mock.patch.object(oe, 'usj_location', lambda *a: (flashing and started.append(time.monotonic()), usj(*a))[1]), \
+         mock.patch.object(oe, 'BOOT_SETTLE', 0.2):
       self.install()
-      self.assertGreaterEqual(started[0] - ended[0], ht.OPENOCD_BOOT_SETTLE)
+      self.assertGreaterEqual(started[0] - max(e for e in ended if e < started[0]), oe.BOOT_SETTLE)
 
   def test_a_ci_job_is_refused_before_the_security_and_snapshot_session(self):
     with mock.patch.dict(os.environ, {'GITHUB_ACTIONS': ''}), mock.patch.object(ht.Esptool, 'run') as run, \
@@ -1851,6 +2071,16 @@ class Images(Tmp):
     self.assertFalse(ht.hex_matches_bin(ht.parse_hex(p), b, 0))
     p.write_text(ihex([(4, 0, b'\x60\x00'), (0, 0, b'\x01\x02'), (0, 4, b'\x06')]))   # at 0x60000000
     self.assertTrue(ht.hex_matches_bin(ht.parse_hex(p), b, 0x60000000))
+
+  def test_the_install_verifies_each_run_of_the_hex(self):
+    p = self.tmp / 'a.hex'
+    p.write_text(ihex([(4, 0, b'\x60\x00'), (0, 0, b'\x01\x02\x03')]))   # at 0x60000000
+    runs = ht.verify_images(ht.parse_hex(p), self.tmp)
+    self.assertEqual([(a, f.read_bytes()) for a, f in runs], [(0x60000000, b'\x01\x02\x03')])
+    # lpc55: the BIN zero-fills the gap that the HEX leaves erased
+    p.write_text(ihex([(0, 0, b'\x01\x02'), (0, 4, b'\x05')]))
+    runs = ht.verify_images(ht.parse_hex(p), self.tmp)
+    self.assertEqual([(a, f.read_bytes()) for a, f in runs], [(0, b'\x01\x02'), (4, b'\x05')])
 
   def test_embedded_version(self):
     b = self.tmp / 'a.bin'
@@ -2239,6 +2469,7 @@ class FlashProvider(Tmp):
     self.assertIn('def roster_identity(', text)
     off = self.tmp / 'core.py'
     off.write_text(text.replace('def roster_identity(', 'def _roster_identity('))
+    shutil.copy(ht.REPORT_CORE.with_name('hil_report_notice.py'), self.tmp)   # the core loads it from beside itself
     with mock.patch.object(ht, 'CORE', []), mock.patch.object(ht, 'REPORT_CORE', off), \
          mock.patch.object(ht, 'check_lock_pin'), self.assertRaisesRegex(ht.Refused, "lacks \\['roster_identity'\\]"):
       ht.report_core()
@@ -3508,7 +3739,7 @@ class BatteryRun(Tmp):
     build.mkdir(exist_ok=True)
     rig.hex = build / 'tinyuf2.hex'
     rig.hex.write_text(':00000001FF\n')
-    self.files = {'bin': self.tmp / 'c.bin', 'hex': rig.hex,
+    self.files = {'bin': self.tmp / 'c.bin', 'hex': rig.hex, 'verify': [(0, self.tmp / 'c.bin')],
                   'flash': {'root': build, 'binding': {'target': 'tinyuf2-jlink'},
                             'sha256': {'tinyuf2.hex': ht.sha256(rig.hex)}}}
     (self.tmp / 'cur').mkdir()
@@ -3563,6 +3794,13 @@ class BatteryRun(Tmp):
     # what a killed tool printed so far is no proof it never reached the target
     self.assertEqual((ev['tail'], ev['beforeTarget'], bat.touched), (['Connecting to J-Link ...FAILED: x'], False, True))
     self.assertEqual(ev['operation']['attempts'], [{'kind': 'timed_out', 'exit': 124}])
+
+  def test_a_gapped_hex_is_verified_run_by_run(self):
+    bat, rig = self.battery()
+    self.files['verify'] = [(0, self.tmp / 'c.bin'), (0x200, self.tmp / 'c.bin')]
+    bat.install(self.files)
+    self.assertEqual(rig.scripts[1], ['h', f'verifybin {self.tmp / "c.bin"},0x0', f'verifybin {self.tmp / "c.bin"},0x200',
+                                      'r', 'g'])
 
   def test_every_step_passes_and_resumes_only_after_a_halt(self):
     bat, rig = self.battery()
@@ -3850,8 +4088,8 @@ class BatteryRun(Tmp):
            self.assertRaisesRegex(ht.StepFail, 'reset write was not issued'):
         f3.run(aircr, judge=False)
 
-  def test_an_f411_session_connects_as_its_core_and_others_as_the_roster_device(self):
-    for device, want in (('stm32f411ve', 'Cortex-M4'), ('stm32f303vc', 'stm32f303vc')):
+  def test_an_f4_session_connects_as_its_core_and_others_as_the_roster_device(self):
+    for device, want in (('stm32f411ve', 'Cortex-M4'), ('stm32f407vg', 'Cortex-M4'), ('stm32f303vc', 'stm32f303vc')):
       probe = ht.Probe({'probe': '1', 'device': device, 'if': 'SWD', 'speed': '4000'}, self.tmp, None)
       seen = []
       with self.subTest(device), mock.patch.object(ht, 'spawn', lambda cmd, *a, **k: seen.append(cmd) or (0, 'ok')):
@@ -4112,7 +4350,8 @@ class Main(Tmp):
     hexp.write_text(':00000001FF\n')
     blinky = self.tmp / 'blinky.uf2'
     blinky.write_bytes(ht.pack_uf2([(0x10000, bytes(256))], LPC_FACTS['family']))
-    files = {'bin': self.tmp / 'c.bin', 'hex': hexp, 'blinky': blinky, 'blinkyBlocks': 1,
+    files = {'bin': self.tmp / 'c.bin', 'hex': hexp, 'verify': [(0, self.tmp / 'c.bin')], 'blinky': blinky,
+             'blinkyBlocks': 1,
              'flash': {'root': build, 'binding': {'target': 'tinyuf2-jlink'}, 'sha256': {'tinyuf2.hex': ht.sha256(hexp)}}}
     flashed, clock = [], [0.0]
 
@@ -4709,7 +4948,7 @@ class StlinkBatteryRun(Tmp):
     build = self.tmp / 'build'
     build.mkdir()
     (build / 'tinyuf2.hex').write_text(':00000001FF\n')
-    self.files = {'bin': bin_path, 'hex': build / 'tinyuf2.hex',
+    self.files = {'bin': bin_path, 'hex': build / 'tinyuf2.hex', 'verify': [(f['binBase'], bin_path)],
                   'flash': {'root': build, 'binding': {'target': 'tinyuf2-stlink'},
                             'sha256': {'tinyuf2.hex': ht.sha256(build / 'tinyuf2.hex')}}}
 
@@ -4830,6 +5069,95 @@ class StlinkSourceFacts(unittest.TestCase):
       ht.source_facts(dict(H563, device='unknown'))
 
 
+H743 = {'port': 'stm32h7', 'name': 'stm32h743nucleo', 'device': 'stm32h743zi', 'flasher': 'stlink'}
+H743_HEADER = 'lib/mcu/st/cmsis_device_h7/Include/stm32h743xx.h'
+H743_FACTS = {'flashBase': 0x08000000, 'binBase': 0x08000000, 'appStart': 0x08020000, 'flashSize': 0x200000,
+              'vid': 0x239a, 'pid': 0x0097, 'boardId': 'STM32H743ZI-Nucleo', 'family': 0x6db66082, 'vectors': 166,
+              'ram': 0x20000000, 'dblTapDelayMs': 500, 'dblTapReg': 0x20010000, 'dblTapMagic': 0xF01669EF}
+
+
+class Stm32h7SourceFacts(unittest.TestCase):
+  def test_stm32h743nucleo_facts_come_from_the_source_and_both_links(self):
+    # the app start: board.cmake's BOARD_FLASH_APP_START, the app link's FLASH origin under PFLASH_APP; the double tap:
+    # ORIGIN(NOINIT), past the layout's 64K DTCM RAM; WAKEUP_PIN_IRQn = 149 is the highest IRQ
+    f = ht.source_facts(H743)
+    self.assertEqual(f, H743_FACTS)
+    self.assertEqual(ht.port_sources('stm32h7', 'ports/stm32h7/boards/stm32h743nucleo')[:2],
+                     (H743_HEADER, 'ports/stm32h7/linker/h743xx.ld'))
+    b = dict(H743)
+    ht.apply_layout(b, f)
+    self.assertEqual((b['install'], b['app']), ((0x08000000, 0x08020000), (0x08020000, 0x08200000)))
+
+  def test_an_stm32h7_board_without_an_internal_flash_app_is_refused(self):
+    for name in ('daisy_seed', 'mini_stm32h750_v11'):
+      with self.subTest(name), self.assertRaisesRegex(ht.Refused, 'only with an internal-flash app'):
+        ht.source_facts({'port': 'stm32h7', 'name': name})
+
+  def test_stm32h7_refuses_any_other_form_of_its_scripts_defsyms_layout_and_app_start(self):
+    bdir = 'ports/stm32h7/boards/stm32h743nucleo'
+    files = ('ports/stm32h7/family.cmake', 'ports/stm32h7/CMakeLists.txt', 'ports/stm32h7/app.cmake',
+             'ports/stm32h7/boards.h', f'{bdir}/board.cmake', 'ports/stm32h7/linker/memory.ld',
+             'ports/stm32h7/linker/common.ld', 'ports/stm32h7/linker/h743xx.ld', f'{bdir}/board.h',
+             'ports/family_support.cmake', 'cmake/toolchain/arm_gcc.cmake', 'cmake/toolchain/common.cmake',
+             H743_HEADER, 'src/board_api.h')
+    fam, lists, app, boards, board, memory, common, layout, _, shared, _, toolchain = files[:12]
+    link_app = '  target_link_options(${TARGET} PUBLIC\n    "LINKER:--defsym=${APP_LOCATION}=0"\n    )\n'
+    board_link = lambda line: lambda x: x.replace(   # noqa: E731
+      'function(update_board TARGET)\n', f'function(update_board TARGET)\n  {line}\n')
+    defsym = '"LINKER:--defsym=${APP_LOCATION}=0"'
+    for what, rel, edit in (
+        ('a fourth script', fam, lambda x: x.replace(
+          '/linker/${MCU}.ld"', '/linker/${MCU}.ld"\n    "LINKER:--script=${CMAKE_CURRENT_FUNCTION_LIST_DIR}/x.ld"')),
+        ('the scripts reordered', fam, lambda x: x.replace('/memory.ld', '/tmp.ld').replace('/common.ld', '/memory.ld')
+         .replace('/tmp.ld', '/common.ld')),
+        ('a bootloader script', lists, lambda x: x.replace(
+          'family_add_linker_scripts(tinyuf2)',
+          'family_add_linker_scripts(tinyuf2)\ntarget_link_options(tinyuf2 PUBLIC "LINKER:-T,x.ld")')),
+        ('no bootloader scripts', lists, lambda x: x.replace('family_add_linker_scripts(tinyuf2)', '')),
+        ('a bootloader defsym', lists, lambda x: x.replace(
+          'family_add_linker_scripts(tinyuf2)', 'family_add_linker_scripts(tinyuf2)\n'
+          'target_link_options(tinyuf2 PUBLIC "LINKER:--defsym=PFLASH_APP=0")')),
+        ('the app in AXI SRAM', app, lambda x: x.replace('set(APP_LOCATION PFLASH_APP)', 'set(APP_LOCATION RAMCODE)')),
+        ('an extra app defsym', app, lambda x: x.replace(defsym, defsym + ' "LINKER:--defsym=__x=1"')),
+        # review of e0eb8351: each of these links another layout than the one the reader reports
+        ('a later APP_LOCATION', app, lambda x: x.replace('endif ()\n', 'endif ()\nset(APP_LOCATION RAMCODE)\n', 1)),
+        ('the defsym after the scripts', app, lambda x: x.replace(
+          link_app + '  family_add_linker_scripts(${TARGET})\n',
+          '  family_add_linker_scripts(${TARGET})\n' + link_app)),
+        ('a board defsym', board,
+         board_link('target_link_options(${TARGET} PUBLIC "LINKER:--defsym=_board_dfu_dbl_tap=0x20000000")')),
+        ('a board script', board, board_link('target_link_options(${TARGET} PUBLIC "LINKER:--script=x.ld")')),
+        ('a board linker script input', board, board_link('target_link_libraries(${TARGET} PUBLIC x.ld)')),
+        ('a shared script', shared, lambda x: x + '\nadd_link_options("LINKER:--script=x.ld")\n'),
+        ('a toolchain defsym', toolchain, lambda x: x.replace('-Wl,--gc-sections',
+                                                               '-Wl,--gc-sections -Wl,--defsym=PFLASH_APP=0')),
+        ('an earlier PFLASH_APP', layout, lambda x: 'PFLASH_APP = 0;\n' + x),
+        ('a PFLASH_APP in memory.ld', memory, lambda x: 'PFLASH_APP = 0;\n' + x),
+        ('a provided PFLASH_APP', common, lambda x: x + '\nPROVIDE(PFLASH_APP = 0);\n'),
+        ('another app origin', layout, lambda x: x.replace('0x08020000 : 0x08000000', '0x08040000 : 0x08000000')),
+        ('a layout reassignment', layout, lambda x: x + '\n_ram_size = 32K;\n'),
+        ('a layout region', layout, lambda x: x + '\nMEMORY { X (rx) : ORIGIN = 0, LENGTH = 4 }\n'),
+        ('a layout symbol in memory.ld', memory, lambda x: x + '\n_ram_origin = 0x24000000;\n'),
+        ('another double tap', common, lambda x: x.replace('= ORIGIN(NOINIT);', '= ORIGIN(NOINIT) + 4;')),
+        ('a second double tap', common, lambda x: x + '\n_board_dfu_dbl_tap = 0x20000000;\n'),
+        ('another app start', board, lambda x: x.replace('START=0x08020000', 'START=0x08040000')),
+        ('a second app start', board, lambda x: x.replace('    TRAP_EXC',
+                                                          '    BOARD_FLASH_APP_START=0x08040000\n    TRAP_EXC')),
+        ('a boards.h app start', boards, lambda x: x.replace('// #define BOARD_FLASH_APP_START   0x08010000',
+                                                             '#define BOARD_FLASH_APP_START   0x08010000')),
+        ('another flash base', boards, lambda x: x.replace('BASE_ADDR  0x08000000U', 'BASE_ADDR  0x08100000U')),
+        ('an MCU of another device', board, lambda x: x.replace('set(MCU h743xx)', 'set(MCU h750xx)')),
+        ('the app disabled', board, lambda x: x.replace('set(BOARD_PFLASH_APP_EN 1)', 'set(BOARD_PFLASH_APP_EN 0)')),
+        ('no compile define', board, lambda x: x.replace('    BOARD_PFLASH_APP_EN=1\n', ''))):
+      root = edited_tree(self, files, {rel: edit})
+      with self.subTest(what), mock.patch.object(ht, 'ROOT', root), mock.patch.object(ht.cb, 'ROOT', root), \
+           self.assertRaises(ht.Refused):
+        ht.source_facts(H743)
+    root = edited_tree(self, files, {})
+    with mock.patch.object(ht, 'ROOT', root), mock.patch.object(ht.cb, 'ROOT', root):
+      self.assertEqual(ht.source_facts(H743), H743_FACTS)
+
+
 class StlinkRoster(Tmp):
   def test_an_stlink_entry_needs_a_device_with_limits_and_a_chip_identity(self):
     def entry(device):
@@ -4843,6 +5171,501 @@ class StlinkRoster(Tmp):
       for device, err in (('stm32h503rb', 'no chip identity'), ('stm32h573ii', 'no programming limits')):
         with self.subTest(device), self.assertRaisesRegex(ht.Refused, err):
           ht.load_board(entry(device), 'stm32h563_nucleo')
+
+  def test_stm32h743nucleo_loads_as_an_stlink_board_and_its_chip_is_identified(self):
+    cfg = self.tmp / 'local.json'
+    cfg.write_text(json.dumps({'boards': [{'name': 'stm32h743nucleo', 'uid': 'U', 'flasher': {
+      'name': 'stlink', 'uid': '004C00343137510F39383538', 'args': '-device stm32h743zi'}, 'tinyuf2': {}}]}))
+    b = self.load(cfg, 'stm32h743nucleo')
+    self.assertEqual((b['kind'], b['port'], b['install'], b['app']),
+                     ('stlink', 'stm32h7', (0x08000000, 0x08020000), (0x08020000, 0x08200000)))
+    # bench: STM32_Programmer_CLI on the rig's NUCLEO-H743ZI, "Device ID : 0x450", "NVM size : 2 MBytes"
+    for dev, nvm, ok in (('0x450', '2 MBytes', True), ('0x450', '128 KBytes', False), ('0x450', '1 MBytes', False),
+                         ('0x484', '2 MBytes', False)):
+      with self.subTest(dev=dev, nvm=nvm):
+        self.assertEqual(ht.chip_reported(CUBE_CONNECT.format(dev=dev, nvm=nvm), b), ok)
+
+
+MAX_ENTRY = {'name': 'max32666fthr', 'uid': '0C81464124010B20FF0A08CC2C000000',
+             'flasher': {'name': 'openocd', 'uid': 'E6614C311B597D32', 'vid_pid': '0x2e8a 0x000c',
+                         'args': '-f interface/cmsis-dap.cfg -f target/max32665.cfg'},
+             'tinyuf2': {'reentry': 'retained-register'}}
+
+
+def max_roster(tmp, **flasher):
+  cfg = tmp / 'max.json'
+  cfg.write_text(json.dumps({'boards': [dict(MAX_ENTRY, flasher={k: v for k, v in dict(MAX_ENTRY['flasher'], **flasher).items()
+                                                                 if v is not None})]}))
+  return cfg
+
+
+# openocd 0.12.0+dev-g0ce743125 on the rig's max32666fthr (bench 2026-10-22), up to the target examined
+OOCD_CONNECT = ('Open On-Chip Debugger 0.12.0+dev-02620-g0ce743125\nLicensed under GNU GPL v2\n'
+                "DEPRECATED! use 'tcl port' not 'tcl_port'\nInfo : CMSIS-DAP: SWD supported\n"
+                'Info : SWD DPIDR 0x2ba01477\nInfo : [max32665.cpu] Cortex-M4 r0p1 processor detected\n')
+OOCD_NO_PROBE = ('Open On-Chip Debugger 0.12.0+dev-g0ce743125\n'
+                 'Error: The hostname or IP address of the CMSIS-DAP adapter must be specified\n'
+                 'Error: unable to find a matching CMSIS-DAP device\n')   # local run, no probe of the serial
+
+
+def oocd_program(error=''):
+  """The provider's `program <hex> reset exit`, the install's, in the phases startup.tcl's program proc echoes
+  without its verify."""
+  return (OOCD_CONNECT + '** Programming Started **\nInfo : Padding image section 0 at 0x100038c2 with 2 bytes\n'
+          f'Warn : Flash protection not supported on this device\n{error}** Programming Finished **\n'
+          '** Resetting Target **\nshutdown command invoked\n')
+
+
+class FakeOpenocd:
+  """openocd over a CMSIS-DAP probe: the provider's flash, and its sessions' scripts run command by command, each
+  answered in the shape the rig recorded: from a script a command's result is printed only through `echo [...]`, an
+  unknown register is an error, and a failing command stops the script with exit 1, as openocd does."""
+
+  def __init__(self):
+    self.scripts, self.flashes, self.mem, self.flash = [], [], {}, {}
+    self.r0, self.pc, self.sp, self.vtor = 5, 0x10008400, 0x20001000, 0x10008000
+    self.on_reset, self.fail = None, None
+
+  def run(self, argv):
+    if argv[-2] == '-c':   # the provider's flash: its one -c after the cfgs
+      self.flashes.append(argv)
+      return 0, oocd_program()
+    lines = Path(argv[-1]).read_text().splitlines()
+    self.scripts.append(lines)
+    out = OOCD_CONNECT
+    for n, line in enumerate(lines, 1):
+      echo = re.fullmatch(r'echo \[(.*)\]', line)
+      w = (echo[1] if echo else line).split()
+      if self.fail and self.fail(line):
+        return 1, out + f'Error: {line} failed\n'
+      result = ''   # a command's result, which only an echo prints
+      if w[0] == 'halt':
+        out += 'Warn : [max32665.cpu] target was in unknown state when halt was requested\n'
+      elif w[0] == 'reg':
+        regs = {'pc': self.pc, 'r0': self.r0 + 7, 'msp': self.sp, 'xpsr': 0x01000000}
+        if w[1] not in regs:
+          return 1, out + f'{argv[-1]}:{n}: Error: register {w[1]} not found in current target\n'
+        if w[1] == 'r0':
+          self.r0 += 7
+        result = f'{w[1]} (/32): 0x{regs[w[1]]:08x}'
+      elif w[0] == 'mdw':
+        a = int(w[1], 16)
+        result = f'0x{a:08x}: {self.vtor if a == ht.SCB_VTOR else self.mem.get(a, 0):08x} '
+      elif w[0] == 'mww':
+        a, v = int(w[1], 16), int(w[2], 16)
+        if a == ht.SCB_AIRCR:
+          if self.on_reset:
+            self.on_reset()
+        else:
+          self.mem[a] = v
+      elif w[0] == 'dump_image':
+        a, n = int(w[2], 16), int(w[3], 16)
+        Path(w[1].strip('{}')).write_bytes(self.flash.get(a, b'')[:n])
+        result = f'dumped {n} bytes in 1.5s (10.4 KiB/s)'
+      elif w[0] == 'shutdown':
+        out += 'shutdown command invoked\n'
+      if echo:
+        out += result + '\n'
+    return 0, out
+
+
+class OpenocdRoster(Tmp):
+  def setUp(self):
+    super().setUp()
+    p = mock.patch.object(ht, 'source_facts', lambda b: dict(MAX_FACTS))
+    p.start()
+    self.addCleanup(p.stop)
+
+  def test_an_openocd_entry_loads_as_its_target_cfgs_device_with_its_probe_pin(self):
+    b = self.load(max_roster(self.tmp), 'max32666fthr')
+    self.assertEqual((b['kind'], b['flasher'], b['device'], b['probe'], b['args'], b['vid_pid'], b['install'], b['app']),
+                     ('openocd', 'openocd', 'max32665', 'E6614C311B597D32', MAX_ENTRY['flasher']['args'], '0x2e8a 0x000c',
+                      (0x10000000, 0x10008000), (0x10008000, 0x10100000)))
+    self.assertEqual((ht.STEPS['openocd'], ht.REENTRY['openocd']), (ht.STEPS['jlink'], ('retained-register',)))
+
+  def test_refusals(self):
+    for what, over, err in (('no USB ID pin', {'vid_pid': None}, 'needs its probe'),
+                            ('a malformed pin', {'vid_pid': '2e8a:000c'}, 'needs its probe'),
+                            ('two pins', {'vid_pid': '0x2e8a 0x000c 0x1366 0x0101'}, 'needs its probe'),
+                            ('another interface', {'args': '-f interface/jlink.cfg -f target/max32665.cfg'}, 'flasher must be'),
+                            ('a further option', {'args': MAX_ENTRY['flasher']['args'] + ' -c "adapter speed 4000"'},
+                             'flasher must be'),
+                            ('no limits', {'args': '-f interface/cmsis-dap.cfg -f target/max32690.cfg'},
+                             'no programming limits known for openocd device max32690')):
+      with self.subTest(what), self.assertRaisesRegex(ht.Refused, err):
+        ht.load_board(max_roster(self.tmp, **over), 'max32666fthr')
+
+  def test_a_record_is_admitted_only_when_bound_to_this_probe_and_its_usb_id(self):
+    b = self.load(max_roster(self.tmp), 'max32666fthr')
+    root = self.tmp / 'build'
+    root.mkdir()
+    (root / 'tinyuf2.hex').write_text(':00000001FF\n')
+    flasher = {'name': 'openocd', 'uid': 'E6614C311B597D32', 'device': 'max32665', 'vid_pid': '0x2e8a 0x000c'}
+    row = {'flash': {'target': 'tinyuf2-openocd', 'flasher': flasher, 'inputs': ['tinyuf2.hex']},
+           'sha256': {'tinyuf2.hex': ht.sha256(root / 'tinyuf2.hex')}}
+    self.assertEqual(ht.admit_flash('r.json', row, root, b)['sha256'], row['sha256'])
+    for what, fl in (('another USB ID', dict(flasher, vid_pid='0x1366 0x0101')), ('no USB ID', {
+                       k: v for k, v in flasher.items() if k != 'vid_pid'}), ('another probe', dict(flasher, uid='1'))):
+      with self.subTest(what), self.assertRaisesRegex(ht.Refused, 'not bound to this roster flasher'):
+        ht.admit_flash('r.json', dict(row, flash=dict(row['flash'], flasher=fl)), root, b)
+
+  def test_the_providers_flash_names_what_the_record_target_does(self):
+    # the target (check_build's binding) and the install's provider flash: the same openocd, probe serial, USB ID,
+    # cfgs and HEX; the provider adds the reset and shutdown the target runs as separate commands, and the install
+    # drops program's verify, which the target has none of either
+    b = self.load(max_roster(self.tmp), 'max32666fthr')
+    hexp = '/b/tinyuf2.hex'
+    seen = []
+    op = ht.provider().flash_openocd(dict(ht.OpenocdProbe(b, self.tmp, None).flasher, verify=False), hexp, timeout=5,
+                                     run=lambda cmd, timeout: seen.append(cmd) or subprocess.CompletedProcess(cmd, 0, '', ''))
+    argv, _ = ht.command_argv(seen[0])
+    self.assertEqual(op.returncode, 0)
+    target = ['openocd', '-c', 'tcl_port disabled; gdb_port disabled', '-c', 'adapter serial E6614C311B597D32', '-c',
+              'adapter usb vid_pid 0x2e8a 0x000c', '-f', 'interface/cmsis-dap.cfg', '-f', 'target/max32665.cfg',
+              '-c', f'init; halt; program {hexp}', '-c', 'reset', '-c', 'exit']
+    for a in ('openocd', 'adapter serial E6614C311B597D32', 'adapter usb vid_pid 0x2e8a 0x000c', 'interface/cmsis-dap.cfg',
+              'target/max32665.cfg'):
+      self.assertIn(a, argv)
+      self.assertIn(a, target)
+    self.assertEqual(argv[-1], f'program {hexp} reset exit')
+
+  def test_a_missing_openocd_is_refused_before_any_session(self):
+    b = self.load(max_roster(self.tmp), 'max32666fthr')
+    with mock.patch.object(ht.shutil, 'which', lambda t: None), self.assertRaisesRegex(ht.Refused, 'openocd must be on PATH'):
+      ht.check_flasher(b)
+
+  @staticmethod
+  def free_reader(fifo):
+    """EOF to a reader blocked on `fifo`, so its thread ends; ENXIO when none was left waiting."""
+    with contextlib.suppress(OSError):
+      os.close(os.open(fifo, os.O_WRONLY | os.O_NONBLOCK))
+
+  def usb_tree(self, devices):
+    """A sysfs device tree and udev's records for usb_observe: {busport: (vid, pid, busnum, devnum, serial, udev serial)},
+    a serial of None a FIFO, whose read blocks as a wedged device's does."""
+    sysfs, udev, char = self.tmp / 'sys', self.tmp / 'udev', self.tmp / 'char'
+    udev.mkdir()
+    char.mkdir()
+    for port, (vid, pid, bus, dev, serial, udev_serial) in devices.items():
+      d = sysfs / port
+      d.mkdir(parents=True)
+      (char / f'189:{(int(bus) - 1) * 128 + int(dev) - 1}').symlink_to(d)
+      for name, value in (('idVendor', vid), ('idProduct', pid), ('busnum', bus), ('devnum', dev)):
+        (d / name).write_text(f'{value}\n')
+      if serial is None:
+        os.mkfifo(d / 'serial')
+        self.addCleanup(self.free_reader, d / 'serial')
+      else:
+        (d / 'serial').write_text(f'{serial}\n')
+      if udev_serial:
+        (udev / f'c189:{(int(bus) - 1) * 128 + int(dev) - 1}').write_text(f'E:ID_SERIAL_SHORT={udev_serial}\n')
+    obs = ht.usb_observe()
+    for p in (mock.patch.object(obs, 'SYS_USB_DEVICES', str(sysfs)), mock.patch.object(obs, 'UDEV_DATA', str(udev)),
+              mock.patch.object(obs, 'SYS_DEV_CHAR', str(char)), mock.patch.object(ht, 'PROBE_SERIAL_TIMEOUT', 0.3)):
+      p.start()
+      self.addCleanup(p.stop)
+
+  def test_the_observation_api_admits_every_function_the_probe_check_calls(self):
+    # load_pinned refuses a pin lacking OBSERVE_API before the lock; one missing here fails under it instead
+    called = set(re.findall(r'\bobs\.(\w+)\(', SCRIPT.read_text()))
+    self.assertTrue(called)
+    self.assertLessEqual(called, set(ht.OBSERVE_API))
+
+  def test_any_process_on_the_probe_node_or_an_openocd_naming_its_serial_is_a_probe_user(self):
+    b = self.load(max_roster(self.tmp), 'max32666fthr')
+    proc = self.tmp / 'proc'
+    # 105's last argument does not decode; 104 and 107 (its command line unreadable) hold the probe's node open,
+    # 106 another device's
+    for pid, argv, fd in (('101', b'/usr/local/bin/openocd\0-c\0adapter serial E6614C311B597D32\0', None),
+                          ('102', b'openocd\0-c\0adapter serial OTHER\0', None),
+                          ('103', b'python3\0E6614C311B597D32\0', None), ('104', b'python3\0', '/dev/bus/usb/009/012'),
+                          ('105', b'openocd\0-c\0adapter serial E6614C311B597D32\0\xff\0', None),
+                          ('106', b'python3\0', '/dev/bus/usb/009/013'), ('107', None, '/dev/bus/usb/009/012')):
+      (proc / pid / 'fd').mkdir(parents=True)
+      if argv is not None:
+        (proc / pid / 'cmdline').write_bytes(argv)
+      if fd:
+        (proc / pid / 'fd' / '3').symlink_to(fd)
+    # the probe by its sysfs serial, a peer debugprobe by udev's record, and another device's USB ID never read
+    self.usb_tree({'9-1.3': ('2e8a', '000c', 9, 12, 'E6614C311B597D32', None),
+                   '9-1.4': ('2e8a', '000c', 9, 13, 'PEER', 'PEER'), '9-2.2': ('0456', 'a010', 9, 14, None, None)})
+    real = ht.Path
+    with mock.patch.object(ht, 'Path', lambda *a: real(proc) if a == ('/proc',) else real(*a)):
+      self.assertEqual(sorted(ht.probe_users(b)), [101, 104, 105, 107])
+
+  def test_a_probe_that_re_enumerates_while_its_serial_is_read_is_walked_again_never_taken_by_its_old_number(self):
+    # review of 4f28578e: device 12 replaced by 13 during the read must not give /dev/bus/usb/009/012
+    b = self.load(max_roster(self.tmp), 'max32666fthr')
+    obs, sysfs = ht.usb_observe(), self.tmp / 'sys'
+    for lookup, udev in (('udev_serial', 'E6614C311B597D32'), ('read_sysfs', None)):
+      for what, times, want in (('once', 1, '/dev/bus/usb/009/013'), ('every walk', 2, None)):
+        with self.subTest(lookup=lookup, what=what):
+          self.tmp = Path(tempfile.mkdtemp(dir=self.tmp))
+          sysfs = self.tmp / 'sys'
+          self.usb_tree({'9-1.3': ('2e8a', '000c', 9, 12, 'E6614C311B597D32', udev)})
+          real, seen = getattr(obs, lookup), []
+
+          def lookup_during_replug(*a, real=real, sysfs=sysfs, times=times):
+            seen.append(a)
+            out = real(*a)
+            if len(seen) <= times:   # the old dir kept aside, so the new one cannot reuse its inode
+              n = len(seen)
+              os.rename(sysfs / '9-1.3', sysfs / f'gone{n}')
+              shutil.copytree(sysfs / f'gone{n}', sysfs / '9-1.3')
+              (sysfs / '9-1.3' / 'devnum').write_text(f'{12 + n}\n')
+              (sysfs.with_name('char') / f'189:{1035 + n}').symlink_to(sysfs / '9-1.3')   # its new devt
+            return out
+          with mock.patch.object(obs, lookup, lookup_during_replug):
+            if want:
+              self.assertEqual(ht.probe_node(b), want)
+            else:
+              with self.assertRaisesRegex(ht.StepFail, r"\['9-1.3'\] re-enumerated while their serial was read"):
+                ht.probe_node(b)
+          self.assertEqual(len(seen), 2)
+
+  def test_a_peer_whose_serial_read_blocks_never_stalls_the_probe_check(self):
+    # review of ef466386: a wedged CMSIS-DAP peer's `serial` read blocks under its device lock, here a FIFO no one writes
+    b = self.load(max_roster(self.tmp), 'max32666fthr')
+    self.usb_tree({'9-1.3': ('2e8a', '000c', 9, 12, 'E6614C311B597D32', None), '9-1.4': ('2e8a', '000c', 9, 13, None, None),
+                   '9-1.5': ('2e8a', '000c', 9, 15, None, 'PEER')})   # udev names this one: its serial is never read
+    start = time.monotonic()
+    self.assertEqual(ht.probe_node(b), '/dev/bus/usb/009/012')   # found beside the silent peer
+    self.assertLess(time.monotonic() - start, 2)
+    with mock.patch.object(ht.usb_observe(), 'udev_serial', lambda bus, dev: None), \
+         mock.patch.object(ht.usb_observe(), 'read_sysfs', lambda path, timeout: None if '189:1035' in path else 'X'):
+      with self.assertRaisesRegex(ht.StepFail, r"did not answer"):   # it may be this probe: a probe check failure
+        ht.probe_node(b)
+    start = time.monotonic()
+    with self.assertRaisesRegex(ht.StepFail, r"\['9-1.4'\] did not answer"):
+      ht.probe_node(dict(b, probe='ABSENT'))
+    self.assertLess(time.monotonic() - start, 2)
+
+class Openocd(Tmp):
+  """The openocd probe sessions over a fake openocd: the plumbing, not the rig."""
+
+  def setUp(self):
+    super().setUp()
+    self.oocd = FakeOpenocd()
+    self.board = {'name': 'max32666fthr', 'probe': 'E6614C311B597D32', 'device': 'max32665', 'flasher': 'openocd',
+                  'args': MAX_ENTRY['flasher']['args'], 'vid_pid': '0x2e8a 0x000c'}
+    self.probe = ht.OpenocdProbe(self.board, self.tmp, self.tmp / 'log')
+    self.answer, self.argv = None, []
+    p = mock.patch.object(ht, 'spawn', lambda cmd, log, timeout, **k: self.argv.append(list(cmd)) or (
+      self.answer(cmd) if self.answer else self.oocd.run(cmd)))
+    p.start()
+    self.addCleanup(p.stop)
+
+  def test_a_session_is_init_the_commands_and_shutdown_on_the_pinned_probe(self):
+    self.oocd.mem[0x2008BFFC] = 0xF01669EF
+    self.assertEqual(self.probe.mem32([0x2008BFFC, ht.SCB_VTOR]), {0x2008BFFC: 0xF01669EF, ht.SCB_VTOR: 0x10008000})
+    self.assertEqual(self.oocd.scripts[0], ['init', 'echo [mdw 0x2008bffc]', 'echo [mdw 0xe000ed08]', 'shutdown'])
+    self.assertEqual(self.argv[0][:-1], ['openocd', '-c', 'tcl_port disabled', '-c', 'gdb_port disabled', '-c',
+                                         'telnet_port disabled', '-c', 'adapter serial E6614C311B597D32', '-c',
+                                         'adapter usb vid_pid 0x2e8a 0x000c', '-f', 'interface/cmsis-dap.cfg', '-f',
+                                         'target/max32665.cfg', '-f'])
+    self.assertEqual((Path(self.argv[0][-1]).parent, list(self.tmp.glob('*.tcl'))), (self.tmp, []))   # in the run dir, gone
+    self.assertEqual(self.probe.write32(0x2008BFFC, 0), '0x0')
+    self.assertEqual(self.oocd.scripts[-1], ['init', 'halt', 'mww 0x2008bffc 0x00000000', 'echo [mdw 0x2008bffc]', 'resume',
+                                             'shutdown'])
+    self.probe.sysreset()
+    self.assertEqual(self.oocd.scripts[-1], ['init', f'mww 0x{ht.SCB_AIRCR:08X} 0x{ht.AIRCR_SYSRESETREQ:08X}', 'shutdown'])
+
+  def test_a_session_fails_unless_it_reached_its_shutdown_without_an_error_line(self):
+    ok = self.oocd.run
+    for what, answer in (('a failed command', lambda cmd: (setattr(self.oocd, 'fail', lambda l: l == 'resume'), ok(cmd))[1]),
+                         ('exit 0 with an error line', lambda cmd: (0, ok(cmd)[1] + 'Error: x\n')),
+                         ('a nonzero exit', lambda cmd: (1, ok(cmd)[1])),
+                         ('no shutdown', lambda cmd: (0, ok(cmd)[1].replace('shutdown command invoked', ''))),
+                         ('killed', lambda cmd: (-9, ok(cmd)[1]))):
+      self.oocd.fail = None
+      with self.subTest(what), self.assertRaisesRegex(ht.StepFail, r'openocd failed \(exit') as e:
+        self.answer = answer
+        self.probe.run(['halt', 'resume'])
+      self.assertFalse(e.exception.evidence['beforeTarget'])
+
+  def test_only_no_matching_probe_before_any_debug_port_read_is_before_the_target(self):
+    for what, out, before in (('no probe', OOCD_NO_PROBE, True),
+                              ('a DPIDR read', OOCD_CONNECT + 'Error: unable to find a matching CMSIS-DAP device\n', False),
+                              ('another failure', OOCD_CONNECT + 'Error: Failed to read memory at 0x2008bffc\n', False)):
+      with self.subTest(what), self.assertRaises(ht.StepFail) as e:
+        self.answer = lambda cmd, o=out: (1, o)
+        self.probe.run(['halt'])
+      self.assertEqual(e.exception.evidence['beforeTarget'], before)
+
+  def test_a_timed_out_session_is_never_before_the_target(self):
+    def hangs(cmd, log, timeout, **k):
+      raise ht.SpawnTimeout(f'openocd timed out after {timeout}s', OOCD_NO_PROBE, [])
+    with mock.patch.object(ht, 'spawn', hangs), self.assertRaisesRegex(ht.StepFail, 'openocd timed out') as e:
+      self.probe.run(['halt'])
+    self.assertFalse(e.exception.evidence['beforeTarget'])
+
+  def test_reads_must_give_exactly_one_value_and_writes_must_read_back(self):
+    ok = self.oocd.run
+    self.answer = lambda cmd: (0, ok(cmd)[1].replace('0x2008bffc: 00000000', 'x'))
+    with self.assertRaisesRegex(ht.StepFail, 'no single value'):
+      self.probe.mem32([0x2008BFFC])
+    self.answer = lambda cmd: (0, ok(cmd)[1].replace('0x2008bffc: 00000000 \n', '0x2008bffc: 00000000 \n0x2008bffc: 00000001 \n'))
+    with self.assertRaisesRegex(ht.StepFail, 'no single value'):
+      self.probe.mem32([0x2008BFFC])
+    self.oocd.fail = None
+    self.answer = lambda cmd: (0, ok(cmd)[1].replace('0x2008bffc: 00000001', '0x2008bffc: 00000000'))
+    with self.assertRaisesRegex(ht.StepFail, 'reads back 00000000'):
+      self.probe.write32(0x2008BFFC, 1)
+
+  def test_a_result_is_read_only_from_an_echo_and_a_register_only_by_its_target_name(self):
+    # rig, openocd 0ce743125 from a -f script: a bare `mdw` prints nothing, `reg xPSR` is not found and stops the script
+    with self.assertRaisesRegex(ht.StepFail, 'no single value'):
+      ht.mdw_value(self.probe.run(['mdw 0x2008bffc']), 0x2008BFFC)
+    self.assertEqual(ht.mdw_value(self.probe.run([ht.shown('mdw 0x2008bffc')]), 0x2008BFFC), 0)
+    with self.assertRaisesRegex(ht.StepFail, r'openocd failed \(exit 1\)') as e:
+      self.probe.run(['halt', ht.shown('reg xPSR'), 'resume'])
+    self.assertIn('register xPSR not found in current target', e.exception.evidence['tail'][-1])
+    self.assertEqual(self.oocd.scripts[-1][:2], ['init', 'halt'])
+
+  def test_two_samples_of_each_register_are_read_in_order(self):
+    out = ''.join(f'pc (/32): 0x{0x10008400 + i:08x}\nr0 (/32): 0x{5 + i:08x}\nmsp (/32): 0x20001000\n'
+                  f'xpsr (/32): 0x0100000{3 * i}\n' for i in (0, 1))
+    self.assertEqual(ht.openocd_regs(out), [{'pc': 0x10008400, 'r0': 5, 'msp': 0x20001000, 'ipsr': 0},
+                                            {'pc': 0x10008401, 'r0': 6, 'msp': 0x20001000, 'ipsr': 3}])
+    with self.assertRaisesRegex(ht.StepFail, 'expected two samples'):
+      ht.openocd_regs(out.replace('r0 (/32): 0x00000006\n', ''))
+
+  def test_the_flash_is_judged_from_programs_phases(self):
+    cmd, hexp = 'openocd ... -c "program /b/tinyuf2.hex reset exit"', '/b/tinyuf2.hex'
+    self.assertEqual(ht.judge_openocd_target(0, oocd_program(), cmd, hexp), {'flashDownload': '** Programming Finished **'})
+    failed = oocd_program().split('** Programming Finished')[0] + '** Programming Failed **\nshutdown command invoked\n'
+    for what, code, out, c, before in (
+        ('no probe', 1, OOCD_NO_PROBE, cmd, True),
+        ('programming failed', 1, failed, cmd, False),
+        ('an error line', 0, oocd_program(error='Error: checksum mismatch\n'), cmd, False),
+        ('an indented error line', 0, oocd_program(error='  Error: checksum mismatch\n'), cmd, False),
+        ('a nonzero exit', 1, oocd_program(), cmd, False),
+        ('phases out of order', 0, oocd_program().replace('** Programming Finished **\n', '') +
+         '** Programming Finished **\n', cmd, False),
+        ('no shutdown', 0, oocd_program().replace('shutdown command invoked\n', ''), cmd, False),
+        ('another image', 0, oocd_program(), cmd.replace(hexp, '/b/other.hex'), False),
+        ('another command', 0, oocd_program(), cmd.replace(' reset', ' verify reset'), False)):
+      with self.subTest(what), self.assertRaisesRegex(ht.StepFail, 'the openocd flash failed') as e:
+        ht.judge_openocd_target(code, out, c, hexp)
+      self.assertEqual(e.exception.evidence['beforeTarget'], before, what)
+
+
+class OpenocdBatteryRun(Tmp):
+  """OpenocdBattery.run end to end over the fake openocd and a fake drive."""
+
+  def setUp(self):
+    super().setUp()
+    p = mock.patch.object(ht, 'source_facts', lambda b: dict(MAX_FACTS))
+    p.start()
+    self.addCleanup(p.stop)
+    board = self.load(max_roster(self.tmp), 'max32666fthr')
+    self.bat = bat = ht.OpenocdBattery(board, ht.source_facts(board), self.tmp)
+    oocd, f = FakeOpenocd(), bat.f
+    self.oocd, self.present = oocd, [True]
+    bin_path = bootloader_bin(self.tmp / 'c.bin', board_id=b'MAX32666-FTHR')
+    oocd.flash[f['binBase']] = bin_path.read_bytes()
+
+    def reset():   # DFU only with the magic retained
+      self.present[0] = oocd.mem.pop(f['dblTapReg'], None) == f['dblTapMagic']
+    oocd.on_reset = reset
+    build = self.tmp / 'build'
+    build.mkdir()
+    (build / 'tinyuf2.hex').write_text(':00000001FF\n')
+    self.files = {'bin': bin_path, 'hex': build / 'tinyuf2.hex', 'verify': [(f['binBase'], bin_path)],
+                  'flash': {'root': build, 'binding': {'target': 'tinyuf2-openocd'},
+                            'sha256': {'tinyuf2.hex': ht.sha256(build / 'tinyuf2.hex')}}}
+
+    def spawn(cmd, log, timeout, cwd=None, **k):
+      if cmd[0] == 'mcopy':
+        self.present[0] = False
+        oocd.flash[f['appStart']] = bat.fix['image']
+        oocd.pc, oocd.vtor = bat.fix['handler'], f['appStart']
+        return 0, ''
+      return oocd.run(cmd) if cmd[0] == 'openocd' else (0, '')
+
+    def fat_read(dev, name, length, log, offset=0):
+      if name == 'INFO_UF2.TXT':
+        data = (f'TinyUF2 Bootloader v1\r\nModel: x\r\nBoard-ID: {f["boardId"]}\r\nDate: d\r\n'
+                f'Flash Size: 0x{f["flashSize"]:08X} bytes').encode()
+      else:
+        data = ht.make_uf2(bat.fix['image'], f['appStart'], f['family'], self.tmp / 'cur')[1].read_bytes()[:length]
+      return {'entries': {'CURRENT.UF2': [9, f['flashSize'] // 256 * 512]}, 'data': data, 'size': len(data)}
+    (self.tmp / 'cur').mkdir()
+    clock = [0.0]
+    for p in (mock.patch.object(ht, 'usb_device', lambda *a: '9-2.2' if self.present[0] else None),
+              mock.patch.object(ht, 'block_device', lambda p: '/dev/sdz'),
+              mock.patch.object(ht, 'check_exclusive', lambda d: None),
+              mock.patch.object(ht, 'fat_read', fat_read),
+              mock.patch.object(ht, 'spawn', spawn),
+              mock.patch.object(ht.time, 'sleep', lambda s: clock.__setitem__(0, clock[0] + s)),
+              mock.patch.object(ht.time, 'monotonic', lambda: clock[0] + 1e-3)):
+      p.start()
+      self.addCleanup(p.stop)
+
+  def test_every_step_passes_with_each_probe_session_one_script(self):
+    self.bat.run(self.files, 'v1')
+    self.assertEqual([x['step'] for x in self.bat.steps if x['pass']], list(ht.STEPS['openocd']))
+    self.assertEqual(self.oocd.flashes[0][-2:], ['-c', f'program {self.files["hex"]} reset exit'])
+    s = self.oocd.scripts
+    self.assertEqual((s[0][:2], s[0][-2:]), (['init', 'halt'], ['reset run', 'shutdown']))
+    self.assertRegex(s[0][2], r'^dump_image \{\S+readback-\d+\.bin\} 0x10000000 0x5824$')
+    self.assertEqual(self.bat.steps[0]['evidence'],
+                     {'flashDownload': '** Programming Finished **', 'verified': True,
+                      'operation': {'attempts': [{'kind': 'exited', 'exit': 0}], 'cleanup': 'done'}})
+    self.assertEqual(s[1], ['init', 'halt', f'mww 0x{self.bat.f["dblTapReg"]:08x} 0x00000000',
+                            f'echo [mdw 0x{self.bat.f["dblTapReg"]:08x}]', 'resume', 'shutdown'])   # cleared in dfu
+    observe = next(x for x in s if 'echo [reg pc]' in x)
+    self.assertEqual(observe[:5], ['init', 'halt', 'resume', f'sleep {2 * self.bat.f["dblTapDelayMs"] + 200}', 'halt'])
+    self.assertEqual((observe.count('echo [reg pc]'), observe.count('echo [reg xpsr]'), observe[-2:]),
+                     (2, 2, ['resume', 'shutdown']))
+    self.assertIn(['init', f'mww 0x{ht.SCB_AIRCR:08X} 0x{ht.AIRCR_SYSRESETREQ:08X}', 'shutdown'], s)
+    app = self.bat.steps[3]['evidence']
+    self.assertEqual((app['pc'], app['vtor'], app['ipsr']), (hex(self.bat.fix['handler']), '0x10008000', 0))
+    ev = self.bat.steps[-1]['evidence']
+    self.assertTrue(ev['dfuCameUp'] and ev['magicConsumed'] and ev['appIntact'])
+
+  def test_a_gapped_hex_is_read_back_run_by_run(self):
+    run = self.tmp / 'run2.bin'
+    run.write_bytes(b'\x01\x02')
+    self.oocd.flash[0x100038c4] = b'\x01\x02'
+    self.files['verify'] = self.files['verify'] + [(0x100038c4, run)]
+    self.bat.install(self.files)
+    self.assertRegex(self.oocd.scripts[0][3], r'^dump_image \{\S+\} 0x100038c4 0x2$')
+
+  def test_an_install_whose_hex_does_not_read_back_fails(self):
+    self.oocd.flash[self.bat.f['binBase']] = b'\xff' * 0x5824
+    with self.assertRaisesRegex(ht.StepFail, 'does not read back'):
+      self.bat.run(self.files, 'v1')
+    self.assertEqual(self.bat.steps[-1]['step'], 'install')
+
+  def test_a_failed_flash_before_the_probe_leaves_the_board_untouched(self):
+    run = self.oocd.run
+    self.oocd.run = lambda cmd: (1, OOCD_NO_PROBE) if cmd[-2] == '-c' else run(cmd)
+    with self.assertRaisesRegex(ht.StepFail, 'the openocd flash failed'):
+      self.bat.install(self.files)
+    self.assertFalse(self.bat.touched)
+    self.oocd.run = lambda cmd: (1, OOCD_CONNECT + 'Error: flash write failed\n') if cmd[-2] == '-c' else run(cmd)
+    with self.assertRaisesRegex(ht.StepFail, 'the openocd flash failed'):
+      self.bat.install(self.files)
+    self.assertTrue(self.bat.touched)
+
+  def test_an_app_image_that_does_not_read_back_fails_app_ran(self):
+    spawn = ht.spawn
+
+    def corrupt(cmd, *a, **k):
+      out = spawn(cmd, *a, **k)
+      if cmd[0] == 'mcopy':
+        self.oocd.flash[self.bat.f['appStart']] = bytes(len(self.bat.fix['image']))
+      return out
+    with mock.patch.object(ht, 'spawn', corrupt), self.assertRaisesRegex(ht.StepFail, 'fixture image does not read back'):
+      self.bat.run(self.files, 'v1')
+    self.assertEqual(self.bat.steps[-1]['step'], 'app-ran')
+
+  def test_dfu_after_an_install_that_kept_the_app_comes_up_by_the_retained_register(self):
+    self.present[0] = False   # the install keeps a valid app, which boots
+    ev = self.bat.dfu_after_install('v1')
+    self.assertTrue(ev['dfuCameUp'] and ev['magicConsumed'])
+    self.assertEqual(self.oocd.scripts[0][2], f'mww 0x{self.bat.f["dblTapReg"]:08x} 0x{self.bat.f["dblTapMagic"]:08x}')
 
 
 if __name__ == '__main__':

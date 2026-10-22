@@ -24,6 +24,11 @@ void __weak _isatty(void) {
 
 void board_init(void)
 {
+#if defined(BUILD_APPLICATION) && defined(BOARD_PFLASH_APP_EN) && (BOARD_PFLASH_APP_EN == 1)
+  // system_stm32h7xx.c: SystemInit() points VTOR at the start of bank 1, the bootloader's vectors
+  SCB->VTOR = (uint32_t) BOARD_FLASH_APP_START;
+#endif
+
   SCB_EnableICache();
 #ifndef RAMCODE
   SCB_EnableDCache();
@@ -149,25 +154,32 @@ bool board_app_valid(void)
   uint32_t app_vector[2u] = { 0u, 0u };
   board_flash_read(app_addr, app_vector, 8u);
 
-  // 1st word should be in SRAM region and aligned
-  switch ((app_vector[0] & 0xFFFF0003u))
+  // 1st word should be a stack top in an SRAM region (RM0433 Table 7): above its base, up to its end, aligned
+  static const struct { uint32_t base; uint32_t size; } sram_regions[] = {
+    { 0x00000000u, 0x10000u }, // ITCM 64K
+    { 0x20000000u, 0x20000u }, // DTCM 128K
+    { 0x24000000u, 0x80000u }, // AXI SRAM 512K
+    { 0x30000000u, 0x48000u }, // SRAM1-3 288K
+    { 0x38000000u, 0x10000u }, // SRAM4 64K
+    { 0x38800000u, 0x01000u }, // Backup SRAM 4K
+  };
+  uint32_t const sp = app_vector[0];
+  bool sp_valid = false;
+  for ( uint32_t i = 0; i < sizeof(sram_regions) / sizeof(sram_regions[0]); i++ )
   {
-    case 0x00000000u: // ITCM 64K       [0x0000_0000u--0x0000_FFFFu]
-    case 0x20010000u: // DTCM 64K       [0x2000_0000u--0x2000_FFFFu]
-    case 0x20020000u: // DTCM 64K       [0x2001_0000u--0x2001_FFFFu]
-    case 0x24000000u: // AXI SRAM 512K  [0x2400_0000u--0x2407_FFFFu]
-    case 0x30010000u: // SRAM1 64K      [0x3001_0000u--0x3001_FFFFu]
-    case 0x30020000u: // SRAM2 64K      [0x3002_0000u--0x3002_FFFFu]
-    case 0x30030000u: // SRAM2 64K      [0x3003_0000u--0x3003_FFFFu]
-    case 0x30040000u: // SRAM3 32K      [0x3004_0000u--0x3004_7FFFu]
-    case 0x38000000u: // SRAM4 64K      [0x3800_0000u--0x3800_FFFFu]
-    case 0x38800000u: // Backup SRAM 4K [0x3880_0000u--0x3880_0FFFu]
-      break;
-    default:
-      return false;
+    if ( (sp > sram_regions[i].base) && (sp <= sram_regions[i].base + sram_regions[i].size) && !(sp & 3u) )
+    {
+      sp_valid = true;
+    }
   }
+  if (!sp_valid) return false;
 
   // 2nd word should be application reset
+
+#if defined(BOARD_PFLASH_APP_EN) && (BOARD_PFLASH_APP_EN == 1)
+  // Reset_Handler of an internal flash application points into it
+  if (IS_PFLASH_APP_ADDR(app_addr) && IS_PFLASH_APP_ADDR(app_vector[1])) return true;
+#endif
 
   // If the Reset_Handler is in the later 64KB of PFLASH then it's valid
   if (IS_PFLASH_ADDR(app_addr) && (IS_PFLASH_ADDR(app_vector[1]))) return true;
@@ -224,6 +236,9 @@ uint8_t allow_rcc_deinit = 1;
 
   if (allow_rcc_deinit) {
     HAL_RCC_DeInit();
+    // HAL_RCC_DeInit() restarts SysTick with its interrupt, which would enter the app before its VTOR is set
+    SysTick->CTRL = 0;
+    SCB->ICSR = SCB_ICSR_PENDSTCLR_Msk;
   }
 
   SCB_DisableICache();
@@ -292,14 +307,28 @@ int board_uart_write(void const * buf, int len)
 #ifdef TINYUF2_SELF_UPDATE
 void board_self_update(const uint8_t * bootloader_bin, uint32_t bootloader_len)
 {
+#if defined(BOARD_PFLASH_APP_EN) && (BOARD_PFLASH_APP_EN == 1)
+  // bank 1 also holds the application: erase only the bootloader's sector 0
+  if (bootloader_len > FLASH_SECTOR_SIZE) return;
+#endif
   HAL_FLASH_Unlock();
   FLASH_EraseInitTypeDef flashErase = {0};
+#if defined(BOARD_PFLASH_APP_EN) && (BOARD_PFLASH_APP_EN == 1)
+  flashErase.TypeErase = FLASH_TYPEERASE_SECTORS;
+#else
   flashErase.TypeErase = FLASH_TYPEERASE_MASSERASE;
+#endif
   flashErase.Banks = FLASH_BANK_1;
   flashErase.Sector = FLASH_SECTOR_0;
   flashErase.NbSectors = 1;
   flashErase.VoltageRange = FLASH_VOLTAGE_RANGE_1;
-  HAL_FLASHEx_Erase(&flashErase, NULL);
+  uint32_t sector_error;
+  if (HAL_OK != HAL_FLASHEx_Erase(&flashErase, &sector_error))
+  {
+    TUF2_LOG1("Bootloader erase failure\r\n");
+    HAL_FLASH_Lock();
+    return;
+  }
   for ( uint32_t i = 0; i < bootloader_len; i+= 4*FLASH_NB_32BITWORD_IN_FLASHWORD ) {
     if (HAL_OK != HAL_FLASH_Program(FLASH_TYPEPROGRAM_FLASHWORD, 0x08000000U + i, (uint32_t) &bootloader_bin[i]))
     {

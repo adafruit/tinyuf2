@@ -178,7 +178,7 @@ class Selection(unittest.TestCase):
 
   def test_top_level_app_selects_ports_whose_backend_compiles_it(self):
     ports = {cb.port_of(b) for b, _ in classify('apps/blinky/src/blinky.c')[2]}
-    self.assertEqual(ports, {'espressif', 'maxim', 'mimxrt10xx', 'stm32f3', 'stm32f4', 'stm32h5'})
+    self.assertEqual(ports, {'espressif', 'lpc55', 'maxim', 'mimxrt10xx', 'stm32f3', 'stm32f4', 'stm32h5'})
 
   def test_dependency_selects_the_ports_get_deps_names(self):
     self.assertEqual(classify('lib/mcu/st/cmsis_device_f4/x.h')[2],
@@ -554,6 +554,16 @@ class Identity(ScratchRepo):
     (self.dep / 'new.h').write_text('untracked')
     self.assertEqual(cb.identity({'lpc55'})['dirtyInputs'], ['lib/mcu/dep'])
 
+  def test_an_ignored_host_roster_leaves_the_tree_clean(self):
+    (self.repo / '.gitignore').write_text((ROOT / '.gitignore').read_text())
+    self.git('add', '.gitignore', cwd=self.repo)
+    self.git('commit', '-q', '-m', 'ignore', cwd=self.repo)
+    (self.repo / 'test' / 'hil').mkdir(parents=True)
+    (self.repo / 'test' / 'hil' / 'local.json').write_text('{"boards": []}')
+    self.assertFalse(cb.identity({'lpc55'})['dirty'])
+    (self.repo / 'x.c').write_text('changed')
+    self.assertTrue(cb.identity({'lpc55'})['dirty'])
+
 
 class Verdict(unittest.TestCase):
   def test_pass(self):
@@ -789,7 +799,10 @@ class HilRecord(unittest.TestCase):
       {'name': 'metro_m7_1011', 'uid': 'U', 'flasher': {'name': 'jlink', 'uid': '000801012283', 'args': '-device MIMXRT1011DAE5A'}},
       {'name': 'espressif_esp32s3_devkitc_1', 'uid': 'M', 'flasher': {'name': 'esptool', 'uid': 'b1', 'args': '--chip esp32s3'}},
       {'name': 'stm32h563_nucleo', 'uid': 'S', 'flasher': {'name': 'stlink', 'uid': '0023ab', 'args': '-device stm32h563zi'}},
-      {'name': 'lpcxpresso55s69', 'uid': 'L', 'flasher': {'name': 'openocd', 'uid': 'x', 'args': '-f a.cfg'}}]}))
+      {'name': 'lpcxpresso55s69', 'uid': 'L', 'flasher': {'name': 'openocd', 'uid': 'x', 'args': '-f a.cfg'}},
+      {'name': 'max32666fthr', 'uid': 'X', 'flasher': {'name': 'openocd', 'uid': 'E6614C311B597D32', 'vid_pid': '0x2e8a 0x000c',
+                                                       'args': '-f interface/cmsis-dap.cfg -f target/max32665.cfg'}},
+      {'name': 'frdm_k32l2b', 'uid': 'K', 'flasher': {'name': 'pyocd', 'uid': 'p', 'args': '-t k32l2b3'}}]}))
     self.config = str(self.roster.relative_to(ROOT))
 
   def jlink_tree(self, root, script=None, options='-USB 000801012283 -ExitOnError 1 -NoGui 1', interface='swd'):
@@ -802,6 +815,13 @@ class HilRecord(unittest.TestCase):
   def stlink_tree(self, root, connect='port=swd sn=0023ab', image=None, go='--go'):
     root.mkdir(parents=True, exist_ok=True)
     line = f'cd {root} && /home/u/bin/STM32_Programmer_CLI --connect {connect} --write {image or root / "tinyuf2.hex"} {go}'
+    return lambda d, args: subprocess.CompletedProcess(args, 0, f'arm-none-eabi-gcc ...\n{line}\n', '')
+
+  def openocd_tree(self, root, options='-c "adapter serial E6614C311B597D32" -c "adapter usb vid_pid 0x2e8a 0x000c"',
+                   cfgs='-f interface/cmsis-dap.cfg -f target/max32665.cfg', image=None, tool='openocd', extra=''):
+    root.mkdir(parents=True, exist_ok=True)
+    line = (f'cd {root} && {tool} -c "tcl_port disabled; gdb_port disabled" {options} {cfgs} '
+            f'-c "init; halt; program {image or root / "tinyuf2.hex"}" -c reset {extra}-c exit')
     return lambda d, args: subprocess.CompletedProcess(args, 0, f'arm-none-eabi-gcc ...\n{line}\n', '')
 
   def idf_tree(self, root, chip='esp32s3', extra='', args_file='flash_args'):
@@ -824,15 +844,31 @@ class HilRecord(unittest.TestCase):
                      ({'name': 'stlink', 'uid': '0023ab', 'device': 'stm32h563zi'}, ['STLINK_SERIAL=0023ab']))
     self.assertEqual(cb.roster_flasher(self.config, 'espressif_esp32s3_devkitc_1'),
                      ({'name': 'esptool', 'uid': 'b1', 'device': 'esp32s3'}, []))   # the tty is chosen at flash time
-    for board, err in (('lpcxpresso55s69', 'no HIL flash target'), ('imxrt1060_evk', 'not on')):
+    # the openocd on PATH, the provider's, and the probe by serial and USB ID
+    self.assertEqual(cb.roster_flasher(self.config, 'max32666fthr'),
+                     ({'name': 'openocd', 'uid': 'E6614C311B597D32', 'device': 'max32665', 'vid_pid': '0x2e8a 0x000c'},
+                      ['OPENOCD=openocd', 'OPENOCD_SERIAL=E6614C311B597D32', 'OPENOCD_VID_PID=0x2e8a 0x000c']))
+    for board, err in (('lpcxpresso55s69', 'not the roster form'), ('frdm_k32l2b', 'no HIL flash target'),
+                       ('imxrt1060_evk', 'not on')):
       with self.subTest(board), self.assertRaisesRegex(cb.Fail, err):
         cb.roster_flasher(self.config, board)
+    entry = json.loads(self.roster.read_text())['boards'][4]
+    for vid_pid in (None, '0x2e8a', '0x2e8a 0x000c 0x1366 0x0101', '2e8a 000c', '0x2e8a\t0x000c', '0x2e8a 0x000c;x'):
+      fl = {k: v for k, v in entry['flasher'].items() if k != 'vid_pid'}
+      self.roster.write_text(json.dumps({'boards': [dict(entry, flasher=dict(fl, **({'vid_pid': vid_pid} if vid_pid else {})))]}))
+      with self.subTest(vid_pid=vid_pid), self.assertRaisesRegex(cb.Fail, 'needs its probe'):
+        cb.roster_flasher(self.config, 'max32666fthr')
 
   def test_a_route_binds_the_esptool_bindings_segments(self):
     p4 = 'espressif_p4_function_ev'
     route = {'name': 'openocd_esp', 'uid': '30:ED:A0:E0:C9:02', 'device': 'esp32p4'}
-    self.assertEqual(cb.roster_routes('test/hil/local.json', p4), [route])
-    self.assertEqual(cb.roster_routes('test/hil/local.json', 'metro_m7_1011'), [])
+    self.roster.write_text(json.dumps({'boards': [
+      {'name': p4, 'uid': 'M', 'flasher': {'name': 'esptool', 'uid': 'b', 'args': '--chip esp32p4'},
+       'tinyuf2': {'routes': [{'flasher': {'name': 'openocd_esp', 'uid': '30:ED:A0:E0:C9:02',
+                                           'args': '-f board/esp32p4-builtin.cfg'}}]}},
+      {'name': 'metro_m7_1011', 'uid': 'U', 'flasher': {'name': 'jlink', 'uid': '1', 'args': '-device MIMXRT1011DAE5A'}}]}))
+    self.assertEqual(cb.roster_routes(self.config, p4), [route])
+    self.assertEqual(cb.roster_routes(self.config, 'metro_m7_1011'), [])
     inputs = list(cb.FLASH['esptool'][1])
     rec = {'board': p4, 'flash': {'flasher': {'name': 'esptool', 'uid': 'b', 'device': 'esp32p4'}, 'inputs': inputs}}
     self.assertEqual(cb.flash_routes(rec, [route]), {'openocd_esp': {'flasher': route, 'inputs': inputs}})
@@ -1015,6 +1051,31 @@ class HilRecord(unittest.TestCase):
       with self.subTest(what), self.assertRaisesRegex(cb.Fail, 'does not flash'):
         cb.flash_binding(flasher, root, self.stlink_tree(root, **tree))
 
+  def test_the_generated_openocd_target_must_name_the_roster_probe_cfgs_and_the_build_hex(self):
+    flasher = {'name': 'openocd', 'uid': 'E6614C311B597D32', 'device': 'max32665', 'vid_pid': '0x2e8a 0x000c'}
+    root = self.tmp / 'o'
+    out = cb.flash_binding(flasher, root, self.openocd_tree(root))
+    self.assertEqual((out['target'], out['inputs']), ('tinyuf2-openocd', ['tinyuf2.hex']))
+    serial, pin = '-c "adapter serial E6614C311B597D32"', '-c "adapter usb vid_pid 0x2e8a 0x000c"'
+    for what, tree in (('no probe serial', dict(options=pin)),
+                       ('another probe', dict(options='-c "adapter serial 1" ' + pin)),
+                       ('no USB ID', dict(options=serial)),
+                       ('another USB ID', dict(options=serial + ' -c "adapter usb vid_pid 0x1366 0x0101"')),
+                       ('another target', dict(cfgs='-f interface/cmsis-dap.cfg -f target/max32690.cfg')),
+                       ('another interface', dict(cfgs='-f interface/jlink.cfg -f target/max32665.cfg')),
+                       ('the ELF', dict(image=root / 'tinyuf2.elf')),
+                       ('another image', dict(image=self.tmp / 'other.hex')),
+                       ('the ADI fork', dict(tool='/home/u/app/openocd_adi/src/openocd')),
+                       ('a script dir', dict(extra='-s /home/u/app/openocd_adi/tcl ')),
+                       ('a second program', dict(extra=f'-c "program {self.tmp / "o.hex"}" '))):
+      with self.subTest(what), self.assertRaisesRegex(cb.Fail, 'does not flash'):
+        cb.flash_binding(flasher, root, self.openocd_tree(root, **tree))
+    # a checkout whose path names openocd: only the command that runs it is the target's
+    noisy = self.openocd_tree(root)
+    query = lambda d, args: subprocess.CompletedProcess(   # noqa: E731
+      args, 0, f'cd /w/hil--openocd-session/b && /usr/bin/cc -c /w/hil--openocd-session/x.c\n{noisy(d, args).stdout}', '')
+    self.assertEqual(cb.flash_binding(flasher, root, query)['command'], noisy(root, []).stdout.splitlines()[1])
+
   def test_the_idf_flash_target_must_write_flash_args_for_the_roster_chip(self):
     flasher = {'name': 'esptool', 'uid': 'b1', 'device': 'esp32s3'}
     root = self.tmp / 'e'
@@ -1055,6 +1116,8 @@ class HilRecord(unittest.TestCase):
   def test_a_hil_record_takes_probe_selection_only_from_the_roster(self):
     for argv in (['--board', 'metro_m7_1011', '--shared', '--hil-config', self.config, '-D', 'JLINK_OPTION=-USB 1'],
                  ['--board', 'metro_m7_1011', '--shared', '--hil-config', self.config, '-D', 'ESPPORT:STRING=/dev/x'],
+                 ['--board', 'max32666fthr', '--shared', '--hil-config', self.config, '-D', 'OPENOCD=/opt/openocd'],
+                 ['--board', 'max32666fthr', '--shared', '--hil-config', self.config, '-D', 'OPENOCD_VID_PID=0x1 0x2'],
                  ['--board', 'metro_m7_1011', '--hil-config', self.config]):
       with self.subTest(argv), contextlib.redirect_stdout(io.StringIO()) as out, self.assertRaises(SystemExit) as e:
         cb.main(argv)
