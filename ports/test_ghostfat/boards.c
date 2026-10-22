@@ -26,11 +26,17 @@
 //------------- Flash -------------//
 uint32_t board_flash_size(void) { return CFG_UF2_FLASH_SIZE; }
 
-// not supported
+uint32_t test_flash_write_count;
+uint32_t test_flash_write_addr;
+uint32_t test_flash_write_len;
+uint32_t test_flash_flush_count;
+
+// records the call only; never reads data, whose length the test may make out of range
 bool board_flash_write(uint32_t addr, void const* data, uint32_t len) {
-  (void) addr;
   (void) data;
-  (void) len;
+  test_flash_write_count++;
+  test_flash_write_addr = addr;
+  test_flash_write_len = len;
   return true;
 }
 
@@ -40,8 +46,9 @@ void board_self_update(const uint8_t* bootloader_bin, uint32_t bootloader_len) {
   (void) bootloader_len;
 }
 
-// not supported
-void board_flash_flush(void) {}
+void board_flash_flush(void) {
+  test_flash_flush_count++;
+}
 
 // not supported
 bool board_flash_protect_bootloader(bool protect) {
