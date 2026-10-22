@@ -70,7 +70,7 @@ On stm32h563_nucleo (2026-10-15, STM32CubeProgrammer v2.23.0 on the board's STLI
 
 TinyUF2 sets no write protection on the H5 today: WRPSGn1 stayed 0xFFFFFFFF after it booted, since its boot-time call reads the option bytes with no bank selected. The H5's D+ pull-up is internal (RM0481 Rev 5 USB_BCDR.DPPU_DPD, reset value 0), so a reset shows the host a disconnect; its hub, 5-2 on htpc, has ganged power. The double-tap word is SRAM3's last, 0x2009FFFC, which a system reset keeps with option SRAM1_3_RST=1 (RM0481 Table 43; set on this chip).
 
-The H5's debug AP stops answering after a killed ETM trace session until a power cycle (agentrc `etm-trace` notes; seen again 2026-10-15 before commissioning). Another board's run on the same hub can reset this one: on 2026-10-15 a P4 battery's ROM-mode enumeration errors on 5-2.3 made the hub power-cycle that port and reset 5-2.7 mid-read, and `install`'s FAT read timed out (exit 4).
+The H5's debug AP stops answering after a killed ETM trace session until a power cycle (agentrc `target-debug`'s `etm-boards.md`; seen again 2026-10-15 before commissioning). Another board's run on the same hub can reset this one: on 2026-10-15 a P4 battery's ROM-mode enumeration errors on 5-2.3 made the hub power-cycle that port and reset 5-2.7 mid-read, and `install`'s FAT read timed out (exit 4).
 
 ## max32666fthr
 
