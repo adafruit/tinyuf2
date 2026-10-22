@@ -776,14 +776,16 @@ def compile_facts(root, log, verbose):
     return f'{root}/compile_commands.json: expected one command of the tinyuf2 target\'s src/main.c, found {len(main)}'
   argv, it = [], iter(shlex.split(main[0]['command']))
   for a in it:
+    if a.startswith('-Wp,') and any(o.startswith('-M') for o in a.split(',')[1:]):
+      return f'{root}/compile_commands.json: {a} would write the build\'s own dependency file'
     if a in ('-MF', '-MT', '-MQ'):
       next(it, None)
     elif a == '-o':
       next(it, None)
       argv += ['-o', str(root / 'board_facts.o')]
-    elif a in (main[0]['file'], 'src/main.c') or Path(main[0]['directory'], a) == ROOT / 'src' / 'main.c':
+    elif Path(main[0]['directory'], a) == ROOT / 'src' / 'main.c':
       argv.append(str(FACTS_SOURCE))
-    elif a not in ('-MD', '-MMD'):
+    elif a not in ('-MD', '-MMD') and not a.startswith(('-MF', '-MT', '-MQ')):
       argv.append(a)
   if str(FACTS_SOURCE) not in argv or '-o' not in argv:
     return f'{root}/compile_commands.json: no source or -o in the tinyuf2 src/main.c command'

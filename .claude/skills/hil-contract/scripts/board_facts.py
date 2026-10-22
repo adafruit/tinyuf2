@@ -52,6 +52,8 @@ class Elf:
       if typ == PT_LOAD:
         self.segments.append({'offset': off, 'vaddr': vaddr, 'paddr': paddr, 'filesz': filesz, 'memsz': memsz})
     self.symbols = []
+    if sum(s['type'] == SHT_SYMTAB for s in self.sections) > 1:
+      raise Refused(f'{self.path}: more than one symbol table')
     for s in self.sections:
       if s['type'] not in (SHT_SYMTAB, SHT_REL, SHT_RELA):
         continue
@@ -75,24 +77,17 @@ class Elf:
       raise Refused(f'{self.path}: expected one section {name}, found {len(hits)}')
     return hits[0]
 
-  def symbol(self, name, defined=True):
-    hits = [s for s in self.symbols if s['name'] == name and (s['shndx'] != 0) == defined]
-    if len(hits) != 1:
-      raise Refused(f'{self.path}: expected one {"defined" if defined else "undefined"} symbol {name}, '
-                    f'found {len(hits)}')
-    return hits[0]
+  def symbol(self, name, required=True):
+    """The one defined symbol `name`; None when it is absent and not required; two refuse."""
+    hits = [s for s in self.symbols if s['name'] == name and s['shndx']]
+    if len(hits) > 1 or required and not hits:
+      raise Refused(f'{self.path}: expected one defined symbol {name}, found {len(hits)}')
+    return hits[0] if hits else None
 
   def contents(self, sec):
     if sec['offset'] + sec['size'] > len(self.data):
       raise Refused(f'{self.path}: section {sec["name"]} runs past the file')
     return self.data[sec['offset']:sec['offset'] + sec['size']]
-
-  def optional(self, name):
-    """The one defined symbol `name`, or None; two refuse."""
-    hits = [s for s in self.symbols if s['name'] == name and s['shndx']]
-    if len(hits) > 1:
-      raise Refused(f'{self.path}: {len(hits)} symbols {name}')
-    return hits[0] if hits else None
 
   def vector_table(self):
     """(address, size or None) of the startup's vector table: its symbols' one address, the size of the sized one, else
@@ -174,16 +169,16 @@ def relocations(obj, sec_index):
   for s in obj.sections:
     if s['type'] not in (SHT_REL, SHT_RELA) or s['info'] != sec_index:
       continue
-    want, symtab = ABS32.get((obj.machine, s['type'])), obj.sections[s['link']]
-    names = obj.sections[symtab['link']]['offset']
+    want = ABS32.get((obj.machine, s['type']))
+    if obj.sections[s['link']]['type'] != SHT_SYMTAB:
+      raise Refused(f'{obj.path}: {s["name"]} does not relocate against the symbol table')
     for off in range(s['offset'], s['offset'] + s['size'], s['entsize']):
       if s['type'] == SHT_REL:
         r_off, info = struct.unpack_from(obj.e + 'II', obj.data, off)
         addend = None
       else:
         r_off, info, addend = struct.unpack_from(obj.e + 'IIi', obj.data, off)
-      sym = symtab['offset'] + (info >> 8) * symtab['entsize']
-      name = obj.cstr(names + struct.unpack_from(obj.e + 'I', obj.data, sym)[0])
+      name = obj.symbols[info >> 8]['name']
       if (info & 0xFF) != want or not name:
         raise Refused(f'{obj.path}: relocation type {info & 0xFF} against {name or "a section"} in {s["name"]}; '
                       'only an absolute word against a named symbol is read')
@@ -218,6 +213,11 @@ def parse_hex(path):
   return data
 
 
+def hex_matches_bin(data, img, base):
+  """Whether a HEX ({address: byte}) is exactly the BIN image `img` laid out from `base`."""
+  return min(data) == base and max(data) + 1 == base + len(img) and all(img[a - base] == b for a, b in data.items())
+
+
 def word(vals, name, what):
   if not isinstance(vals.get(name), int):
     raise Refused(f'board_facts.o: no {name} ({what})')
@@ -246,12 +246,12 @@ def _read(root, limits):
   if not hexdata:
     raise Refused(f'{root}/_bin/tinyuf2.hex: no data')
   bin_base = min(hexdata)
-  if any(bin_bytes[a - bin_base] != b if a - bin_base < len(bin_bytes) else True for a, b in hexdata.items()):
+  if not hex_matches_bin(hexdata, bin_bytes, bin_base):
     raise Refused(f'{root}/_bin/tinyuf2.hex is not tinyuf2.bin laid out from {bin_base:#x}')
   flash_base = word(vals, 'hil_flash_addr_zero', 'BOARD_FLASH_ADDR_ZERO')
-  rom_copied = boot.optional('_flash_base')
+  rom_copied = boot.symbol('_flash_base', required=False)
   if rom_copied:   # the boot ROM copies the bootloader to RAM: the BIN is the FCB onward (IMXRT1010RM Table 9-8)
-    fcfb = boot.optional('_fcfb_origin')
+    fcfb = boot.symbol('_fcfb_origin', required=False)
     if rom_copied['value'] != flash_base or not fcfb or fcfb['value'] != elf_base or \
        bin_base != flash_base + (fcfb['value'] & 0xFFF):
       raise Refused(f'tinyuf2.elf: a RAM image whose _flash_base is not BOARD_FLASH_ADDR_ZERO {flash_base:#x}, or '
@@ -275,7 +275,7 @@ def _read(root, limits):
     raise Refused('TINYUF2_DBL_TAP_REG_SIZE is not 32: the retained-register battery writes a 32-bit magic')
   facts['dblTapReg'] = word(vals, 'hil_dbl_tap_reg', 'TINYUF2_DBL_TAP_REG')
   facts['dblTapMagic'] = word(vals, 'hil_dbl_tap_magic', 'DBL_TAP_MAGIC')
-  cache = boot.optional('_flash_cache')
+  cache = boot.symbol('_flash_cache', required=False)
   if cache:
     if not cache['size'] or cache['size'] & (cache['size'] - 1):
       raise Refused('tinyuf2.elf: _flash_cache is not an object of a power-of-two size')

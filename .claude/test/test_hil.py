@@ -212,7 +212,7 @@ def bench_roster(tmp):
 # board_facts.read of each board's check_build HIL record, equal to the former source parser's on 2026-10-22
 LPC_FACTS = {'flashBase': 0, 'binBase': 0, 'appStart': 0x10000, 'flashSize': 0x98000, 'vid': 0x1fc9, 'pid': 0x0094,
              'boardId': 'LPC55S69-Xpresso-revA', 'family': 0x2abc77ec, 'vectors': 76, 'ram': 0x20000000,
-             'dblTapDelayMs': 500, 'dblTapReg': 0x4002C05C, 'dblTapMagic': 0xF01669EF}
+             'dblTapDelayMs': 500, 'dblTapReg': 0x4002C05C, 'dblTapMagic': 0xF01669EF, 'flashCache': 0x200}
 H563_FACTS = {'flashBase': 0x08000000, 'binBase': 0x08000000, 'appStart': 0x08008000, 'flashSize': 0x200000,
               'vid': 0x239a, 'pid': 0x0163, 'boardId': 'STM32H563-Nucleo', 'family': 0x4e8f1c5d, 'vectors': 147,
               'ram': 0x20000000, 'dblTapDelayMs': 500, 'dblTapReg': 0x2009FFFC, 'dblTapMagic': 0xF01669EF}
@@ -244,7 +244,7 @@ BOARD_FACTS = {'lpcxpresso55s69': LPC_FACTS, 'stm32h563_nucleo': H563_FACTS, 'ma
                'stm32h743nucleo': H743_FACTS, 'stm32f407disco': F407_FACTS, 'stm32f303disco': F303_FACTS,
                'stm32f411ve_discovery': F411_FACTS, 'imxrt1060_evk': RT1060_FACTS, 'imxrt1064_evk': RT1064_FACTS,
                'metro_m7_1011': RT1011_FACTS}
-real_record_facts, real_pin_records = ht.record_facts, ht.pin_records
+real_record_facts = ht.record_facts
 
 
 def board_facts(board):
@@ -260,7 +260,6 @@ class Tmp(unittest.TestCase):
     reap_detached(self)
     self.mark_helper = mark_helper(self, self.tmp / 'marks')
     for p in (mock.patch.object(ht, 'record_facts', lambda record, board, workdir: board_facts(board)),
-              mock.patch.object(ht, 'pin_records', lambda *paths: None),   # main's records are stand-ins here
               mock.patch.object(ht, 'PROTECTED_SESSIONS', []),
               mock.patch.object(ht, 'pending_mark', lambda helper, lock: self.mark_helper.PendingSessions(lock, ht.PENDING_KIND))):
       p.start()
@@ -574,12 +573,9 @@ class Admission(Tmp):
   def test_a_good_candidate_passes(self):
     ht.check_bootloader_bin(bootloader_bin(self.tmp / 'c.bin'), self.board, self.facts, 'candidate')
 
-  def test_candidate_refusals(self):
-    cases = {'too big for the install range': bootloader_bin(self.tmp / 'a.bin', size=0x10001),
-             'another board': bootloader_bin(self.tmp / 'b.bin', board_id=b'OTHER')}
-    for what, path in cases.items():
-      with self.subTest(what), self.assertRaises(ht.Refused):
-        ht.check_bootloader_bin(path, self.board, self.facts, 'c')
+  def test_a_candidate_too_big_for_the_install_range_is_refused(self):   # another board's: board_facts' Board-ID
+    with self.assertRaises(ht.Refused):
+      ht.check_bootloader_bin(bootloader_bin(self.tmp / 'a.bin', size=0x10001), self.board, self.facts, 'c')
 
 def rt_roster(tmp):
   return roster(tmp, name='imxrt1060_evk', flasher={'name': 'jlink', 'uid': '2', 'args': '-device MIMXRT1062xxx6A'},
@@ -689,7 +685,6 @@ class EspSourceValues(unittest.TestCase):
                                           'set(Q "a")\nset(F 0x1)\nSET (F 0x2)\nset(E)\n')
     with mock.patch.object(ht, 'ROOT', Path(t.name)):
       self.assertEqual(ht.cmake_var('x.cmake', 'SDK_DIR'), 'lib/sdk')
-      self.assertEqual(ht.cmake_var('x.cmake', 'V', {'OTHER': 'lib/o'}), 'lib/o/x')
       for name in ('ID', 'V', 'Q', 'F', 'E', 'NONE'):
         with self.subTest(name), self.assertRaises(ht.Refused):
           ht.cmake_var('x.cmake', name)
@@ -4778,7 +4773,6 @@ class RecordFacts(Tmp):
     self.build = test_board_facts.Build(self.tmp / 'build').write()
     self.want = bf_read(self.build)
     for p in (mock.patch.object(ht, 'record_facts', real_record_facts),
-              mock.patch.object(ht, 'pin_records', real_pin_records),
               mock.patch.object(ht.cb, 'identity', lambda ports: self.now)):
       p.start()
       self.addCleanup(p.stop)
@@ -4802,26 +4796,16 @@ class RecordFacts(Tmp):
     with self.assertRaisesRegex(ht.Refused, 'changed since the build record'):
       ht.record_facts(rec, self.board, self.tmp / 'run2')
 
-  def test_a_record_replaced_after_main_read_it_refuses(self):
+  def test_a_pinned_record_is_admitted_once_for_its_facts_and_images(self):
     rec = self.record()
-    link = self.tmp / 'link.json'
-    link.symlink_to(rec)
-    other = self.tmp / 'other.json'
-    other.write_text(rec.read_text().replace('"pass": true', '"pass": true, "x": 1'))
     self.addCleanup(ht.RECORDS.clear)
-    for path, replace in ((rec, lambda: rec.write_text(other.read_text())),
-                          (link, lambda: (link.unlink(), link.symlink_to(other)))):
-      with self.subTest(str(path.name)):
-        self.record()
-        ht.pin_records(path)
-        replace()
-        with self.assertRaisesRegex(ht.Refused, 'not the record this run first read'):
-          ht.record_facts(path, self.board, self.tmp / 'run')
-    with self.assertRaisesRegex(ht.Refused, 'cannot read build record'):
-      ht.pin_records(self.tmp / 'absent.json')
-    with self.assertRaisesRegex(ht.Refused, 'not the record this run first read'):   # pinned: no other record
-      ht.pin_records(rec)
-      ht.record_facts(other, self.board, self.tmp / 'run')
+    ht.pin_records(rec)
+    with mock.patch.object(ht.cb, 'identity', wraps=ht.cb.identity) as identity:
+      first = ht.record_row(rec, self.board)
+      rec.write_text('{"pass": false}')   # a replacement after admission is never read
+      self.assertIs(ht.record_row(rec, self.board), first)
+      ht.record_facts(rec, self.board, self.tmp / 'run')
+    self.assertEqual(identity.call_count, 1)
 
   def test_run_refuses_a_record_without_facts_before_any_lock(self):
     rec = self.record(rels=('_bin/tinyuf2.bin',))

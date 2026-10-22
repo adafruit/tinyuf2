@@ -310,20 +310,15 @@ def product(expr, what):
   return v
 
 
-def cmake_var(path, name, refs=None):
-  """The value of the one `set(NAME value)` in a CMake file, ${TOP}/ read as the checkout and each ${VAR} of `refs` as
-  that value; nothing else."""
+def cmake_var(path, name):
+  """The value of the one `set(NAME value)` in a CMake file, ${TOP}/ read as the checkout; nothing else."""
   hits = re.findall(rf'\bset\s*\(\s*{name}\b([^)]*)\)', cb.code_lines(ROOT / path), re.I)
   if len(hits) != 1:
     raise Refused(f'{path}: expected one set({name} ...), found {len(hits)}')
-  v = cmake_refs(hits[0].strip().removeprefix('${TOP}/'), refs or {})
+  v = hits[0].strip().removeprefix('${TOP}/')
   if not v or re.search(r'[\s${}"]', v):
     raise Refused(f'{path}: set({name} {hits[0].strip()}) is not one plain value')
   return v
-
-
-def cmake_refs(v, refs):
-  return re.sub(r'\$\{(\w+)\}', lambda m: refs.get(m.group(1), m.group(0)), v)
 
 
 def record_facts(record_path, board, workdir):
@@ -410,8 +405,7 @@ def check_ranges(data, allowed, limits, what):
 
 def hex_matches_bin(data, bin_path, base):
   """Whether a bootloader BIN is its HEX laid out from `base`: the HEX fixes the base the BIN lacks."""
-  img = Path(bin_path).read_bytes()
-  return min(data) == base and max(data) + 1 == base + len(img) and all(img[a - base] == b for a, b in data.items())
+  return bf.hex_matches_bin(data, Path(bin_path).read_bytes(), base)
 
 
 def verify_images(data, workdir):
@@ -443,7 +437,7 @@ def fixture(facts, nonce):
   while table < facts['vectors'] * 4:
     table *= 2
   handler, fault = start + table, start + table + 4
-  vectors = [facts['ram'] + 0x1000, handler | 1] + [fault | 1] * (table // 4 - 2)
+  vectors = [facts['ram'] + bf.STACK, handler | 1] + [fault | 1] * (table // 4 - 2)
   code = struct.pack('<HHH', 0x3001, 0xE7FD, 0xE7FE)   # adds r0,#1 ; b handler ; b . (fault)
   pattern = b''.join(hashlib.sha256(nonce + i.to_bytes(4, 'little')).digest() for i in range(512))   # 16 KiB
   img = struct.pack(f'<{len(vectors)}I', *vectors) + code
@@ -2105,29 +2099,32 @@ def firmware_fields(record_path, rec, built, copy):
           'version': embedded_version(copy)}
 
 
-RECORDS = {}   # main's build records, by the path it was given, as it first read them; empty outside main
+RECORDS = {}   # main's build records, by the path it was given: each admitted once, so facts and images share one
 
 
 def pin_records(*paths):
-  """Hold each build record to the bytes read now, for the rest of main: facts and images come from one record."""
+  """Admit each of these build records once for the rest of main (record_row)."""
   RECORDS.clear()
-  for p in filter(None, paths):
-    try:
-      RECORDS[os.path.abspath(p)] = Path(p).read_bytes()
-    except OSError as e:
-      raise Refused(f'cannot read build record {p}: {e}')
+  RECORDS.update(dict.fromkeys(os.path.abspath(p) for p in paths if p))
 
 
 def record_row(record_path, board):
   """(record, its row of this board, build dir, backend) of a passing --shared build of this board on the checkout
-  now, clean, in the backend the HIL takes for it."""
+  now, clean, in the backend the HIL takes for it; a pinned record's first admission."""
+  key = os.path.abspath(record_path)
+  if RECORDS.get(key) is None:
+    admitted = read_record_row(record_path, board)
+    if key not in RECORDS:
+      return admitted
+    RECORDS[key] = admitted
+  return RECORDS[key]
+
+
+def read_record_row(record_path, board):
   try:
-    data = Path(record_path).read_bytes()
-    rec = json.loads(data)
+    rec = json.loads(Path(record_path).read_text())
   except (OSError, ValueError) as e:
     raise Refused(f'cannot read build record {record_path}: {e}')
-  if RECORDS and RECORDS.get(os.path.abspath(record_path)) != data:
-    raise Refused(f'{record_path}: not the record this run first read')
   rows = [r for r in rec.get('boards', []) if r.get('board') == board['name']]
   if not rec.get('pass') or len(rows) != 1 or rows[0].get('status') != 'ok' or rows[0].get('removed'):
     raise Refused(f'{record_path}: not a passing --shared build of {board["name"]}')
@@ -2244,12 +2241,10 @@ def sha256(p):
 
 
 def check_bootloader_bin(bin_path, board, facts, what):
-  """The BIN from its flash address (`binBase`) inside `install`, within the device's flash limits, and this
-  board's (its UF2_BOARD_ID)."""
+  """The BIN from its flash address (`binBase`) inside `install`, within the device's flash limits; board_facts
+  checked it is this board's (its Board-ID)."""
   start, size = facts['binBase'], Path(bin_path).stat().st_size
   check_ranges({start: 0, start + size - 1: 0}, [board['install']], FLASH_LIMITS[board['device']], what)
-  if facts['boardId'].encode() not in Path(bin_path).read_bytes():
-    raise Refused(f'{what}: {bin_path} does not carry board id {facts["boardId"]!r}; not this board\'s bootloader')
 
 
 def updater_image(uf2_path, bin_path, facts, what):

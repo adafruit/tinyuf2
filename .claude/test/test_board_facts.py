@@ -278,6 +278,22 @@ class Read(unittest.TestCase):
       with self.assertRaisesRegex(bf.Refused, 'two symbols hil_x'):
         bf.object_values(bf.Elf(Path(d) / 'o'), None)
 
+  def test_a_constant_zero_flash_size_is_not_taken_as_a_runtime_read(self):
+    self.b.facts.update(words(flash_size=0), hil_flash_size_expr=b'FLASH_SIZE\0')
+    self.assertEqual(self.read()['flashSize'], 0)   # apply_layout then refuses the empty span
+
+  def test_a_relocation_section_bound_to_no_symbol_table_refuses(self):
+    obj = bytearray(elf([('.rodata.hil_x', 0, b'\0' * 4, ALLOC)], [('hil_x', 0, 4, '.rodata.hil_x'), ('sym', 0, 0, None)],
+                        relocs={'.rodata.hil_x': [(0, 'sym', 2, None)]}, etype=1))
+    shoff = struct.unpack_from('<I', obj, 32)[0]
+    for i in range(struct.unpack_from('<H', obj, 48)[0]):   # the REL section's sh_link to the null section
+      if struct.unpack_from('<I', obj, shoff + 40 * i + 4)[0] == 9:
+        struct.pack_into('<I', obj, shoff + 40 * i + 24, 0)
+    with tempfile.TemporaryDirectory() as d:
+      (Path(d) / 'o').write_bytes(obj)
+      with self.assertRaisesRegex(bf.Refused, 'does not relocate against the symbol table'):
+        bf.object_values(bf.Elf(Path(d) / 'o'), None)
+
   def test_a_table_section_of_the_wrong_entry_size_refuses(self):
     obj = bytearray(elf([('.rodata.a', 0, b'\0' * 4, ALLOC)], [('hil_x', 0, 4, '.rodata.a')], etype=1))
     shoff = struct.unpack_from('<I', obj, 32)[0]

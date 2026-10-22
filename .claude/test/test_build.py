@@ -891,7 +891,7 @@ class CompileFacts(unittest.TestCase):
 
   def test_the_compile_drops_lto_and_dependency_output_and_swaps_source_and_object(self):
     obj = 'CMakeFiles/tinyuf2.dir/src/main.c.obj'
-    self.commands(('src/main.c', obj, f'gcc -DB="x y" -I/inc -flto -MD -MT {obj} -MF {obj}.d -o {obj} -c {ROOT}/src/main.c'),
+    self.commands(('src/main.c', obj, f'gcc -DB="x y" -I/inc -flto -MD -MT {obj} -MF{obj}.d -o {obj} -c {ROOT}/src/main.c'),
                   ('src/main.c', 'apps/blinky.dir/main.c.obj', 'gcc -DAPP -c src/main.c'))
     ran = []
     with mock.patch.object(cb, 'run', lambda cmd, log, verbose, cwd: ran.append((cmd, cwd)) or 0):
@@ -903,10 +903,16 @@ class CompileFacts(unittest.TestCase):
     self.assertIn('compile_commands.json', cb.compile_facts(self.root, self.log, False))
     self.commands(('src/ghostfat.c', 'CMakeFiles/tinyuf2.dir/g.obj', 'gcc -c g.c'))
     self.assertIn('found 0', cb.compile_facts(self.root, self.log, False))
-    self.commands(('src/main.c', 'CMakeFiles/tinyuf2.dir/m.obj', 'gcc -o m.obj -c src/main.c'))
+    self.commands(('src/main.c', 'CMakeFiles/tinyuf2.dir/m.obj', f'gcc -o m.obj -c {ROOT}/src/main.c'))
     self.log.write_text('board_facts.c:9:1: error: initializer element is not constant\n')
     with mock.patch.object(cb, 'run', lambda *a, **k: 1):
       self.assertIn('initializer element is not constant', cb.compile_facts(self.root, self.log, False))
+
+  def test_a_preprocessor_dependency_option_is_refused_rather_than_split(self):
+    self.commands(('src/main.c', 'CMakeFiles/tinyuf2.dir/m.obj',
+                   f'gcc -Wp,-MD,m.d,-DHIL_VALUE=7 -o m.obj -c {ROOT}/src/main.c'))
+    with mock.patch.object(cb, 'run', lambda *a, **k: self.fail('compiled')):
+      self.assertIn("would write the build's own dependency file", cb.compile_facts(self.root, self.log, False))
 
 
 class HilRecord(unittest.TestCase):
