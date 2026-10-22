@@ -174,6 +174,11 @@ class Read(unittest.TestCase):
       (Path(d) / 'e').write_bytes(boot)
       self.assertEqual(bf.object_values(bf.Elf(Path(d) / 'o'), bf.Elf(Path(d) / 'e')), {'hil_x': 0x108})
 
+  def test_a_bootloader_for_another_architecture_refuses(self):
+    self.b.boot_elf = lambda: elf([('.text', BOOT, self.b.image(), ALLOC)], self.b.boot_syms[1:2], [(BOOT, BOOT, 0x200)],
+                                  machine=RISCV)
+    self.refused('not Arm')
+
   def test_a_relocation_the_bootloader_cannot_resolve_or_of_another_type_refuses(self):
     self.b.obj_relocs['.rodata.hil_dbl_tap_reg'] = [(0, 'nowhere', 2, None)]
     self.refused('one defined symbol nowhere')

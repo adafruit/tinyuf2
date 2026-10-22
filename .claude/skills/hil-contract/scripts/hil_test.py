@@ -175,7 +175,7 @@ class SpawnTimeout(StepFail):
     self.output, self.survivors = output, survivors
 
 
-# ------------------------------------------------------------------ roster and source facts
+# ------------------------------------------------------------------ roster and board facts
 
 def load_board(config, name):
   try:
@@ -279,10 +279,6 @@ def refuse_openocd(route):
     raise Refused(why)
 
 
-def has_define(path, name):
-  return bool(re.search(rf'^\s*#\s*define\s+{name}\b', (ROOT / path).read_text(), re.M))
-
-
 def define(path, name):
   m = re.search(rf'^\s*#\s*define\s+{name}\s+(.+?)\s*(//.*|/\*.*)?$', (ROOT / path).read_text(), re.M)
   if not m:
@@ -314,16 +310,6 @@ def product(expr, what):
   return v
 
 
-def flash_addr(expr, flash_base, what):
-  """A literal, or FLASH_BASE + literal where the port defines FLASH_BASE; nothing else."""
-  m = re.fullmatch(rf'\(?\s*FLASH_BASE\s*\+\s*{LITERAL}\s*\)?', expr)
-  if not m:
-    return num(expr, what)
-  if flash_base is None:
-    raise Refused(f'{what}: {expr!r} uses FLASH_BASE, which this port does not define')
-  return flash_base + int(m.group(1), 0)
-
-
 def cmake_var(path, name, refs=None):
   """The value of the one `set(NAME value)` in a CMake file, ${TOP}/ read as the checkout and each ${VAR} of `refs` as
   that value; nothing else."""
@@ -336,434 +322,15 @@ def cmake_var(path, name, refs=None):
   return v
 
 
-STM32_DEVICE = {'stm32f3': ('STM32F3', r'STM32F3\d\dx[A-Z]'), 'stm32f4': ('STM32F4', r'STM32F4\d\dx[A-Zx]'),
-                'stm32h5': ('STM32H5', r'STM32H5\d\dxx'), 'stm32h7': ('STM32H7', r'STM32H7\d\dxx')}
-
-
-def port_sources(port, bdir):
-  """(CMSIS device header, the bootloader's linker script, FLASH_BASE, where the BIN starts in flash, RAM origin, the
-  link's --defsym values, the facts the port's own readers give) of a port the HIL supports, read from the CMake files
-  the HIL's build uses."""
-  if port == 'maxim':
-    return maxim_sources(port, bdir)
-  if port == 'lpc55':
-    sdk = cmake_var(f'ports/{port}/family.cmake', 'SDK_DIR')
-    mcu = cmake_var(f'{bdir}/board.cmake', 'MCU')
-    core = cmake_var(f'{bdir}/board.cmake', 'MCU_CORE', {'MCU': mcu})
-    mcu_dir = cmake_var(f'ports/{port}/family.cmake', 'MCU_DIR', {'SDK_DIR': sdk, 'MCU': mcu})
-    ld = cmake_script(f'ports/{port}/CMakeLists.txt', {'MCU_DIR': mcu_dir, 'MCU_CORE': core})
-    flash_base = ld_memory(ld, 'm_interrupts')[0]   # the vector table, the image's first bytes
-    return f'{mcu_dir}/{core}.h', ld, flash_base, flash_base, ram_origin(ld), {}, {}
-  if port == 'stm32h7':
-    return stm32h7_sources(port, bdir)
-  if port in STM32_DEVICE:
-    ld = cmake_script(f'ports/{port}/CMakeLists.txt')
-    header = stm32_header(port, bdir)
-    syms = defsyms(port, bdir, ld) if port == 'stm32h5' else {}
-    flash_base, ram = ld_memory(ld, 'FLASH', syms)[0], ld_memory(ld, 'RAM', syms)[0]
-    return header, ld, flash_base, flash_base, ram, syms, {}
-  if port != 'mimxrt10xx':
-    raise Refused(f'ports/{port}: the HIL runner has no source facts for this port')
-  sdk = cmake_var(f'ports/{port}/family.cmake', 'SDK_DIR')
-  mcu = cmake_var(f'{bdir}/board.cmake', 'MCU_VARIANT')
-  ld = f'ports/{port}/linker/{mcu}_ram.ld'   # where family.cmake takes FLASH_BASE and FCFB_ORIGIN from
-  vals = {}
-  for name in ('_flash_base', '_fcfb_origin'):
-    m = re.search(rf'^\s*{name}\s*=\s*(0x[0-9a-fA-F]+)\s*;', (ROOT / ld).read_text(), re.M)
-    if not m:
-      raise Refused(f'{ld}: no {name}')
-    vals[name] = int(m.group(1), 16)
-  flash_base = vals['_flash_base']
-  # family.cmake FLASH_FCFB_ADDR: the BIN starts at the FCB, 0x400 into flash on RT1010 (IMXRT1010RM Table 9-8)
-  bin_base = flash_base + (vals['_fcfb_origin'] & 0xFFF)
-  return (f'{sdk}/devices/{mcu}/{mcu}.h', ld, flash_base, bin_base,
-          ram_origin(f'{sdk}/devices/{mcu}/gcc/{mcu}xxxxx_flexspi_nor.ld'), {}, {})
-
-
-def stm32_header(port, bdir):
-  """The CMSIS device header of the board.cmake's one device define of the port's series."""
-  series, form = STM32_DEVICE[port]
-  mcus = set(re.findall(rf'\b{form}\b', cb.code_lines(ROOT / bdir / 'board.cmake')))
-  if len(mcus) != 1:
-    raise Refused(f'{bdir}/board.cmake: expected one {series} device define, found {sorted(mcus)}')
-  return f'{cmake_var(f"ports/{port}/family.cmake", "ST_CMSIS")}/Include/{mcus.pop().lower()}.h'
-
-
-# besides the port's own files, the CMake files either stm32h7 link takes options from
-H7_SHARED_LINK = ('ports/family_support.cmake', 'cmake/toolchain/arm_gcc.cmake', 'cmake/toolchain/common.cmake')
-
-
-def ld_assign(name):
-  """The pattern of a script's `NAME op= value;` for a NAME matching `name`, a pattern without groups: its groups
-  (name, op, value), op '' for a plain `=`."""
-  return rf'(?<![\w.])({name})\s*(<<|>>|[-+*/|&]?)=(?!=)\s*([^;]+);'
-
-
-LD_ASSIGN = ld_assign(r'[A-Za-z_]\w*')
-
-
-def stm32h7_sources(port, bdir):
-  """port_sources for stm32h7, a board with an internal-flash app (BOARD_PFLASH_APP_EN 1) only: both links take
-  family_add_linker_scripts' memory.ld, common.ld and the MCU's layout script and no other, the app's with its one
-  --defsym=PFLASH_APP=0; the app start is board.cmake's BOARD_FLASH_APP_START, the app link's FLASH origin."""
-  fam, lists, app, boards = (f'ports/{port}/{f}' for f in ('family.cmake', 'CMakeLists.txt', 'app.cmake', 'boards.h'))
-  board = cb.code_lines(ROOT / bdir / 'board.cmake')
-  try:
-    app_en = cmake_var(f'{bdir}/board.cmake', 'BOARD_PFLASH_APP_EN')
-  except Refused:   # none, or more than one
-    app_en = None
-  if app_en != '1' or re.findall(r'\bBOARD_PFLASH_APP_EN=(\S+)', board) != ['1']:
-    raise Refused(f'{bdir}/board.cmake: the runner supports an stm32h7 board only with an internal-flash app, '
-                  f'set(BOARD_PFLASH_APP_EN 1) and the define BOARD_PFLASH_APP_EN=1; an H750 board keeps its app in '
-                  f'QSPI flash or AXI SRAM')
-  starts = re.findall(r'\bBOARD_FLASH_APP_START=(\S+)', board)
-  if len(starts) != 1 or 'BOARD_FLASH_APP_START' in cb.code_lines(ROOT / fam) or \
-     has_define(boards, 'BOARD_FLASH_APP_START'):
-    raise Refused(f'{bdir}/board.cmake: expected the one definition of BOARD_FLASH_APP_START, found {starts}')
-  start = num(starts[0], f'{bdir}/board.cmake BOARD_FLASH_APP_START')
-  fam_text, lists_text, app_text = (cb.code_lines(ROOT / f) for f in (fam, lists, app))
-  shared = ''.join(cb.code_lines(ROOT / f) for f in H7_SHARED_LINK)
-  scripts = r'\s*'.join(re.escape(f'"LINKER:--script=${{CMAKE_CURRENT_FUNCTION_LIST_DIR}}/linker/{s}.ld"')
-                        for s in ('memory', 'common', '${MCU}'))
-  if len(re.findall(SCRIPT_OPTION, fam_text)) != 3 or re.search(SCRIPT_OPTION, lists_text + app_text + shared) or \
-     re.search(r'\b(target_link_|link_|add_link_)|LINKER|-Wl,|-Xlinker', board, re.I) or \
-     not re.search(rf'\bfunction\s*\(\s*family_add_linker_scripts\s+TARGET\s*\)\s*target_link_options\s*\(\s*'
-                   rf'\$\{{TARGET\}}\s+PUBLIC\s*{scripts}\s*\)\s*endfunction\s*\(\s*\)', fam_text) or \
-     len(re.findall(r'\bfamily_add_linker_scripts\s*\(\s*tinyuf2\s*\)', lists_text)) != 1 or \
-     len(re.findall(r'\bfamily_add_linker_scripts\s*\(\s*\$\{TARGET\}\s*\)', app_text)) != 1:
-    raise Refused(f'ports/{port}: the bootloader and the app do not each link family_add_linker_scripts\' memory.ld, '
-                  f'common.ld and ${{MCU}}.ld, and no other script, or {bdir}/board.cmake has a link option')
-  # ld decides each DEFINED() of the layout at its place in the link: the defsym must come before the scripts
-  if '--defsym' in fam_text + lists_text + shared or app_text.count('--defsym') != 1 or \
-     app_text.count('APP_LOCATION') != 3 or app_text.count('BOARD_PFLASH_APP_EN') != 1 or \
-     'BOARD_PFLASH_APP_EN' in fam_text + lists_text + shared or \
-     not re.search(r'\bif\s*\(\s*BOARD_PFLASH_APP_EN\s*\)\s*set\s*\(\s*APP_LOCATION\s+PFLASH_APP\s*\)\s*'
-                   r'else\s*\(\s*\)\s*add_compile_definitions\s*\(\s*VECT_TAB_SRAM\s*\)\s*'
-                   r'set\s*\(\s*APP_LOCATION\s+RAMCODE\s*\)\s*'
-                   r'endif\s*\(\s*\)', app_text) or \
-     not re.search(r'\bfunction\s*\(\s*family_configure_app\s+TARGET\s*\)(?:(?!endfunction).)*?target_link_options\s*\('
-                   r'\s*\$\{TARGET\}\s+PUBLIC\s*"LINKER:--defsym=\$\{APP_LOCATION\}=0"\s*\)\s*'
-                   r'family_add_linker_scripts\s*\(\s*\$\{TARGET\}\s*\)\s*endfunction\b', app_text, re.S):
-    raise Refused(f'ports/{port}: the bootloader link takes no --defsym and the app link, with BOARD_PFLASH_APP_EN, '
-                  f'only --defsym=PFLASH_APP=0, before its scripts ({app})')
-  header = stm32_header(port, bdir)
-  mcu = cmake_var(f'{bdir}/board.cmake', 'MCU')
-  if f'stm32{mcu}' != Path(header).stem:
-    raise Refused(f'{bdir}/board.cmake: MCU {mcu!r} is not the layout of the device header {header}')
-  memory, common, layout = (f'ports/{port}/linker/{s}.ld' for s in ('memory', 'common', mcu))
-  # a DEFINED() symbol a script assigns or names elsewhere is no longer the link's --defsym alone
-  conds = set(re.findall(r'DEFINED\(\s*(\w+)\s*\)', ld_text(layout)))
-  rest = re.sub(r'DEFINED\(\s*\w+\s*\)', ' ', ''.join(ld_text(f) for f in (memory, common, layout)))
-  if any(re.search(rf'(?<![\w.]){c}(?!\w)', rest) for c in conds):
-    raise Refused(f'ports/{port}/linker: a script names one of {sorted(conds)} outside DEFINED()')
-  boot, applink = h7_layout(layout, set()), h7_layout(layout, {'PFLASH_APP'})
-  names = '|'.join([*boot, '_board_dfu_dbl_tap'])
-  if '_board_dfu_dbl_tap' in boot or \
-     re.search(ld_assign(names), ld_text(memory)) or \
-     re.search(r'\bMEMORY\b', ld_text(common)) or \
-     [(n, op, v.strip()) for n, op, v in re.findall(ld_assign(names), ld_text(common))] != \
-     [('_board_dfu_dbl_tap', '', 'ORIGIN(NOINIT)')]:
-    raise Refused(f'ports/{port}/linker: the layout symbols are not assigned in {layout} only, or _board_dfu_dbl_tap '
-                  f'is not {common}\'s one ORIGIN(NOINIT)')
-  flash_base = ld_memory(memory, 'FLASH', boot)[0]
-  if ld_memory(memory, 'FLASH', applink)[0] != start or \
-     num(define(boards, 'PFLASH_BASE_ADDR'), 'PFLASH_BASE_ADDR') != flash_base:
-    raise Refused(f'ports/{port}: the app link\'s FLASH origin is not BOARD_FLASH_APP_START {start:#x}, or '
-                  f'PFLASH_BASE_ADDR, where boards.h ends the app\'s flash from, is not the bootloader\'s '
-                  f'{flash_base:#x}')
-  own = {'appStart': start, 'dblTapReg': ld_memory(memory, 'NOINIT', boot)[0]}
-  return header, layout, flash_base, flash_base, ld_memory(memory, 'RAM', applink)[0], boot, own
-
-
-def h7_layout(ld, defined):
-  """The symbols the MCU's layout script assigns, in order, each a sum of literals and earlier symbols or
-  DEFINED(SYM) ? <sum> : <sum>, SYM defined when it is in `defined`, the link's --defsym names; the script holds
-  nothing else."""
-  text, syms = ld_text(ld), {}
-  if re.sub(LD_ASSIGN, ' ', text).strip():
-    raise Refused(f'{ld}: holds more than symbol assignments')
-  for name, op, rhs in re.findall(LD_ASSIGN, text):
-    m = re.fullmatch(r'DEFINED\(\s*(\w+)\s*\)\s*\?\s*([^?:]+?)\s*:\s*([^?:]+)', rhs.strip())
-    expr = (m[2] if m[1] in defined else m[3]) if m else rhs
-    expr = re.sub(r'(?<![\w.])[A-Za-z_]\w*', lambda s: hex(syms[s[0]]) if s[0] in syms else s[0], expr)
-    if op or name in syms:
-      raise Refused(f'{ld}: {name} is assigned more than once')
-    syms[name] = ld_expr(expr, f'{ld} {name}')
-  return syms
-
-
-def maxim_sources(port, bdir):
-  """port_sources for maxim: the boot script of the two the link takes, FLASH sized by the link's one --defsym, and
-  the app start, flash size and family from the forms boards.h and family.cmake give them for the board's device."""
-  fam, dev = f'ports/{port}/family.cmake', cmake_var(f'{bdir}/board.cmake', 'MAX_DEVICE')
-  fam_text = cb.code_lines(ROOT / fam)
-  if not re.fullmatch(r'max\d+', dev) or \
-     len(re.findall(r'\bstring\s*\(\s*TOUPPER\s+\$\{MAX_DEVICE\}\s+MAX_DEVICE_UPPER\s*\)', fam_text)) != 1:
-    raise Refused(f'{fam}: MAX_DEVICE_UPPER is not {dev!r} upper-cased')
-  upper = dev.upper()
-  boot, common = (f'ports/{port}/linker/{dev}/{dev}_{s}.ld' for s in ('boot', 'common'))
-  if cmake_scripts(f'ports/{port}/CMakeLists.txt', {'MAX_DEVICE': dev}) != [boot, common]:
-    raise Refused(f'ports/{port}/CMakeLists.txt: expected the scripts {[boot, common]}')
-  size = cmake_var(fam, 'FLASH_BOOT_SIZE')
-  if fam_text.count('--defsym=') != 1 or fam_text.count('-Wl,--defsym=__FLASH_BOOT_SIZE=${FLASH_BOOT_SIZE}') != 1 or \
-     len(re.findall(r'(?<!\w)FLASH_BOOT_SIZE=\$\{FLASH_BOOT_SIZE\}', fam_text)) != 1 or \
-     'FLASH_BOOT_SIZE' in cb.code_lines(ROOT / bdir / 'board.cmake') or \
-     re.search(ld_assign('__FLASH_BOOT_SIZE'), ld_text(boot) + ld_text(common)):
-    raise Refused(f'{fam}: FLASH_BOOT_SIZE does not reach the link as its one --defsym=__FLASH_BOOT_SIZE and the '
-                  f'compile as FLASH_BOOT_SIZE, unassigned elsewhere')
-  if re.search(r'\bMEMORY\b', ld_text(common)) or re.search(ld_assign('_board_dfu_dbl_tap|_estack'), ld_text(common)):
-    raise Refused(f'{common}: a MEMORY region or a double-tap symbol outside {boot}')
-  syms = {'__FLASH_BOOT_SIZE': ld_expr(size, f'{fam} FLASH_BOOT_SIZE')}
-  flash_base = ld_memory(boot, 'FLASH', syms)[0]
-  header = f'{cmake_var(fam, "MSDK_LIB")}/CMSIS/Device/Maxim/{upper}/Include/{dev}.h'
-  boards = f'ports/{port}/boards.h'
-  zero = header_value(header, device_define(boards, upper, 'BOARD_FLASH_ADDR_ZERO'), 'BOARD_FLASH_ADDR_ZERO')
-  app = define(boards, 'BOARD_FLASH_APP_START')
-  if zero != flash_base or not re.fullmatch(r'\(\s*BOARD_FLASH_ADDR_ZERO\s*\+\s*FLASH_BOOT_SIZE\s*\)', app):
-    raise Refused(f'{boards}: BOARD_FLASH_APP_START {app!r} is not (BOARD_FLASH_ADDR_ZERO + FLASH_BOOT_SIZE) with '
-                  f'BOARD_FLASH_ADDR_ZERO {zero:#x} at the flash base {flash_base:#x}')
-  flash = device_define(boards, upper, 'BOARD_FLASH_SIZE')
-  m = re.fullmatch(rf'\(\s*(\w+)\s*\*\s*{LITERAL}\s*\)', flash)   # boards.h: the MAX32665/6's two banks
-  flash_size = header_value(header, m.group(1), 'BOARD_FLASH_SIZE') * int(m.group(2), 0) if m else \
-    header_value(header, flash, 'BOARD_FLASH_SIZE')
-  if len(re.findall(r'\bset\s*\(\s*UF2_FAMILY_ID\b', fam_text, re.I)) != 1 or \
-     len(re.findall(r'\bset\s*\(\s*UF2_FAMILY_ID\s+\$\{UF2_FAMILY_ID_\$\{MAX_DEVICE_UPPER\}\}\s*\)', fam_text)) != 1:
-    raise Refused(f'{fam}: UF2_FAMILY_ID is not ${{UF2_FAMILY_ID_${{MAX_DEVICE_UPPER}}}}')
-  own = {'appStart': zero + syms['__FLASH_BOOT_SIZE'], 'flashSize': flash_size,
-         'family': int(cmake_var(fam, f'UF2_FAMILY_ID_{upper}'), 16)}
-  return header, boot, flash_base, flash_base, ld_memory(boot, 'SRAM')[0], syms, own
-
-
-def device_define(path, macro, name):
-  """#define NAME of the one #if/#elif branch of `path` whose condition, defined(A) [|| defined(B) ...] of device names
-  of `macro`'s form (MAX32665: MAX<digits>), names `macro`, taken as the only device name the build defines. Every
-  definition of NAME must sit directly in such a chain, each earlier branch of it of that form too, inside at most the
-  file's include guard; any other nesting is refused."""
-  lines = (ROOT / path).read_text().splitlines()
-  prefix = re.fullmatch(r'([A-Z]+)\d+', macro)
-  if not prefix:
-    raise Refused(f'{path}: {macro!r} is not a device name')
-  device = rf'{prefix.group(1)}\d+'
-  frames, hits, seen = [], [], False   # frames: [kind, branch macros], kind 'guard', 'chain' or 'opaque'
-  for i, line in enumerate(lines):
-    d = re.match(r'\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b\s*(.*?)\s*(//.*|/\*.*)?$', line)
-    if d:
-      kw, cond = d.groups()[:2]
-      macros = set(re.findall(r'defined\s*\(\s*(\w+)\s*\)', cond)) \
-        if re.fullmatch(r'defined\s*\(\s*\w+\s*\)(\s*\|\|\s*defined\s*\(\s*\w+\s*\))*', cond) else None
-      if macros and not all(re.fullmatch(device, x) for x in macros):
-        macros = None
-      if kw in ('if', 'ifdef', 'ifndef'):
-        guard = kw == 'ifndef' and not seen and i + 1 < len(lines) and \
-          re.fullmatch(rf'\s*#\s*define\s+{re.escape(cond)}\s*', lines[i + 1])
-        frames.append(['guard', None] if guard else ['chain', macros] if kw == 'if' and macros else ['opaque', None])
-      elif not frames:
-        raise Refused(f'{path}: #{kw} outside any #if')
-      elif kw == 'endif':
-        frames.pop()
-      elif frames[-1][0] == 'chain' and kw == 'elif' and macros:
-        frames[-1][1] = macros
-      else:
-        frames[-1] = ['opaque', None]
-      seen = True
-    m = re.match(rf'\s*#\s*define\s+{name}\s+(.+?)\s*(//.*|/\*.*)?$', line)
-    if m:
-      kinds = [k for k, _ in frames]
-      ok = kinds in (['chain'], ['guard', 'chain'])
-      hits.append((frames[-1][1] if ok else None, m.group(1)))
-  if frames:
-    raise Refused(f'{path}: an #if without its #endif')
-  mine = [v for c, v in hits if c and macro in c]
-  if not hits or not all(c for c, _ in hits) or len(mine) != 1:
-    raise Refused(f'{path}: expected one #define {name} for {macro}, each one in a chain of defined() branches of '
-                  f'device names inside at most the include guard')
-  return mine[0]
-
-
-def header_value(header, expr, what, depth=0):
-  """A literal, or a macro the header defines once as one, directly or through at most two aliases."""
-  if re.fullmatch(r'[A-Za-z_]\w*', expr) and depth < 3:
-    n = len(re.findall(rf'^\s*#\s*define\s+{expr}\b', (ROOT / header).read_text(), re.M))
-    if n != 1:
-      raise Refused(f'{what}: {header} defines {expr} {n} times')
-    return header_value(header, define(header, expr), what, depth + 1)
-  return num(expr, what)
-
-
-# the stm32h5 link's --defsym symbols, each from the board's set() of this variable
-DEFSYMS = {'__flash_boot_size': 'LD_FLASH_BOOT_SIZE', '__ram_size': 'LD_RAM_SIZE'}
-
-
-def defsyms(port, bdir, ld):
-  """The values family.cmake passes the linker for DEFSYMS, from the board.cmake's one set() each, in the exact
-  forms the port uses: one `-Wl,--defsym=SYM=${VAR}` each, the script's one `SYM = DEFINED(SYM) ? SYM : <default>;`,
-  and family.cmake setting a variable only for Debug builds, which a HIL record (MinSizeRel) is not."""
-  fam = cb.code_lines(ROOT / f'ports/{port}/family.cmake')
-  text, syms = ld_text(ld), {}
-  for sym, var in DEFSYMS.items():
-    sets = re.findall(rf'\bset\s*\(\s*{var}\b', fam, re.I)
-    debug = re.findall(rf'if\s*\(\s*CMAKE_BUILD_TYPE\s+STREQUAL\s+"Debug"\s*\)\s*set\s*\(\s*{var}\s+\w+\s*\)\s*endif\s*\(\s*\)',
-                       fam, re.I)
-    if fam.count('--defsym=') != len(DEFSYMS) or fam.count(f'-Wl,--defsym={sym}=${{{var}}}') != 1 or \
-       len(sets) != len(debug) or \
-       len(re.findall(ld_assign(sym), text)) != 1 or \
-       len(re.findall(rf'(?<![\w.]){sym}\s*=\s*DEFINED\(\s*{sym}\s*\)\s*\?\s*{sym}\s*:\s*\w+\s*;', text)) != 1:
-      raise Refused(f'ports/{port}: {sym} does not reach {ld} as -Wl,--defsym={sym}=${{{var}}} over a DEFINED() default')
-    syms[sym] = ld_expr(cmake_var(f'{bdir}/board.cmake', var), f'{bdir}/board.cmake {var}')
-  return syms
-
-
 def cmake_refs(v, refs):
   return re.sub(r'\$\{(\w+)\}', lambda m: refs.get(m.group(1), m.group(0)), v)
 
 
-SCRIPT_OPTION = r'--script\b|(?<![\w-])-T'   # every way a link line can name a linker script
-
-
-def cmake_scripts(path, refs=None):
-  """The linker scripts a port's CMakeLists.txt passes, each --script=${DIR}/<script>.ld, DIR CMAKE_CURRENT_LIST_DIR
-  (the file's directory) or one of `refs`, every ${VAR} in it one of those; any other script option there, or any in
-  the family.cmake beside it, is refused."""
-  refs = {'CMAKE_CURRENT_LIST_DIR': str(Path(path).parent), **(refs or {})}
-  text = cb.code_lines(ROOT / path)
-  args = [m.group(0) for m in re.finditer(rf'(?:{SCRIPT_OPTION})[^"\s)]*', text)]
-  hits = [a.removeprefix('--script=') for a in args]
-  lds = [cmake_refs(h, refs) for h in hits]
-  fam = Path(path).with_name('family.cmake')
-  if not args or not all(re.fullmatch(r'--script=\$\{\w+\}/[\w${}./-]+\.ld', a) for a in args) or \
-     any(re.search(r'[${}]', ld) for ld in lds) or \
-     (ROOT / fam).is_file() and re.search(SCRIPT_OPTION, cb.code_lines(ROOT / fam)):
-    raise Refused(f'{path}: expected only --script=${{<dir>}}/<script>.ld, <dir> one of {sorted(refs)}, and no script '
-                  f'option in {fam}, found {args}')
-  return lds
-
-
-def cmake_script(path, refs=None):
-  """The one linker script a port's CMakeLists.txt passes (cmake_scripts)."""
-  lds = cmake_scripts(path, refs)
-  if len(lds) != 1:
-    raise Refused(f'{path}: expected one linker script, found {lds}')
-  return lds[0]
-
-
-def ld_text(ld, syms=None):
-  """The script without comments; with `syms`, each one's DEFINED() default dropped and its uses replaced by its
-  value (defsyms checked the form)."""
-  text = re.sub(r'/\*.*?\*/', ' ', (ROOT / ld).read_text(), flags=re.S)
-  for sym, v in (syms or {}).items():
-    text = re.sub(rf'(?<![\w.]){sym}\s*=\s*DEFINED\([^;]*;', ' ', text)
-    text = re.sub(rf'(?<![\w.]){sym}(?!\w)', hex(v), text)
-  return text
-
-
-def ld_expr(expr, what):
-  """A sum or difference of literals, each with an optional K or M suffix, e.g. 40K - 4; nothing else."""
-  term = r'(0x[0-9a-fA-F]+|\d+)([KM]?)'
-  if not re.fullmatch(rf'\s*{term}(\s*[+-]\s*{term})*\s*', expr):
-    raise Refused(f'{what}: {expr!r} is not a sum of literals')
-  v = 0
-  for sign, n, unit in re.findall(rf'([+-]?)\s*{term}', expr):
-    v += (-1 if sign == '-' else 1) * int(n, 0) * {'': 1, 'K': 1 << 10, 'M': 1 << 20}[unit]
-  return v
-
-
-def ld_memory(ld, region, syms=None):
-  """(ORIGIN, LENGTH) of a MEMORY region."""
-  hits = re.findall(rf'^\s*{region}\s*\(\w+\)\s*:\s*ORIGIN\s*=\s*([^,]+),\s*LENGTH\s*=\s*([^\n]+?)\s*$', ld_text(ld, syms),
-                    re.M)
-  if len(hits) != 1:
-    raise Refused(f'{ld}: expected one {region} memory region, found {len(hits)}')
-  return ld_expr(hits[0][0], f'{ld} {region} ORIGIN'), ld_expr(hits[0][1], f'{ld} {region} LENGTH')
-
-
-def ld_symbol(ld, name, depth=0, syms=None):
-  """A symbol the script assigns once: a literal sum, ORIGIN(R) + LENGTH(R), or another such symbol."""
-  hits = re.findall(ld_assign(name), ld_text(ld, syms))
-  if len(hits) != 1 or hits[0][1]:
-    raise Refused(f'{ld}: expected one plain {name} = ...;, found {[op + "=" for _, op, _ in hits]}')
-  rhs = hits[0][2].strip()
-  if re.fullmatch(r'[A-Za-z_]\w*', rhs) and depth < 2:
-    return ld_symbol(ld, rhs, depth + 1, syms)
-  m = re.fullmatch(r'ORIGIN\((\w+)\)\s*\+\s*LENGTH\(\1\)', rhs)
-  if m:
-    return sum(ld_memory(ld, m.group(1), syms))
-  return ld_expr(rhs, f'{ld} {name}')
-
-
-def vector_count(header):
-  """NUMBER_OF_INT_VECTORS, else msdk's MXC_IRQ_COUNT, else the 16 system vectors plus IRQ 0 to the highest IRQn_Type
-  value."""
-  if has_define(header, 'NUMBER_OF_INT_VECTORS'):
-    return num(define(header, 'NUMBER_OF_INT_VECTORS'), 'NUMBER_OF_INT_VECTORS')
-  text = re.sub(r'/\*.*?\*/|//[^\n]*', ' ', (ROOT / header).read_text(), flags=re.S)
-  enums = re.findall(r'typedef\s+enum\s*\{([^}]*)\}\s*IRQn_Type\s*;', text)
-  items = [i.strip() for i in enums[0].split(',') if i.strip()] if len(enums) == 1 else []
-  if has_define(header, 'MXC_IRQ_COUNT'):   # msdk: the enum's last entry counts the IRQs before it
-    entries = [re.fullmatch(r'\w+(?:\s*=\s*(-?\d+))?', i) for i in items]
-    if not re.fullmatch(r'\(\s*MXC_IRQ_EXT_COUNT\s*\+\s*16\s*\)', define(header, 'MXC_IRQ_COUNT')) or not items or \
-       items[-1] != 'MXC_IRQ_EXT_COUNT' or not all(entries):
-      raise Refused(f'{header}: MXC_IRQ_COUNT is not (MXC_IRQ_EXT_COUNT + 16) over one IRQn_Type enum of NAME or '
-                    f'NAME = decimal entries ending in MXC_IRQ_EXT_COUNT')
-    v = -1
-    for e in entries:
-      v = int(e.group(1)) if e.group(1) else v + 1
-    return 16 + v
-  vals = [re.fullmatch(r'\w+\s*=\s*(-?\d+)', i) for i in items]
-  irqs = [int(v.group(1)) for v in vals] if items and all(vals) else []
-  if not irqs or max(irqs) < 0:
-    raise Refused(f'{header}: neither NUMBER_OF_INT_VECTORS nor one IRQn_Type enum of NAME = decimal entries')
-  return 16 + max(irqs) + 1
-
-
-def source_facts(board):
-  """What the candidate's source says about this board."""
-  port = board['port']
-  bdir = f'ports/{port}/boards/{board["name"]}'
-  if not (ROOT / bdir).is_dir():
-    raise Refused(f'{bdir} does not exist')
-  if board.get('kind') == 'esp':
-    return esp_source_facts(board, bdir)
-  header, ld, flash_base, bin_base, ram, syms, own = port_sources(port, bdir)
-  if has_define(f'{bdir}/board.h', 'BOARD_FLASH_APP_START'):
-    raise Refused(f'{bdir}/board.h overrides BOARD_FLASH_APP_START; the runner reads the port default only')
-  if 'flashSize' in own and has_define(f'{bdir}/board.h', 'BOARD_FLASH_SIZE'):
-    raise Refused(f'{bdir}/board.h defines BOARD_FLASH_SIZE; the runner reads the port\'s only')
-  facts = {
-    'flashBase': flash_base,
-    'binBase': bin_base,
-    'appStart': own['appStart'] if 'appStart' in own else app_start(port, flash_base, syms),
-    'flashSize': own['flashSize'] if 'flashSize' in own else flash_size(bdir, board),
-    'vid': num(define(f'{bdir}/board.h', 'USB_VID'), 'USB_VID'),
-    'pid': num(define(f'{bdir}/board.h', 'USB_PID'), 'USB_PID'),
-    'boardId': define(f'{bdir}/board.h', 'UF2_BOARD_ID').strip('"'),
-    'family': own['family'] if 'family' in own else int(cmake_var(f'ports/{port}/family.cmake', 'UF2_FAMILY_ID'), 16),
-    'vectors': vector_count(header),
-    'ram': ram,
-    'dblTapDelayMs': num(define('src/board_api.h', 'TINYUF2_DBL_TAP_DELAY'), 'TINYUF2_DBL_TAP_DELAY'),
-  }
-  if has_define(f'ports/{port}/boards.h', 'TINYUF2_DBL_TAP_REG'):
-    reg = define(f'ports/{port}/boards.h', 'TINYUF2_DBL_TAP_REG')
-    m = re.fullmatch(r'(\w+)->(\w+)\[(\d+)\]', reg)
-    if not m:
-      raise Refused(f'TINYUF2_DBL_TAP_REG {reg!r} is not PERIPH->ARRAY[N]')
-    base, offset, step = register_layout(header, m.group(1), m.group(2))
-    facts['dblTapReg'] = base + offset + step * int(m.group(3))
-  elif 'dblTapReg' in own:
-    facts['dblTapReg'] = own['dblTapReg']
-  else:   # board_api.h's default: the word the bootloader's linker script places
-    facts['dblTapReg'] = ld_symbol(ld, '_board_dfu_dbl_tap', syms=syms)
-  facts['dblTapMagic'] = 0xf01669ef   # board_api.h DBL_TAP_MAGIC at TINYUF2_DBL_TAP_REG_SIZE 32
-  if 'TINYUF2_DBL_TAP_REG_SIZE' in (ROOT / f'ports/{port}/boards.h').read_text():
-    raise Refused(f'ports/{port} overrides TINYUF2_DBL_TAP_REG_SIZE: the magic would need its shift')
-  return facts
-
-
 def record_facts(record_path, board, workdir):
-  """The board's facts from its build record: board_facts.read over hash-checked copies of the files it reads, which
-  must equal the source's (source_facts) until the source parser goes. Espressif facts stay the source's."""
-  old = source_facts(board)
+  """The board's facts: an Espressif board's from the candidate's source (esp_source_facts), any other's from its
+  build record, board_facts.read over hash-checked copies of the files it reads."""
   if board.get('kind') == 'esp':
-    return old
+    return esp_source_facts(board)
   _, row, root, _ = record_row(record_path, board)
   rels = (*cb.FACTS_FILES, CMAKE_RECORD_FILES[0], '_bin/tinyuf2.hex')
   if not all(r in row.get('sha256', {}) for r in rels):
@@ -771,36 +338,15 @@ def record_facts(record_path, board, workdir):
                   f'--backend cmake --shared --hil-config <roster>)')
   copied(root, rels, row, workdir / 'facts')
   try:
-    facts = bf.read(workdir / 'facts', FLASH_LIMITS[board['device']])
+    return bf.read(workdir / 'facts', FLASH_LIMITS[board['device']])
   except (bf.Refused, OSError) as e:
     raise Refused(f'{record_path}: {e}')
-  differ = {k: (old.get(k), facts.get(k)) for k in old if old[k] != facts.get(k)}
-  if differ:
-    raise Refused(f'{record_path}: build facts differ from the source\'s: {differ}')
-  return facts
 
 
-def flash_size(bdir, board):
-  size = define(f'{bdir}/board.h', 'BOARD_FLASH_SIZE')
-  floor, ceiling = FLASH_LIMITS.get(board.get('device'), (0, 0))
-  # FLASH_SIZE is CMSIS's read of the chip's size register: the roster device's flash, which INFO_UF2.TXT reports
-  return ceiling - floor if size == 'FLASH_SIZE' and ceiling else product(size, 'BOARD_FLASH_SIZE')
-
-
-def app_start(port, flash_base, syms):
-  """BOARD_FLASH_APP_START: a literal or FLASH_BASE + literal, or the stm32h5 form, the flash base plus the link's
-  __flash_boot_size."""
-  expr = define(f'ports/{port}/boards.h', 'BOARD_FLASH_APP_START')
-  if not re.fullmatch(r'\(\s*BOARD_FLASH_ADDR_ZERO\s*\+\s*\(uint32_t\)\s*__flash_boot_size\s*\)', expr):
-    return flash_addr(expr, flash_base, 'BOARD_FLASH_APP_START')
-  zero = num(define(f'ports/{port}/boards.h', 'BOARD_FLASH_ADDR_ZERO'), 'BOARD_FLASH_ADDR_ZERO')
-  if '__flash_boot_size' not in syms or zero != flash_base:
-    raise Refused(f'ports/{port}: BOARD_FLASH_APP_START {expr!r} needs the link\'s __flash_boot_size and '
-                  f'BOARD_FLASH_ADDR_ZERO at the flash base')
-  return zero + syms['__flash_boot_size']
-
-
-def esp_source_facts(board, bdir):
+def esp_source_facts(board):
+  bdir = f'ports/{board["port"]}/boards/{board["name"]}'
+  if not (ROOT / bdir).is_dir():
+    raise Refused(f'{bdir} does not exist')
   try:
     facts = esp.facts(ROOT, board)
   except (esp.Refused, OSError, ValueError) as e:
@@ -819,33 +365,8 @@ def esp_source_facts(board, bdir):
   return facts
 
 
-def ram_origin(ld):
-  m = re.search(r'm_data\s*\(RW\)\s*:\s*ORIGIN\s*=\s*(0x[0-9a-fA-F]+)', (ROOT / ld).read_text())
-  if not m:
-    raise Refused(f'{ld}: no m_data ORIGIN')
-  return int(m.group(1), 16)
-
-
-def register_layout(header, periph, member):
-  """(base, array offset, array step) of PERIPH->MEMBER[] from the CMSIS device header; on a TrustZone
-  part the base is the non-secure alias, the one a build without -mcmse (tinyuf2's) uses."""
-  text = (ROOT / header).read_text()
-  end = re.search(r'\}\s*' + periph + r'_Type;', text)
-  start = text.rfind('typedef struct {', 0, end.start()) if end else -1
-  if start < 0:
-    raise Refused(f'{header}: no {periph}_Type')
-  f = re.search(rf'\b{member}\[\d+\];.*?array offset:\s*(0x[0-9a-fA-F]+), array step:\s*(0x[0-9a-fA-F]+)',
-                text[start:end.start()])
-  if not f:
-    raise Refused(f'{header}: no {periph}->{member} array offset')
-  bases = re.findall(rf'#define {periph}_BASE\s+\((0x[0-9a-fA-F]+)u\)', text)
-  if len(bases) not in (1, 2):
-    raise Refused(f'{header}: expected one {periph}_BASE, or a secure and a non-secure one, found {bases}')
-  return int(bases[-1], 16), int(f.group(1), 16), int(f.group(2), 16)
-
-
 def apply_layout(board, facts):
-  """The install and app spans, from the candidate's source: the bootloader from the flash base up to the app
+  """The install and app spans, from the candidate's facts: the bootloader from the flash base up to the app
   start, the app from there to the end of the board's flash, all inside the device's programming limits."""
   if board.get('kind') == 'esp':
     try:
@@ -865,30 +386,11 @@ def apply_layout(board, facts):
 # ------------------------------------------------------------------ images
 
 def parse_hex(path):
-  """{address: bytes} of an Intel HEX file, contiguous runs merged; checksums verified."""
-  data, base = {}, 0
-  for n, line in enumerate(Path(path).read_text().splitlines(), 1):
-    if not line.strip():
-      continue
-    try:
-      rec = bytes.fromhex(line.strip()[1:])
-    except ValueError:
-      raise Refused(f'{path}:{n}: not Intel HEX')
-    if line[0] != ':' or len(rec) < 5 or len(rec) != rec[0] + 5 or sum(rec) & 0xFF:
-      raise Refused(f'{path}:{n}: bad Intel HEX record')
-    addr, kind, payload = int.from_bytes(rec[1:3], 'big'), rec[3], rec[4:-1]
-    if kind == 0:
-      for i, b in enumerate(payload):
-        data[base + addr + i] = b
-    elif kind == 1:
-      break
-    elif kind == 2:
-      base = int.from_bytes(payload, 'big') << 4
-    elif kind == 4:
-      base = int.from_bytes(payload, 'big') << 16
-    elif kind not in (3, 5):
-      raise Refused(f'{path}:{n}: unknown record type {kind}')
-  return data
+  """{address: bytes} of an Intel HEX file; checksums verified."""
+  try:
+    return bf.parse_hex(path)
+  except bf.Refused as e:
+    raise Refused(str(e))
 
 
 def check_ranges(data, allowed, limits, what):

@@ -10,7 +10,8 @@ SHT_SYMTAB, SHT_NOBITS, SHT_REL, SHT_RELA = 2, 8, 9, 4
 SHF_ALLOC = 0x2
 PT_LOAD = 1
 # (ELF machine, relocation section type) -> the one relocation type an absolute 32-bit word carries
-ABS32 = {(40, SHT_REL): 2, (243, SHT_RELA): 1}   # EM_ARM R_ARM_ABS32, EM_RISCV R_RISCV_32
+EM_ARM, EM_RISCV = 40, 243
+ABS32 = {(EM_ARM, SHT_REL): 2, (EM_RISCV, SHT_RELA): 1}   # R_ARM_ABS32, R_RISCV_32
 STACK = 0x1000   # the fixture's initial SP is ram + STACK (hil_test.fixture)
 VECTOR_NAMES = ('__isr_vector', '__Vectors', 'g_pfnVectors')   # the CMSIS startups' vector table, aliases included
 MALFORMED = (struct.error, IndexError, ValueError, UnicodeDecodeError, KeyError)
@@ -234,6 +235,8 @@ def read(root, limits):
 
 def _read(root, limits):
   boot, blinky = Elf(root / 'tinyuf2.elf'), Elf(root / 'apps/blinky/blinky.elf')
+  if boot.machine != EM_ARM:
+    raise Refused(f'{boot.path}: machine {boot.machine}, not Arm: the battery\'s fixture is a Cortex-M image')
   vals = object_values(Elf(root / 'board_facts.o'), boot)
   bin_bytes = (root / '_bin/tinyuf2.bin').read_bytes()
   elf_base, img = boot.image()
