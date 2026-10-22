@@ -8,7 +8,7 @@ as Markdown, and the check that this run is still the newest for the PR's head b
   hil_comment.py fresh --repo R --pr N --head SHA --run-id N --attempt N
 
 A missing or unreadable `--summary` or `--selection` renders as such, never as a pass or as no affected boards.
-`fresh` exits 0 when the run is the newest attempt of the newest HIL run for the PR's current head, 1 when it is
+`fresh` exits 0 when the run is the newest attempt of the PR's newest HIL run for its current head, 1 when it is
 stale (the reason on stdout), 2 when the API cannot tell. Stdlib only: it runs on a hosted runner.
 """
 import argparse
@@ -28,6 +28,7 @@ ABSENT = '—'
 cell = run_report.cell   # report text kept on one Markdown line and out of the table's column syntax
 KINDS = (('passed', '✅'), ('failed', '❌'), ('blocked', '⛔'), ('not run', '⚪'))
 LEGEND = "✅ passed · ❌ failed · blank not run · — not in this board's run · run time includes lock wait and blinky"
+RUN_NAME = 'HIL PR #{}'   # hil.yml's run-name: a run's pull_requests lists every PR on its head, not the one it is for
 
 
 def duration(s):
@@ -147,19 +148,19 @@ def finish(lines):
   """The body with every @mention neutralised: report text never pings anyone."""
   while lines and not lines[-1]:
     lines.pop()
-  return re.sub(r'@(?=\w)', '@​', '\n'.join(lines)) + '\n'
+  return re.sub(r'@(?=\w)', '@\u200b', '\n'.join(lines)) + '\n'
 
 
 def fresh(api, repo, pr, head, run_id, attempt):
-  """(fresh, reason): this run is the newest attempt of the newest HIL run for the PR's current head. `api(path)`
+  """(fresh, reason): this run is the newest attempt of the PR's newest HIL run for its current head. `api(path)`
   returns the parsed JSON of a GitHub REST GET; its errors propagate."""
   now = api(f'repos/{repo}/pulls/{pr}')['head']['sha']
   if now != head:
     return False, f'PR #{pr} head moved to {now[:7]}; this run tested {head[:7]}'
-  runs = api(f'repos/{repo}/actions/workflows/hil.yml/runs?event=pull_request&head_sha={head}&per_page=1')
-  runs = runs['workflow_runs']
+  runs = api(f'repos/{repo}/actions/workflows/hil.yml/runs?event=pull_request&head_sha={head}&per_page=100')
+  runs = [r for r in runs['workflow_runs'] if r.get('display_title') == RUN_NAME.format(pr)]   # newest first
   if not runs:
-    return False, f'no HIL run listed for {head[:7]}'
+    return False, f'no HIL run of PR #{pr} listed for {head[:7]}'
   if int(runs[0]['id']) != int(run_id):
     return False, f'run {runs[0]["id"]} is newer than run {run_id} for {head[:7]}'
   latest = runs[0]['run_attempt']

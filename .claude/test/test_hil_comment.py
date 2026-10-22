@@ -89,6 +89,13 @@ class Render(unittest.TestCase):
     self.assertNotIn('verdict', body)
     self.assertIn('| d |  |  |  |  |  |  |  | 40s | 15s |', body)   # no steps: every step cell blank
 
+  def test_an_untouched_board_has_a_blank_blinky_cell(self):
+    r = row('u', 'not-run', 'not-run', steps={'install': False}, cleanupPass=None,
+            detail='install: no probe (nothing written)')
+    body = hc.render({'boards': [r]}, selection(), META)
+    self.assertIn('| u | ❌ |  |  |  |  | — |  | 40s | 15s |', body)
+    self.assertIn('- `u` install: no probe (nothing written)', body)
+
   def test_recopy_is_absent_on_a_non_espressif_battery_and_blank_with_no_steps(self):
     rows = [row('esp', steps=dict(OK, recopy=False), espressif=True), row('arm'),
             row('esp2', 'fail', 'fail', steps={'install': True, 'dfu': False}, espressif=True),
@@ -176,10 +183,12 @@ class Render(unittest.TestCase):
 class Fresh(unittest.TestCase):
   HEAD = 'a' * 40
 
-  def api(self, head=None, newest=7, attempt=2):
+  def api(self, head=None, newest=7, attempt=2, others=()):
+    """`others` are newer runs listed for the same head, as (id, display_title)."""
+    runs = [{'id': i, 'run_attempt': 1, 'display_title': t} for i, t in others]
     replies = {'repos/o/r/pulls/5': {'head': {'sha': head or self.HEAD}},
-               f'repos/o/r/actions/workflows/hil.yml/runs?event=pull_request&head_sha={self.HEAD}&per_page=1':
-               {'workflow_runs': [{'id': newest, 'run_attempt': attempt}]}}
+               f'repos/o/r/actions/workflows/hil.yml/runs?event=pull_request&head_sha={self.HEAD}&per_page=100':
+               {'workflow_runs': runs + [{'id': newest, 'run_attempt': attempt, 'display_title': 'HIL PR #5'}]}}
     return lambda path: replies[path]
 
   def fresh(self, **kw):
@@ -194,6 +203,22 @@ class Fresh(unittest.TestCase):
         ok, reason = self.fresh(**kw)
         self.assertFalse(ok)
         self.assertIn(why, reason)
+
+  def test_another_prs_run_on_the_same_head_does_not_make_this_one_stale(self):
+    # one branch into two bases: both PRs' runs share the head, and each lists both PRs in its pull_requests
+    self.assertEqual(self.fresh(others=[(9, 'HIL PR #6'), (8, 'HIL PR #50')]), (True, 'fresh'))
+    ok, reason = self.fresh(newest=9, others=[(10, 'HIL PR #6')])
+    self.assertEqual((ok, reason), (False, 'run 9 is newer than run 7 for aaaaaaa'))
+    ok, reason = hc.fresh(lambda path: {'head': {'sha': self.HEAD}} if 'pulls' in path else
+                          {'workflow_runs': [{'id': 7, 'run_attempt': 2, 'display_title': 'HIL PR #6'}]},
+                          'o/r', '5', self.HEAD, '7', '2')
+    self.assertEqual((ok, reason), (False, 'no HIL run of PR #5 listed for aaaaaaa'))
+
+  def test_the_workflow_names_a_pull_request_run_as_fresh_expects(self):
+    text = (ROOT / '.github' / 'workflows' / 'hil.yml').read_text()
+    name = re.search(r"^run-name: .*format\('([^']*)', github\.event\.pull_request\.number\)", text, re.M)
+    self.assertIsNotNone(name, 'hil.yml has no run-name naming the PR')
+    self.assertEqual(name.group(1).replace('{0}', '{}'), hc.RUN_NAME)
 
 
 GH = '''#!/usr/bin/env python3
@@ -218,8 +243,8 @@ class Cli(unittest.TestCase):
     self.replies = self.tmp / 'replies.json'
     head = 'a' * 40
     self.ok = {'repos/o/r/pulls/5': {'head': {'sha': head}},
-               f'repos/o/r/actions/workflows/hil.yml/runs?event=pull_request&head_sha={head}&per_page=1':
-               {'workflow_runs': [{'id': 7, 'run_attempt': 1}]}}
+               f'repos/o/r/actions/workflows/hil.yml/runs?event=pull_request&head_sha={head}&per_page=100':
+               {'workflow_runs': [{'id': 7, 'run_attempt': 1, 'display_title': 'HIL PR #5'}]}}
     self.env = dict(os.environ, PATH=f'{self.tmp / "bin"}:{os.environ["PATH"]}', GH_REPLIES=str(self.replies),
                     GITHUB_REPOSITORY='o/r', PR='5', HEAD_SHA=head, GITHUB_RUN_ID='7', GITHUB_RUN_ATTEMPT='1')
 
@@ -256,8 +281,8 @@ class Cli(unittest.TestCase):
 
   def test_the_workflow_posts_when_fresh_skips_when_stale_and_fails_when_the_api_cannot_tell(self):
     self.assertEqual(self.fresh_step(self.ok)[:2], (0, 'post=true\n'))
-    runs = f'repos/o/r/actions/workflows/hil.yml/runs?event=pull_request&head_sha={"a" * 40}&per_page=1'
-    stale = dict(self.ok, **{runs: {'workflow_runs': [{'id': 7, 'run_attempt': 2}]}})
+    runs = f'repos/o/r/actions/workflows/hil.yml/runs?event=pull_request&head_sha={"a" * 40}&per_page=100'
+    stale = dict(self.ok, **{runs: {'workflow_runs': [{'id': 7, 'run_attempt': 2, 'display_title': 'HIL PR #5'}]}})
     code, output, stdout = self.fresh_step(stale)
     self.assertEqual((code, output), (0, ''))
     self.assertIn('::notice title=HIL report not posted::run 7 attempt 2 is newer than attempt 1', stdout)

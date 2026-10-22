@@ -5365,6 +5365,12 @@ class OpenocdRoster(Tmp):
       p.start()
       self.addCleanup(p.stop)
 
+  def test_the_observation_api_admits_every_function_the_probe_check_calls(self):
+    # load_pinned refuses a pin lacking OBSERVE_API before the lock; one missing here fails under it instead
+    called = set(re.findall(r'\bobs\.(\w+)\(', SCRIPT.read_text()))
+    self.assertTrue(called)
+    self.assertLessEqual(called, set(ht.OBSERVE_API))
+
   def test_any_process_on_the_probe_node_or_an_openocd_naming_its_serial_is_a_probe_user(self):
     b = self.load(max_roster(self.tmp), 'max32666fthr')
     proc = self.tmp / 'proc'

@@ -1,4 +1,6 @@
 name: HIL
+# a pull request's run names its PR: hil_comment.py's fresh tells apart PRs that share a head (RUN_NAME)
+run-name: "${{ github.event.pull_request && format('HIL PR #{0}', github.event.pull_request.number) || 'HIL' }}"
 
 # The battery on the ci.lan rig (.claude/skills/hil-contract/SKILL.md, roster test/hil/ci.json) for the boards a
 # pull request's change reaches, built on the rig from its clean checkout. A pull request from a fork never

@@ -476,6 +476,13 @@ class Stubbed(unittest.TestCase):
     r = self.rows(out)[0]
     self.assertEqual((r['steps'], r['cleanupPass'], type(r['runS'])), ({}, None, int))
 
+  def test_an_untouched_board_has_no_cleanup_result(self):
+    untouched = {'row': {'ran': True, 'pass': False, 'steps': [{'step': 'install', 'pass': False, 'detail': 'x'}],
+                         'cleanup': {'pass': True, 'state': 'untouched'}}}
+    self.assertEqual(self.main('--board', BOARD, battery=untouched), 1)
+    r = self.rows()[0]
+    self.assertEqual((r['verdict'], r['steps'], r['cleanupPass']), ('not-run', {'install': False}, None))
+
   def test_a_report_without_the_boards_row_gives_no_steps_or_cleanup(self):
     no_row = {'row': {'ran': True, 'pass': True}, 'report': {'results': []}}
     self.assertEqual(self.main('--board', BOARD, battery=no_row), 2)

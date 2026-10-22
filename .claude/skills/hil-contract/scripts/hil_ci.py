@@ -14,8 +14,8 @@ any earlier run is a run that ended without a report or kept a cleanup holder (S
 blocker here until recovery removes the marker. Runs older than PRUNE_DAYS with every marker done are removed;
 one with a marker left is kept, whatever its age. Each battery's report pair is prepared for the upload (prepare()), and
 summary.json carries the shared run rules' `sharedVerdict` beside each native `verdict`, which alone decides the exit,
-each battery's `steps`, `cleanupPass` and whether it is the Espressif one (`espressif`), the seconds its build
-(`buildS`) and battery (`runS`) took, and the board loop's `elapsedS`.
+each battery's `steps`, `cleanupPass` (null when the board was untouched) and whether it is the Espressif one
+(`espressif`), the seconds its build (`buildS`) and battery (`runS`) took, and the board loop's `elapsedS`.
 `upload-views`, written last, is the upload's decision on the report views (UPLOAD_VIEWS).
 
 Exit 0: every board passed. 1: a board failed or was not run (held past `--lock-wait`, its build or admission
@@ -255,7 +255,9 @@ def run_board(board, roster, out, state, lock_wait, fail_at=None, markers=True):
   native = run_report.row_of(report, board)
   if native is not None:
     row['steps'] = {s['step']: bool(s.get('pass')) for s in native.get('steps') or [] if s.get('step')}
-    row['cleanupPass'] = (native.get('cleanup') or {}).get('pass')
+    cleanup = native.get('cleanup') or {}
+    # an untouched board passes its cleanup with nothing done: no blinky was copied
+    row['cleanupPass'] = None if cleanup.get('state') == 'untouched' else cleanup.get('pass')
     row['espressif'] = espressif(board)
   holder = ((native or {}).get('cleanup') or {}).get('holder')
   if holder:
