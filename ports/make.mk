@@ -110,15 +110,9 @@ else
 
 TINYUSB_DIR = lib/tinyusb/src
 
-SRC_C += \
-	$(TINYUSB_DIR)/tusb.c \
-	$(TINYUSB_DIR)/common/tusb_fifo.c \
-	$(TINYUSB_DIR)/device/usbd.c \
-	$(TINYUSB_DIR)/class/cdc/cdc_device.c \
-	$(TINYUSB_DIR)/class/dfu/dfu_rt_device.c \
-	$(TINYUSB_DIR)/class/hid/hid_device.c \
-	$(TINYUSB_DIR)/class/msc/msc_device.c \
-	$(TINYUSB_DIR)/class/vendor/vendor_device.c
+# TINYUSB_SRC_C paths are relative to the tinyusb root
+include $(TOP)/$(TINYUSB_DIR)/tinyusb.mk
+SRC_C += $(addprefix lib/tinyusb/,$(TINYUSB_SRC_C))
 
 INC += $(TOP)/$(TINYUSB_DIR)
 
