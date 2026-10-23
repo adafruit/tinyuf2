@@ -424,14 +424,18 @@ class PrepareBaseSubmodules(unittest.TestCase):
   def test_a_shallow_submodule_gives_the_bases_pin_it_fetched_by_sha(self):
     git('-C', str(self.sub), 'fetch', '-q', '--depth', '1', 'origin', self.old)
     self.assertEqual(git('-C', str(self.sub), 'rev-parse', '--is-shallow-repository'), 'true')
-    git('-C', str(self.sub), '-c', 'tag.gpgsign=false', 'tag', '-a', '-m', 'v1', 'v1', self.old)
     self.prepare()
     tusb = self.wt / 'lib' / 'tinyusb'
     self.assertEqual((git('-C', str(tusb), 'rev-parse', 'HEAD'), (tusb / 'tusb.c').read_text()), (self.old, 'old'))
     self.assertEqual(git('-C', str(tusb), 'status', '--porcelain'), '')
+    self.assertEqual((git('-C', str(self.sub), 'rev-parse', 'HEAD'), (self.sub / 'tusb.c').read_text()), (self.new, 'new'))
+
+  def test_the_bases_submodule_status_names_the_sources_tag(self):
+    git('-C', str(self.sub), 'fetch', '-q', '--depth', '1', 'origin', self.old)
+    git('-C', str(self.sub), '-c', 'tag.gpgsign=false', 'tag', '-a', '-m', 'v1', 'v1', self.old)
+    self.prepare()
     # the build embeds `git submodule status`, whose describe needs the source's tags
     self.assertEqual(git('-C', str(self.wt), 'submodule', 'status', 'lib/tinyusb'), f'{self.old} lib/tinyusb (v1)')
-    self.assertEqual((git('-C', str(self.sub), 'rev-parse', 'HEAD'), (self.sub / 'tusb.c').read_text()), (self.new, 'new'))
 
   def test_a_pin_the_submodule_has_not_fetched_names_the_fetch(self):
     with self.assertRaisesRegex(SystemExit, rf'pins lib/tinyusb at {self.old[:10]}.*'
