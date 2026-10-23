@@ -26,6 +26,7 @@
 - ESP-IDF: the build contract uses CI's docker image; for interactive work, `. "$IDF_PATH/export.sh"` and `idf.py -C ports/espressif -DBOARD=<board> flash monitor`.
 - Before submitting, and again after a rebase: `pre-commit run --all-files`.
 - For code changes: `python3 .claude/skills/build/scripts/check_build.py --base origin/master --worktree`.
+- Size impact of a code change: agentrc's `code-size`, through the build contract's Code size section (`python3 .claude/skills/build/scripts/code_size.py diff -b <board>`); the bootloader must fit its port's bootloader region.
 
 ## PRs and Follow-ups
 
