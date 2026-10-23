@@ -53,16 +53,21 @@ def _has_build_dir(tree):
 
 
 def _dep_checkout(src):
-  """(git common dir, HEAD, clean) of the dependency dir `src`; None when it is not a git checkout of its own.
-  Clean counts untracked and ignored files too: a build can test a file's existence (imxrt family.mk's fsl_dcdc.c)."""
+  """(git common dir, HEAD) of the dependency dir `src`; None when it is not a git checkout of its own."""
   r = subprocess.run(['git', '-C', src, 'rev-parse', '--show-toplevel', '--git-common-dir', 'HEAD'],
                      capture_output=True, text=True)
   out = r.stdout.split('\n')
   if r.returncode or len(out) < 3 or os.path.realpath(out[0]) != os.path.realpath(src):
     return None
+  return os.path.join(src, out[1]), out[2]
+
+
+def _dep_clean(src):
+  """Whether the checkout `src` is clean, counting untracked and ignored files too: a build can test a file's
+  existence (imxrt family.mk's fsl_dcdc.c)."""
   status = subprocess.run(['git', '--no-optional-locks', '-C', src, 'status', '--porcelain', '--ignored',
                            '--untracked-files=all'], capture_output=True, text=True)
-  return os.path.join(src, out[1]), out[2], status.returncode == 0 and not status.stdout
+  return status.returncode == 0 and not status.stdout
 
 
 def _checkout_borrowing(common, dst, pin, rel, src):
@@ -123,7 +128,7 @@ def prepare_base(main_root, worktree):
     if dep is None:
       sys.exit(f'Error: {src} is no git checkout, so whether it holds the base\'s pin {pin[:10]} of {rel} is unknown: '
                f'move it aside and fetch it as get_deps.py does (python3 tools/get_deps.py {families})')
-    if dep[1:] == (pin, True):
+    if dep[1] == pin and _dep_clean(src):
       linked.append(rel)
     else:
       _checkout_borrowing(dep[0], os.path.join(worktree, rel), pin, rel, src)

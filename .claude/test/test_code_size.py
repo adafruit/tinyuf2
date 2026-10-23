@@ -219,7 +219,7 @@ class PrepareBase(unittest.TestCase):
       engine = mock.Mock()
       with mock.patch.object(prof.subprocess, 'run',
                              side_effect=lambda cmd, **_k: done(0, pins[cmd[-1]] + '\n')), \
-           mock.patch.object(prof, '_dep_checkout', side_effect=lambda src: (src + '/.git', 'f' * 40, True)), \
+           mock.patch.object(prof, '_dep_checkout', side_effect=lambda src: (src + '/.git', 'f' * 40)), \
            mock.patch.object(prof, '_checkout_borrowing') as borrow, \
            mock.patch.object(prof, 'engine', engine):
         prof.prepare_base(main, wt)
