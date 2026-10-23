@@ -7,7 +7,7 @@
 #include "esp_log.h"
 #include "sdkconfig.h"
 #include "driver/gpio.h"
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"
 
 
 #include "ssd1306.h"
@@ -17,43 +17,34 @@
 #endif
 
 #define I2C_MASTER_NUM                  I2C_NUM_1
-#define I2C_MASTER_FREQ_HZ              100000 /*!< I2C master clock frequency */
 #define I2C_MASTER_SDA_IO               (gpio_num_t) 8
 #define I2C_MASTER_SCL_IO               (gpio_num_t) 9
 
 
-#define I2C_MASTER_TX_BUF_DISABLE       0                           /*!< I2C master doesn't need buffer */
-#define I2C_MASTER_RX_BUF_DISABLE       0                           /*!< I2C master doesn't need buffer */
-#define I2C_MASTER_TIMEOUT_MS           1000
-
-#define WRITE_BIT                       I2C_MASTER_WRITE            /*!< I2C master write */
-#define READ_BIT                        I2C_MASTER_READ             /*!< I2C master read */
-#define ACK_CHECK_EN                    0x1                         /*!< I2C master will check ack from slave*/
-#define ACK_CHECK_DIS                   0x0                         /*!< I2C master will not check ack from slave */
-#define ACK_VAL                         (i2c_ack_type_t)0x0         /*!< I2C ack value */
-#define NACK_VAL                        (i2c_ack_type_t)0x1         /*!< I2C nack value */
+static i2c_master_bus_handle_t i2c_bus_new(i2c_port_num_t port, gpio_num_t sda, gpio_num_t scl)
+{
+  i2c_master_bus_config_t bus_config;
+  memset(&bus_config, 0, sizeof(bus_config));
+  bus_config.i2c_port = port;
+  bus_config.sda_io_num = sda;
+  bus_config.scl_io_num = scl;
+  bus_config.clk_source = I2C_CLK_SRC_DEFAULT;
+  bus_config.glitch_ignore_cnt = 7;
+  bus_config.flags.enable_internal_pullup = 1;
+  i2c_master_bus_handle_t bus;
+  ESP_ERROR_CHECK(i2c_new_master_bus(&bus_config, &bus));
+  return bus;
+}
 
 extern "C" bool board_init_extension()
 {
   SSD1306_t dev;
 
-  i2c_config_t i2c_conf ;
-  memset(&i2c_conf, 0, sizeof(i2c_conf));
-  i2c_conf.mode = I2C_MODE_MASTER;
-  i2c_conf.sda_io_num = I2C_MASTER_SDA_IO;
-  i2c_conf.scl_io_num = I2C_MASTER_SCL_IO;
-  i2c_conf.sda_pullup_en = GPIO_PULLUP_ENABLE;
-  i2c_conf.scl_pullup_en = GPIO_PULLUP_ENABLE;
-  i2c_conf.master.clk_speed = I2C_MASTER_FREQ_HZ;
-  i2c_param_config(I2C_MASTER_NUM, &i2c_conf);
-  i2c_driver_install(I2C_MASTER_NUM, i2c_conf.mode,
-                     I2C_MASTER_RX_BUF_DISABLE, I2C_MASTER_TX_BUF_DISABLE, 0);
-
   // use X axis offset for SH1106 OLED
   dev._offset = CONFIG_OFFSETX;
 
 #if CONFIG_I2C_INTERFACE
-  i2c_master_init(&dev, I2C_MASTER_SDA_IO, I2C_MASTER_SCL_IO, CONFIG_RESET_GPIO, 0x3C);
+  i2c_master_init(&dev, i2c_bus_new(I2C_MASTER_NUM, I2C_MASTER_SDA_IO, I2C_MASTER_SCL_IO), CONFIG_RESET_GPIO, 0x3C);
 #endif // CONFIG_I2C_INTERFACE
 
 #if CONFIG_FLIP
