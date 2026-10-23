@@ -207,6 +207,12 @@ class Selection(unittest.TestCase):
     self.assertTrue(cb.classify('.claude/skills/build/scripts/check_build.py')['hil'])   # hil_test.py imports it
     self.assertFalse(cb.classify('.github/workflows/build.yml')['hil'])
 
+  def test_the_code_size_scripts_run_the_tests_only(self):
+    for path in ('.claude/skills/build/scripts/code_size.py', '.claude/skills/build/scripts/code_size_profile.py'):
+      r = cb.classify(path)
+      self.assertEqual((r['rule'], r['tests'], r['hil'], r['boards'], r['ci']), ('code-size', True, False, {}, {}), path)
+    self.assertEqual(classify('.claude/test/test_code_size.py'), ('contract-tests', 'select', [], False, True))
+
   def test_unknown_port_fails_explicitly(self):
     with self.assertRaises(cb.Fail):
       cb.backend_of('no_such_port')
@@ -707,6 +713,46 @@ class Verdict(unittest.TestCase):
       self.assertEqual(e.exception.code, 2)
       self.assertIn('--variant needs --board and --shared', json.loads(out.getvalue().splitlines()[-1])['error'])
 
+  def test_a_build_dir_needs_one_board_without_shared_and_a_fresh_dir(self):
+    with tempfile.TemporaryDirectory() as tmp:
+      used, link = Path(tmp) / 'used', Path(tmp) / 'link'
+      used.mkdir()
+      (used / 'keep.c').write_text('source')
+      link.symlink_to(Path(tmp) / 'absent')
+      for argv, error in ((['--scope', 'src', '--build-dir', f'{tmp}/x'], '--build-dir needs one --board'),
+                          (['--board', 'a', '--board', 'b', '--build-dir', f'{tmp}/x'], '--build-dir needs one --board'),
+                          (['--board', 'a', '--shared', '--build-dir', f'{tmp}/x'], '--build-dir needs one --board'),
+                          (['--board', 'a', '--build-dir', str(used)], 'must be absent or an empty directory'),
+                          (['--board', 'a', '--build-dir', str(link)], 'must be absent or an empty directory')):
+        with self.subTest(argv), contextlib.redirect_stdout(io.StringIO()) as out, self.assertRaises(SystemExit) as e, \
+             mock.patch.object(cb, 'build_board', side_effect=AssertionError('built')):
+          cb.main(argv)
+        self.assertEqual(e.exception.code, 2)
+        self.assertIn(error, json.loads(out.getvalue().splitlines()[-1])['error'])
+      self.assertEqual((used / 'keep.c').read_text(), 'source')
+
+  def test_a_build_dir_is_checked_where_it_resolves(self):
+    with tempfile.TemporaryDirectory() as tmp:
+      used, fresh = Path(tmp) / 'used', Path(tmp) / 'fresh'
+      used.mkdir()
+      (used / 'keep.c').write_text('source')
+      fresh.mkdir()
+      with contextlib.redirect_stdout(io.StringIO()) as out, self.assertRaises(SystemExit) as e, \
+           mock.patch.object(cb, 'build_board', side_effect=AssertionError('built')):
+        cb.main(['--board', 'a', '--build-dir', f'{tmp}/missing/../used'])
+      self.assertEqual(e.exception.code, 2)
+      self.assertIn(f'({used.resolve()}) must be absent or an empty directory', json.loads(out.getvalue().splitlines()[-1])['error'])
+      self.assertEqual((used / 'keep.c').read_text(), 'source')
+      seen = []
+
+      def build_board(board, backend, args, idf, flasher=None):
+        seen.append(args.build_dir)
+        raise cb.Fail('stop')
+      with mock.patch.object(cb, 'build_board', build_board), \
+           mock.patch.object(cb, 'identity', lambda ports=(): dict(CLEAN)), contextlib.redirect_stdout(io.StringIO()):
+        cb.main(['--board', 'lpcxpresso55s69', '--build-dir', f'{tmp}/missing/../fresh'])
+      self.assertEqual(seen, [fresh.resolve()])
+
   def test_backend_override_builds_with_cmake(self):
     seen = []
     def build_board(board, backend, args, idf, flasher=None):
@@ -767,7 +813,7 @@ class BuildBoard(unittest.TestCase):
     for p in patches:
       p.start()
       self.addCleanup(p.stop)
-    self.args = mock.Mock(shared=False, define=['LOG=2'], verbose=False, idf='docker', variant=None)
+    self.args = mock.Mock(shared=False, define=['LOG=2'], verbose=False, idf='docker', variant=None, build_dir=None)
 
   def fake_make(self, write):
     calls = []
@@ -818,6 +864,17 @@ class BuildBoard(unittest.TestCase):
     self.assertFalse((root / 'stale.o').exists())
     self.assertEqual(set(rec['sha256']), set(rec['artifacts']))
     self.assertTrue((root / '_bin' / 'tinyuf2-lpcxpresso55s69.bin').is_file())
+
+  def test_a_build_dir_is_built_into_and_kept_wherever_it_is(self):
+    with tempfile.TemporaryDirectory() as out:
+      self.args.build_dir = Path(out) / 'code-size' / 'build'
+      run, _ = self.fake_make(lambda cmd: LPC55_ARTIFACTS if 'copy-artifact' in cmd else [])
+      with mock.patch.object(cb, 'run', run):
+        rec = cb.build_board('lpcxpresso55s69', 'make', self.args, {})
+      self.assertEqual((rec['status'], rec['buildDir']), ('ok', str(self.args.build_dir)), rec)
+      self.assertNotIn('removed', rec)
+      self.assertTrue((self.args.build_dir / '_bin' / 'tinyuf2-lpcxpresso55s69.bin').is_file())
+    self.assertFalse(list(self.build_dir.iterdir()))
 
   def test_a_variant_is_a_shared_root_of_its_own_beside_the_plain_one(self):
     self.args.shared, self.args.variant = True, 'update'
@@ -1250,7 +1307,7 @@ class HilRecord(unittest.TestCase):
             cb.flash_binding(flasher, root, tree)
 
   def test_a_hil_record_pins_the_target_inputs_and_holds_the_build_lock(self):
-    args = mock.Mock(shared=True, define=[], verbose=False, idf='docker', variant=None)
+    args = mock.Mock(shared=True, define=[], verbose=False, idf='docker', variant=None, build_dir=None)
     built = []
 
     def fake_cmake(port, board, root, defines, log, verbose):

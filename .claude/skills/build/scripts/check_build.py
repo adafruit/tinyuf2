@@ -99,7 +99,9 @@ GHOSTFAT_INPUTS = ('src/ghostfat.c', 'src/favicon/', 'src/board_api.h', 'src/com
 CORE = ('src/', 'lib/', 'ports/family_support.cmake', 'CMakeLists.txt', 'cmake/', 'tools/get_deps.py')
 # make files every Makefile port includes: read by the make ports' builds and CodeQL's
 MAKE_SHARED = ('ports/make.mk', 'ports/rules.mk')
-CONTRACT_TESTS = ('.claude/test/test_build', '.claude/test/test_hil')
+CONTRACT_TESTS = ('.claude/test/test_build', '.claude/test/test_hil', '.claude/test/test_code_size')
+# the code-size launcher and profile beside this script: no build or HIL run imports them
+CODE_SIZE = '.claude/skills/build/scripts/code_size'
 # the HIL contract's runner, its lock helper's pin and rosters: a change there re-runs the battery on every roster board
 HIL_CONTROL = ('.claude/skills/hil-contract/scripts/', 'test/hil/', 'lib/agentrc', '.github/workflows/hil.yml')
 # hil_test.py imports these: the identity, artifacts and build dirs the battery trusts
@@ -355,6 +357,9 @@ def classify(path, builds=CI):
   if path.startswith(HIL_CONTROL):
     return out('hil-control', 'select', 'the HIL runner or a roster changed: its tests and the battery on every '
                'roster board', tests=True, hil=True)
+  if path.startswith(CODE_SIZE):
+    return out('code-size', 'select', 'the code-size launcher or profile: the contract tests; no build or HIL run '
+               'imports it', tests=True)
   if path.startswith(BUILD_CONTROL):
     boards = {(b, be): f'{be} smoke build for {path}' for be, b in SMOKE.items()}
     runner = path.startswith(HIL_IMPORTS)
@@ -687,9 +692,12 @@ def run(cmd, log, verbose, cwd=ROOT):
     return p.wait()
 
 
+SUBMODULES = ('lib/tinyusb', 'lib/uf2', 'lib/agentrc')
+
+
 def check_deps(port):
   """Remedy for a missing submodule or family dependency, None when all are present."""
-  missing = [s for s in ('lib/tinyusb', 'lib/uf2', 'lib/agentrc') if not (ROOT / s).is_dir() or not any((ROOT / s).iterdir())]
+  missing = [s for s in SUBMODULES if not (ROOT / s).is_dir() or not any((ROOT / s).iterdir())]
   if missing:
     return f'empty submodule {", ".join(missing)}: git submodule update --init {" ".join(missing)}'
   for dep, families in deps_rows().items():
@@ -997,8 +1005,8 @@ def build_board(board, backend, args, idf, flasher=None):
   name = board if backend == backend_of(port) else f'{board}-{backend}'
   if args.variant:
     name += f'-variant-{args.variant}'
-  root = BUILD_DIR / (f'cmake-build-{name}' if args.shared else f'cmake-build-agent-{os.getpid()}-{name}')
-  rec = {'board': board, 'port': port, 'backend': backend, 'buildDir': str(root.relative_to(ROOT)),
+  root = args.build_dir or BUILD_DIR / (f'cmake-build-{name}' if args.shared else f'cmake-build-agent-{os.getpid()}-{name}')
+  rec = {'board': board, 'port': port, 'backend': backend, 'buildDir': shown(root),
          'status': 'ok', 'firstError': '', 'artifacts': []}
   if port in UNBUILT:
     rec['note'] = f'ports/{port}: {UNBUILT[port][1]}'
@@ -1035,17 +1043,17 @@ def build_root(board, port, backend, root, rec, args, idf, flasher):
     else:
       ok, apps = build_idf(board, root, defines, log, args.verbose, args.idf, idf['image'])
   except OSError as e:
-    rec.update(status='error', firstError=f'{type(e).__name__}: {e}', log=str(log.relative_to(ROOT)))
+    rec.update(status='error', firstError=f'{type(e).__name__}: {e}', log=shown(log))
     return rec
   if not ok:
-    rec.update(status='failed', firstError=first_error(log.read_text(errors='replace')), log=str(log.relative_to(ROOT)))
+    rec.update(status='failed', firstError=first_error(log.read_text(errors='replace')), log=shown(log))
     return rec
   missing = [p for p in expected_artifacts(port, board, backend, root) if not p.is_file()]
   if backend == 'idf':
     missing += [root / c for c in IDF_CONFIG if not (root / c).is_file()]
   missing += [a for a in apps if not list(a.glob('*.elf'))]
   if missing:
-    rec.update(status='failed', log=str(log.relative_to(ROOT)), firstError='missing expected artifact(s): ' +
+    rec.update(status='failed', log=shown(log), firstError='missing expected artifact(s): ' +
                ', '.join(str(p.relative_to(root)) for p in missing))
     return rec
   rec['artifacts'] = sorted(str(p.relative_to(root)) for p in (root / '_bin').rglob('*') if p.is_file())
@@ -1056,7 +1064,7 @@ def build_root(board, port, backend, root, rec, args, idf, flasher):
     try:
       rec['flash'] = flash_binding(flasher, root, functools.partial(ninja_in, backend, args.idf, idf.get('image')))
     except (Fail, OSError) as e:
-      rec.update(status='failed', firstError=str(e), log=str(log.relative_to(ROOT)))
+      rec.update(status='failed', firstError=str(e), log=shown(log))
       return rec
     rec['flash']['defines'] = extra
     rec['artifacts'] += [a for a in rec['flash']['inputs'] if a not in rec['artifacts']]
@@ -1070,10 +1078,15 @@ def build_root(board, port, backend, root, rec, args, idf, flasher):
       rec['artifacts'] += [a for a in FACTS_FILES if a not in rec['artifacts']]
   if args.shared:
     rec['sha256'] = {a: hashlib.sha256((root / a).read_bytes()).hexdigest() for a in rec['artifacts']}
-  else:
+  elif not args.build_dir:
     shutil.rmtree(root)
     rec['removed'] = True
   return rec
+
+
+def shown(path):
+  """`path` relative to the checkout when under it, else absolute (a --build-dir elsewhere)."""
+  return str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path)
 
 
 def keep_only_log(root, log):
@@ -1159,6 +1172,8 @@ def main(argv=None):
   ap.add_argument('--variant', metavar='NAME', help='with --board and --shared: build into '
                   'cmake-build/cmake-build-<board>[-<backend>]-variant-NAME, beside the plain record (the HIL update '
                   "battery's distinguishable bootloader, made with -D)")
+  ap.add_argument('--build-dir', type=Path, metavar='DIR',
+                  help='with one --board: build into DIR, absent or empty, and keep it (code size)')
   ap.add_argument('--idf', choices=('docker', 'local'), default='docker',
                   help="ESP-IDF: CI's pinned docker image (default) or the exported local IDF")
   ap.add_argument('-v', '--verbose', action='store_true', help='stream build output to stderr')
@@ -1177,6 +1192,15 @@ def main(argv=None):
     ap.error('--select-only takes --scope, --base or --diff-file')
   if args.variant is not None and not (args.board and args.shared and re.fullmatch(r'[a-z0-9_]+', args.variant)):
     ap.error('--variant needs --board and --shared, and a name of a-z, 0-9 and _')
+  if args.build_dir:
+    if not args.board or len(args.board) != 1 or args.shared:
+      ap.error('--build-dir needs one --board, without --shared')
+    # build_root() empties the dir: only a fresh one, never a symlink or a dir holding anything; checked where it
+    # resolves, since `missing/..` names an existing dir that an unresolved check sees as absent
+    dest = args.build_dir.resolve()
+    if args.build_dir.is_symlink() or dest.exists() and (not dest.is_dir() or any(dest.iterdir())):
+      ap.error(f'--build-dir {args.build_dir} ({dest}) must be absent or an empty directory')
+    args.build_dir = dest
 
   result = {'pass': False}
   try:
