@@ -211,24 +211,22 @@ class DockerContainment(unittest.TestCase):
 
 @NO_SIZED_BOARDS
 class PrepareBase(unittest.TestCase):
-  def test_each_submodule_is_a_shared_clone_at_the_bases_pin_and_its_get_deps_rows_are_linked(self):
+  def test_each_submodule_is_checked_out_at_the_bases_pin_borrowing_its_objects_and_its_get_deps_rows_are_linked(self):
     with tempfile.TemporaryDirectory() as main, tempfile.TemporaryDirectory() as wt:
-      for rel in check_build.SUBMODULES:
-        (Path(wt) / rel).mkdir(parents=True)
       (Path(wt) / 'tools').mkdir()
       (Path(wt) / 'tools' / 'get_deps.py').write_text("deps_all = {'lib/mcu/st': ['u', 'p', 'f'], 'lib/absent': ['u', 'p', 'f']}\n")
       pins = {f'HEAD:{rel}': f'{n}' * 40 for n, rel in enumerate(check_build.SUBMODULES, 1)}
-      engine = mock.Mock(run=mock.Mock(return_value=done()))
+      engine = mock.Mock()
       with mock.patch.object(prof.subprocess, 'run',
                              side_effect=lambda cmd, **_k: done(0, pins[cmd[-1]] + '\n')), \
+           mock.patch.object(prof, '_dep_checkout', side_effect=lambda src: (src + '/.git', 'f' * 40, True)), \
+           mock.patch.object(prof, '_checkout_borrowing') as borrow, \
            mock.patch.object(prof, 'engine', engine):
         prof.prepare_base(main, wt)
     engine.link_deps.assert_called_once_with(main, wt, ['lib/mcu/st', 'lib/absent'])
-    calls = [c.args[0] for c in engine.run.call_args_list]
-    self.assertEqual(calls[:2], [['git', 'clone', '-q', '--shared', '--no-checkout', os.path.join(main, 'lib/tinyusb'),
-                                  os.path.join(wt, 'lib/tinyusb')],
-                                 ['git', '-C', os.path.join(wt, 'lib/tinyusb'), 'checkout', '-q', '--detach', '1' * 40]])
-    self.assertEqual(len(calls), 2 * len(check_build.SUBMODULES))
+    self.assertEqual([c.args for c in borrow.call_args_list],
+                     [(os.path.join(main, rel) + '/.git', os.path.join(wt, rel), f'{n}' * 40, rel, os.path.join(main, rel))
+                      for n, rel in enumerate(check_build.SUBMODULES, 1)])
 
   def test_a_base_needing_shared_is_refused_without_posix_locks(self):
     for text, refused in (('an older contract', True), ('--build-dir', False)):
@@ -241,12 +239,11 @@ class PrepareBase(unittest.TestCase):
              self.assertRaisesRegex(SystemExit, '--shared build needs a POSIX lock' if refused else 'cloned'):
           prof.prepare_base('/main', wt)
 
-  def test_a_pin_this_checkout_cannot_give_names_the_fetch(self):
+  def test_a_submodule_that_is_no_checkout_names_its_init(self):
     with tempfile.TemporaryDirectory() as main, tempfile.TemporaryDirectory() as wt:
-      run = mock.Mock(side_effect=[done(), done(128, '', 'fatal: reference is not a tree')])
       with mock.patch.object(prof.subprocess, 'run', return_value=done(0, 'a' * 40)), \
-           mock.patch.object(prof, 'engine', mock.Mock(run=run)), \
-           self.assertRaisesRegex(SystemExit, r'pins lib/tinyusb at aaaaaaaaaa.*git -C lib/tinyusb fetch origin'):
+           mock.patch.object(prof, '_dep_checkout', return_value=None), \
+           self.assertRaisesRegex(SystemExit, r'pins lib/tinyusb at aaaaaaaaaa.*git submodule update --init lib/tinyusb'):
         prof.prepare_base(main, wt)
 
 
@@ -371,6 +368,62 @@ class PrepareBaseDeps(unittest.TestCase):
     with self.assertRaisesRegex(SystemExit, rf'pins lib/mcu/hal at {self.old[:10]}.*'
                                             rf'git -C lib/mcu/hal fetch --depth 1 origin {self.old}'):
       self.prepare(self.old)
+
+
+@NO_SIZED_BOARDS
+class PrepareBaseSubmodules(unittest.TestCase):
+  """prepare_base() on real git: a --depth 1 submodule, whose git dir is the superproject's, given the base's pin by a
+  fetch by SHA that no ref reaches, which a clone --shared of it would miss. GIT_* variables dropped as above."""
+
+  def setUp(self):
+    env = mock.patch.dict(os.environ, {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}, clear=True)
+    env.start()
+    self.addCleanup(env.stop)
+    tmp = tempfile.TemporaryDirectory()
+    self.addCleanup(tmp.cleanup)
+    self.tmp = Path(tmp.name)
+    up = self.tmp / 'up'
+    git('init', '-q', str(up))
+    git('-C', str(up), 'config', 'uploadpack.allowAnySHA1InWant', 'true')
+    for n in ('old', 'new'):
+      (up / 'tusb.c').write_text(n)
+      git('-C', str(up), 'add', 'tusb.c')
+      git('-C', str(up), 'commit', '-q', '-m', n)
+    self.old, self.new = git('-C', str(up), 'rev-parse', 'HEAD~1', 'HEAD').split()
+    self.main = self.tmp / 'main'
+    git('init', '-q', str(self.main))
+    git('-C', str(self.main), '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', '--depth', '1',
+        up.as_uri(), 'lib/tinyusb')
+    self.sub = self.main / 'lib' / 'tinyusb'
+    (self.main / 'tools').mkdir()
+    (self.main / 'tools' / 'get_deps.py').write_text('deps_all = {}\n')
+    git('-C', str(self.main), 'add', 'tools/get_deps.py')
+    git('-C', str(self.main), 'update-index', '--cacheinfo', f'160000,{self.old},lib/tinyusb')
+    git('-C', str(self.main), 'commit', '-q', '-m', 'base')
+    self.wt = self.tmp / 'wt'
+    git('-C', str(self.main), 'worktree', 'add', '-q', '--detach', str(self.wt), 'HEAD')
+
+  def prepare(self):
+    engine = mock.Mock(run=lambda cmd, timeout=None: subprocess.run(cmd, capture_output=True, text=True))
+    with mock.patch.object(prof, 'engine', engine):
+      prof.prepare_base(str(self.main), str(self.wt))
+
+  def test_a_shallow_submodule_gives_the_bases_pin_it_fetched_by_sha(self):
+    git('-C', str(self.sub), 'fetch', '-q', '--depth', '1', 'origin', self.old)
+    self.assertEqual(git('-C', str(self.sub), 'rev-parse', '--is-shallow-repository'), 'true')
+    git('-C', str(self.sub), '-c', 'tag.gpgsign=false', 'tag', '-a', '-m', 'v1', 'v1', self.old)
+    self.prepare()
+    tusb = self.wt / 'lib' / 'tinyusb'
+    self.assertEqual((git('-C', str(tusb), 'rev-parse', 'HEAD'), (tusb / 'tusb.c').read_text()), (self.old, 'old'))
+    self.assertEqual(git('-C', str(tusb), 'status', '--porcelain'), '')
+    # the build embeds `git submodule status`, whose describe needs the source's tags
+    self.assertEqual(git('-C', str(self.wt), 'submodule', 'status', 'lib/tinyusb'), f'{self.old} lib/tinyusb (v1)')
+    self.assertEqual((git('-C', str(self.sub), 'rev-parse', 'HEAD'), (self.sub / 'tusb.c').read_text()), (self.new, 'new'))
+
+  def test_a_pin_the_submodule_has_not_fetched_names_the_fetch(self):
+    with self.assertRaisesRegex(SystemExit, rf'pins lib/tinyusb at {self.old[:10]}.*'
+                                            rf'git -C lib/tinyusb fetch --depth 1 origin {self.old}'):
+      self.prepare()
 
 
 if __name__ == '__main__':

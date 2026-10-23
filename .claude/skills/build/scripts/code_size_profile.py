@@ -67,7 +67,9 @@ def _dep_checkout(src):
 
 def _checkout_borrowing(common, dst, pin, rel, src):
   """`dst` a checkout of `pin` borrowing the objects, shallow boundary included, of the repository at `common`:
-  get_deps.py fetches --depth 1, and git ignores clone --shared from a shallow repository, fetching only its HEAD."""
+  get_deps.py and a --depth 1 submodule fetch shallow, and git ignores clone --shared from a shallow repository,
+  cloning only what its refs reach, so a pin fetched by SHA is missing. Its refs are copied too: the build embeds
+  the submodule's `git describe`, which a tagless copy would shorten."""
   if os.path.islink(dst):  # a reused base's link: git init would reach the checkout it points at
     os.remove(dst)
   ret = engine.run(['git', 'init', '-q', dst])
@@ -77,13 +79,18 @@ def _checkout_borrowing(common, dst, pin, rel, src):
     if os.path.isfile(os.path.join(common, 'shallow')):
       shutil.copyfile(os.path.join(common, 'shallow'), os.path.join(dst, '.git', 'shallow'))
     ret = engine.run(['git', '-C', dst, 'checkout', '-q', '--detach', pin])
+  if ret.returncode == 0:  # after the checkout: a ref HEAD names would make it start from that ref's tree
+    ret = subprocess.run(['git', '-C', src, 'for-each-ref', '--format=update %(refname) %(objectname)'],
+                         capture_output=True, text=True)
+  if ret.returncode == 0:
+    ret = subprocess.run(['git', '-C', dst, 'update-ref', '--stdin'], input=ret.stdout, capture_output=True, text=True)
   if ret.returncode != 0:
     sys.exit(f'Error: the base pins {rel} at {pin[:10]}, which {src} cannot give ({ret.stderr.strip()}): '
-             f'fetch it there as get_deps.py does (git -C {rel} fetch --depth 1 origin {pin})')
+             f'fetch it there (git -C {rel} fetch --depth 1 origin {pin})')
 
 
 def prepare_base(main_root, worktree):
-  """Give the base worktree its submodules at the base's pins, each a shared clone of this checkout's
+  """Give the base worktree its submodules at the base's pins, each a checkout borrowing this checkout's objects
   (git refuses a symlinked submodule path), so a submodule bump's own size change is in the diff; and
   the dependency dirs its own get_deps.py lists: linked from this checkout's where that is a clean checkout
   of the base's pin, else a checkout of the base's pin borrowing its objects; one that is no git checkout is refused.
@@ -97,14 +104,11 @@ def prepare_base(main_root, worktree):
     if r.returncode != 0:
       continue
     pin, src, dst = r.stdout.strip(), os.path.join(main_root, rel), os.path.join(worktree, rel)
-    if os.path.isdir(dst) and not os.listdir(dst):
-      os.rmdir(dst)
-    for cmd in (['git', 'clone', '-q', '--shared', '--no-checkout', src, dst],
-                ['git', '-C', dst, 'checkout', '-q', '--detach', pin]):
-      ret = engine.run(cmd)
-      if ret.returncode != 0:
-        sys.exit(f'Error: the base pins {rel} at {pin[:10]}, which {src} cannot give '
-                 f'({ret.stderr.strip()}): fetch it there (git -C {rel} fetch origin)')
+    dep = _dep_checkout(src)
+    if dep is None:
+      sys.exit(f'Error: the base pins {rel} at {pin[:10]}, and {src} is no git checkout to give it: '
+               f'git submodule update --init {rel}')
+    _checkout_borrowing(dep[0], dst, pin, rel, src)
   linked = []
   ports = None if _boards is None else {p.parent.parent.name for b in _boards
                                          for p in Path(worktree, 'ports').glob(f'*/boards/{b}')}
