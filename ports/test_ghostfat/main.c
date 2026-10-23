@@ -29,6 +29,7 @@ typedef enum {
     ERR_CANNOT_SEEK_TO_FILE_START = -11,
     ERR_NOT_YET_IMPLEMENTED = -12,
     ERR_INTERNAL_ERROR = -13,
+    ERR_WRITE_BLOCK_UNEXPECTED_RESULT = -14,
 } ErrorType;
 
 const char * GetErrorString(ErrorType e)
@@ -47,6 +48,7 @@ const char * GetErrorString(ErrorType e)
     if (e == ERR_CANNOT_SEEK_TO_FILE_START) { return "CANNOT_SEEK_TO_FILE_START"; }
     if (e == ERR_NOT_YET_IMPLEMENTED) { return "NOT_YET_IMPLEMENTED"; }
     if (e == ERR_INTERNAL_ERROR) { return "INTERNAL_ERROR"; }
+    if (e == ERR_WRITE_BLOCK_UNEXPECTED_RESULT) { return "WRITE_BLOCK_UNEXPECTED_RESULT"; }
     return "Unknown error ... code update required";
 }
 
@@ -349,6 +351,93 @@ int DumpDiskImage(void) {
     return ERR_NONE;
 }
 
+_Static_assert(sizeof(UF2_Block) == GHOSTFAT_SECTOR_SIZE, "UF2 block must fill one sector");
+
+#define TEST_UF2_NUM_BLOCKS 2
+#define TEST_UF2_TARGET_ADDR(blockNo) (0x1000u + 256u * (blockNo))
+
+static UF2_Block uf2Block;
+static WriteState writeState;
+static WriteState writeStateBefore;
+
+// otherwise-valid block of a TEST_UF2_NUM_BLOCKS-block file
+static void MakeUf2Block(uint32_t blockNo, uint32_t payloadSize) {
+    memset(&uf2Block, 0, sizeof(uf2Block));
+    uf2Block.magicStart0 = UF2_MAGIC_START0;
+    uf2Block.magicStart1 = UF2_MAGIC_START1;
+    uf2Block.flags       = UF2_FLAG_FAMILYID;
+    uf2Block.targetAddr  = TEST_UF2_TARGET_ADDR(blockNo);
+    uf2Block.payloadSize = payloadSize;
+    uf2Block.blockNo     = blockNo;
+    uf2Block.numBlocks   = TEST_UF2_NUM_BLOCKS;
+    uf2Block.familyID    = BOARD_UF2_FAMILY_ID;
+    uf2Block.magicEnd    = UF2_MAGIC_END;
+}
+
+// a payloadSize beyond the 476-byte data field must be rejected before flashing or touching the state
+static int ExpectWriteRejected(uint32_t blockNo, uint32_t payloadSize) {
+    MakeUf2Block(blockNo, payloadSize);
+    memcpy(&writeStateBefore, &writeState, sizeof(writeState));
+    uint32_t const writes  = test_flash_write_count;
+    uint32_t const flushes = test_flash_flush_count;
+
+    int r = uf2_write_block(0, (uint8_t *) &uf2Block, &writeState);
+    bool const stateChanged = (0 != memcmp(&writeStateBefore, &writeState, sizeof(writeState)));
+    if ((r != -1) || (test_flash_write_count != writes) || (test_flash_flush_count != flushes) || stateChanged) {
+        printf("FAIL: payloadSize 0x%08" PRIx32 " block %" PRIu32 ": returned %d, %" PRIu32 " write(s), %" PRIu32
+               " flush(es), state %s; expected -1, no write, no flush, state unchanged\n",
+               payloadSize, blockNo, r, test_flash_write_count - writes, test_flash_flush_count - flushes,
+               stateChanged ? "changed" : "unchanged");
+        return ERR_WRITE_BLOCK_UNEXPECTED_RESULT;
+    }
+    return ERR_NONE;
+}
+
+static int ExpectWriteAccepted(uint32_t blockNo, uint32_t payloadSize, uint32_t expectedFlushes) {
+    MakeUf2Block(blockNo, payloadSize);
+    uint32_t const writes  = test_flash_write_count;
+    uint32_t const flushes = test_flash_flush_count;
+    uint32_t const numWritten = writeState.numWritten;
+
+    int r = uf2_write_block(0, (uint8_t *) &uf2Block, &writeState);
+    bool const marked = (0 != (writeState.writtenMask[blockNo / 8] & (1u << (blockNo % 8))));
+    if ((r != GHOSTFAT_SECTOR_SIZE) || (test_flash_write_count != writes + 1) ||
+        (test_flash_write_addr != TEST_UF2_TARGET_ADDR(blockNo)) || (test_flash_write_len != payloadSize) ||
+        (test_flash_flush_count != flushes + expectedFlushes) || (writeState.numBlocks != TEST_UF2_NUM_BLOCKS) ||
+        (writeState.numWritten != numWritten + 1) || !marked) {
+        printf("FAIL: payloadSize %" PRIu32 " block %" PRIu32 ": returned %d, %" PRIu32 " write(s) last 0x%08" PRIx32
+               "+%" PRIu32 ", %" PRIu32 " flush(es), numBlocks %" PRIu32 ", numWritten %" PRIu32 ", %s\n",
+               payloadSize, blockNo, r, test_flash_write_count - writes, test_flash_write_addr, test_flash_write_len,
+               test_flash_flush_count - flushes, writeState.numBlocks, writeState.numWritten,
+               marked ? "marked" : "not marked");
+        return ERR_WRITE_BLOCK_UNEXPECTED_RESULT;
+    }
+    return ERR_NONE;
+}
+
+static int TestWriteBlockPayloadSize(void) {
+    static uint32_t const oversized[] = { 477, 481, 0xFFFFFFFFu };
+    int r;
+
+    memset(&writeState, 0, sizeof(writeState));
+    for (size_t i = 0; i < sizeof(oversized) / sizeof(oversized[0]); i++) {
+        r = ExpectWriteRejected(1, oversized[i]);
+        if (r) { return r; }
+    }
+
+    r = ExpectWriteAccepted(0, 256, 0);
+    if (r) { return r; }
+
+    // same checks with an update in progress
+    for (size_t i = 0; i < sizeof(oversized) / sizeof(oversized[0]); i++) {
+        r = ExpectWriteRejected(1, oversized[i]);
+        if (r) { return r; }
+    }
+
+    // last block of the file flushes
+    return ExpectWriteAccepted(1, sizeof(uf2Block.data), 1);
+}
+
 int main(void)
 {
     int r;
@@ -362,6 +451,10 @@ int main(void)
 
     printf("comparing against known good disk image\n"); fflush(stdout);
     r = CompareDiskImages();
+    if (r) { goto errorExit; }
+
+    printf("testing uf2_write_block payloadSize bound\n"); fflush(stdout);
+    r = TestWriteBlockPayloadSize();
     if (r) { goto errorExit; }
 
     printf("PASS: Ghostfat generation validation completed successfully.\n");
