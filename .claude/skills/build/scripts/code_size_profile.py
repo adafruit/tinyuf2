@@ -75,13 +75,14 @@ def _checkout_borrowing(common, dst, pin, rel, src):
   get_deps.py and a --depth 1 submodule fetch shallow, and git ignores clone --shared from a shallow repository,
   cloning only what its refs reach, so a pin fetched by SHA is missing. Its refs are copied too: the build embeds
   the submodule's `git describe`, which a tagless copy would shorten."""
+  shallow = os.path.isfile(os.path.join(common, 'shallow'))
   if os.path.islink(dst):  # a reused base's link: git init would reach the checkout it points at
     os.remove(dst)
   ret = engine.run(['git', 'init', '-q', dst])
   if ret.returncode == 0:
     with open(os.path.join(dst, '.git', 'objects', 'info', 'alternates'), 'w') as f:
       f.write(os.path.realpath(os.path.join(common, 'objects')) + '\n')
-    if os.path.isfile(os.path.join(common, 'shallow')):
+    if shallow:
       shutil.copyfile(os.path.join(common, 'shallow'), os.path.join(dst, '.git', 'shallow'))
     ret = engine.run(['git', '-C', dst, 'checkout', '-q', '--detach', pin])
   if ret.returncode == 0:  # after the checkout: a ref HEAD names would make it start from that ref's tree
@@ -90,8 +91,9 @@ def _checkout_borrowing(common, dst, pin, rel, src):
   if ret.returncode == 0:
     ret = subprocess.run(['git', '-C', dst, 'update-ref', '--stdin'], input=ret.stdout, capture_output=True, text=True)
   if ret.returncode != 0:
+    depth = '--depth 1 ' if shallow else ''  # --depth would make a full clone shallow, cutting its describe's tags
     sys.exit(f'Error: the base pins {rel} at {pin[:10]}, which {src} cannot give ({ret.stderr.strip()}): '
-             f'fetch it there (git -C {rel} fetch --depth 1 origin {pin})')
+             f'fetch it there (git -C {rel} fetch {depth}origin {pin})')
 
 
 def prepare_base(main_root, worktree):

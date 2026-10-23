@@ -369,6 +369,19 @@ class PrepareBaseDeps(unittest.TestCase):
                                             rf'git -C lib/mcu/hal fetch --depth 1 origin {self.old}'):
       self.prepare(self.old)
 
+  def test_a_pin_a_full_clone_has_not_fetched_names_a_fetch_that_keeps_it_full(self):
+    git('-C', str(self.dep), 'fetch', '-q', '--unshallow', 'origin')
+    up = self.tmp / 'up'
+    (up / 'hal.c').write_text('newer')
+    git('-C', str(up), 'commit', '-q', '-am', 'newer')
+    newer = git('-C', str(up), 'rev-parse', 'HEAD')
+    fetch = rf'git -C lib/mcu/hal fetch origin {newer}'
+    with self.assertRaisesRegex(SystemExit, rf'pins lib/mcu/hal at {newer[:10]}.*\({fetch}\)'):
+      self.prepare(newer)
+    git('-C', str(self.dep), *fetch.split()[3:])
+    self.assertEqual(git('-C', str(self.dep), 'rev-parse', '--is-shallow-repository'), 'false')
+    self.assertEqual(self.prepare(newer), ['lib/plain'])
+
 
 @NO_SIZED_BOARDS
 class PrepareBaseSubmodules(unittest.TestCase):
