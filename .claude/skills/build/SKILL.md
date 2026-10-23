@@ -10,8 +10,8 @@ description: The TinyUF2 build contract. Use when a change must be verified by b
 ```bash
 B=.claude/skills/build/scripts/check_build.py
 python3 $B --scope <changed paths or dirs>     # boards a change affects
-python3 $B --base master                        # same, from the branch diff
-python3 $B --base master --worktree             # same, plus uncommitted and untracked changes
+python3 $B --base origin/master                 # same, from the branch diff
+python3 $B --base origin/master --worktree      # same, plus uncommitted and untracked changes
 python3 $B --select-only (--scope ... | --base REF [--worktree] | --diff-file FILE) [--hil-config ROSTER]   # the selection alone
 python3 $B --board feather_stm32f405_express [--board ...]
 python3 $B --board lpcxpresso55s69 -D LOG=2     # a define, passed to the board's backend

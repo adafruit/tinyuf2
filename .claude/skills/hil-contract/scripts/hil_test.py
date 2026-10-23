@@ -19,7 +19,6 @@ import errno
 import fcntl
 import fnmatch
 import functools
-import glob
 import hashlib
 import json
 import mmap
@@ -122,22 +121,6 @@ UPDATE_PORTS = {'mimxrt10xx'}
 INTERRUPT_PASSES, INTERRUPT_OFFSET, INTERRUPT_TIMEOUT = 25, 0x100000, 120
 # every block reaches the device before the write returns (O_DIRECT is Linux's, as is the runner)
 WRITE_FLAGS = os.O_WRONLY | getattr(os, 'O_DIRECT', 0) | os.O_SYNC
-# each J-Link command's completion line in its own output chunk, by its first word, formatted with its arguments
-# (bench transcripts, J-Link V9.78 and V9.84; SEGGER documents the commands, not their output); `g` prints none, and
-# any line after `r`'s fails
-JLINK_DONE = {'h': r'^PC = [0-9A-F]{{8}}, ', 'halt': r'^PC = [0-9A-F]{{8}}, ', 'regs': r'^PC = [0-9A-F]{{8}}, ',
-              'r': r'^Reset delay: \d+ ms\n(?:(?:.*\n)*?ResetTarget\(\) end - Took .*\nDevice specific reset executed\.\n'
-                   r'(?:AfterResetTarget\(\) start\nAfterResetTarget\(\) end - Took .*\n)?|'
-                   r'(?![\s\S]*^ResetTarget\(\) start$)(?:.*\n)*?Reset: Reset device via AIRCR\.SYSRESETREQ\.\n)\s*\Z',
-              'g': '', 'go': '', 'sleep': r'^Sleep\({0}\)$',
-              'mem32': r'^{0} = [0-9A-F]{{8}}', 'w4': r'^Writing {1} -> {0}$', 'verifybin': r'^Verify successful\.$',
-              'loadfile': r'^O\.K\.$', 'exit': r'^Script processing completed\.$'}
-# a failure line in any command's chunk, from JLinkExe V9.84's own diagnostics (its strings: "****** Error: %s" for the
-# DLL's errors, "Error occurred: ...", "Error while ...", "Could not read memory." and the like); a connect's own
-# notes, such as "Could not find valid reset vector.", are judged by its commands completing
-JLINK_ERRORS = (r'(?m)^\*+ Error|^Error (occurred|while)|ERROR|Verify failed|Cannot connect|ResetTarget failed|'
-                r'Failed to (halt|reconnect|write memory)|CPU (is )?not halted|Could not (read|write) memory|'
-                r'Could not read current PC')
 JLINK_CONNECTED = r'(?m)^Cortex-M\w+ identified\.$'
 UDEV_RULES = ('/etc/udev/rules.d', '/run/udev/rules.d')
 # J-Link devices whose connect as the chip resets it to unprotect it (bench-history.md, stm32f411ve_discovery,
@@ -970,43 +953,26 @@ def jlink_failure(code, out, probe):
   return {'tail': out.strip().splitlines()[-5:], 'beforeTarget': stopped_before_target(code, out, probe)}
 
 
-def jlink_completed(out, commands):
-  """Whether a JLinkExe -CommandFile transcript shows `commands`, then `exit`, each echoed once and in order with its
-  completion line (JLINK_DONE) and no failure line in its own chunk. JLinkExe can exit 0 with every command failed (no
-  probe with the serial), and -ExitOnError ends the script at a failed verifybin but not at a failed reset, which the
-  next commands outlive (bench, lpcxpresso55s69), so no exit code or transcript-wide match stands in for a command's
-  own output."""
-  got = echoed(out)
-  return [c for c, _ in got] == [*commands, 'exit'] and all(
-    re.search(JLINK_DONE[c.split()[0]].format(*c.split()[1:]), chunk, re.M) and not re.search(JLINK_ERRORS, chunk)
-    for c, chunk in got)
-
-
-def judge_jlink_target(code, out, board, hex_path, script):
-  """The provider's J-Link flash transcript (the record's tinyuf2-jlink script), judged per command of the command
-  file it ran (`script`, the Attempt's): this HEX downloaded, programmed or already matching, then O.K."""
-  load, commands = f'loadfile {hex_path}', [c for c in (script or '').splitlines() if c != 'exit']
+def judge_jlink_target(op, board, hex_path):
+  """The provider's J-Link flash (the record's tinyuf2-jlink script), judged by its jlink_problem, and this HEX
+  downloaded, programmed or already matching, then O.K., in the output of the script's own `loadfile`."""
+  code, out = op.attempts[-1].result.returncode, text(op.attempts[-1].result.stdout)
+  load = f'loadfile {hex_path}'
   m = re.search(rf'^Downloading file \[{re.escape(str(hex_path))}\]\.\.\.$(?:\n.*)*?\nJ-Link: Flash download: Bank \d+ @ '
                 r'0x[0-9A-F]+: (Skipped\. Contents already match|\d+ ranges? affected \(\d+ bytes\))$(?:\n.*)*?\nO\.K\.$',
-                next(iter(after(out, load)), ''), re.M)
-  if code or not m or load not in commands or not jlink_completed(out, commands):
-    raise StepFail(f'the J-Link flash failed (exit {code})', jlink_failure(code, out, board['probe']))
+                next(iter(provider().jlink_after(out, load)), ''), re.M)
+  if problem := provider().jlink_problem(op) or ('' if m else f'no download of {hex_path} in its {load!r}'):
+    raise StepFail(f'the J-Link flash failed (exit {code})', {**jlink_failure(code, out, board['probe']), 'problem': problem})
   return {'flashDownload': m[1]}
 
 
 def judge_esp_target(code, out, segments):
-  """The provider's esptool flash: esptool's write of every segment at its offset, each hash-verified, then the hard
-  reset (esptool 5.2.0 and 5.3.1 cmds.py write_flash and loader.py hard_reset, which the bench transcripts of 5.2.0 on
-  the P4's USB-Serial/JTAG and 5.3.1 in espressif/idf:v6.1 match), with any CSI sequence and the underscore spellings'
-  deprecation warnings around them ignored. A write is compressed with the stub, uncompressed without it (--no-stub)
-  or where compression would not shrink the segment (5.3.1 write_flash), and its line says which."""
-  out = ANSI.sub('', out)
-  wrote = sorted(int(a, 16) for a in re.findall(r'^Wrote \d+ bytes (?:\(\d+ compressed\) )?at 0x([0-9a-f]{8}) in ', out,
-                                                 re.M))
-  if code or wrote != sorted(off for off, _ in segments) or out.count('Hash of data verified.') != len(segments) or \
-     'Hard resetting via RTS pin' not in out:
-    raise StepFail(f'the esptool flash failed (exit {code})', {'tail': out.strip().splitlines()[-5:]})
-  return {'wrote': [hex(a) for a in wrote]}
+  """The provider's esptool flash, judged by its esptool_flash_judgment over every segment's offset."""
+  judged = provider().esptool_flash_judgment(out, [off for off, _ in segments])
+  if code or not judged['ok']:
+    raise StepFail(f'the esptool flash failed (exit {code})', {'tail': ANSI.sub('', out).strip().splitlines()[-5:],
+                                                              'problem': judged['problem']})
+  return {'wrote': [hex(a) for a in sorted(judged['wrote'])]}
 
 
 class Probe:
@@ -1022,7 +988,7 @@ class Probe:
                     'device': unlocks[0] if unlocks else board['device'], 'timeout': PROBE_TIMEOUT, 'workdir': workdir}
 
   def run(self, commands, judge=True):
-    """One JLinkExe session, each command judged from its own output (jlink_completed). judge=False is for a
+    """One JLinkExe session, each command judged from its own output (jlink_problem). judge=False is for a
     lone `w4` that resets the target, which may drop the connection mid-transaction: only its issue on a connected
     target is judged (the core identified, then J-Link's "Writing VALUE -> ADDR", with no failure before it), and
     the caller's observation is the evidence."""
@@ -1057,12 +1023,14 @@ class Probe:
     if res.attempts[-1].timed_out:
       raise StepFail(f'JLinkExe timed out after {PROBE_TIMEOUT}s', self.failure(res))
     # a crash fails even a reset session (judge=False): its commands may not have run
-    if code < 0 or judge and (code or not jlink_completed(out, commands)):
+    if code < 0:
       raise StepFail(f'JLinkExe failed (exit {code})', self.failure(res))
+    if judge and (problem := provider().jlink_problem(res)):
+      raise StepFail(f'JLinkExe failed (exit {code})', {**self.failure(res), 'problem': problem})
     if not judge and commands[-1].startswith('w4 '):
       _, addr, value = commands[-1].split()
-      head, issued, _ = next(iter(after(out, commands[-1])), '').partition(f'Writing {value} -> {addr}')
-      if not issued or not re.search(JLINK_CONNECTED, head) or re.search(JLINK_ERRORS, head):
+      head, issued, _ = next(iter(provider().jlink_after(out, commands[-1])), '').partition(f'Writing {value} -> {addr}')
+      if not issued or not re.search(JLINK_CONNECTED, head) or re.search(provider().JLINK_ERRORS, head):
         raise StepFail(f'the reset write was not issued on a connected target (exit {code})', self.failure(res))
     return out
 
@@ -1175,18 +1143,11 @@ def core_regs(body):
 
 
 def esp_port(uid):
-  """The tty of the USB-UART bridge with this serial, or for a USJ serial (MAC form) the provider's tty of the one
-  303a:1001 with exactly that serial (usj_tty), as it resolves the USJ for openocd_esp: exactly one, never a guessed
-  /dev/ttyUSBn."""
-  if cb.USJ_SERIAL.fullmatch(uid):
-    try:
-      return openocd_esp().usj_tty(uid)
-    except (RuntimeError, OSError) as e:
-      raise StepFail(str(e))
-  hits = sorted(glob.glob(f'/dev/serial/by-id/*_{glob.escape(uid)}-if*'))
-  if len(hits) != 1:
-    raise StepFail(f'{len(hits)} serial ports for bridge {uid}: {hits}')
-  return os.path.realpath(hits[0])
+  """The provider's esptool_port: exactly one tty for this serial, never a guessed /dev/ttyUSBn."""
+  try:
+    return provider().esptool_port(uid)
+  except (RuntimeError, OSError) as e:
+    raise StepFail(str(e))
 
 
 def child_json(cmd, log, timeout, what):
@@ -1268,18 +1229,6 @@ def report_snapshot(row, keep):
   if {n: tuple(r) for n, r in regions.items()} != keep:
     raise Refused(f'the failed run preserved {regions}; this checkout preserves {keep}')
   return md5
-
-
-def echoed(out):
-  """(command, output chunk) for each command a JLinkExe -CommandFile transcript echoes, in order, each chunk
-  ending at the next echo; the transcript shape is bench-checked at commissioning."""
-  parts = re.split(r'(?m)^J-Link>(.*)$', out)
-  return [(c.strip(), chunk) for c, chunk in zip(parts[1::2], parts[2::2])]
-
-
-def after(out, command):
-  """The output chunk of each echo of `command`."""
-  return [chunk for c, chunk in echoed(out) if c == command]
 
 
 def regs(out):
@@ -2706,7 +2655,7 @@ class Battery:
       return ops[0]
 
     def judge(code, out):
-      return judge_jlink_target(code, out, self.b, files['hex'], ops[0].attempts[-1].script)
+      return judge_jlink_target(ops[0], self.b, files['hex'])
     ev = self.flash_target(files['flash'], flash, judge,
                            lambda code, out: stopped_before_target(code, out, self.b['probe']), 'JLinkExe', PROBE_TIMEOUT)
     unlocks = JLINK_CONNECT_UNLOCKS.get(self.b['device'])
@@ -2741,7 +2690,7 @@ class Battery:
     f = self.f
     out = self.probe.run(['h', 'g', f'sleep {2 * f["dblTapDelayMs"] + 200}', 'h', 'regs', f'mem32 {SCB_VTOR:08X} 1',
                           'g', 'sleep 10', 'h', 'regs', f'verifybin {app_bin},{f["appStart"]:#x}', 'g'])
-    chunks = after(out, 'regs')
+    chunks = provider().jlink_after(out, 'regs')
     if len(chunks) != 2:
       raise StepFail(f'expected two regs dumps, got {len(chunks)}', {'tail': out.strip().splitlines()[-8:]})
     first, second = regs(chunks[0]), regs(chunks[1])
@@ -3214,21 +3163,12 @@ def check_openocd():
 
 @functools.cache
 def esptool_runtime():
-  """The esptool every Espressif flash and session of this process runs, checked once: `esptool` first on PATH, a
-  console script whose interpreter (the provider's tool_python) also imports the esptool package esptool_session.py
-  runs, so the flash and the sessions run one esptool, whose version the evidence records. Refused otherwise."""
-  exe = shutil.which('esptool')
+  """The provider's esptool_runtime of `esptool` first on PATH, checked once for this process, so every Espressif
+  flash and esptool_session.py session runs one esptool, whose version the evidence records. Refused otherwise."""
   try:
-    python = provider().tool_python('esptool')
-    r = subprocess.run([python, '-B', '-c', 'import esptool; print(esptool.__version__)'], capture_output=True,
-                       text=True, timeout=60, cwd='/')
-    version = r.stdout.strip() if r.returncode == 0 else None
-  except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:
+    return provider().esptool_runtime()
+  except RuntimeError as e:
     raise Refused(f'no esptool runtime: {e}; the runner needs esptool first on PATH (SKILL.md Limits)') from None
-  if not version:
-    raise Refused(f'no esptool package for {python}, the interpreter of {exe}; the runner needs esptool first on PATH '
-                  f'(SKILL.md Limits)')
-  return {'exe': exe, 'python': python, 'version': version}
 
 
 def esptool_evidence():
@@ -3378,15 +3318,13 @@ def run_board(args, board, facts, helper, workdir):
       break
     except helper.LockUnavailable as e:
       raise Refused(f'{board["name"]}: {e}; refusing to run unlocked')
-    except helper.RecoveryBlocked as e:   # a stale record or a takeover journal: never waited for
+    except helper.RecoveryBlocked as e:   # a cleanup holder, a stale record or a takeover journal (SKILL.md Recovery)
       row.update(locked=True, recoveryBlocker=True, detail=str(e))
       return deferred(row), 1
     except RuntimeError as e:
-      # a cleanup holder never frees on its own (SKILL.md Recovery): a blocker, never waited for
-      blocker, held = helper.is_cleanup_holder(helper.read_record(board['lock'])), str(e)
-      left = deadline - time.monotonic()
-      if blocker or left <= 0:
-        row.update(locked=True, recoveryBlocker=blocker, detail=held)
+      held, left = str(e), deadline - time.monotonic()
+      if left <= 0:
+        row.update(locked=True, recoveryBlocker=False, detail=held)
         return deferred(row), 1
     try:
       with signals(signal.SIG_UNBLOCK):

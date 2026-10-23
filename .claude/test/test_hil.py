@@ -885,9 +885,9 @@ class Esp(EspCase):
     py.write_text(f'#!/bin/sh\nPYTHONPATH={site} exec {sys.executable} "$@"\n')
     py.chmod(0o755)
     for what, package, head, path, err in (
-        ('its version', "__version__ = '5.2.0'", f'#!{py}\n', bindir, None),
+        ('its version', "__version__ = '5.2.0'", f'#!{py}\nprint("esptool v5.2.0")\n', bindir, None),
         ('no esptool package', 'raise ImportError', f'#!{py}\n', bindir,
-         f'no esptool package for {py}, the interpreter of {script}'),
+         f'{py}, the interpreter of {script}, imports no esptool package'),
         ('no python shebang', "__version__ = '5.2.0'", '#!/bin/sh\n', bindir, 'want an absolute python shebang'),
         ('not on PATH', "__version__ = '5.2.0'", f'#!{py}\n', self.tmp, 'esptool is not on PATH')):
       (site / 'esptool' / '__init__.py').write_text(package + '\n')
@@ -900,10 +900,18 @@ class Esp(EspCase):
           with self.assertRaisesRegex(ht.Refused, f'{re.escape(err)}.*esptool first on PATH'):
             ht.esptool_runtime()
         else:
-          want = {'exe': str(script), 'python': str(py), 'version': '5.2.0'}
+          want = {'exe': str(script), 'python': str(py), 'version': '5.2.0',
+                  'package': str(site / 'esptool' / '__init__.py')}
           self.assertEqual(ht.esptool_runtime(), want)
           script.unlink()
           self.assertEqual(ht.esptool_runtime(), want)   # checked once per process
+    script.write_text(f'#!{py}\n')
+    script.chmod(0o111)
+    ht.esptool_runtime.cache_clear()
+    if not os.access(script, os.R_OK):   # root reads it anyway
+      with mock.patch.dict(os.environ, {'PATH': f'{bindir}:/usr/bin:/bin'}), \
+           self.assertRaisesRegex(ht.Refused, 'Permission denied.*esptool first on PATH'):
+        ht.esptool_runtime()
 
 
 P4 = 'espressif_p4_function_ev'
@@ -1234,10 +1242,14 @@ class EspFlash(EspFake):
         else:
           self.assertIsNone(ht.report_snapshot(row, {}))
 
-  def test_the_bridge_is_found_by_serial_exactly_once(self):
-    for hits in ([], ['/dev/serial/by-id/a_x-if00-port0', '/dev/serial/by-id/b_x-if00-port0']):
-      with self.subTest(len(hits)), mock.patch.object(ht.glob, 'glob', lambda pat: hits), \
-           self.assertRaisesRegex(ht.StepFail, f'{len(hits)} serial ports'):
+  def test_the_bridge_is_found_by_serial_exactly_once(self):   # its cases are the provider's tests
+    byid = self.tmp / 'by-id'
+    byid.mkdir()
+    for links in ([], ['a_x-if00-port0', 'b_x-if00-port0']):
+      for name in links:
+        (byid / name).symlink_to('/dev/null')
+      with self.subTest(len(links)), mock.patch.object(ht.provider(), 'SERIAL_BY_ID', str(byid)), \
+           self.assertRaisesRegex(ht.StepFail, f'bridge serial x: want one {re.escape(str(byid))} link'):
         real_esp_port('x')
 
   def test_tty_users_sees_a_process_holding_the_device_open(self):
@@ -1401,9 +1413,12 @@ class UsjAddressing(Tmp):
       real_esp_port(USJ)
 
   def test_a_bridge_serial_never_walks_the_usj(self):
+    byid = self.tmp / 'by-id'
+    byid.mkdir()
+    (byid / 'usb-Silicon_Labs_cp2102n-if00-port0').symlink_to('/dev/null')
     with mock.patch.object(ht.openocd_esp(), 'usj_tty', side_effect=AssertionError('walked')), \
-         mock.patch.object(ht.glob, 'glob', lambda pat: ['/dev/serial/by-id/usb-Silicon_Labs_cp2102n-if00-port0']):
-      self.assertEqual(real_esp_port('cp2102n'), '/dev/serial/by-id/usb-Silicon_Labs_cp2102n-if00-port0')
+         mock.patch.object(ht.provider(), 'SERIAL_BY_ID', str(byid)):
+      self.assertEqual(real_esp_port('cp2102n'), '/dev/null')
 
   def test_a_malformed_serial_is_refused_at_load(self):
     for uid in (USJ.lower(), 'AA:BB:CC:DD:EE', 'AA:BB:CC:DD:EE:FF:00', 'AA:BB:CC:DD:EE:FG', 'a b', ''):
@@ -3669,6 +3684,16 @@ class StaleRecovery(Tmp):
     self.assert_released()
 
 
+def jop(code, out, script):
+  """A provider J-Link Operation of one exited run with this exit, output and command file."""
+  result = subprocess.CompletedProcess(['JLinkExe'], code, out, '')
+  return ht.provider().Operation([ht.provider().Attempt(['JLinkExe'], script, result, None, 'done', None)])
+
+
+def jlink_ok(out, commands):
+  return ht.provider().jlink_judgment(out, commands)['ok']
+
+
 def one_attempt(result):
   """A provider Operation of the one run `result`, for a test's flash op."""
   return ht.provider().Operation([ht.provider().Attempt(result.args, None, result, None, 'unknown', None)])
@@ -3958,10 +3983,10 @@ class BatteryRun(Tmp):
   def test_the_target_transcript_is_judged_not_its_exit(self):
     bat, _ = self.battery()
     hexp = self.files['hex']
-    self.assertEqual(ht.judge_jlink_target(0, jlink_target(hexp), bat.b, hexp, flash_script(hexp)),
+    self.assertEqual(ht.judge_jlink_target(jop(0, jlink_target(hexp), flash_script(hexp)), bat.b, hexp),
                      {'flashDownload': '1 range affected (65536 bytes)'})
     skip = 'Skipped. Contents already match'   # an already-matching image is a success
-    self.assertEqual(ht.judge_jlink_target(0, jlink_target(hexp, skip), bat.b, hexp, flash_script(hexp))['flashDownload'], skip)
+    self.assertEqual(ht.judge_jlink_target(jop(0, jlink_target(hexp, skip), flash_script(hexp)), bat.b, hexp)['flashDownload'], skip)
     cases = (('every command FAILED, exit 0', 0, JLINK_NO_PROBE, True), ('no probe, exit 1', 1, JLINK_NO_PROBE, True),
              ('another image', 0, jlink_target(self.tmp / 'other.hex'), False),
              ('no O.K.', 0, jlink_target(hexp, tail=''), False),
@@ -3980,8 +4005,9 @@ class BatteryRun(Tmp):
              ('a nonzero exit', 2, jlink_target(hexp), False), ('nothing', 0, '', False))
     for what, code, out, before in cases:
       with self.subTest(what), self.assertRaisesRegex(ht.StepFail, 'the J-Link flash failed') as e:
-        ht.judge_jlink_target(code, out, bat.b, hexp, flash_script(hexp))
+        ht.judge_jlink_target(jop(code, out, flash_script(hexp)), bat.b, hexp)
       self.assertEqual(e.exception.evidence['beforeTarget'], before, what)
+      self.assertTrue(e.exception.evidence['problem'], what)
 
   def test_the_judged_commands_are_the_provider_scripts_and_this_hex_must_be_among_them(self):
     bat, _ = self.battery()
@@ -3989,19 +4015,20 @@ class BatteryRun(Tmp):
     self.assertEqual([c for c in flash_script(hexp).splitlines() if c != 'exit'], ['halt', f'loadfile {hexp}', 'r', 'go'])
     for what, script in (('another HEX', flash_script(self.tmp / 'other.hex')), ('no script', None)):
       with self.subTest(what), self.assertRaisesRegex(ht.StepFail, 'the J-Link flash failed'):
-        ht.judge_jlink_target(0, jlink_target(hexp), bat.b, hexp, script)
+        ht.judge_jlink_target(jop(0, jlink_target(hexp), script), bat.b, hexp)
 
   def test_a_connect_note_is_judged_by_the_halt_it_precedes_on_any_device(self):
     hexp = self.tmp / 'tinyuf2.hex'
     out = jlink_target(hexp).replace('Cortex-M7 identified.\n', F3_UNPROTECT + 'Cortex-M4 identified.\n')
-    ht.judge_jlink_target(0, out, {'device': 'MIMXRT1011DAE5A', 'probe': '1'}, hexp, flash_script(hexp))   # not an F3
+    ht.judge_jlink_target(jop(0, out, flash_script(hexp)), {'device': 'MIMXRT1011DAE5A', 'probe': '1'}, hexp)   # not an F3
     with self.assertRaises(ht.StepFail):   # the connect never completed: no halt
-      ht.judge_jlink_target(0, out.replace(JLINK_HALTED, ''), {'device': 'stm32f303vc', 'probe': '1'}, hexp, flash_script(hexp))
+      ht.judge_jlink_target(jop(0, out.replace(JLINK_HALTED, ''), flash_script(hexp)),
+                            {'device': 'stm32f303vc', 'probe': '1'}, hexp)
 
   def test_the_flash_runs_under_the_build_lock_between_two_input_checks(self):
     bat, rig = self.battery()
     fl, hexp = self.files['flash'], self.files['hex']
-    judge = lambda code, out: ht.judge_jlink_target(code, out, bat.b, hexp, flash_script(hexp))   # noqa: E731
+    judge = lambda code, out: ht.judge_jlink_target(jop(code, out, flash_script(hexp)), bat.b, hexp)   # noqa: E731
     before = lambda code, out: ht.stopped_before_target(code, out, bat.b['probe'])   # noqa: E731
 
     def flash(run):
@@ -4106,7 +4133,7 @@ class BatteryRun(Tmp):
                       'Verify successful.\n'),
             'mem32 4002C05C 1': '4002C05C = F01669EF \n', w4: 'Writing F01669EF -> 4002C05C\n',
             'regs': JLINK_HALTED, 'r': 'Reset delay: 0 ms\n' + RT_RESET, 'g': "Memory map 'after startup completion point' is active\n"}
-    self.assertTrue(ht.jlink_completed(jlink_session(*good.items()), commands))
+    self.assertTrue(jlink_ok(jlink_session(*good.items()), commands))
     bad = {'sleep 1000': 'Sleep(100)\n', 'h': JLINK_CONNECT + 'Failed to halt CPU.\n',
            bin_cmd: 'Verify failed @ address 0x60000000.\nExpected A5 read FF\nERROR: Verify failed.\n',
            'mem32 4002C05C 1': 'Could not read memory.\n', w4: 'Writing F01669EF -> 4002C05D\n', 'regs': '',
@@ -4114,7 +4141,7 @@ class BatteryRun(Tmp):
            'g': '****** Error: CPU is not halted\n'}
     for c in commands:
       with self.subTest(c):
-        self.assertFalse(ht.jlink_completed(jlink_session(*dict(good, **{c: bad[c]}).items()), commands))
+        self.assertFalse(jlink_ok(jlink_session(*dict(good, **{c: bad[c]}).items()), commands))
     # JLinkExe V9.84's own diagnostics (its binary's strings), in a chunk whose command printed no completion line or
     # printed it first
     for line in ('Error occurred: Could not connect to the target device.', '****** Error: Could not read current PC',
@@ -4122,7 +4149,7 @@ class BatteryRun(Tmp):
                  'Failed to reconnect to device.', 'CPU not halted. Error 1 while requesting CPU state'):
       for c in ('g', 'h', 'mem32 4002C05C 1'):
         with self.subTest(line=line, command=c):
-          self.assertFalse(ht.jlink_completed(jlink_session(*dict(good, **{c: good[c] + line + '\n'}).items()), commands))
+          self.assertFalse(jlink_ok(jlink_session(*dict(good, **{c: good[c] + line + '\n'}).items()), commands))
     for what, out in (('missing', jlink_session(*[(c, o) for c, o in good.items() if c != 'regs'])),
                       ('reordered', jlink_session(*sorted(good.items(), key=lambda x: x[0] == 'r'))),
                       ('repeated', jlink_session(*good.items(), ('g', ''))),
@@ -4132,7 +4159,7 @@ class BatteryRun(Tmp):
                       ('script not completed', jlink_session(*good.items()).replace('Script processing completed.\n', '')),
                       ('nothing', '')):
       with self.subTest(what):
-        self.assertFalse(ht.jlink_completed(out, commands))
+        self.assertFalse(jlink_ok(out, commands))
 
   def test_only_the_probe_connect_crash_is_retried_once_and_any_crash_fails(self):
     probe = ht.Probe({'probe': '000726129165', 'device': 'd', 'if': 'SWD', 'speed': '4000'}, self.tmp, self.tmp / 'hil.log')
@@ -4207,7 +4234,7 @@ class BatteryRun(Tmp):
                                  generic.replace('Reset type:', 'ResetTarget() start\nReset type:') +
                                  'ResetTarget() end - Took 30ms\nDevice specific reset executed.\n', True)):
       with self.subTest(what):
-        self.assertEqual(ht.jlink_completed(jlink_session(('r', chunk), ('g', '')), ['r', 'g']), passes)
+        self.assertEqual(jlink_ok(jlink_session(('r', chunk), ('g', '')), ['r', 'g']), passes)
 
   def test_a_failed_reset_fails_the_session_that_outlived_it(self):
     # the reset's lines as the bench recorded them on lpcxpresso55s69; the script went on past it
@@ -4601,7 +4628,7 @@ class AppRan(Tmp):
 
   def test_regs_parse_two_dumps(self):
     out = self.transcript(0x10200, [5, 9])
-    first, second = (ht.regs(c) for c in ht.after(out, 'regs'))
+    first, second = (ht.regs(c) for c in ht.provider().jlink_after(out, 'regs'))
     self.assertEqual((first['pc'], first['r0'], second['r0'], first['ipsr'], first['msp']),
                      (0x10200, 5, 9, 0, 0x20001000))
 
