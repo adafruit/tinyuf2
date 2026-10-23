@@ -35,7 +35,7 @@
 #define FLASH_BASE_ADDR         0x08000000UL
 
 // H503 is 1 bit per sector, the rest of the family H523/33/62/63 is 1 bit per 4 sectors
-// TinyUF2 resides in the first 8 flash sectors on STM32H5s, therefore these are write protected
+// TinyUF2's sectors are write protected, so the mask must cover every board's LD_FLASH_BOOT_SIZE
 #ifdef STM32H503xx
 #define BOARD_FLASH_PROTECT_MASK  0x7u // protect 3 sector
 #else
@@ -166,16 +166,17 @@ bool board_flash_protect_bootloader(bool protect) {
 
   HAL_FLASH_OB_Unlock();
 
-  FLASH_OBProgramInitTypeDef ob_current = {0};
+  // the HAL reads the WRP of the selected bank only
+  FLASH_OBProgramInitTypeDef ob_current = { .Banks = FLASH_BANK_1 };
   HAL_FLASHEx_OBGetConfig(&ob_current);
 
-  // Flash sectors are protected if the bit is cleared
-  bool const already_protected = (ob_current.WRPSector & BOARD_FLASH_PROTECT_MASK) == 0;
+  // HAL reports protected groups as set bits, the inverse of WRP1R_CUR
+  uint32_t const protected_mask = ob_current.WRPSector & BOARD_FLASH_PROTECT_MASK;
 
-  TUF2_LOG1("Protection: current = %u, request = %u\r\n", already_protected, protect);
+  TUF2_LOG1("Protection: current = 0x%lx, request = %u\r\n", protected_mask, protect);
 
-  // request and current state mismatched --> require ob program
-  if (protect != already_protected) {
+  // request and current state mismatched (also partly protected) --> require ob program
+  if (protected_mask != (protect ? BOARD_FLASH_PROTECT_MASK : 0)) {
     FLASH_OBProgramInitTypeDef ob_update = { 0 };
     ob_update.OptionType = OPTIONBYTE_WRP;
     ob_update.Banks = FLASH_BANK_1;
