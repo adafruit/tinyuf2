@@ -402,7 +402,8 @@ void board_timer_start(uint32_t ms) {
 }
 
 void board_timer_stop(void) {
-  esp_timer_stop(timer_hdl);
+  // wait out a running blink callback, else it can overwrite the caller's next LED frame
+  esp_timer_stop_blocking(timer_hdl, portMAX_DELAY);
 }
 
 //--------------------------------------------------------------------+

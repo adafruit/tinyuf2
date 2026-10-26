@@ -11,14 +11,20 @@ LD_FILES ?= \
 	$(PORT_DIR)/linker/common.ld \
 	$(PORT_DIR)/linker/$(MCU).ld
 
+ifeq ($(BOARD_PFLASH_APP_EN),1)
+# Apps run from internal flash at BOARD_FLASH_APP_START, boards.c points VTOR at their vector table
+CFLAGS += -Wl,--defsym=PFLASH_APP=0
+APPLICATION_ADDR = $(BOARD_FLASH_APP_START)
+else
 CFLAGS += \
 	-DVECT_TAB_SRAM \
 	-Wl,--defsym=RAMCODE=0
 
-include $(TOP)/ports/rules.mk
-
 # Load app into AXISRAM to run
 APPLICATION_ADDR = 0x24000000
+endif
+
+include $(TOP)/ports/rules.mk
 
 # Self-update uf2 file
 uf2: $(BUILD)/$(OUTNAME).uf2

@@ -10,6 +10,7 @@
 - Formatting follows `.clang-format`: 2-space indent, no tabs.
 - Port-specific code stays in `ports/<port>/` behind the `board_api.h` interface.
 - Some files use CRLF line endings; keep each file's own line endings when editing.
+- USB VID/PID: a board's `USB_VID`/`USB_PID` are its `bootloader` row in Adafruit's allocation list, `Production/usb_vid_pid.csv` in the MBAdafruitBoards repository (`~/code/adafruit/MBAdafruitBoards`). A board without a row needs a new allocation from that directory's `generate-pid-vid.py`; ask the human before running it or editing the CSV.
 
 ## Skills
 
@@ -24,7 +25,8 @@
 - HIL contract: `.claude/skills/hil-contract/SKILL.md`. Hardware validation comes from its report, never from a build; what no roster board on the host covers is reported pending.
 - ESP-IDF: the build contract uses CI's docker image; for interactive work, `. "$IDF_PATH/export.sh"` and `idf.py -C ports/espressif -DBOARD=<board> flash monitor`.
 - Before submitting, and again after a rebase: `pre-commit run --all-files`.
-- For code changes: `python3 .claude/skills/build/scripts/check_build.py --base master --worktree`.
+- For code changes: `python3 .claude/skills/build/scripts/check_build.py --base origin/master --worktree`.
+- Size impact of a code change: agentrc's `code-size`, through the build contract's Code size section (`python3 .claude/skills/build/scripts/code_size.py diff -b <board>`); the bootloader must fit its port's bootloader region.
 
 ## PRs and Follow-ups
 

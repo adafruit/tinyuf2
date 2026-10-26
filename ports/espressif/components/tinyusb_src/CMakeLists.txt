@@ -3,7 +3,7 @@ idf_build_get_property(target IDF_TARGET)
 set(srcs)
 set(includes_public)
 set(compile_options)
-set(tusb_src "${CMAKE_CURRENT_SOURCE_DIR}/../../../../lib/tinyusb/src")
+set(tusb_src "${CMAKE_CURRENT_LIST_DIR}/../../../../lib/tinyusb/src")
 
 if(target STREQUAL "esp32s3")
   set(tusb_mcu "OPT_MCU_ESP32S3")
@@ -26,15 +26,10 @@ endif()
 #  CFG_TUSB_OS=OPT_OS_FREERTOS
 #  )
 
+include(${tusb_src}/CMakeLists.txt)
+tinyusb_sources_get(srcs)
+
 list(APPEND srcs
-  # common
-  ${tusb_src}/tusb.c
-  ${tusb_src}/common/tusb_fifo.c
-  # device
-  ${tusb_src}/device/usbd.c
-  ${tusb_src}/class/cdc/cdc_device.c
-  ${tusb_src}/class/hid/hid_device.c
-  ${tusb_src}/class/msc/msc_device.c
   ${tusb_src}/portable/synopsys/dwc2/dcd_dwc2.c
   ${tusb_src}/portable/synopsys/dwc2/dwc2_common.c
   )

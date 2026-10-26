@@ -129,6 +129,12 @@ class TablesMatchTheTree(unittest.TestCase):
     every = {target(b.name) for b in (ROOT / 'ports/espressif/boards').iterdir() if (b / 'board.cmake').is_file()}
     self.assertEqual({target(b) for b in cb.REPRESENTATIVES['espressif']}, every)
 
+  def test_the_hil_builds_espressif_with_idf_and_every_other_port_with_its_cmake_build(self):
+    for port, backend in cb.HIL.backends.items():
+      self.assertEqual(backend, 'idf' if cb.BACKENDS[port] == 'idf' else 'cmake', port)
+      self.assertTrue((ROOT / 'ports' / port / 'CMakeLists.txt').is_file(), port)   # what --backend cmake builds
+    self.assertEqual(set(cb.HIL.backends), set(cb.BACKENDS))
+
   def test_no_self_update_ports_echo_a_stub(self):
     for port in cb.NO_SELF_UPDATE:
       mk = (ROOT / 'ports' / port / 'Makefile').read_text()
@@ -178,7 +184,7 @@ class Selection(unittest.TestCase):
 
   def test_top_level_app_selects_ports_whose_backend_compiles_it(self):
     ports = {cb.port_of(b) for b, _ in classify('apps/blinky/src/blinky.c')[2]}
-    self.assertEqual(ports, {'espressif', 'maxim', 'mimxrt10xx', 'samd51', 'stm32f3', 'stm32f4', 'stm32h5'})
+    self.assertEqual(ports, {'espressif', 'lpc55', 'maxim', 'mimxrt10xx', 'samd51', 'stm32f3', 'stm32f4', 'stm32h5'})
 
   def test_dependency_selects_the_ports_get_deps_names(self):
     self.assertEqual(classify('lib/mcu/st/cmsis_device_f4/x.h')[2],
@@ -200,6 +206,12 @@ class Selection(unittest.TestCase):
     self.assertEqual(sorted(b for _, b in boards), ['cmake', 'idf', 'make'])
     self.assertTrue(cb.classify('.claude/skills/build/scripts/check_build.py')['hil'])   # hil_test.py imports it
     self.assertFalse(cb.classify('.github/workflows/build.yml')['hil'])
+
+  def test_the_code_size_scripts_run_the_tests_only(self):
+    for path in ('.claude/skills/build/scripts/code_size.py', '.claude/skills/build/scripts/code_size_profile.py'):
+      r = cb.classify(path)
+      self.assertEqual((r['rule'], r['tests'], r['hil'], r['boards'], r['ci']), ('code-size', True, False, {}, {}), path)
+    self.assertEqual(classify('.claude/test/test_code_size.py'), ('contract-tests', 'select', [], False, True))
 
   def test_unknown_port_fails_explicitly(self):
     with self.assertRaises(cb.Fail):
@@ -496,6 +508,69 @@ class HilSelection(unittest.TestCase):
     h = self.hil(app, 'ports/mimxrt10xx/board_flash.c')   # a bootloader change beside it still runs the battery
     self.assertEqual((h['boards'], [u['target'] for u in h['uncovered']]), (['imxrt1060_evk'], [app]))
 
+  def test_a_make_ports_board_follows_the_hils_cmake_build(self):
+    self.roster.write_text(json.dumps({'boards': [{'name': 'swan_r5'}]}))
+    board = 'ports/stm32l4/boards/swan_r5'
+    self.assertEqual(sorted(cb.select([f'{board}/board.mk'])['boards']), [('swan_r5', 'make')])   # CI's make build
+    for path in (f'{board}/board.h', f'{board}/board.cmake', board):
+      h = self.hil(path)
+      self.assertEqual((h['boards'], h['uncovered']), (['swan_r5'], []), path)
+    self.assertEqual(self.hil(f'{board}/board.mk')['uncovered'],
+                     [{'target': f'{board}/board.mk', 'reason': f'the HIL builds with cmake, which never reads {board}/board.mk'}])
+
+  def test_a_cmake_file_only_the_hil_reads_selects_the_port(self):
+    self.roster.write_text(json.dumps({'boards': [{'name': 'swan_r5'}]}))
+    self.assertEqual(classify('ports/stm32l4/CMakeLists.txt')[:2], ('other-backend', 'gap'))   # CI builds stm32l4 with make
+    h = self.hil('ports/stm32l4/CMakeLists.txt')
+    self.assertEqual((h['full'], h['boards'], h['uncovered']), (False, ['swan_r5'], []))
+    h = self.hil('ports/stm32h7/CMakeLists.txt')
+    self.assertEqual((h['boards'], h['uncovered']),
+                     ([], [{'target': 'ports/stm32h7/CMakeLists.txt',
+                            'reason': f'no {self.config} board builds ports/stm32h7/CMakeLists.txt'}]))
+
+  def test_a_port_without_a_roster_board_is_uncovered_under_the_hils_backend(self):
+    h = self.hil('ports/stm32h7/board_flash.c', 'ports/kinetis_k32l2/boards/frdm_k32l2b/board.h')
+    self.assertEqual(h['boards'], [])
+    self.assertEqual({u['target']: u['reason'] for u in h['uncovered']},
+                     {'stm32h7': f'ports/stm32h7/board_flash.c: no {self.config} board for stm32h7',
+                      'frdm_k32l2b': f'ports/kinetis_k32l2/boards/frdm_k32l2b/board.h: frdm_k32l2b is not in {self.config}'})
+
+  def test_an_app_the_hils_build_compiles_stays_outside_the_battery(self):
+    self.roster.write_text(json.dumps({'boards': [{'name': 'daisy_seed'}]}))
+    self.assertIn(('daisy_seed', 'cmake'), cb.select(['apps/erase_firmware/src/main.c'], cb.HIL)['boards'])
+    h = self.hil('apps/erase_firmware/src/main.c', 'ports/stm32h7/apps/erase_firmware/Makefile')
+    self.assertEqual((h['boards'], [u['target'] for u in h['uncovered']]),
+                     ([], ['apps/erase_firmware/src/main.c', 'ports/stm32h7/apps/erase_firmware/Makefile']))
+
+  def test_a_dependency_pin_selects_the_roster_boards_of_its_ports(self):
+    self.roster.write_text(json.dumps({'boards': [{'name': 'daisy_seed'}, {'name': 'swan_r5'}]}))
+    h = self.hil('lib/mcu/st/stm32h7xx_hal_driver')
+    self.assertEqual((h['full'], h['boards'], h['uncovered']), (False, ['daisy_seed'], []))
+    h = self.hil('lib/mcu/nxp/mcux-sdk')   # kinetis_k32l2 (make in CI), lpc55 and mimxrt10xx
+    self.assertEqual((h['boards'], [u['target'] for u in h['uncovered']]),
+                     ([], ['kinetis_k32l2', 'lpc55', 'mimxrt10xx']))
+
+  def test_an_espressif_board_keeps_its_idf_build(self):
+    self.roster.write_text(json.dumps({'boards': [{'name': 'espressif_esp32s3_devkitc_1', 'flasher': {'name': 'esptool'}}]}))
+    board = 'ports/espressif/boards/espressif_esp32s3_devkitc_1'
+    self.assertEqual(sorted(cb.select([f'{board}/sdkconfig'], cb.HIL)['boards']),
+                     [('espressif_esp32s3_devkitc_1', 'idf')])
+    for path in (f'{board}/sdkconfig', f'{board}/board.cmake', 'ports/espressif/CMakeLists.txt'):
+      h = self.hil(path)
+      self.assertEqual((h['boards'], h['uncovered']), (['espressif_esp32s3_devkitc_1'], []), path)
+    self.assertEqual(self.hil('ports/espressif/Makefile')['uncovered'],
+                     [{'target': 'ports/espressif/Makefile',
+                       'reason': 'the HIL builds with idf, which never reads ports/espressif/Makefile'}])
+
+  def test_codeqls_make_build_is_cis_not_the_hils(self):
+    self.roster.write_text(json.dumps({'boards': [{'name': 'feather_stm32f405_express'}]}))
+    self.assertEqual(classify('ports/stm32f4/port.mk')[2], [('feather_stm32f405_express', 'make')])
+    h = self.hil('ports/stm32f4/port.mk', 'ports/stm32f4/boards/feather_stm32f405_express/board.mk')
+    self.assertEqual((h['boards'], [u['target'] for u in h['uncovered']]),
+                     ([], ['ports/stm32f4/boards/feather_stm32f405_express/board.mk', 'ports/stm32f4/port.mk']))
+    h = self.hil('.github/workflows/codeql-buildscript.sh')
+    self.assertEqual((h['full'], h['boards'], h['uncovered']), (False, [], []))
+
   def test_unreadable_roster_fails(self):
     self.roster.write_text('{}')
     with self.assertRaises(cb.Fail):
@@ -553,6 +628,16 @@ class Identity(ScratchRepo):
     self.git('checkout', '-q', '--', 'x.c', cwd=self.dep)
     (self.dep / 'new.h').write_text('untracked')
     self.assertEqual(cb.identity({'lpc55'})['dirtyInputs'], ['lib/mcu/dep'])
+
+  def test_an_ignored_host_roster_leaves_the_tree_clean(self):
+    (self.repo / '.gitignore').write_text((ROOT / '.gitignore').read_text())
+    self.git('add', '.gitignore', cwd=self.repo)
+    self.git('commit', '-q', '-m', 'ignore', cwd=self.repo)
+    (self.repo / 'test' / 'hil').mkdir(parents=True)
+    (self.repo / 'test' / 'hil' / 'local.json').write_text('{"boards": []}')
+    self.assertFalse(cb.identity({'lpc55'})['dirty'])
+    (self.repo / 'x.c').write_text('changed')
+    self.assertTrue(cb.identity({'lpc55'})['dirty'])
 
 
 class Verdict(unittest.TestCase):
@@ -619,6 +704,55 @@ class Verdict(unittest.TestCase):
       self.assertEqual(code, 2)
       self.assertIn(error, json.loads(out.getvalue().splitlines()[-1])['error'])
 
+  def test_a_variant_needs_board_shared_and_a_plain_name(self):
+    for argv in (['--board', 'metro_m7_1011', '--variant', 'v'], ['--scope', 'src', '--shared', '--variant', 'v'],
+                 ['--board', 'metro_m7_1011', '--shared', '--variant', '../v']):
+      with self.subTest(argv), contextlib.redirect_stdout(io.StringIO()) as out, self.assertRaises(SystemExit) as e, \
+           mock.patch.object(cb, 'build_board', side_effect=AssertionError('built')):
+        cb.main(argv)
+      self.assertEqual(e.exception.code, 2)
+      self.assertIn('--variant needs --board and --shared', json.loads(out.getvalue().splitlines()[-1])['error'])
+
+  def test_a_build_dir_needs_one_board_without_shared_and_a_fresh_dir(self):
+    with tempfile.TemporaryDirectory() as tmp:
+      used, link = Path(tmp) / 'used', Path(tmp) / 'link'
+      used.mkdir()
+      (used / 'keep.c').write_text('source')
+      link.symlink_to(Path(tmp) / 'absent')
+      for argv, error in ((['--scope', 'src', '--build-dir', f'{tmp}/x'], '--build-dir needs one --board'),
+                          (['--board', 'a', '--board', 'b', '--build-dir', f'{tmp}/x'], '--build-dir needs one --board'),
+                          (['--board', 'a', '--shared', '--build-dir', f'{tmp}/x'], '--build-dir needs one --board'),
+                          (['--board', 'a', '--build-dir', str(used)], 'must be absent or an empty directory'),
+                          (['--board', 'a', '--build-dir', str(link)], 'must be absent or an empty directory')):
+        with self.subTest(argv), contextlib.redirect_stdout(io.StringIO()) as out, self.assertRaises(SystemExit) as e, \
+             mock.patch.object(cb, 'build_board', side_effect=AssertionError('built')):
+          cb.main(argv)
+        self.assertEqual(e.exception.code, 2)
+        self.assertIn(error, json.loads(out.getvalue().splitlines()[-1])['error'])
+      self.assertEqual((used / 'keep.c').read_text(), 'source')
+
+  def test_a_build_dir_is_checked_where_it_resolves(self):
+    with tempfile.TemporaryDirectory() as tmp:
+      used, fresh = Path(tmp) / 'used', Path(tmp) / 'fresh'
+      used.mkdir()
+      (used / 'keep.c').write_text('source')
+      fresh.mkdir()
+      with contextlib.redirect_stdout(io.StringIO()) as out, self.assertRaises(SystemExit) as e, \
+           mock.patch.object(cb, 'build_board', side_effect=AssertionError('built')):
+        cb.main(['--board', 'a', '--build-dir', f'{tmp}/missing/../used'])
+      self.assertEqual(e.exception.code, 2)
+      self.assertIn(f'({used.resolve()}) must be absent or an empty directory', json.loads(out.getvalue().splitlines()[-1])['error'])
+      self.assertEqual((used / 'keep.c').read_text(), 'source')
+      seen = []
+
+      def build_board(board, backend, args, idf, flasher=None):
+        seen.append(args.build_dir)
+        raise cb.Fail('stop')
+      with mock.patch.object(cb, 'build_board', build_board), \
+           mock.patch.object(cb, 'identity', lambda ports=(): dict(CLEAN)), contextlib.redirect_stdout(io.StringIO()):
+        cb.main(['--board', 'lpcxpresso55s69', '--build-dir', f'{tmp}/missing/../fresh'])
+      self.assertEqual(seen, [fresh.resolve()])
+
   def test_backend_override_builds_with_cmake(self):
     seen = []
     def build_board(board, backend, args, idf, flasher=None):
@@ -679,7 +813,7 @@ class BuildBoard(unittest.TestCase):
     for p in patches:
       p.start()
       self.addCleanup(p.stop)
-    self.args = mock.Mock(shared=False, define=['LOG=2'], verbose=False, idf='docker')
+    self.args = mock.Mock(shared=False, define=['LOG=2'], verbose=False, idf='docker', variant=None, build_dir=None)
 
   def fake_make(self, write):
     calls = []
@@ -731,6 +865,27 @@ class BuildBoard(unittest.TestCase):
     self.assertEqual(set(rec['sha256']), set(rec['artifacts']))
     self.assertTrue((root / '_bin' / 'tinyuf2-lpcxpresso55s69.bin').is_file())
 
+  def test_a_build_dir_is_built_into_and_kept_wherever_it_is(self):
+    with tempfile.TemporaryDirectory() as out:
+      self.args.build_dir = Path(out) / 'code-size' / 'build'
+      run, _ = self.fake_make(lambda cmd: LPC55_ARTIFACTS if 'copy-artifact' in cmd else [])
+      with mock.patch.object(cb, 'run', run):
+        rec = cb.build_board('lpcxpresso55s69', 'make', self.args, {})
+      self.assertEqual((rec['status'], rec['buildDir']), ('ok', str(self.args.build_dir)), rec)
+      self.assertNotIn('removed', rec)
+      self.assertTrue((self.args.build_dir / '_bin' / 'tinyuf2-lpcxpresso55s69.bin').is_file())
+    self.assertFalse(list(self.build_dir.iterdir()))
+
+  def test_a_variant_is_a_shared_root_of_its_own_beside_the_plain_one(self):
+    self.args.shared, self.args.variant = True, 'update'
+    run, _ = self.fake_make(lambda cmd: LPC55_ARTIFACTS if 'copy-artifact' in cmd else [])
+    with mock.patch.object(cb, 'run', run):
+      rec = cb.build_board('lpcxpresso55s69', 'make', self.args, {})
+    root = self.build_dir / 'cmake-build-lpcxpresso55s69-make-variant-update'
+    self.assertEqual((rec['status'], rec['variant'], rec['buildDir']), ('ok', 'update', str(root.relative_to(cb.ROOT))))
+    self.assertTrue((root / '_bin').is_dir())
+    self.assertFalse((self.build_dir / 'cmake-build-lpcxpresso55s69-make').exists())
+
   def test_an_idf_build_hashes_its_flash_config_and_needs_it(self):
     self.args.shared = True
     root = self.build_dir / 'cmake-build-espressif_esp32s3_devkitc_1'
@@ -777,6 +932,46 @@ class BuildBoard(unittest.TestCase):
     self.assertEqual((rec['status'], rec['firstError']), ('error', 'lib/mcu/nxp/mcux-sdk missing'))
 
 
+class CompileFacts(unittest.TestCase):
+  """board_facts.o replays the tinyuf2 target's src/main.c compile, its flags and defines exactly."""
+
+  def setUp(self):
+    tmp = build_tmpdir()
+    self.addCleanup(tmp.cleanup)
+    self.root = Path(tmp.name)
+    self.log = self.root / 'log'
+    self.log.write_text('')
+
+  def commands(self, *entries):
+    (self.root / 'compile_commands.json').write_text(json.dumps([
+      {'directory': str(self.root), 'file': str(ROOT / f), 'output': out, 'command': cmd} for f, out, cmd in entries]))
+
+  def test_the_compile_drops_lto_and_dependency_output_and_swaps_source_and_object(self):
+    obj = 'CMakeFiles/tinyuf2.dir/src/main.c.obj'
+    self.commands(('src/main.c', obj, f'gcc -DB="x y" -I/inc -flto -MD -MT {obj} -MF{obj}.d -o {obj} -c {ROOT}/src/main.c'),
+                  ('src/main.c', 'apps/blinky.dir/main.c.obj', 'gcc -DAPP -c src/main.c'))
+    ran = []
+    with mock.patch.object(cb, 'run', lambda cmd, log, verbose, cwd: ran.append((cmd, cwd)) or 0):
+      self.assertEqual(cb.compile_facts(self.root, self.log, False), '')
+    self.assertEqual(ran, [(['gcc', '-DB=x y', '-I/inc', '-flto', '-o', str(self.root / 'board_facts.o'), '-c',
+                             str(cb.FACTS_SOURCE), '-fno-lto'], str(self.root))])
+
+  def test_no_single_tinyuf2_main_c_command_or_a_failed_compile_fails(self):
+    self.assertIn('compile_commands.json', cb.compile_facts(self.root, self.log, False))
+    self.commands(('src/ghostfat.c', 'CMakeFiles/tinyuf2.dir/g.obj', 'gcc -c g.c'))
+    self.assertIn('found 0', cb.compile_facts(self.root, self.log, False))
+    self.commands(('src/main.c', 'CMakeFiles/tinyuf2.dir/m.obj', f'gcc -o m.obj -c {ROOT}/src/main.c'))
+    self.log.write_text('board_facts.c:9:1: error: initializer element is not constant\n')
+    with mock.patch.object(cb, 'run', lambda *a, **k: 1):
+      self.assertIn('initializer element is not constant', cb.compile_facts(self.root, self.log, False))
+
+  def test_a_preprocessor_dependency_option_is_refused_rather_than_split(self):
+    self.commands(('src/main.c', 'CMakeFiles/tinyuf2.dir/m.obj',
+                   f'gcc -Wp,-MD,m.d,-DHIL_VALUE=7 -o m.obj -c {ROOT}/src/main.c'))
+    with mock.patch.object(cb, 'run', lambda *a, **k: self.fail('compiled')):
+      self.assertIn("would write the build's own dependency file", cb.compile_facts(self.root, self.log, False))
+
+
 class HilRecord(unittest.TestCase):
   """A HIL record binds the build's own flash target to the roster's probe or bridge."""
 
@@ -789,7 +984,10 @@ class HilRecord(unittest.TestCase):
       {'name': 'metro_m7_1011', 'uid': 'U', 'flasher': {'name': 'jlink', 'uid': '000801012283', 'args': '-device MIMXRT1011DAE5A'}},
       {'name': 'espressif_esp32s3_devkitc_1', 'uid': 'M', 'flasher': {'name': 'esptool', 'uid': 'b1', 'args': '--chip esp32s3'}},
       {'name': 'stm32h563_nucleo', 'uid': 'S', 'flasher': {'name': 'stlink', 'uid': '0023ab', 'args': '-device stm32h563zi'}},
-      {'name': 'lpcxpresso55s69', 'uid': 'L', 'flasher': {'name': 'openocd', 'uid': 'x', 'args': '-f a.cfg'}}]}))
+      {'name': 'lpcxpresso55s69', 'uid': 'L', 'flasher': {'name': 'openocd', 'uid': 'x', 'args': '-f a.cfg'}},
+      {'name': 'max32666fthr', 'uid': 'X', 'flasher': {'name': 'openocd', 'uid': 'E6614C311B597D32', 'vid_pid': '0x2e8a 0x000c',
+                                                       'args': '-f interface/cmsis-dap.cfg -f target/max32665.cfg'}},
+      {'name': 'frdm_k32l2b', 'uid': 'K', 'flasher': {'name': 'pyocd', 'uid': 'p', 'args': '-t k32l2b3'}}]}))
     self.config = str(self.roster.relative_to(ROOT))
 
   def jlink_tree(self, root, script=None, options='-USB 000801012283 -ExitOnError 1 -NoGui 1', interface='swd'):
@@ -804,14 +1002,24 @@ class HilRecord(unittest.TestCase):
     line = f'cd {root} && /home/u/bin/STM32_Programmer_CLI --connect {connect} --write {image or root / "tinyuf2.hex"} {go}'
     return lambda d, args: subprocess.CompletedProcess(args, 0, f'arm-none-eabi-gcc ...\n{line}\n', '')
 
-  def idf_tree(self, root, chip='esp32s3', extra='', args_file='flash_args'):
+  def openocd_tree(self, root, options='-c "adapter serial E6614C311B597D32" -c "adapter usb vid_pid 0x2e8a 0x000c"',
+                   cfgs='-f interface/cmsis-dap.cfg -f target/max32665.cfg', image=None, tool='openocd', extra=''):
     root.mkdir(parents=True, exist_ok=True)
+    line = (f'cd {root} && {tool} -c "tcl_port disabled; gdb_port disabled" {options} {cfgs} '
+            f'-c "init; halt; program {image or root / "tinyuf2.hex"}" -c reset {extra}-c exit')
+    return lambda d, args: subprocess.CompletedProcess(args, 0, f'arm-none-eabi-gcc ...\n{line}\n', '')
+
+  def idf_tree(self, root, chip='esp32s3', extra='', args_file='flash_args', no_stub=False, stub_config=None):
+    root.mkdir(parents=True, exist_ok=True)
+    if stub_config is not None:
+      (root / 'sdkconfig').write_text(f'CONFIG_IDF_TARGET="{chip}"\n{stub_config}\n')
     (root / 'flash_args').write_text('--flash-mode dio --flash-freq 80m --flash-size 8MB\n0x0 bootloader/bootloader.bin\n'
                                      '0x410000 tinyuf2.bin\n0x8000 partition_table/partition-table.bin\n'
                                      f'0xe000 ota_data_initial.bin\n{extra}')
     line = (f'cd /opt/esp/idf/components/esptool_py && cmake -D IDF_PATH=/opt/esp/idf '
             f'-D "SERIAL_TOOL=/opt/esp/python_env/idf6.1_py3.12_env/bin/python;-m;esptool;--chip;{chip}" '
-            f'-D "SERIAL_TOOL_ARGS=--before=default-reset;--after=hard-reset;write-flash;@{args_file}" '
+            f'-D "SERIAL_TOOL_ARGS=--before=default-reset;--after=hard-reset;{"--no-stub;" if no_stub else ""}'
+            f'write-flash;@{args_file}" '
             f'-D SERIAL_TOOL_IS_WRITE_FLASH=1 -D SERIAL_TOOL_FLASH_ARGS_FILE={args_file} '
             f'-D WORKING_DIRECTORY={root} -P /opt/esp/idf/components/esptool_py/run_serial_tool.cmake')
     return lambda d, args: subprocess.CompletedProcess(args, 0, line + '\n', '')
@@ -824,15 +1032,46 @@ class HilRecord(unittest.TestCase):
                      ({'name': 'stlink', 'uid': '0023ab', 'device': 'stm32h563zi'}, ['STLINK_SERIAL=0023ab']))
     self.assertEqual(cb.roster_flasher(self.config, 'espressif_esp32s3_devkitc_1'),
                      ({'name': 'esptool', 'uid': 'b1', 'device': 'esp32s3'}, []))   # the tty is chosen at flash time
-    for board, err in (('lpcxpresso55s69', 'no HIL flash target'), ('imxrt1060_evk', 'not on')):
+    # the openocd on PATH, the provider's, and the probe by serial and USB ID
+    self.assertEqual(cb.roster_flasher(self.config, 'max32666fthr'),
+                     ({'name': 'openocd', 'uid': 'E6614C311B597D32', 'device': 'max32665', 'vid_pid': '0x2e8a 0x000c'},
+                      ['OPENOCD=openocd', 'OPENOCD_SERIAL=E6614C311B597D32', 'OPENOCD_VID_PID=0x2e8a 0x000c']))
+    for board, err in (('lpcxpresso55s69', 'not the roster form'), ('frdm_k32l2b', 'no HIL flash target'),
+                       ('imxrt1060_evk', 'not on')):
       with self.subTest(board), self.assertRaisesRegex(cb.Fail, err):
         cb.roster_flasher(self.config, board)
+    entry = json.loads(self.roster.read_text())['boards'][4]
+    for vid_pid in (None, '0x2e8a', '0x2e8a 0x000c 0x1366 0x0101', '2e8a 000c', '0x2e8a\t0x000c', '0x2e8a 0x000c;x'):
+      fl = {k: v for k, v in entry['flasher'].items() if k != 'vid_pid'}
+      self.roster.write_text(json.dumps({'boards': [dict(entry, flasher=dict(fl, **({'vid_pid': vid_pid} if vid_pid else {})))]}))
+      with self.subTest(vid_pid=vid_pid), self.assertRaisesRegex(cb.Fail, 'needs its probe'):
+        cb.roster_flasher(self.config, 'max32666fthr')
+
+  def test_an_esptool_flasher_may_name_the_chips_usj_by_its_mac_form_serial(self):
+    usj = '30:ED:A0:F4:0A:94'
+    self.roster.write_text(json.dumps({'boards': [{'name': 'espressif_esp32s31_func_core', 'uid': '30EDA0F40A94',
+                                                   'flasher': {'name': 'esptool', 'uid': usj, 'args': '--chip esp32s31'}}]}))
+    self.assertEqual(cb.roster_flasher(self.config, 'espressif_esp32s31_func_core'),
+                     ({'name': 'esptool', 'uid': usj, 'device': 'esp32s31'}, []))
+    with tempfile.TemporaryDirectory() as d:
+      cfg = Path(d) / 'r.json'
+      for flasher in ({'name': 'esptool', 'uid': usj.lower(), 'args': '--chip esp32s3'},
+                      {'name': 'esptool', 'uid': usj + ':00', 'args': '--chip esp32s3'},
+                      {'name': 'jlink', 'uid': usj, 'args': '-device MIMXRT1011DAE5A'}):
+        cfg.write_text(json.dumps({'boards': [{'name': 'b', 'flasher': flasher}]}))
+        with self.subTest(flasher), self.assertRaisesRegex(cb.Fail, 'not the roster form'):
+          cb.roster_flasher(str(cfg), 'b')
 
   def test_a_route_binds_the_esptool_bindings_segments(self):
     p4 = 'espressif_p4_function_ev'
     route = {'name': 'openocd_esp', 'uid': '30:ED:A0:E0:C9:02', 'device': 'esp32p4'}
-    self.assertEqual(cb.roster_routes('test/hil/local.json', p4), [route])
-    self.assertEqual(cb.roster_routes('test/hil/local.json', 'metro_m7_1011'), [])
+    self.roster.write_text(json.dumps({'boards': [
+      {'name': p4, 'uid': 'M', 'flasher': {'name': 'esptool', 'uid': 'b', 'args': '--chip esp32p4'},
+       'tinyuf2': {'routes': [{'flasher': {'name': 'openocd_esp', 'uid': '30:ED:A0:E0:C9:02',
+                                           'args': '-f board/esp32p4-builtin.cfg'}}]}},
+      {'name': 'metro_m7_1011', 'uid': 'U', 'flasher': {'name': 'jlink', 'uid': '1', 'args': '-device MIMXRT1011DAE5A'}}]}))
+    self.assertEqual(cb.roster_routes(self.config, p4), [route])
+    self.assertEqual(cb.roster_routes(self.config, 'metro_m7_1011'), [])
     inputs = list(cb.FLASH['esptool'][1])
     rec = {'board': p4, 'flash': {'flasher': {'name': 'esptool', 'uid': 'b', 'device': 'esp32p4'}, 'inputs': inputs}}
     self.assertEqual(cb.flash_routes(rec, [route]), {'openocd_esp': {'flasher': route, 'inputs': inputs}})
@@ -1015,6 +1254,31 @@ class HilRecord(unittest.TestCase):
       with self.subTest(what), self.assertRaisesRegex(cb.Fail, 'does not flash'):
         cb.flash_binding(flasher, root, self.stlink_tree(root, **tree))
 
+  def test_the_generated_openocd_target_must_name_the_roster_probe_cfgs_and_the_build_hex(self):
+    flasher = {'name': 'openocd', 'uid': 'E6614C311B597D32', 'device': 'max32665', 'vid_pid': '0x2e8a 0x000c'}
+    root = self.tmp / 'o'
+    out = cb.flash_binding(flasher, root, self.openocd_tree(root))
+    self.assertEqual((out['target'], out['inputs']), ('tinyuf2-openocd', ['tinyuf2.hex']))
+    serial, pin = '-c "adapter serial E6614C311B597D32"', '-c "adapter usb vid_pid 0x2e8a 0x000c"'
+    for what, tree in (('no probe serial', dict(options=pin)),
+                       ('another probe', dict(options='-c "adapter serial 1" ' + pin)),
+                       ('no USB ID', dict(options=serial)),
+                       ('another USB ID', dict(options=serial + ' -c "adapter usb vid_pid 0x1366 0x0101"')),
+                       ('another target', dict(cfgs='-f interface/cmsis-dap.cfg -f target/max32690.cfg')),
+                       ('another interface', dict(cfgs='-f interface/jlink.cfg -f target/max32665.cfg')),
+                       ('the ELF', dict(image=root / 'tinyuf2.elf')),
+                       ('another image', dict(image=self.tmp / 'other.hex')),
+                       ('the ADI fork', dict(tool='/home/u/app/openocd_adi/src/openocd')),
+                       ('a script dir', dict(extra='-s /home/u/app/openocd_adi/tcl ')),
+                       ('a second program', dict(extra=f'-c "program {self.tmp / "o.hex"}" '))):
+      with self.subTest(what), self.assertRaisesRegex(cb.Fail, 'does not flash'):
+        cb.flash_binding(flasher, root, self.openocd_tree(root, **tree))
+    # a checkout whose path names openocd: only the command that runs it is the target's
+    noisy = self.openocd_tree(root)
+    query = lambda d, args: subprocess.CompletedProcess(   # noqa: E731
+      args, 0, f'cd /w/hil--openocd-session/b && /usr/bin/cc -c /w/hil--openocd-session/x.c\n{noisy(d, args).stdout}', '')
+    self.assertEqual(cb.flash_binding(flasher, root, query)['command'], noisy(root, []).stdout.splitlines()[1])
+
   def test_the_idf_flash_target_must_write_flash_args_for_the_roster_chip(self):
     flasher = {'name': 'esptool', 'uid': 'b1', 'device': 'esp32s3'}
     root = self.tmp / 'e'
@@ -1027,8 +1291,23 @@ class HilRecord(unittest.TestCase):
       with self.subTest(what), self.assertRaisesRegex(cb.Fail, 'does not flash'):
         cb.flash_binding(flasher, root, self.idf_tree(root, **tree))
 
+  def test_the_idf_flash_target_runs_no_stub_only_where_the_build_disables_it(self):
+    flasher = {'name': 'esptool', 'uid': '30:ED:A0:F4:0A:94', 'device': 'esp32s31'}
+    for i, (config, no_stub, ok) in enumerate((('CONFIG_ESPTOOLPY_NO_STUB=y', True, True),
+                                               ('# CONFIG_ESPTOOLPY_NO_STUB is not set', False, True),
+                                               ('CONFIG_ESPTOOLPY_NO_STUB=y', False, False),
+                                               ('# CONFIG_ESPTOOLPY_NO_STUB is not set', True, False))):
+      root = self.tmp / f's31-{i}'
+      tree = self.idf_tree(root, chip='esp32s31', no_stub=no_stub, stub_config=config)
+      with self.subTest(config=config, no_stub=no_stub):
+        if ok:
+          self.assertEqual(cb.flash_binding(flasher, root, tree)['flasher'], flasher)
+        else:
+          with self.assertRaisesRegex(cb.Fail, 'does not flash'):
+            cb.flash_binding(flasher, root, tree)
+
   def test_a_hil_record_pins_the_target_inputs_and_holds_the_build_lock(self):
-    args = mock.Mock(shared=True, define=[], verbose=False, idf='docker')
+    args = mock.Mock(shared=True, define=[], verbose=False, idf='docker', variant=None, build_dir=None)
     built = []
 
     def fake_cmake(port, board, root, defines, log, verbose):
@@ -1036,25 +1315,33 @@ class HilRecord(unittest.TestCase):
       lock = root.with_name(root.name + '.lock')
       with open(lock) as f, self.assertRaises(BlockingIOError):   # held while the build runs
         cb.fcntl.flock(f, cb.fcntl.LOCK_EX | cb.fcntl.LOCK_NB)
-      for rel in ('_bin/tinyuf2.bin', '_bin/tinyuf2.hex', '_bin/apps/blinky.uf2', 'tinyuf2.hex'):
+      for rel in ('_bin/tinyuf2.bin', '_bin/tinyuf2.hex', '_bin/apps/blinky.uf2', 'tinyuf2.hex',
+                  *(f for f in cb.FACTS_FILES if f != 'board_facts.o')):
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text(rel)
       return True, []
+
+    def fake_facts(root, log, verbose):
+      (root / 'board_facts.o').write_text('o')
+      return ''
     build_dir = self.tmp / 'cmake-build'   # absent: the first shared build creates it before its lock
     with mock.patch.object(cb, 'BUILD_DIR', build_dir), mock.patch.object(cb, 'check_deps', lambda p: None), \
          mock.patch.object(cb, 'check_tools', lambda *a: None), mock.patch.object(cb, 'build_cmake', fake_cmake), \
-         mock.patch.object(cb, 'expected_artifacts', lambda *a: []), \
+         mock.patch.object(cb, 'expected_artifacts', lambda *a: []), mock.patch.object(cb, 'compile_facts', fake_facts), \
          mock.patch.object(cb, 'ninja_in', lambda backend, mode, image, root, args: self.jlink_tree(root)(root, args)):
       rec = cb.build_board('metro_m7_1011', 'cmake', args, {}, cb.roster_flasher(self.config, 'metro_m7_1011'))
     self.assertEqual(rec['status'], 'ok', rec)
     self.assertEqual(built, [['JLINK_OPTION=-USB 000801012283 -ExitOnError 1 -NoGui 1']])
     self.assertIn('tinyuf2.hex', rec['sha256'])
     self.assertIn('tinyuf2.jlink', rec['sha256'])
+    self.assertLessEqual(set(cb.FACTS_FILES), set(rec['sha256']))   # what the runner reads the board facts from
     self.assertEqual(rec['flash']['defines'], ['JLINK_OPTION=-USB 000801012283 -ExitOnError 1 -NoGui 1'])
 
   def test_a_hil_record_takes_probe_selection_only_from_the_roster(self):
     for argv in (['--board', 'metro_m7_1011', '--shared', '--hil-config', self.config, '-D', 'JLINK_OPTION=-USB 1'],
                  ['--board', 'metro_m7_1011', '--shared', '--hil-config', self.config, '-D', 'ESPPORT:STRING=/dev/x'],
+                 ['--board', 'max32666fthr', '--shared', '--hil-config', self.config, '-D', 'OPENOCD=/opt/openocd'],
+                 ['--board', 'max32666fthr', '--shared', '--hil-config', self.config, '-D', 'OPENOCD_VID_PID=0x1 0x2'],
                  ['--board', 'metro_m7_1011', '--hil-config', self.config]):
       with self.subTest(argv), contextlib.redirect_stdout(io.StringIO()) as out, self.assertRaises(SystemExit) as e:
         cb.main(argv)

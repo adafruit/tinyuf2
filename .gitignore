@@ -14,3 +14,4 @@ lib/sct_neopixel
 __pycache__/
 *.pyc
 .hil-remote/
+/test/hil/local.json

@@ -9,6 +9,7 @@ import json
 import os
 import re
 import signal
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -233,7 +234,7 @@ class Stubbed(unittest.TestCase):
     self.assertEqual((r['verdict'], r['reportError']), ('pass', ok['report']['reportError']))
 
   def meta(self, termination='completed'):
-    core = run_report.load(hil_ci.REPORT_CORE)
+    core = run_report.load_agentrc(hil_ci.REPORT_CORE)
     return core.make_meta(run_report.schema(core), core.Attempt('run-1', None, None, None, None), termination=termination,
                           invocation=['hil_test.py', 'run'], selection=[BOARD], host='h', roster={'path': 'ci.json'})
 
@@ -257,7 +258,7 @@ class Stubbed(unittest.TestCase):
 
   def test_the_report_pair_is_prepared_before_the_upload_and_never_left_stale(self):
     passed = {'ran': True, 'pass': True, 'cleanup': {'pass': True, 'state': 'blinky copied'}}
-    core = run_report.load(hil_ci.REPORT_CORE)
+    core = run_report.load_agentrc(hil_ci.REPORT_CORE)
     for what, battery, md_starts, shared in (
         ('the Markdown never replaced', {'row': passed, 'meta': self.meta()}, 'HIL run: pass\n', 'pass'),
         ('an earlier Markdown left', {'row': passed, 'meta': self.meta(), 'md': 'HIL run: fail\n'}, 'HIL run: pass\n',
@@ -279,17 +280,16 @@ class Stubbed(unittest.TestCase):
     self.assertEqual(hil_ci.prepare(0, self.tmp / 'nowhere', BOARD)['sharedVerdict'], 'blocker')
 
   def test_a_failed_preparation_withholds_the_runs_markdown_and_keeps_the_native_outcome(self):
-    core = run_report.load(hil_ci.REPORT_CORE)
-    self.assertEqual(hil_ci.NOTICE, core.NOTICE)
-    broken = run_report.load(hil_ci.REPORT_CORE)   # a module of its own, so the patch stays here
+    core = run_report.load_agentrc(hil_ci.REPORT_CORE)
+    notice = run_report.load_agentrc(hil_ci.REPORT_NOTICE, 'tinyuf2_hil_report_notice')
+    self.assertEqual(notice.NOTICE, core.NOTICE)
 
     def boom(*a):
       raise OSError(5, 'Input/output error')
-    broken.prepare_pair = boom
     ok = {'row': {'ran': True, 'pass': True, 'cleanup': {'pass': True, 'state': 'blinky copied'}}, 'md': 'HIL run: pass\n'}
     for what, failure, err in (
         ('the core does not load', mock.patch.object(hil_ci, 'REPORT_CORE', self.tmp / 'missing.py'), 'missing.py'),
-        ('the preparation raises', mock.patch.object(hil_ci.run_report, 'load', lambda p: broken), 'Input/output')):
+        ('the preparation raises', mock.patch.object(core, 'prepare_pair', boom), 'Input/output')):
       with self.subTest(what):
         out = self.state / what.replace(' ', '-')
         with failure:
@@ -298,9 +298,10 @@ class Stubbed(unittest.TestCase):
         self.assertEqual((r['verdict'], r['sharedVerdict']), ('pass', 'blocker'))
         self.assertIn('report not prepared', r['sharedDetail'])
         self.assertIn(err, r['sharedDetail'])
+        self.assertNotIn('unsafeArtifacts', r)
         self.assertTrue((out / f'{BOARD}.done').exists())
         md = (out / BOARD / 'run-1' / 'hil_report.md').read_text(encoding='utf-8')
-        head, _, kept = md.partition('_Legacy text:')
+        head, _, kept = md.partition('_Legacy text')
         self.assertTrue(head.startswith(core.NOTICE) and 'HIL run: pass' not in head, md)   # the pass view, unchecked,
         self.assertIn('HIL run: pass', kept)                                                # only as labelled text
 
@@ -319,21 +320,17 @@ class Stubbed(unittest.TestCase):
     r = self.rows()[0]
     self.assertEqual((r['verdict'], r['sharedVerdict']), ('pass', 'blocker'))
     self.assertIn('report not prepared: Fail: lib/agentrc checkout is dirty', r['sharedDetail'])
-    md = (self.out / BOARD / 'run-1' / 'hil_report.md').read_text(encoding='utf-8')
-    self.assertTrue(md.startswith(hil_ci.NOTICE), md)
+    md = self.out / BOARD / 'run-1' / 'hil_report.md'   # no notice writer runs either: the view is never uploaded
+    self.assertEqual((md.read_text(encoding='utf-8'), r['unsafeArtifacts']), ('HIL run: pass\n', [str(md)]))
 
-  def test_a_view_that_can_be_neither_replaced_nor_removed_is_named_unsafe_for_the_upload(self):
+  def test_a_view_that_cannot_be_replaced_is_named_unsafe_for_the_upload(self):
     ok = {'row': {'ran': True, 'pass': True, 'cleanup': {'pass': True, 'state': 'blinky copied'}}, 'md': 'HIL run: pass\n'}
-    write_text, unlink = Path.write_text, Path.unlink
+    notice = run_report.load_agentrc(hil_ci.REPORT_NOTICE, 'tinyuf2_hil_report_notice')
 
-    def denied(real):
-      def op(path, *a, **k):
-        if path.name in ('hil_report.md', '.hil_report.md.withheld'):   # a run dir turned read-only
-          raise PermissionError(13, 'Permission denied', str(path))
-        return real(path, *a, **k)
-      return op
+    def denied(md, head):   # a run dir turned read-only
+      raise PermissionError(13, 'Permission denied', str(md))
     with mock.patch.object(hil_ci, 'REPORT_CORE', self.tmp / 'missing.py'), \
-         mock.patch.object(Path, 'write_text', denied(write_text)), mock.patch.object(Path, 'unlink', denied(unlink)):
+         mock.patch.object(notice, '_write_notice', denied):
       self.assertEqual(self.main('--board', BOARD, battery=ok), 0)   # the battery's exit and markers stand
     md = self.out / BOARD / 'run-1' / 'hil_report.md'
     self.assertEqual(md.read_text(), 'HIL run: pass\n')
@@ -351,10 +348,11 @@ class Stubbed(unittest.TestCase):
     md.write_text('HIL run: pass\n')
     with open(where / 'run-1' / '.hil_report.lock', 'w') as lock:
       fcntl.flock(lock, fcntl.LOCK_EX)   # the core's writer, mid-publication
-      self.assertEqual(hil_ci.withhold(where, 'why'), [str(md)])
+      self.assertEqual(hil_ci.withhold(where, 'why', True), [str(md)])
     self.assertEqual(md.read_text(), 'HIL run: pass\n')
-    self.assertEqual(hil_ci.withhold(where, 'why'), [])   # once it let go
-    self.assertTrue(md.read_text().startswith(hil_ci.NOTICE))
+    self.assertEqual(hil_ci.withhold(where, 'why', True), [])   # once it let go
+    self.assertTrue(md.read_text().startswith(run_report.load_agentrc(hil_ci.REPORT_CORE).NOTICE))
+    self.assertEqual(hil_ci.withhold(where, 'why', False), [str(md)])   # no pin proven: no notice writer runs
 
   def upload_step(self, out):
     """The workflow's decision step run as the runner runs it: the exclusion it hands the upload."""
@@ -449,6 +447,59 @@ class Stubbed(unittest.TestCase):
     self.assertIn('boom', r['detail'])
     self.assertFalse((self.out / f'{BOARD}.started').exists())
 
+  def clock(self, *ticks):
+    """hil_ci's monotonic clock reading `ticks` in turn: main's loop start, the build's start and end, the battery's
+    start and end, main's loop end."""
+    return mock.patch.object(hil_ci, 'time', mock.Mock(time=time.time, monotonic=mock.Mock(side_effect=ticks)))
+
+  def test_a_battery_row_carries_its_steps_cleanup_and_timing_and_the_summary_its_elapsed_time(self):
+    failed = {'row': {'ran': True, 'pass': False, 'steps': [{'step': 'install', 'pass': True},
+                                                            {'step': 'dfu', 'pass': False, 'detail': 'not seen'}],
+                      'cleanup': {'pass': True, 'state': 'blinky copied'}}}
+    with self.clock(0, 10, 59.6, 100, 222.4, 1000):
+      self.assertEqual(self.main('--board', BOARD, battery=failed), 1)
+    r = self.rows()[0]
+    self.assertEqual((r['steps'], r['cleanupPass'], r['buildS'], r['runS']),
+                     ({'install': True, 'dfu': False}, True, 50, 122))
+    self.assertEqual(json.loads((self.out / 'summary.json').read_text())['elapsedS'], 1000)
+    self.assertFalse(r['espressif'])
+    self.assertEqual(self.commands[-1][self.commands[-1].index('--backend') + 1], 'cmake')
+    (self.tmp / 'ports' / 'espressif' / 'boards' / BOARD).mkdir(parents=True)   # the port decides, not the flasher
+    self.assertEqual(self.main('--board', BOARD, battery=failed, out=self.state / 'esp'), 1)
+    self.assertTrue(self.rows(self.state / 'esp')[0]['espressif'])
+    self.assertNotIn('--backend', self.commands[-1], 'an Espressif board builds with ESP-IDF in docker')
+    out = self.state / 'no-cleanup'
+    locked = {'row': {'ran': False, 'locked': True, 'recoveryBlocker': False, 'detail': 'board locked: pid 7'}}
+    self.assertEqual(self.main('--board', BOARD, battery=locked, out=out), 1)
+    r = self.rows(out)[0]
+    self.assertEqual((r['steps'], r['cleanupPass'], type(r['runS'])), ({}, None, int))
+
+  def test_an_untouched_board_has_no_cleanup_result(self):
+    untouched = {'row': {'ran': True, 'pass': False, 'steps': [{'step': 'install', 'pass': False, 'detail': 'x'}],
+                         'cleanup': {'pass': True, 'state': 'untouched'}}}
+    self.assertEqual(self.main('--board', BOARD, battery=untouched), 1)
+    r = self.rows()[0]
+    self.assertEqual((r['verdict'], r['steps'], r['cleanupPass']), ('not-run', {'install': False}, None))
+
+  def test_a_report_without_the_boards_row_gives_no_steps_or_cleanup(self):
+    no_row = {'row': {'ran': True, 'pass': True}, 'report': {'results': []}}
+    self.assertEqual(self.main('--board', BOARD, battery=no_row), 2)
+    r = self.rows()[0]
+    self.assertEqual((r['verdict'], 'steps' in r, 'cleanupPass' in r, type(r['runS'])), ('blocker', False, False, int))
+
+  def test_a_failed_build_has_its_build_time_only_and_a_preflight_blocker_neither(self):
+    self.build_ok = False
+    with self.clock(0, 10, 13.2, 20):
+      self.assertEqual(self.main('--board', BOARD), 1)
+    r = self.rows()[0]
+    self.assertEqual((r['buildS'], 'runS' in r, 'steps' in r), (3, False, False))
+    (self.out / f'{BOARD}.started').touch()   # an earlier run that never finished
+    later = self.state / 'run-2'
+    self.assertEqual(self.main('--board', BOARD, out=later), 2)
+    r = self.rows(later)[0]
+    self.assertEqual((r['phase'], 'buildS' in r, 'runS' in r), ('preflight', False, False))
+    self.assertIsInstance(json.loads((later / 'summary.json').read_text())['elapsedS'], int)
+
   def test_a_board_outside_the_roster_and_a_bad_step_are_usage_errors(self):
     with self.assertRaises(SystemExit), mock.patch.object(sys, 'stderr', io.StringIO()):
       self.main('--board', BOARD, 'frdm_k64f')
@@ -507,6 +558,77 @@ class Stubbed(unittest.TestCase):
     hil_ci.prune(self.state, keep=self.out)
     self.assertEqual(sorted(p.name for p in self.state.iterdir()), ['run-new-held', 'run-old-held'])
 
+  def test_with_hosted_an_espressif_board_runs_only_from_an_admitted_build(self):
+    import hil_hosted
+    ok = {'row': {'ran': True, 'pass': True, 'cleanup': {'pass': True, 'state': 'blinky copied'}}}
+    admitted = []
+
+    def admit(artifact, board, roster, out):
+      admitted.append((artifact, board, roster))
+      if 'refuse' in str(artifact):
+        raise hil_hosted.ht.Refused('built against roster x')
+      record = out / f'{board}.build.json'
+      record.write_text('{}')
+      return record
+    with mock.patch.object(hil_ci, 'espressif', lambda b: True), mock.patch.object(hil_hosted, 'admit', admit):
+      for what, argv, verdict, detail in (
+          ('a refused artifact', ['--hosted', str(self.tmp / 'refuse')], 'not-run',
+           'hosted build refused: built against roster x'),
+          ('an admitted artifact', ['--hosted', str(self.tmp / 'hosted')], 'pass', '')):
+        with self.subTest(what):
+          out = self.state / what.replace(' ', '-')
+          self.assertEqual(self.main('--board', BOARD, *argv, battery=ok, out=out), 0 if verdict == 'pass' else 1)
+          r = self.rows(out)[0]
+          self.assertEqual((r['verdict'], r['detail']), (verdict, detail))
+          self.assertEqual((out / BOARD).exists(), verdict == 'pass', 'a battery only from an admitted record')
+    self.assertEqual(self.commands, [], 'the rig built nothing')
+    self.assertEqual(admitted, [(self.tmp / 'refuse' / BOARD, BOARD, 'ci.json'), (self.tmp / 'hosted' / BOARD, BOARD, 'ci.json')])
+
+  def test_the_plan_runs_commissioned_boards_and_builds_espressif_ones_on_a_hosted_runner(self):
+    self.roster.write_text(json.dumps({'boards': [
+      {'name': 'jlink_ok', 'tinyuf2': {'reentry': 'retained-register'}}, {'name': 'esp_ok', 'tinyuf2': {'reentry': 'dfu-detach'}},
+      {'name': 'esp_pending', 'tinyuf2': {'lock': 'x'}}, {'name': 'jlink_pending'}]}))
+    boards = ['esp_ok', 'esp_pending', 'jlink_ok', 'jlink_pending']
+    with mock.patch.object(hil_ci, 'espressif', lambda b: b.startswith('esp')):
+      self.assertEqual(hil_ci.split('ci.json', boards), (['esp_ok', 'jlink_ok'], ['esp_ok'], ['esp_pending', 'jlink_pending']))
+      # a dispatch also builds a pending Espressif board, for its commissioning to admit by hand
+      self.assertEqual(hil_ci.split('ci.json', boards, build_pending=True)[1], ['esp_ok', 'esp_pending'])
+    with mock.patch.object(hil_ci, 'ROOT', ROOT):
+      self.assertEqual((hil_ci.espressif('espressif_esp32s3_devkitm_1'), hil_ci.espressif('imxrt1064_evk')), (True, False))
+
+  def test_the_workflow_selection_step_hands_the_rig_and_the_hosted_build_their_boards(self):
+    """The select step's script run on a dispatch as the runner runs it, in a checkout whose roster is this one's with
+    an Espressif board pending commissioning."""
+    text = (ROOT / '.github' / 'workflows' / 'hil.yml').read_text()
+    body = re.search(r"\n          python3 - <<'EOF' \| tee -a \"\$GITHUB_STEP_SUMMARY\"\n((?:          .*\n)+?)          EOF\n",
+                     text).group(1)
+    entries = json.loads((ROOT / 'test' / 'hil' / 'ci.json').read_text())['boards']
+    esp = next(b for b in entries if (ROOT / 'ports' / 'espressif' / 'boards' / b['name']).is_dir())
+    del esp['tinyuf2']['reentry']
+    work = self.tmp / 'work'   # the step writes hil-selection.json into its cwd, and hil_ci reads the roster under ROOT
+    scripts = work / '.claude' / 'skills' / 'hil-contract' / 'scripts'
+    shutil.copytree(ROOT / '.claude' / 'skills' / 'hil-contract' / 'scripts', scripts)
+    for d in ('ports', 'lib'):
+      (work / d).symlink_to(ROOT / d)
+    (work / 'test' / 'hil').mkdir(parents=True)
+    (work / 'test' / 'hil' / 'ci.json').write_text(json.dumps({'boards': entries}))
+    output, summary = self.tmp / 'github-output', self.tmp / 'summary'
+    output.write_text('')
+    roster = [b['name'] for b in entries]
+    r = subprocess.run([sys.executable, '-'], input=textwrap.dedent(body), cwd=work, capture_output=True, text=True,
+                       env=dict(os.environ, GITHUB_EVENT_NAME='workflow_dispatch', BOARD_INPUT=' '.join(roster),
+                                GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(summary)))
+    self.assertEqual(r.returncode, 0, r.stderr)
+    got = dict(ln.split('=', 1) for ln in output.read_text().splitlines())
+    with mock.patch.object(hil_ci, 'ROOT', work):
+      rig, hosted, pending = hil_ci.split('test/hil/ci.json', sorted(roster), build_pending=True)
+    self.assertEqual(pending, [esp['name']])
+    self.assertIn(esp['name'], hosted, 'a dispatch builds the pending Espressif board')
+    self.assertEqual((got['boards'], got['hosted']), (' '.join(rig), ' '.join(hosted)))
+    self.assertIn(f'`{esp["name"]}`: pending commissioning', r.stdout)
+    selection = json.loads((work / 'hil-selection.json').read_text())
+    self.assertEqual(selection['boards'], rig)
+    self.assertIn(esp['name'], [u['target'] for u in selection['uncovered']])
 
 LPC = 'lpcxpresso55s69'
 LPC_FACTS = {'flashBase': 0, 'binBase': 0, 'appStart': 0x10000, 'flashSize': 0x98000, 'vid': 0x1fc9, 'pid': 0x0094,
@@ -546,7 +668,7 @@ def run(bat, files, version):
 
 
 ht.load_helper = load_helper
-ht.source_facts = lambda board: json.loads(os.environ['HIL_FACTS'])
+ht.record_facts = lambda record, board, workdir: json.loads(os.environ['HIL_FACTS'])
 ht.admit_record = lambda *a: ({}, {'version': 'v'})
 ht.probe_users = lambda board: []
 ht.Battery.run = run
@@ -627,7 +749,7 @@ class RealRunner(unittest.TestCase):
     self.assertEqual(hil_ci.unfinished(self.state, LPC), ['run-1'])
     run_dir, = (self.out / LPC).glob('run-*')   # the dead battery's dir uploads an explicit notice, no view
     self.assertTrue((run_dir / 'hil_report.md').read_text(encoding='utf-8').startswith(
-      run_report.load(hil_ci.REPORT_CORE).NOTICE))
+      run_report.load_agentrc(hil_ci.REPORT_CORE).NOTICE))
     self.assertIn('report missing', row['sharedDetail'])
     rec = self.helper.read_record(LPC)
     self.assertTrue(self.helper.is_recovery_blocker(rec))   # the shared helper's view: every project refuses the board

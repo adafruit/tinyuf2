@@ -59,7 +59,7 @@ MANUAL = ('install', 'restore', 'clear-pending', 'fat-read', 'keep-held', 'keep-
 # hil_test.py's manual, recovery and commissioning options and the overrides a remote run never takes
 REFUSED_FLAGS = ('--under-hold', '--recover-holder', '--recover-takeover', '--report', '--try-reentry', '--route',
                  '--build-record', '--run-root', '--ci-state-root', '--done-marker', '--started-marker',
-                 '--after-reviewed-recovery')
+                 '--after-reviewed-recovery', '--update-record')
 
 core = None   # the provider, loaded by provider() only once check_pin() passed
 
@@ -82,7 +82,7 @@ def load_core():
   path = HERE.parents[3] / AGENTRC / 'skills' / 'hil' / 'scripts' / 'hil_remote_core.py'
   if not path.is_file():
     fail(f'{path} is missing: git submodule update --init {AGENTRC}')
-  return run_report.load(path, 'tinyuf2_hil_remote_core')
+  return run_report.load_agentrc(path, 'tinyuf2_hil_remote_core')
 
 
 def check_pin():
@@ -123,9 +123,6 @@ def select(boards, roster, roster_path):
   unknown = sorted(set(boards) - set(entries))
   if unknown:
     fail(f'not in {roster_path} at HEAD: {unknown}')
-  esp = sorted(b for b in boards if entries[b].get('flasher', {}).get('name') == 'esptool')
-  if esp:
-    fail(f'{esp}: Espressif boards are not run remotely yet (no ESP-IDF image selection on the rig)')
   return sorted(set(boards))
 
 

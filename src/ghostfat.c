@@ -239,6 +239,7 @@ static inline bool is_uf2_block (UF2_Block const *bl) {
   return (bl->magicStart0 == UF2_MAGIC_START0) &&
          (bl->magicStart1 == UF2_MAGIC_START1) &&
          (bl->magicEnd == UF2_MAGIC_END) &&
+         (bl->payloadSize <= sizeof(bl->data)) &&
          (bl->flags & UF2_FLAG_FAMILYID) &&
          !(bl->flags & UF2_FLAG_NOFLASH);
 }

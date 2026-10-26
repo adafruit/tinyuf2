@@ -2,9 +2,12 @@
 """tinyuf2's run report as agentrc's report core (`hil` Reporting) reads and writes it: the body schema, its Markdown
 view of the steps, the native `hil` verdict of a board's row (SKILL.md Results, Verdicts) and its rows normalised for
 the core's shared run rules. The core module is passed in: hil_test.py loads it through its pin check, hil_ci.py by
-load() after the same check (check_build.check_agentrc_pin); verdict() needs no core. Stdlib and portable: hil_remote.py
-imports it on any client."""
+load_agentrc() after the same check (check_build.check_agentrc_pin); verdict() needs no core. Stdlib and portable:
+hil_remote.py imports it on any client."""
+import ast
 import importlib.util
+import sys
+from pathlib import Path
 
 NAME, VERSION, STEM = 'tinyuf2-hil-run', 1, 'hil_report'
 STEP_MARK = {True: '✅', False: '❌'}
@@ -25,7 +28,7 @@ def legacy(raw):
   return raw
 
 
-def _cell(v):
+def cell(v):
   return ' '.join(str(v).splitlines()).replace('|', '\\|')
 
 
@@ -33,16 +36,16 @@ def render(core, body):
   lines = [f'HIL run: {"pass" if body.get("pass") else "fail"}']
   for k in ('error', 'caveat'):
     if body.get(k):
-      lines.append(f'{k.capitalize()}: {_cell(body[k])}')
+      lines.append(f'{k.capitalize()}: {cell(body[k])}')
   for r in body['results']:
-    steps = [[_cell(s.get('step', '?')), STEP_MARK[bool(s.get('pass'))], _cell(s.get('detail', ''))]
+    steps = [[cell(s.get('step', '?')), STEP_MARK[bool(s.get('pass'))], cell(s.get('detail', ''))]
              for s in r.get('steps') or [] if isinstance(s, dict)]
     cleanup = r.get('cleanup')
     if isinstance(cleanup, dict) and cleanup:
-      steps.append(['cleanup', STEP_MARK[bool(cleanup.get('pass'))], _cell(cleanup.get('state', ''))])
-    lines += ['', f'### {_cell(r.get("board", "?"))}', '']
+      steps.append(['cleanup', STEP_MARK[bool(cleanup.get('pass'))], cell(cleanup.get('state', ''))])
+    lines += ['', f'### {cell(r.get("board", "?"))}', '']
     if r.get('detail'):
-      lines += [_cell(r['detail']), '']
+      lines += [cell(r['detail']), '']
     lines.append(core.table(['Step', 'Result', 'Detail'], steps, center={1}) if steps else '_No steps ran._')
   return '\n'.join(lines) + '\n'
 
@@ -98,9 +101,41 @@ def verdict(code, report, board):
   return 'fail', f'{failed["step"]}: {failed.get("detail")}'
 
 
-def load(path, name='agentrc_hil_report_core'):
-  """The module at `path` as `name`, loaded by path, never an installed one: every tinyuf2 script's loader of
-  lib/agentrc code (after its pin check, check_build.check_agentrc_pin) and of check_build.py."""
+AGENTRC = Path(__file__).resolve().parents[4] / 'lib' / 'agentrc'
+HIL_LOAD = 'skills/hil/scripts/hil_load.py'
+
+
+def files_of(path):
+  """The FILES literal an agentrc script exports, the agentrc-relative files it loads or launches by path
+  (transitively), read without running it; () when it exports none."""
+  for node in ast.parse(Path(path).read_text()).body:
+    if isinstance(node, ast.Assign) and [ast.unparse(t) for t in node.targets] == ['FILES']:
+      return tuple(ast.literal_eval(node.value))
+  return ()
+
+
+def load_agentrc(path, name='agentrc_hil_report_core'):
+  """The lib/agentrc script at `path` as `name`, through agentrc's hil_load: the module already loaded from that file
+  under any name, else a new one, never an installed agentrc's. ImportError naming what is missing unless hil_load,
+  the script and every file of its FILES are there. Every tinyuf2 script's loader of lib/agentrc code, after its pin
+  check (check_build.check_agentrc_pin)."""
+  try:
+    needs = files_of(path)
+  except (OSError, SyntaxError, ValueError) as e:
+    raise ImportError(f'{path}: {e}') from None
+  missing = [rel for rel in (HIL_LOAD, *needs) if not (AGENTRC / rel).is_file()]
+  if missing:
+    raise ImportError(f'{path} needs {", ".join(missing)}, missing under {AGENTRC}')
+  spec = importlib.util.spec_from_file_location('agentrc_hil_load', AGENTRC / HIL_LOAD)
+  if spec.name not in sys.modules:   # bootstrapped as agentrc's own scripts bootstrap it
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    sys.modules.setdefault(spec.name, mod)
+  return sys.modules[spec.name].load(spec.name, spec.origin).load(name, path)
+
+
+def load(path, name):
+  """The module at `path` as `name`, loaded by path: check_build.py, for tinyuf2's scripts outside its import path."""
   spec = importlib.util.spec_from_file_location(name, path)
   if spec is None:
     raise ImportError(f'{path} not found')

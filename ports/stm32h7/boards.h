@@ -74,6 +74,14 @@
 #define IS_PFLASH_ADDR(x)   (((x) >= (PFLASH_BASE_ADDR + PFLASH_SIZE/2)) && ((x) < (PFLASH_BASE_ADDR + PFLASH_SIZE)))
 #define IS_AXISRAM_ADDR(x)  (((x) >= (AXISRAM_BASE_ADDR + AXISRAM_OFFS)) && ((x) < (AXISRAM_BASE_ADDR + AXISRAM_SIZE)))
 
+#if defined(BOARD_PFLASH_APP_EN) && (BOARD_PFLASH_APP_EN == 1)
+// TinyUF2 in internal flash sector 0, the application from BOARD_FLASH_APP_START to the end of internal flash
+#define BOARD_FLASH_ADDR_ZERO PFLASH_BASE_ADDR
+#define IS_PFLASH_APP_ADDR(x) (((x) >= BOARD_FLASH_APP_START) && ((x) < (PFLASH_BASE_ADDR + BOARD_FLASH_SIZE)))
+// subtraction keeps a len that wraps addr + len out of range
+#define IS_PFLASH_APP_RANGE(addr, len) (IS_PFLASH_APP_ADDR(addr) && ((len) <= (PFLASH_BASE_ADDR + BOARD_FLASH_SIZE - (addr))))
+#endif
+
 #define SET_BOOT_ADDR(x) board_save_app_start_address(x)
 
 // Double Reset tap to enter DFU

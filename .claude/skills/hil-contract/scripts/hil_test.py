@@ -2,6 +2,7 @@
 """TinyUF2 HIL battery and the probe operations debug sessions share with it.
 
   hil_test.py run -b BOARD --build-record FILE CONFIG [--fail-at STEP] [--try-reentry METHOD] [--ci-state-root DIR]
+  hil_test.py run -b BOARD --build-record FILE --update-record VARIANT CONFIG [--fail-at STEP]
   hil_test.py install -b BOARD --build-record FILE --under-hold REASON [--try-reentry METHOD] CONFIG
   hil_test.py restore -b BOARD --build-record FILE (--under-hold REASON [--try-reentry METHOD] | --recover-holder PID --report FILE
                       | --recover-takeover TOKEN [--report FILE]) CONFIG
@@ -17,19 +18,20 @@ import contextlib
 import errno
 import fcntl
 import fnmatch
-import glob
+import functools
 import hashlib
 import json
+import mmap
 import os
 import re
 import select
-import shlex
 import shutil
 import signal
 import socket
 import struct
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -37,6 +39,7 @@ ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT / '.claude' / 'skills' / 'build' / 'scripts'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True   # nothing the runner imports may write into a checkout it binds
+import board_facts as bf  # noqa: E402
 import check_build as cb  # noqa: E402
 import hil_ci  # noqa: E402   CI's state directory: unfinished()
 import hil_esp as esp  # noqa: E402
@@ -49,21 +52,31 @@ import hil_run_report as run_report  # noqa: E402
 # 0x60000000 (IMXRT1010RM Table 3-1) holding the Metro M7 1011's W25Q64JV (Metro M7 RT1011 SD revA schematic), 8 MiB.
 # MIMXRT1064: FlexSPI2 at 0x70000000 (IMXRT1064RM Rev 2 Table 3-1) holding the 4 MB on-chip flash (IMXRT1064IEC Rev 3, 1.1).
 # STM32F303VC: 256 KiB main flash at 0x08000000 (RM0316 Rev 10 Table 2); option bytes at 0x1FFFF800 stay outside.
+# STM32F407VG: 1 MiB main flash at 0x08000000 (RM0090 Rev 22 Table 5); OTP at 0x1FFF7800 and option bytes at
+# 0x1FFFC000 stay outside.
 # STM32F411VE: 512 KiB main flash at 0x08000000 (RM0383 Rev 4 Table 4); option bytes at 0x1FFFC000 stay outside.
 # STM32H563ZI: 2 MiB main flash, banks at 0x08000000 and 0x08100000 (RM0481 Rev 5 Table 51); OTP at 0x08FFF000 and
 # system memory at 0x0BF80000 stay outside, and its option bytes have no memory address (RM0481 7.4.1).
+# STM32H743ZI: 2 MiB main flash, banks at 0x08000000 and 0x08100000 (RM0433 Rev 8 Table 15); system memory at
+# 0x1FF00000 stays outside, and its option bytes are registers only.
+# MAX32665/6: 1 MiB internal flash at 0x10000000, two 512 KiB blocks (MAX32665/MAX32666 UG Rev 3, 3.3.1); the
+# information block at 0x10800000 stays outside.
 FLASH_LIMITS = {'LPC55S69_M33_0': (0, 0x9D800), 'MIMXRT1062xxx6A': (0x60000000, 0x60800000),
                 'MIMXRT1011DAE5A': (0x60000000, 0x60800000), 'MIMXRT1064xxx6A': (0x70000000, 0x70400000),
-                'stm32f303vc': (0x08000000, 0x08040000),
-                'stm32f411ve': (0x08000000, 0x08080000), 'stm32h563zi': (0x08000000, 0x08200000)}
-# by a board's kind, its firmware and battery: a J-Link or ST-LINK Cortex-M board, or an Espressif one whatever transport
-# installs it (board['flasher'])
+                'stm32f303vc': (0x08000000, 0x08040000), 'stm32f407vg': (0x08000000, 0x08100000),
+                'stm32f411ve': (0x08000000, 0x08080000), 'stm32h563zi': (0x08000000, 0x08200000),
+                'stm32h743zi': (0x08000000, 0x08200000), 'max32665': (0x10000000, 0x10100000)}
+# by a board's kind, its firmware and battery: a J-Link, ST-LINK or openocd Cortex-M board, or an Espressif one whatever
+# transport installs it (board['flasher'])
 STEPS = {'jlink': ('install', 'dfu', 'copy', 'app-ran', 'reenter')}
-STEPS['stlink'] = STEPS['jlink']
+STEPS['stlink'] = STEPS['openocd'] = STEPS['jlink']
 STEPS['esp'] = STEPS['jlink'] + ('recopy',)
-REENTRY = {'jlink': ('retained-register',), 'stlink': ('retained-register',), 'esp': ('dfu-detach',)}
+# run --update-record: the update battery (SKILL.md Execution, Update), J-Link boards of UPDATE_PORTS only
+STEPS['update'] = ('install', 'dfu', 'update-variant', 'update', 'interrupt', 'recover')
+REENTRY = {'jlink': ('retained-register',), 'stlink': ('retained-register',), 'openocd': ('retained-register',),
+           'esp': ('dfu-detach',)}
 REENTRY_METHODS = sorted({m for v in REENTRY.values() for m in v})
-PROTECTED = {'hil_test.py', 'pool_check', 'farm_check'}   # hil_lock.PROTECTED_REASONS, checked at load
+PROTECTED = {'hil_test.py', 'farm_check'}   # hil_lock.PROTECTED_REASONS, checked at load
 # the board-lock helper is the submodule's at its pinned commit, never an operator's installed agentrc
 AGENTRC = 'lib/agentrc'
 LOCK_HELPER = ROOT / AGENTRC / 'skills' / 'hil' / 'scripts' / 'hil_lock.py'
@@ -71,9 +84,7 @@ LOCK_HELPER = ROOT / AGENTRC / 'skills' / 'hil' / 'scripts' / 'hil_lock.py'
 FLASH_PROVIDER = LOCK_HELPER.with_name('hil_flash.py')
 OPENOCD_ESP = LOCK_HELPER.with_name('hil_openocd_esp.py')   # an Espressif board's JTAG route (tinyuf2.routes)
 OPENOCD_TIMEOUT = 300   # s for one openocd_esp flash: every segment programmed, verified and read back
-# s from the esptool session's hard reset to the provider's start: on the P4 rev v1.0 a start within ms failed every
-# reset init of its session (reset-assert-post); with this wait it passed (bench 2026-10-20, agentrc #160)
-OPENOCD_BOOT_SETTLE = 1
+CMSIS_DAP_TIMEOUT = 300   # s for one CMSIS-DAP program at the max32665 cfg's 100 kHz (untimed on the rig)
 HOLDER_ROLE = 'cleanup-holder'
 LOCK_POLL = 15   # s between tries at a held board within run's --lock-wait
 SCB_VTOR, SCB_AIRCR = 0xE000ED08, 0xE000ED0C
@@ -82,7 +93,7 @@ UF2_MAGIC = (0x0A324655, 0x9E5D5157, 0x0AB16F30)
 UF2_FLAG_FAMILY = 0x2000
 PROBE_TIMEOUT, USB_TIMEOUT, QUIET_TIME, KILL_WAIT, UDEV_TIMEOUT = 120, 20, 3, 5, 5
 JLINK_RETRY_DELAY = 2
-ESPTOOL_VERSION = '5.2.0'   # the CLI and API the esptool session helper is written and bench-checked against
+FLUSH_GONE = 3   # `flush`'s exit when its open found the device gone
 ESP_BAUD, ESP_TIMEOUT = 921600, 300
 # the provider's children an Espressif battery spawns, at the pin (agentrc `hil`); admission refuses without them
 ESP_SESSION = LOCK_HELPER.with_name('esptool_session.py')
@@ -92,32 +103,30 @@ NONCE_MAGIC, NONCE_BLOCK = b'TUF2NONC', 256   # apps/dfu_runtime/src/dfu_runtime
 JLINK_IF, JLINK_SPEED = 'SWD', '4000'
 STM32_PROGRAMMER_CLI = 'STM32_Programmer_CLI'
 # what STM32CubeProgrammer prints at every connect to the roster's device: its Device ID and NVM size (bench, v2.23.0);
-# 0x484 names the H56x/573 family only, so the size pins the part
-STLINK_CHIPS = {'stm32h563zi': ('0x484', '2 MBytes')}
-ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')   # any CSI sequence: esptool 5.2.0 moves the cursor off a TTY too
+# 0x484 names the H56x/573 family only, so the size pins the part; 0x450 names STM32H742/743/753/750 (RM0433 Rev 8
+# DBGMCU_IDC) and 2 MBytes their xI parts, which share the H743ZI's flash map (RM0433 Rev 8 Table 15)
+STLINK_CHIPS = {'stm32h563zi': ('0x484', '2 MBytes'), 'stm32h743zi': ('0x450', '2 MBytes')}
+ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')   # any CSI sequence: esptool 5.2.0 and 5.3.1 move the cursor off a TTY too
 # each script operation's success line, by its first word (bench, v2.23.0)
 STLINK_DONE = {'-halt': 'Core halted', '-run': 'Core run', '-rst': 'Software reset is performed',
                '-coreReg': 'XPSR     = 0x', '-r32': 'Reading 32-bit memory content', '-w32': '32-bit data download complete',
                '-u': 'Data read successfully', '#Delay': 'The system go to sleep for'}
 CMAKE_RECORD_FILES = ('_bin/tinyuf2.bin', '_bin/apps/blinky.uf2')   # besides the flash's inputs
-JLINK_ERRORS = (r'Verify failed|Could not|Cannot connect|ERROR|ResetTarget failed|Failed to halt|CPU is not halted|'
-                r'Failed to unlock|Can not attach')
+UPDATE_UF2 = '_bin/apps/update-tinyuf2.uf2'
+# ports whose update-tinyuf2.uf2 is the bootloader BIN itself, written in place (ports/mimxrt10xx/CMakeLists.txt); the
+# sector board_flash.c erases and programs is its _flash_cache's size (flashCache); every other port's is a self_update app
+UPDATE_PORTS = {'mimxrt10xx'}
+# the interrupt's raw write (SKILL.md Update, step 5): its alternating passes, its byte offset on the drive (TinyUF2
+# takes a UF2 block anywhere: src/ghostfat.c uf2_write_block) and the child's bound in s
+INTERRUPT_PASSES, INTERRUPT_OFFSET, INTERRUPT_TIMEOUT = 25, 0x100000, 120
+# every block reaches the device before the write returns (O_DIRECT is Linux's, as is the runner)
+WRITE_FLAGS = os.O_WRONLY | getattr(os, 'O_DIRECT', 0) | os.O_SYNC
+JLINK_CONNECTED = r'(?m)^Cortex-M\w+ identified\.$'
 UDEV_RULES = ('/etc/udev/rules.d', '/run/udev/rules.d')
-# J-Link notes that are not failures, per device, each with the line that shows the operation completed
-# (bench: every MIMXRT1062 reset with an invalid app vector, then the reset halts as usual; every MIMXRT1011 reset
-# of a TinyUF2 image, which then boots; MIMXRT1064 the same as MIMXRT1062 (bench-history.md, imxrt1064_evk);
-# STM32F303VC: the connect that removes TinyUF2's write protection, bench-history.md, stm32f303vc)
-_RESET_VECTOR_NOTE = r'(?m)^Could not find valid reset vector\.\nTarget halted on flash header read\.$'
-_F3_UNPROTECT_NOTE = (r'(?m)^Active write protection detected\.\nDevice will be unsecured now\.\nFailed to unlock device\.\n'
-                      r'Can not attach to CPU\. Trying connect under reset\.$')
-BENIGN = {'MIMXRT1062xxx6A': _RESET_VECTOR_NOTE, 'MIMXRT1011DAE5A': _RESET_VECTOR_NOTE, 'MIMXRT1064xxx6A': _RESET_VECTOR_NOTE,
-          'stm32f303vc': _F3_UNPROTECT_NOTE}
-# runner sessions connect as the core: J-Link's stm32f411ve connect resets the chip to unprotect it
-# (bench-history.md, stm32f411ve_discovery)
-SESSION_DEVICE = {'stm32f411ve': 'Cortex-M4'}
-# ms the install's verify session waits before its halt after the flash's unlock, empirical
-# (bench-history.md, stm32f411ve_discovery)
-INSTALL_SETTLE_MS = {'stm32f411ve': 1000}
+# J-Link devices whose connect as the chip resets it to unprotect it (bench-history.md, stm32f411ve_discovery,
+# stm32f407disco): (the core runner sessions connect as instead, ms the install's verify session waits before its halt
+# after the flash's unlock, empirical)
+JLINK_CONNECT_UNLOCKS = {'stm32f411ve': ('Cortex-M4', 1000), 'stm32f407vg': ('Cortex-M4', 1000)}
 
 
 class Refused(Exception):
@@ -128,6 +137,10 @@ class StepFail(Exception):
   def __init__(self, msg, evidence=None):
     super().__init__(msg)
     self.evidence = evidence or {}
+
+
+class NotInterrupted(StepFail):
+  """The update battery's reset did not overlap its write: the board is still recovered before the run fails."""
 
 
 class NotEnumerated(StepFail):
@@ -145,7 +158,7 @@ class SpawnTimeout(StepFail):
     self.output, self.survivors = output, survivors
 
 
-# ------------------------------------------------------------------ roster and source facts
+# ------------------------------------------------------------------ roster and board facts
 
 def load_board(config, name):
   try:
@@ -159,8 +172,15 @@ def load_board(config, name):
   fl, t = b.get('flasher') or {}, b.get('tinyuf2') or {}
   m = re.fullmatch(cb.FLASHER_ARGS.get(fl.get('name'), r'(?!)'), fl.get('args') or '')
   if not isinstance(fl.get('uid'), str) or not m:
-    raise Refused(f'{name}: flasher must be jlink or stlink with args exactly "-device NAME", or esptool with args '
-                  f'exactly "--chip CHIP", with a string uid')
+    raise Refused(f'{name}: flasher must be jlink or stlink with args exactly "-device NAME", openocd with args exactly '
+                  f'"-f interface/cmsis-dap.cfg -f target/TARGET.cfg", or esptool with args exactly "--chip CHIP", with a '
+                  f'string uid')
+  if not (cb.ROSTER_UID.fullmatch(fl['uid']) or fl['name'] == 'esptool' and cb.USJ_SERIAL.fullmatch(fl['uid'])):
+    raise Refused(f'{name}: flasher uid {fl["uid"]!r} is neither a probe or bridge serial (letters, digits, _ and -) '
+                  f'nor, for esptool, a USJ serial in its MAC form (AA:BB:CC:DD:EE:FF, upper case)')
+  if fl['name'] == 'openocd' and not (isinstance(fl.get('vid_pid'), str) and re.fullmatch(cb.VID_PID, fl['vid_pid'])):
+    raise Refused(f'{name}: an openocd flasher needs its probe\'s "vid_pid": "0xVVVV 0xPPPP"; unpinned, CMSIS-DAP '
+                  f'discovery opens every USB device on the host')
   if not isinstance(b.get('uid'), str) or not b['uid']:
     raise Refused(f'{name}: uid (the bootloader USB serial) is required')
   lock = t.get('lock', name)   # tinyusb's name for the board when it differs: both runners take one lock
@@ -174,7 +194,7 @@ def load_board(config, name):
     if m.group(1) not in esp.BOOTLOADER_OFFSET or port != 'espressif':
       raise Refused(f'{name}: esptool is supported for espressif chips {sorted(esp.BOOTLOADER_OFFSET)} only')
   elif m.group(1) not in FLASH_LIMITS:
-    raise Refused(f'{name}: no programming limits known for J-Link device {m.group(1)}')
+    raise Refused(f'{name}: no programming limits known for {fl["name"]} device {m.group(1)}')
   elif fl['name'] == 'stlink' and m.group(1) not in STLINK_CHIPS:
     raise Refused(f'{name}: no chip identity known for ST-LINK device {m.group(1)}')
   power = t.get('usbPower')
@@ -186,7 +206,8 @@ def load_board(config, name):
       raise Refused(f'{name}: tinyuf2.usbPower is for J-Link boards only')
   return {'name': name, 'lock': lock, 'uid': b['uid'], 'flasher': fl['name'], 'probe': fl['uid'], 'device': m.group(1),
           'kind': 'esp' if port == 'espressif' else fl['name'], 'if': JLINK_IF, 'speed': JLINK_SPEED, 'port': port,
-          'reentry': t.get('reentry'), 'usbPower': power, 'routes': board_routes(name, port, m.group(1), t), 'route': None}
+          'reentry': t.get('reentry'), 'usbPower': power, 'routes': board_routes(name, port, m.group(1), t), 'route': None,
+          **({'args': fl['args'], 'vid_pid': fl['vid_pid']} if fl['name'] == 'openocd' else {})}
 
 
 def board_routes(name, port, chip, t):
@@ -211,6 +232,9 @@ def board_routes(name, port, chip, t):
       raise Refused(f'{name}: route {rname}: {e}')
     if route_chip != chip:
       raise Refused(f'{name}: route {rname} reaches an {route_chip}; the roster flasher names {chip}')
+    if route_chip not in openocd_esp().SECURITY_CHIPS:   # its security state is never read, so nothing is programmed
+      raise Refused(f'{name}: route {rname}: the provider reads the security state of {openocd_esp().SECURITY_CHIPS} '
+                    f'only, not {route_chip}')
     out[rname] = {'flasher': dict(fl), 'pending': r.get('commissioning') == 'pending'}
   return out
 
@@ -227,18 +251,15 @@ def select_route(board, route, run=False):
                   f'{sorted(board["routes"])})')
   if run and r['pending']:
     raise Refused(f'{board["name"]}: route {route} is pending commissioning: install and restore only')
-  refuse_ci_job(route)
+  refuse_openocd(route)
   return dict(board, flasher=route, probe=r['flasher']['uid'], route=r['flasher'])
 
 
-def refuse_ci_job(route):
-  """The provider's own refusal of an openocd_esp session under a CI job, before any session of the route's."""
-  if route == 'openocd_esp' and (why := openocd_esp().ci_refusal()):
+def refuse_openocd(route):
+  """The provider's refusal of an openocd_esp session, or of board access preparing one; this runner keeps the board
+  lock through a session left pending (its cleanup holder), so it declares retains_lock."""
+  if route == 'openocd_esp' and (why := openocd_esp().refusal(retains_lock=True)):
     raise Refused(why)
-
-
-def has_define(path, name):
-  return bool(re.search(rf'^\s*#\s*define\s+{name}\b', (ROOT / path).read_text(), re.M))
 
 
 def define(path, name):
@@ -272,207 +293,38 @@ def product(expr, what):
   return v
 
 
-def flash_addr(expr, flash_base, what):
-  """A literal, or FLASH_BASE + literal where the port defines FLASH_BASE; nothing else."""
-  m = re.fullmatch(rf'\(?\s*FLASH_BASE\s*\+\s*{LITERAL}\s*\)?', expr)
-  if not m:
-    return num(expr, what)
-  if flash_base is None:
-    raise Refused(f'{what}: {expr!r} uses FLASH_BASE, which this port does not define')
-  return flash_base + int(m.group(1), 0)
-
-
 def cmake_var(path, name):
   """The value of the one `set(NAME value)` in a CMake file, ${TOP}/ read as the checkout; nothing else."""
   hits = re.findall(rf'\bset\s*\(\s*{name}\b([^)]*)\)', cb.code_lines(ROOT / path), re.I)
   if len(hits) != 1:
     raise Refused(f'{path}: expected one set({name} ...), found {len(hits)}')
   v = hits[0].strip().removeprefix('${TOP}/')
-  if not v or re.search(r'[\s$"]', v):
+  if not v or re.search(r'[\s${}"]', v):
     raise Refused(f'{path}: set({name} {hits[0].strip()}) is not one plain value')
   return v
 
 
-STM32_DEVICE = {'stm32f3': ('STM32F3', r'STM32F3\d\dx[A-Z]'), 'stm32f4': ('STM32F4', r'STM32F4\d\dx[A-Z]'),
-                'stm32h5': ('STM32H5', r'STM32H5\d\dxx')}
+def record_facts(record_path, board, workdir):
+  """The board's facts: an Espressif board's from the candidate's source (esp_source_facts), any other's from its
+  build record, board_facts.read over hash-checked copies of the files it reads."""
+  if board.get('kind') == 'esp':
+    return esp_source_facts(board)
+  _, row, root, _ = record_row(record_path, board)
+  rels = (*cb.FACTS_FILES, CMAKE_RECORD_FILES[0], '_bin/tinyuf2.hex')
+  if not all(r in row.get('sha256', {}) for r in rels):
+    raise Refused(f'{record_path}: no board facts in the record (rebuild it: check_build.py --board {board["name"]} '
+                  f'--backend cmake --shared --hil-config <roster>)')
+  copied(root, rels, row, workdir / 'facts')
+  try:
+    return bf.read(workdir / 'facts', FLASH_LIMITS[board['device']])
+  except (bf.Refused, OSError) as e:
+    raise Refused(f'{record_path}: {e}')
 
 
-def port_sources(port, bdir):
-  """(CMSIS device header, the bootloader's linker script, FLASH_BASE, where the BIN starts in flash, RAM origin, the
-  link's --defsym values) of a port the HIL supports, read from the CMake files the HIL's build uses."""
-  if port in STM32_DEVICE:
-    ld = cmake_script(f'ports/{port}/CMakeLists.txt')
-    series, form = STM32_DEVICE[port]
-    mcus = set(re.findall(rf'\b{form}\b', cb.code_lines(ROOT / bdir / 'board.cmake')))
-    if len(mcus) != 1:
-      raise Refused(f'{bdir}/board.cmake: expected one {series} device define, found {sorted(mcus)}')
-    header = f'{cmake_var(f"ports/{port}/family.cmake", "ST_CMSIS")}/Include/{mcus.pop().lower()}.h'
-    syms = defsyms(port, bdir, ld) if port == 'stm32h5' else {}
-    flash_base, ram = ld_memory(ld, 'FLASH', syms)[0], ld_memory(ld, 'RAM', syms)[0]
-    return header, ld, flash_base, flash_base, ram, syms
-  if port != 'mimxrt10xx':
-    raise Refused(f'ports/{port}: the HIL runner has no source facts for this port')
-  sdk = cmake_var(f'ports/{port}/family.cmake', 'SDK_DIR')
-  mcu = cmake_var(f'{bdir}/board.cmake', 'MCU_VARIANT')
-  ld = f'ports/{port}/linker/{mcu}_ram.ld'   # where family.cmake takes FLASH_BASE and FCFB_ORIGIN from
-  vals = {}
-  for name in ('_flash_base', '_fcfb_origin'):
-    m = re.search(rf'^\s*{name}\s*=\s*(0x[0-9a-fA-F]+)\s*;', (ROOT / ld).read_text(), re.M)
-    if not m:
-      raise Refused(f'{ld}: no {name}')
-    vals[name] = int(m.group(1), 16)
-  flash_base = vals['_flash_base']
-  # family.cmake FLASH_FCFB_ADDR: the BIN starts at the FCB, 0x400 into flash on RT1010 (IMXRT1010RM Table 9-8)
-  bin_base = flash_base + (vals['_fcfb_origin'] & 0xFFF)
-  return (f'{sdk}/devices/{mcu}/{mcu}.h', ld, flash_base, bin_base,
-          ram_origin(f'{sdk}/devices/{mcu}/gcc/{mcu}xxxxx_flexspi_nor.ld'), {})
-
-
-# the stm32h5 link's --defsym symbols, each from the board's set() of this variable
-DEFSYMS = {'__flash_boot_size': 'LD_FLASH_BOOT_SIZE', '__ram_size': 'LD_RAM_SIZE'}
-
-
-def defsyms(port, bdir, ld):
-  """The values family.cmake passes the linker for DEFSYMS, from the board.cmake's one set() each, in the exact
-  forms the port uses: one `-Wl,--defsym=SYM=${VAR}` each, the script's one `SYM = DEFINED(SYM) ? SYM : <default>;`,
-  and family.cmake setting a variable only for Debug builds, which a HIL record (MinSizeRel) is not."""
-  fam = cb.code_lines(ROOT / f'ports/{port}/family.cmake')
-  text, syms = ld_text(ld), {}
-  for sym, var in DEFSYMS.items():
-    sets = re.findall(rf'\bset\s*\(\s*{var}\b', fam, re.I)
-    debug = re.findall(rf'if\s*\(\s*CMAKE_BUILD_TYPE\s+STREQUAL\s+"Debug"\s*\)\s*set\s*\(\s*{var}\s+\w+\s*\)\s*endif\s*\(\s*\)',
-                       fam, re.I)
-    if fam.count('--defsym=') != len(DEFSYMS) or fam.count(f'-Wl,--defsym={sym}=${{{var}}}') != 1 or \
-       len(sets) != len(debug) or \
-       len(re.findall(rf'(?<![\w.]){sym}\s*(<<|>>|[-+*/|&]?)=(?!=)', text)) != 1 or \
-       len(re.findall(rf'(?<![\w.]){sym}\s*=\s*DEFINED\(\s*{sym}\s*\)\s*\?\s*{sym}\s*:\s*\w+\s*;', text)) != 1:
-      raise Refused(f'ports/{port}: {sym} does not reach {ld} as -Wl,--defsym={sym}=${{{var}}} over a DEFINED() default')
-    syms[sym] = ld_expr(cmake_var(f'{bdir}/board.cmake', var), f'{bdir}/board.cmake {var}')
-  return syms
-
-
-def cmake_script(path):
-  """The one linker script a port's CMakeLists.txt passes with --script=${CMAKE_CURRENT_LIST_DIR}/..."""
-  hits = re.findall(r'--script=\$\{CMAKE_CURRENT_LIST_DIR\}/([\w./-]+\.ld)(?=["\s)])', cb.code_lines(ROOT / path))
-  if len(hits) != 1:
-    raise Refused(f'{path}: expected one --script=${{CMAKE_CURRENT_LIST_DIR}}/<script>.ld, found {hits}')
-  return f'{Path(path).parent}/{hits[0]}'
-
-
-def ld_text(ld, syms=None):
-  """The script without comments; with `syms`, each one's DEFINED() default dropped and its uses replaced by its
-  value (defsyms checked the form)."""
-  text = re.sub(r'/\*.*?\*/', ' ', (ROOT / ld).read_text(), flags=re.S)
-  for sym, v in (syms or {}).items():
-    text = re.sub(rf'(?<![\w.]){sym}\s*=\s*DEFINED\([^;]*;', ' ', text)
-    text = re.sub(rf'(?<![\w.]){sym}(?!\w)', hex(v), text)
-  return text
-
-
-def ld_expr(expr, what):
-  """A sum or difference of literals, each with an optional K or M suffix, e.g. 40K - 4; nothing else."""
-  term = r'(0x[0-9a-fA-F]+|\d+)([KM]?)'
-  if not re.fullmatch(rf'\s*{term}(\s*[+-]\s*{term})*\s*', expr):
-    raise Refused(f'{what}: {expr!r} is not a sum of literals')
-  v = 0
-  for sign, n, unit in re.findall(rf'([+-]?)\s*{term}', expr):
-    v += (-1 if sign == '-' else 1) * int(n, 0) * {'': 1, 'K': 1 << 10, 'M': 1 << 20}[unit]
-  return v
-
-
-def ld_memory(ld, region, syms=None):
-  """(ORIGIN, LENGTH) of a MEMORY region."""
-  hits = re.findall(rf'^\s*{region}\s*\(\w+\)\s*:\s*ORIGIN\s*=\s*([^,]+),\s*LENGTH\s*=\s*([^\n]+?)\s*$', ld_text(ld, syms),
-                    re.M)
-  if len(hits) != 1:
-    raise Refused(f'{ld}: expected one {region} memory region, found {len(hits)}')
-  return ld_expr(hits[0][0], f'{ld} {region} ORIGIN'), ld_expr(hits[0][1], f'{ld} {region} LENGTH')
-
-
-def ld_symbol(ld, name, depth=0, syms=None):
-  """A symbol the script assigns once: a literal sum, ORIGIN(R) + LENGTH(R), or another such symbol."""
-  hits = re.findall(rf'(?<![\w.]){name}\s*(<<|>>|[-+*/|&]?)=(?!=)\s*([^;]+);', ld_text(ld, syms))
-  if len(hits) != 1 or hits[0][0]:
-    raise Refused(f'{ld}: expected one plain {name} = ...;, found {[op + "=" for op, _ in hits]}')
-  rhs = hits[0][1].strip()
-  if re.fullmatch(r'[A-Za-z_]\w*', rhs) and depth < 2:
-    return ld_symbol(ld, rhs, depth + 1, syms)
-  m = re.fullmatch(r'ORIGIN\((\w+)\)\s*\+\s*LENGTH\(\1\)', rhs)
-  if m:
-    return sum(ld_memory(ld, m.group(1), syms))
-  return ld_expr(rhs, f'{ld} {name}')
-
-
-def vector_count(header):
-  """NUMBER_OF_INT_VECTORS, else the 16 system vectors plus IRQ 0 to the highest IRQn_Type value."""
-  if has_define(header, 'NUMBER_OF_INT_VECTORS'):
-    return num(define(header, 'NUMBER_OF_INT_VECTORS'), 'NUMBER_OF_INT_VECTORS')
-  text = re.sub(r'/\*.*?\*/|//[^\n]*', ' ', (ROOT / header).read_text(), flags=re.S)
-  enums = re.findall(r'typedef\s+enum\s*\{([^}]*)\}\s*IRQn_Type\s*;', text)
-  items = [i.strip() for i in enums[0].split(',') if i.strip()] if len(enums) == 1 else []
-  vals = [re.fullmatch(r'\w+\s*=\s*(-?\d+)', i) for i in items]
-  irqs = [int(v.group(1)) for v in vals] if items and all(vals) else []
-  if not irqs or max(irqs) < 0:
-    raise Refused(f'{header}: neither NUMBER_OF_INT_VECTORS nor one IRQn_Type enum of NAME = decimal entries')
-  return 16 + max(irqs) + 1
-
-
-def source_facts(board):
-  """What the candidate's source says about this board."""
-  port = board['port']
-  bdir = f'ports/{port}/boards/{board["name"]}'
+def esp_source_facts(board):
+  bdir = f'ports/{board["port"]}/boards/{board["name"]}'
   if not (ROOT / bdir).is_dir():
     raise Refused(f'{bdir} does not exist')
-  if board.get('kind') == 'esp':
-    return esp_source_facts(board, bdir)
-  header, ld, flash_base, bin_base, ram, syms = port_sources(port, bdir)
-  if has_define(f'{bdir}/board.h', 'BOARD_FLASH_APP_START'):
-    raise Refused(f'{bdir}/board.h overrides BOARD_FLASH_APP_START; the runner reads the port default only')
-  size = define(f'{bdir}/board.h', 'BOARD_FLASH_SIZE')
-  floor, ceiling = FLASH_LIMITS.get(board.get('device'), (0, 0))
-  facts = {
-    'flashBase': flash_base,
-    'binBase': bin_base,
-    'appStart': app_start(port, flash_base, syms),
-    # FLASH_SIZE is CMSIS's read of the chip's size register: the roster device's flash, which INFO_UF2.TXT reports
-    'flashSize': ceiling - floor if size == 'FLASH_SIZE' and ceiling else product(size, 'BOARD_FLASH_SIZE'),
-    'vid': num(define(f'{bdir}/board.h', 'USB_VID'), 'USB_VID'),
-    'pid': num(define(f'{bdir}/board.h', 'USB_PID'), 'USB_PID'),
-    'boardId': define(f'{bdir}/board.h', 'UF2_BOARD_ID').strip('"'),
-    'family': int(cmake_var(f'ports/{port}/family.cmake', 'UF2_FAMILY_ID'), 16),
-    'vectors': vector_count(header),
-    'ram': ram,
-    'dblTapDelayMs': num(define('src/board_api.h', 'TINYUF2_DBL_TAP_DELAY'), 'TINYUF2_DBL_TAP_DELAY'),
-  }
-  if has_define(f'ports/{port}/boards.h', 'TINYUF2_DBL_TAP_REG'):
-    reg = define(f'ports/{port}/boards.h', 'TINYUF2_DBL_TAP_REG')
-    m = re.fullmatch(r'(\w+)->(\w+)\[(\d+)\]', reg)
-    if not m:
-      raise Refused(f'TINYUF2_DBL_TAP_REG {reg!r} is not PERIPH->ARRAY[N]')
-    base, offset, step = register_layout(header, m.group(1), m.group(2))
-    facts['dblTapReg'] = base + offset + step * int(m.group(3))
-  else:   # board_api.h's default: the word the bootloader's linker script places
-    facts['dblTapReg'] = ld_symbol(ld, '_board_dfu_dbl_tap', syms=syms)
-  facts['dblTapMagic'] = 0xf01669ef   # board_api.h DBL_TAP_MAGIC at TINYUF2_DBL_TAP_REG_SIZE 32
-  if 'TINYUF2_DBL_TAP_REG_SIZE' in (ROOT / f'ports/{port}/boards.h').read_text():
-    raise Refused(f'ports/{port} overrides TINYUF2_DBL_TAP_REG_SIZE: the magic would need its shift')
-  return facts
-
-
-def app_start(port, flash_base, syms):
-  """BOARD_FLASH_APP_START: a literal or FLASH_BASE + literal, or the stm32h5 form, the flash base plus the link's
-  __flash_boot_size."""
-  expr = define(f'ports/{port}/boards.h', 'BOARD_FLASH_APP_START')
-  if not re.fullmatch(r'\(\s*BOARD_FLASH_ADDR_ZERO\s*\+\s*\(uint32_t\)\s*__flash_boot_size\s*\)', expr):
-    return flash_addr(expr, flash_base, 'BOARD_FLASH_APP_START')
-  zero = num(define(f'ports/{port}/boards.h', 'BOARD_FLASH_ADDR_ZERO'), 'BOARD_FLASH_ADDR_ZERO')
-  if '__flash_boot_size' not in syms or zero != flash_base:
-    raise Refused(f'ports/{port}: BOARD_FLASH_APP_START {expr!r} needs the link\'s __flash_boot_size and '
-                  f'BOARD_FLASH_ADDR_ZERO at the flash base')
-  return zero + syms['__flash_boot_size']
-
-
-def esp_source_facts(board, bdir):
   try:
     facts = esp.facts(ROOT, board)
   except (esp.Refused, OSError, ValueError) as e:
@@ -491,33 +343,8 @@ def esp_source_facts(board, bdir):
   return facts
 
 
-def ram_origin(ld):
-  m = re.search(r'm_data\s*\(RW\)\s*:\s*ORIGIN\s*=\s*(0x[0-9a-fA-F]+)', (ROOT / ld).read_text())
-  if not m:
-    raise Refused(f'{ld}: no m_data ORIGIN')
-  return int(m.group(1), 16)
-
-
-def register_layout(header, periph, member):
-  """(base, array offset, array step) of PERIPH->MEMBER[] from the CMSIS device header; on a TrustZone
-  part the base is the non-secure alias, the one a build without -mcmse (tinyuf2's) uses."""
-  text = (ROOT / header).read_text()
-  end = re.search(r'\}\s*' + periph + r'_Type;', text)
-  start = text.rfind('typedef struct {', 0, end.start()) if end else -1
-  if start < 0:
-    raise Refused(f'{header}: no {periph}_Type')
-  f = re.search(rf'\b{member}\[\d+\];.*?array offset:\s*(0x[0-9a-fA-F]+), array step:\s*(0x[0-9a-fA-F]+)',
-                text[start:end.start()])
-  if not f:
-    raise Refused(f'{header}: no {periph}->{member} array offset')
-  bases = re.findall(rf'#define {periph}_BASE\s+\((0x[0-9a-fA-F]+)u\)', text)
-  if len(bases) not in (1, 2):
-    raise Refused(f'{header}: expected one {periph}_BASE, or a secure and a non-secure one, found {bases}')
-  return int(bases[-1], 16), int(f.group(1), 16), int(f.group(2), 16)
-
-
 def apply_layout(board, facts):
-  """The install and app spans, from the candidate's source: the bootloader from the flash base up to the app
+  """The install and app spans, from the candidate's facts: the bootloader from the flash base up to the app
   start, the app from there to the end of the board's flash, all inside the device's programming limits."""
   if board.get('kind') == 'esp':
     try:
@@ -537,30 +364,11 @@ def apply_layout(board, facts):
 # ------------------------------------------------------------------ images
 
 def parse_hex(path):
-  """{address: bytes} of an Intel HEX file, contiguous runs merged; checksums verified."""
-  data, base = {}, 0
-  for n, line in enumerate(Path(path).read_text().splitlines(), 1):
-    if not line.strip():
-      continue
-    try:
-      rec = bytes.fromhex(line.strip()[1:])
-    except ValueError:
-      raise Refused(f'{path}:{n}: not Intel HEX')
-    if line[0] != ':' or len(rec) < 5 or len(rec) != rec[0] + 5 or sum(rec) & 0xFF:
-      raise Refused(f'{path}:{n}: bad Intel HEX record')
-    addr, kind, payload = int.from_bytes(rec[1:3], 'big'), rec[3], rec[4:-1]
-    if kind == 0:
-      for i, b in enumerate(payload):
-        data[base + addr + i] = b
-    elif kind == 1:
-      break
-    elif kind == 2:
-      base = int.from_bytes(payload, 'big') << 4
-    elif kind == 4:
-      base = int.from_bytes(payload, 'big') << 16
-    elif kind not in (3, 5):
-      raise Refused(f'{path}:{n}: unknown record type {kind}')
-  return data
+  """{address: bytes} of an Intel HEX file; checksums verified."""
+  try:
+    return bf.parse_hex(path)
+  except bf.Refused as e:
+    raise Refused(str(e))
 
 
 def check_ranges(data, allowed, limits, what):
@@ -579,10 +387,22 @@ def check_ranges(data, allowed, limits, what):
 
 
 def hex_matches_bin(data, bin_path, base):
-  """Whether a bootloader BIN is its HEX laid out from `base`: the HEX fixes the base the BIN lacks. The
-  BIN is what gets programmed, so gaps between sections are written and read back as the BIN holds them."""
-  img = Path(bin_path).read_bytes()
-  return min(data) == base and max(data) + 1 == base + len(img) and all(img[a - base] == b for a, b in data.items())
+  """Whether a bootloader BIN is its HEX laid out from `base`: the HEX fixes the base the BIN lacks."""
+  return bf.hex_matches_bin(data, Path(bin_path).read_bytes(), base)
+
+
+def verify_images(data, workdir):
+  """[(address, file)] reading back what the HEX programs: one file per contiguous run, since a gap the BIN fills
+  with zeros keeps the flash's erased state (lpc55: [0x130, 0x200))."""
+  runs = []
+  for a in sorted(data):
+    if runs and runs[-1][0] + len(runs[-1][1]) == a:
+      runs[-1][1].append(data[a])
+    else:
+      runs.append((a, bytearray([data[a]])))
+  for a, run in runs:
+    (Path(workdir) / f'hex-{a:x}.bin').write_bytes(run)
+  return [(a, Path(workdir) / f'hex-{a:x}.bin') for a, _ in runs]
 
 
 def embedded_version(bin_path):
@@ -600,7 +420,7 @@ def fixture(facts, nonce):
   while table < facts['vectors'] * 4:
     table *= 2
   handler, fault = start + table, start + table + 4
-  vectors = [facts['ram'] + 0x1000, handler | 1] + [fault | 1] * (table // 4 - 2)
+  vectors = [facts['ram'] + bf.STACK, handler | 1] + [fault | 1] * (table // 4 - 2)
   code = struct.pack('<HHH', 0x3001, 0xE7FD, 0xE7FE)   # adds r0,#1 ; b handler ; b . (fault)
   pattern = b''.join(hashlib.sha256(nonce + i.to_bytes(4, 'little')).digest() for i in range(512))   # 16 KiB
   img = struct.pack(f'<{len(vectors)}I', *vectors) + code
@@ -619,6 +439,20 @@ def parse_uf2(blob):
       raise ValueError(f'block {off // 512}: bad magic')
     blocks.append({'flags': flags, 'addr': addr, 'size': size, 'no': no, 'total': total, 'family': family,
                    'data': blob[off + 32:off + 32 + size]})
+  return blocks
+
+
+def contiguous_uf2(uf2_path, family, base, what):
+  """The blocks of `uf2_path`: one family, numbered under one numBlocks, 256 bytes each, contiguous from `base`."""
+  try:
+    blocks = parse_uf2(Path(uf2_path).read_bytes())
+  except (OSError, ValueError) as e:
+    raise Refused(f'{what}: {uf2_path}: {e}')
+  for i, bl in enumerate(blocks):
+    if (bl['no'], bl['total'], bl['family'], bl['addr'], bl['size']) != (i, len(blocks), family, base + 256 * i, 256) \
+       or not bl['flags'] & UF2_FLAG_FAMILY:
+      raise Refused(f'{what}: {uf2_path} block {i} is not block {i} of {len(blocks)} for family {family:#x} at '
+                    f'{base + 256 * i:#x}')
   return blocks
 
 
@@ -659,6 +493,11 @@ def spawn(cmd, log, timeout, cwd=None, stderr_to_log=False, env=None):
   blocked SIGTERM and SIGINT, so only SIGKILL (reap) may be relied on to end them. With `stderr_to_log`, the
   child's stderr goes to the log only and the output returned is its stdout. `env` adds to the environment.
   A timeout raises SpawnTimeout and an interruption Interrupted, each carrying the output so far."""
+  return collect(launch(cmd, log, cwd, stderr_to_log, env), cmd, log, timeout)
+
+
+def launch(cmd, log, cwd=None, stderr_to_log=False, env=None):
+  """spawn()'s child started, tracked in CHILDREN, not waited for: collect() ends it."""
   with open(log, 'a') as f:
     f.write('$ ' + ' '.join([f'{k}={v}' for k, v in (env or {}).items()] + list(map(str, cmd))) + '\n')
     f.flush()
@@ -667,6 +506,12 @@ def spawn(cmd, log, timeout, cwd=None, stderr_to_log=False, env=None):
                            stderr=f if stderr_to_log else subprocess.STDOUT, text=True, errors='replace',
                            start_new_session=True, cwd=cwd, env=env and {**os.environ, **env})
       CHILDREN.append(p)
+  return p
+
+
+def collect(p, cmd, log, timeout):
+  """spawn()'s wait for a launch()ed child: (exit, output), within `timeout`."""
+  with open(log, 'a') as f:
     try:
       out, _ = p.communicate(timeout=timeout)
     except subprocess.TimeoutExpired as e:
@@ -742,15 +587,15 @@ class CleanupPending(StepFail):
 
 OPENOCD_SESSIONS = 'hil_openocd_esp_*/receipt.json'   # flash_openocd_esp's session dirs under the run dir
 PROTECTED_SESSIONS = []   # every receipt an openocd_esp operation of this process returned, by path or record
-PENDING_MARK = '.tinyuf2-openocd-pending.json'   # beside the board's lock: sessions no later invocation may overlap
-CLEARED_LOG = '.cleared.jsonl'   # <mark>.cleared.jsonl: every mark cleared after a reviewed recovery, with its note
-MARK_MUTEX = '.mutex'   # <mark>.mutex, never replaced or removed; not '.lock', which hil_lock lists as a board
+# the board's pending-session record, <lock>.tinyuf2-openocd-pending.json beside its lock (hil_lock.PendingSessions):
+# sessions no later invocation may overlap
+PENDING_KIND = 'tinyuf2-openocd'
 MARK_ERRORS = []   # every failure to write the mark this process met, for the report
 
 
 def session_entry(receipt):
   """A survivor entry for one openocd_esp receipt: its path, or the record itself when the provider could not write
-  it; its pid and start time for the report."""
+  it; its pid and start time for the report only, as session_state (the provider's) alone decides liveness."""
   rec = receipt if isinstance(receipt, dict) else read_receipt(receipt) or {}
   e = {'cmd': 'openocd', 'receipt': receipt if isinstance(receipt, dict) else str(receipt)}
   with contextlib.suppress(KeyError, TypeError, ValueError):
@@ -767,16 +612,13 @@ def read_receipt(path):
 
 
 def session_state(e):
-  """An openocd_esp session's state from its receipt, reread on every call: 'ended' (closed after the reviewed end,
-  cleanup done), 'running' (open, its process alive), 'unreadable', or 'unresolved' (closed without the reviewed
-  end, or its process gone without closing it), which a separately reviewed recovery decides."""
-  rec = e['receipt'] if isinstance(e['receipt'], dict) else read_receipt(e['receipt'])
+  """An openocd_esp session's state from its receipt, the provider's session_state reread on every call, and
+  'unreadable' while the provider cannot be loaded: every hold stays."""
   try:
-    if rec['closed']:
-      return 'ended' if rec.get('cleanup') == 'done' else 'unresolved'
-    return 'running' if proc_start(rec['pid']) == int(rec['startTime']) else 'unresolved'
-  except (KeyError, TypeError, ValueError):
+    oe = openocd_esp()
+  except Refused:
     return 'unreadable'
+  return oe.session_state(e['receipt'])
 
 
 def merge_sessions(old, new):
@@ -804,131 +646,50 @@ def outstanding_sessions(workdir):
   return [e for e in found if session_state(e) != 'ended']
 
 
-class PendingMark(os.PathLike):
-  """A board's pending mark: <lock>.tinyuf2-openocd-pending.json in the lock helper's dir, every file of it opened
-  through the helper's own checked dir and file opens (created umask-proof, readable across users)."""
-
-  def __init__(self, helper, lock):
-    self.helper, self.lock, self.name = helper, lock, lock + PENDING_MARK
-    self.path = os.path.join(helper.BOARD_LOCK_DIR, self.name)
-
-  def __fspath__(self):
-    return self.path
-
-  def __str__(self):
-    return self.path
-
-
-@contextlib.contextmanager
-def mark_locked(mark):
-  """Serialize every read, write and removal of a pending mark across processes, yielding the lock dir's fd: an
-  flock on a file beside it that is never replaced, so the board lock, taken only later, need not."""
-  dfd = mark.helper._open_dir(create=True)
-  try:
-    fd = mark.helper._open_file(dfd, mark.name + MARK_MUTEX, os.O_RDWR, create=True)
-    try:
-      fcntl.flock(fd, fcntl.LOCK_EX)
-      yield dfd
-    finally:
-      os.close(fd)
-  finally:
-    os.close(dfd)
-
-
-def read_mark(mark):
-  """The sessions a mark lists, [] without one; None when it is unreadable or any entry is malformed."""
-  try:
-    data = mark.helper._read_file(mark.lock, PENDING_MARK)
-    rec = data is not None and json.loads(data)
-  except (OSError, ValueError):
-    return None
-  if data is None:
-    return []
-  sessions = rec.get('sessions') if isinstance(rec, dict) else None
-  ok = isinstance(sessions, list) and all(isinstance(e, dict) and isinstance(e.get('receipt'), (str, dict))
-                                          for e in sessions)
-  return sessions if ok else None
-
-
-def write_mark(mark, dfd, sessions):
-  tmp = f'{mark.name}.{os.getpid()}.{os.urandom(4).hex()}.tmp'   # one per write: no writer truncates another's
-  fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o644, dir_fd=dfd)
-  try:
-    with os.fdopen(fd, 'w') as f:
-      os.fchmod(f.fileno(), 0o644)   # umask-proof: another user's invocation reads it and refuses
-      json.dump({'sessions': sessions}, f, indent=1)
-      f.flush()
-      os.fsync(f.fileno())
-    os.replace(tmp, mark.name, src_dir_fd=dfd, dst_dir_fd=dfd)
-    os.fsync(dfd)   # the rename itself durable, as hil_lock's journal writer makes its own
-  except BaseException:
-    with contextlib.suppress(OSError):
-      os.unlink(tmp, dir_fd=dfd)
-    raise
+def pending_mark(helper, lock):
+  """A board's pending mark, the lock helper's pending-session record of this runner's openocd_esp sessions."""
+  return helper.PendingSessions(lock, PENDING_KIND)
 
 
 def mark_pending(mark, sessions):
   """Record sessions not ended beside the board's lock, so another invocation, in another run dir, refuses too.
-  Never raises: a failure, an unreadable or malformed mark included (kept as it is), is returned and kept in
-  MARK_ERRORS for the report, and the caller's survivor reporting and lock ownership go on as without a mark."""
+  Never raises: a failure, an unreadable mark included (kept as it is), is returned and kept in MARK_ERRORS for the
+  report, and the caller's survivor reporting and lock ownership go on as without a mark."""
   if not mark or not sessions:
     return None
   try:
-    with mark_locked(mark) as dfd:
-      old = read_mark(mark)
-      if old is None:
-        raise ValueError(f'{mark} is unreadable or malformed; it is left as it is')
-      write_mark(mark, dfd, merge_sessions(old, sessions))
+    mark.add(sessions)
     return None
-  except Exception as e:
+  except Exception as e:   # PendingRefused (unreadable), ValueError (a malformed session) or OSError
     err = f'the pending mark {mark} could not be written: {type(e).__name__}: {e}'
     MARK_ERRORS.append(err)
     return err
 
 
 def clear_pending_mark(mark, note=None, hold=None):
-  """Under the mark's mutex, remove the mark once every session it lists reads ended (as `hil_openocd_esp.py end`
-  leaves its receipt), or, given the note of a separately reviewed recovery, whatever it holds. Refuses otherwise,
-  naming the receipts. Returns what was cleared."""
+  """Remove the mark once every session it lists reads ended (as `hil_openocd_esp.py end` leaves its receipt), or,
+  given the note of a separately reviewed recovery, whatever it holds, the note and `hold` logged first. Refuses
+  otherwise, naming the receipts. Returns what was cleared."""
+  ended = lambda e: session_state(e) == 'ended'   # noqa: E731
   try:
-    with mark_locked(mark) as dfd:
-      sessions = read_mark(mark)
-      if sessions is None and note is None:
-        raise Refused(f'{mark} is unreadable or malformed: an earlier openocd_esp session may still be pending; clear '
-                      'it only after a separately reviewed recovery (SKILL.md Recovery)')
-      left = [e['receipt'] for e in sessions or [] if session_state(e) != 'ended']
-      if left and note is None:
-        raise Refused(f'openocd_esp sessions {left} of an earlier run are not ended: end each with `hil_openocd_esp.py '
-                      'end --receipt <receipt>`, or clear the mark after a separately reviewed recovery (SKILL.md '
-                      'Recovery)')
-      cleared = {'mark': str(mark), 'sessions': sessions, 'notEnded': left}
-      if note is not None:
-        raw = mark.helper._read_file(mark.lock, PENDING_MARK)
-        cleared.update(note=note, hold=hold, **({'unreadable': raw.decode(errors='replace')} if sessions is None and raw else {}))
-        fd = mark.helper._open_file(dfd, mark.name + CLEARED_LOG, os.O_WRONLY | os.O_APPEND, create=True)
-        with os.fdopen(fd, 'a') as f:
-          f.write(json.dumps(dict(cleared, at=time.strftime('%Y-%m-%dT%H:%M:%S%z'))) + '\n')
-          f.flush()
-          os.fsync(f.fileno())
-      with contextlib.suppress(FileNotFoundError):
-        os.unlink(mark.name, dir_fd=dfd)
-      return cleared
+    return mark.clear(ended) if note is None else mark.clear(ended, note=note, hold=hold)
+  except RuntimeError as e:   # PendingRefused: kept as it is
+    raise Refused(f'{e}: end each openocd_esp session with `hil_openocd_esp.py end --receipt <receipt>`, or clear the '
+                  'mark after a separately reviewed recovery (SKILL.md Recovery)') from None
   except OSError as e:
     raise Refused(f'the pending mark {mark} could not be checked: {e}') from None
 
 
 def reviewed_receipts(mark):
-  """Every receipt a reviewed recovery's clear-pending recorded in <mark>.cleared.jsonl: the mark's sessions and the
+  """Every receipt a reviewed recovery's clear-pending recorded in the mark's cleared log: the mark's sessions and the
   survivors of the cleanup holder it proved."""
   try:
-    with mark_locked(mark):
-      data = mark.helper._read_file(mark.lock, PENDING_MARK + CLEARED_LOG) or b''
+    entries = mark.cleared()
   except OSError as e:
     raise Refused(f'the cleared log of {mark} could not be read: {e}') from None
   found = []
-  for line in data.splitlines():
-    with contextlib.suppress(ValueError, TypeError, AttributeError):
-      x = json.loads(line)
+  for x in entries:
+    with contextlib.suppress(TypeError, AttributeError):
       found += [e['receipt'] for e in (x.get('sessions') or []) + ((x.get('hold') or {}).get('survivors') or [])
                 if isinstance(e, dict) and 'receipt' in e]
   return found
@@ -945,10 +706,15 @@ def refuse_pending(workdir, mark=None):
 # ------------------------------------------------------------------ the flash provider
 
 PROVIDER = []   # the one hil_flash module this process loads (provider())
-PROVIDER_API = ('flash_jlink', 'flash_stlink', 'run_jlink_commands', 'run_stlink_commands', 'sysresetreq_jlink',
-                'sysresetreq_stlink', 'Operation', 'Attempt')
+PROVIDER_API = ('flash_jlink', 'flash_stlink', 'flash_openocd', 'run_jlink_commands', 'run_stlink_commands',
+                'run_openocd_commands', 'sysresetreq_jlink', 'sysresetreq_stlink', 'sysresetreq_openocd', 'Operation',
+                'Attempt')
 OPENOCD = []    # and its openocd_esp module (openocd_esp())
-OPENOCD_API = ('admit', 'find_openocd', 'usj_location', 'flash_openocd_esp', 'ci_refusal')
+OPENOCD_API = ('admit', 'find_openocd', 'usj_tty', 'usj_node', 'session_state', 'security_evidence', 'admit_security',
+               'SECURITY_CHIPS', 'flash_openocd_esp', 'refusal')
+OBSERVE = []    # and its bounded USB observation (usb_observe())
+OBSERVE_API = ('usb_devices', 'usb_node_serial', 'udev_serial', 'read_sysfs', 'enumeration_id')
+USB_OBSERVE = LOCK_HELPER.with_name('usb_observe.py')
 CORE = []       # and the report core (report_core())
 CORE_API = ('BodySchema', 'READABLE', 'ReportError', 'read_document', 'start_attempt', 'make_meta', 'publish', 'table',
             'roster_identity')
@@ -959,7 +725,7 @@ def load_pinned(path, name, api, what='flash provider'):
   submodule is off its pin or the module lacks what the runner calls."""
   check_lock_pin()
   try:
-    mod = run_report.load(path, name)
+    mod = run_report.load_agentrc(path, name)
   except Exception as e:
     raise Refused(f'{what} {path} failed to load: {e}')
   missing = [n for n in api if not hasattr(mod, n)]
@@ -985,6 +751,13 @@ def openocd_esp():
   return OPENOCD[0]
 
 
+def usb_observe():
+  """usb_observe.py, once per process: a probe found by serial without a read that can hang on a wedged peer."""
+  if not OBSERVE:
+    OBSERVE.append(load_pinned(USB_OBSERVE, 'agentrc_usb_observe', OBSERVE_API, 'USB observation'))
+  return OBSERVE[0]
+
+
 def report_core():
   """hil_report_core.py, once per process: every report this runner writes or a recovery reads goes through it."""
   if not CORE:
@@ -993,27 +766,21 @@ def report_core():
 
 
 def command_argv(cmd):
-  """(argv, environment) of a provider command: an argv as is, a shell string split into words with its leading
-  NAME=value words as the environment they set. Any other shell syntax is refused: no shell runs it."""
-  if not isinstance(cmd, str):
-    return [str(c) for c in cmd], None
-  if re.search(r'[|&;<>()$`\\*?\n]', cmd):
-    raise ValueError(f'a provider command this runner cannot run without a shell: {cmd!r}')
-  words, env = shlex.split(cmd), {}
-  while words and re.fullmatch(r'[A-Za-z_]\w*=\S*', words[0]):
-    k, v = words.pop(0).split('=', 1)
-    env[k] = v
-  return words, env or None
+  """A provider command's argv: every command is an argv list (`hil` Flashers); a shell string is refused, as no shell
+  runs it."""
+  if isinstance(cmd, (str, bytes)):
+    raise TypeError(f'a provider command is an argv list, not a shell string: {cmd!r}')
+  return [str(c) for c in cmd]
 
 
 def tool_runner(log):
-  """The flash provider's `run=`: each command one tracked spawn child, its transcript in `log`, its session killed on
-  the bound and a survivor kept in CHILDREN for cleanup. A timeout returns rc 124 with the output so far (the
-  provider records the attempt as timed out); an interruption raises Interrupted carrying it. Cleanup is 'done' only
-  when nothing of the child's session is left, else 'unknown' (cleanup reaps it). Executed directly, a tool that dies
-  by a signal reports -N."""
-  def run(cmd, cwd=None, *, timeout):
-    argv, env = command_argv(cmd)
+  """The flash provider's `run=`: each command one tracked spawn child, its transcript in `log`, `env` added to the
+  environment, its session killed on the bound and a survivor kept in CHILDREN for cleanup. A timeout returns rc 124
+  with the output so far (the provider records the attempt as timed out); an interruption raises Interrupted carrying
+  it. Cleanup is 'done' only when nothing of the child's session is left, else 'unknown' (cleanup reaps it).
+  Executed directly, a tool that dies by a signal reports -N."""
+  def run(cmd, cwd=None, *, env=None, timeout):
+    argv = command_argv(cmd)
     tracked = len(CHILDREN)
     try:
       code, out = spawn(argv, log, timeout, cwd=cwd, env=env)
@@ -1186,30 +953,26 @@ def jlink_failure(code, out, probe):
   return {'tail': out.strip().splitlines()[-5:], 'beforeTarget': stopped_before_target(code, out, probe)}
 
 
-def judge_jlink_target(code, out, board, hex_path):
-  """The provider's J-Link flash transcript (the record's tinyuf2-jlink script): JLinkExe can exit 0 with every command
-  FAILED (no probe with the serial), so success is read from the transcript: this HEX downloaded, programmed or
-  already matching, then O.K. and the script completed, with no failure line anywhere."""
-  judged = re.sub(BENIGN[board['device']], '', out) if board['device'] in BENIGN else out
+def judge_jlink_target(op, board, hex_path):
+  """The provider's J-Link flash (the record's tinyuf2-jlink script), judged by its jlink_problem, and this HEX
+  downloaded, programmed or already matching, then O.K., in the output of the script's own `loadfile`."""
+  code, out = op.attempts[-1].result.returncode, text(op.attempts[-1].result.stdout)
+  load = f'loadfile {hex_path}'
   m = re.search(rf'^Downloading file \[{re.escape(str(hex_path))}\]\.\.\.$(?:\n.*)*?\nJ-Link: Flash download: Bank \d+ @ '
                 r'0x[0-9A-F]+: (Skipped\. Contents already match|\d+ ranges? affected \(\d+ bytes\))$(?:\n.*)*?\nO\.K\.$',
-                judged, re.M)
-  if code or not m or 'Script processing completed.' not in judged or re.search(JLINK_ERRORS + '|FAILED', judged):
-    raise StepFail(f'the J-Link flash failed (exit {code})', jlink_failure(code, out, board['probe']))
+                next(iter(provider().jlink_after(out, load)), ''), re.M)
+  if problem := provider().jlink_problem(op) or ('' if m else f'no download of {hex_path} in its {load!r}'):
+    raise StepFail(f'the J-Link flash failed (exit {code})', {**jlink_failure(code, out, board['probe']), 'problem': problem})
   return {'flashDownload': m[1]}
 
 
 def judge_esp_target(code, out, segments):
-  """The provider's esptool flash: esptool's write of every segment at its offset, each hash-verified, then the hard
-  reset (esptool 5.2.0 cmds.py write_flash and loader.py hard_reset, which the bench transcripts of 5.2.0 on the P4's
-  USB-Serial/JTAG and 5.3.1 in espressif/idf:v6.1 match), with any CSI sequence and the underscore spellings'
-  deprecation warnings around them ignored."""
-  out = ANSI.sub('', out)
-  wrote = sorted(int(a, 16) for a in re.findall(r'^Wrote \d+ bytes \(\d+ compressed\) at 0x([0-9a-f]{8}) in ', out, re.M))
-  if code or wrote != sorted(off for off, _ in segments) or out.count('Hash of data verified.') != len(segments) or \
-     'Hard resetting via RTS pin' not in out:
-    raise StepFail(f'the esptool flash failed (exit {code})', {'tail': out.strip().splitlines()[-5:]})
-  return {'wrote': [hex(a) for a in wrote]}
+  """The provider's esptool flash, judged by its esptool_flash_judgment over every segment's offset."""
+  judged = provider().esptool_flash_judgment(out, [off for off, _ in segments])
+  if code or not judged['ok']:
+    raise StepFail(f'the esptool flash failed (exit {code})', {'tail': ANSI.sub('', out).strip().splitlines()[-5:],
+                                                              'problem': judged['problem']})
+  return {'wrote': [hex(a) for a in sorted(judged['wrote'])]}
 
 
 class Probe:
@@ -1219,50 +982,56 @@ class Probe:
     self.b, self.dir, self.log = board, workdir, log
     self.retried = []
     self.flasher = {'name': 'jlink', 'uid': board['probe'], 'args': f'-device {board["device"]}'}
-    # SWD at 4000 kHz, autoconnect, and the core for a device whose own connect resets the chip (SESSION_DEVICE)
+    # SWD at 4000 kHz, autoconnect, and the core for a device whose own connect resets the chip (JLINK_CONNECT_UNLOCKS)
+    unlocks = JLINK_CONNECT_UNLOCKS.get(board['device'])
     self.profile = {'interface': board['if'], 'speed': board['speed'], 'autoconnect': True,
-                    'device': SESSION_DEVICE.get(board['device'], board['device']), 'timeout': PROBE_TIMEOUT,
-                    'workdir': workdir}
+                    'device': unlocks[0] if unlocks else board['device'], 'timeout': PROBE_TIMEOUT, 'workdir': workdir}
 
   def run(self, commands, judge=True):
-    """One JLinkExe session. judge=False is for a last `w4` that resets the target, which may drop the
-    connection mid-transaction: only its issue on a connected target is judged (J-Link's "Writing VALUE ->
-    ADDR" with no failure before it), and the caller's observation is the evidence."""
-    return self.session(lambda run: provider().run_jlink_commands(self.flasher, list(commands), run=run,
-                                                                    **self.profile), commands, judge)
+    """One JLinkExe session, each command judged from its own output (jlink_problem). judge=False is for a
+    lone `w4` that resets the target, which may drop the connection mid-transaction: only its issue on a connected
+    target is judged (the core identified, then J-Link's "Writing VALUE -> ADDR", with no failure before it), and
+    the caller's observation is the evidence."""
+    return self.session(lambda **kw: provider().run_jlink_commands(self.flasher, list(commands), **kw, **self.profile),
+                        commands, judge)
 
   def sysreset(self):
     """The provider's SYSRESETREQ session (the AIRCR write), judged on its issue."""
-    return self.session(lambda run: provider().sysresetreq_jlink(self.flasher, run=run, **self.profile),
+    return self.session(lambda **kw: provider().sysresetreq_jlink(self.flasher, **kw, **self.profile),
                         [f'w4 {SCB_AIRCR:08X} {AIRCR_SYSRESETREQ:08X}'], judge=False)
 
-  def failure(self, attempts):
-    """jlink_failure over every attempt: before the target only when each one ended there."""
-    return {'tail': text(attempts[-1].result.stdout).strip().splitlines()[-5:],
-            'beforeTarget': before_target(attempts, lambda code, out: stopped_before_target(code, out, self.b['probe']))}
+  def failure(self, op):
+    """jlink_failure over every attempt: before the target only when each one ended there; a rerun the provider
+    refused names why."""
+    return {'tail': text(op.attempts[-1].result.stdout).strip().splitlines()[-5:],
+            'beforeTarget': before_target(op.attempts, lambda code, out: stopped_before_target(code, out, self.b['probe'])),
+            **({'retryRefused': op.retry_refused} if op.retry_refused else {})}
 
   def session(self, op, commands, judge):
-    run = tool_runner(self.log)
-    attempts = list(op(run).attempts)
-    code, out = attempts[-1].result.returncode, text(attempts[-1].result.stdout)
-    if died_at_probe_connect(code, out, self.b['probe']):
-      self.retried.append({'exit': code, 'commands': list(commands)})
+    """One provider session, rerun once, JLINK_RETRY_DELAY later, when it died at the probe connect
+    (died_at_probe_connect); the provider refuses that rerun unless the runner proved the attempt's session ended."""
+    def crashed(a):
+      code = a.result.returncode
+      if not died_at_probe_connect(code, text(a.result.stdout), self.b['probe']):
+        return False
       with open(self.log, 'a') as f:
         f.write(f'# JLinkExe died (exit {code}) at the probe connect, before the target; retrying once\n')
-      time.sleep(JLINK_RETRY_DELAY)
-      attempts += op(run).attempts
-      code, out = attempts[-1].result.returncode, text(attempts[-1].result.stdout)
-    if attempts[-1].timed_out:
-      raise StepFail(f'JLinkExe timed out after {PROBE_TIMEOUT}s', self.failure(attempts))
-    seen = re.sub(BENIGN[self.b['device']], '', out) if self.b['device'] in BENIGN else out
+      return True
+    res = op(run=tool_runner(self.log), retry_if=crashed, retry_delay=JLINK_RETRY_DELAY)
+    self.retried += [{'exit': a.result.returncode, 'commands': list(commands)} for a in res.retried]
+    code, out = res.attempts[-1].result.returncode, text(res.attempts[-1].result.stdout)
+    if res.attempts[-1].timed_out:
+      raise StepFail(f'JLinkExe timed out after {PROBE_TIMEOUT}s', self.failure(res))
     # a crash fails even a reset session (judge=False): its commands may not have run
-    if code < 0 or judge and (code or re.search(JLINK_ERRORS, seen)):
-      raise StepFail(f'JLinkExe failed (exit {code})', self.failure(attempts))
+    if code < 0:
+      raise StepFail(f'JLinkExe failed (exit {code})', self.failure(res))
+    if judge and (problem := provider().jlink_problem(res)):
+      raise StepFail(f'JLinkExe failed (exit {code})', {**self.failure(res), 'problem': problem})
     if not judge and commands[-1].startswith('w4 '):
       _, addr, value = commands[-1].split()
-      head, issued, _ = seen.partition(f'Writing {value} -> {addr}')
-      if not issued or re.search(JLINK_ERRORS, head):
-        raise StepFail(f'the reset write was not issued on a connected target (exit {code})', self.failure(attempts))
+      head, issued, _ = next(iter(provider().jlink_after(out, commands[-1])), '').partition(f'Writing {value} -> {addr}')
+      if not issued or not re.search(JLINK_CONNECTED, head) or re.search(provider().JLINK_ERRORS, head):
+        raise StepFail(f'the reset write was not issued on a connected target (exit {code})', self.failure(res))
     return out
 
   def mem32(self, addrs):
@@ -1374,23 +1143,19 @@ def core_regs(body):
 
 
 def esp_port(uid):
-  """The tty of the USB-UART bridge with this serial: exactly one, never a guessed /dev/ttyUSBn."""
-  hits = sorted(glob.glob(f'/dev/serial/by-id/*_{glob.escape(uid)}-if*'))
-  if len(hits) != 1:
-    raise StepFail(f'{len(hits)} serial ports for bridge {uid}: {hits}')
-  return os.path.realpath(hits[0])
+  """The provider's esptool_port: exactly one tty for this serial, never a guessed /dev/ttyUSBn."""
+  try:
+    return provider().esptool_port(uid)
+  except (RuntimeError, OSError) as e:
+    raise StepFail(str(e))
 
 
 def child_json(cmd, log, timeout, what):
   """The JSON last line of a helper child (esptool_session.py, usb_dfu.py, fat-read); a missing line, a non-zero
   exit or an `ok` other than true fails the step with the helper's `reason` (else `error`) and the output tail."""
   code, out = spawn(cmd, log, timeout)
-  tail = out.strip().splitlines()[-5:]
-  try:
-    res = json.loads(tail[-1])
-  except (IndexError, ValueError):
-    res = None
-  if not isinstance(res, dict):
+  tail, res = out.strip().splitlines()[-5:], last_json(out)
+  if res is None:
     raise StepFail(f'{what} ended without its JSON (exit {code})', {'tail': tail})
   if code or res.get('ok') is not True:
     raise StepFail(f'{what}: {res.get("reason") or res.get("error")}', {'tail': tail, 'error': res.get('error')})
@@ -1406,8 +1171,9 @@ class Esptool:
     refuse_pending(self.dir, self.b.get('pendingMark'))
     spec = self.dir / f'esp-{time.monotonic_ns()}.json'
     spec.write_text(json.dumps(ops))
-    return child_json([sys.executable, '-B', ESP_SESSION, '--port', esp_port(self.b['probe']), '--chip', self.b['device'],
-                       '--baud', str(ESP_BAUD), '--after', after, spec], self.log, ESP_TIMEOUT, 'esptool session')['results']
+    return child_json([esptool_runtime()['python'], '-B', ESP_SESSION, '--port', esp_port(self.b['probe']), '--chip',
+                       self.b['device'], '--baud', str(ESP_BAUD), '--after', after, spec], self.log, ESP_TIMEOUT,
+                      'esptool session')
 
 
 def preserved_ops(regions):
@@ -1431,7 +1197,7 @@ def esp_verify(tool, board, segments, workdir, snapshot):
   keep = board['regions']['preserved']
   ops = [{'op': 'read', 'addr': off, 'size': path.stat().st_size, 'file': str(rb)} for off, path, rb in reads] + \
         preserved_ops(keep)
-  after = preserved_md5(keep, tool.run(ops, 'hard-reset'))
+  after = preserved_md5(keep, tool.run(ops, 'hard-reset')['results'])
   check_preserved(snapshot, after, 'install')
   for off, path, rb in reads:
     if rb.read_bytes() != path.read_bytes():
@@ -1463,12 +1229,6 @@ def report_snapshot(row, keep):
   if {n: tuple(r) for n, r in regions.items()} != keep:
     raise Refused(f'the failed run preserved {regions}; this checkout preserves {keep}')
   return md5
-
-
-def after(out, command):
-  """The output chunks following each echo of `command` in a JLinkExe -CommandFile transcript; the
-  transcript shape is bench-checked at commissioning."""
-  return re.split(rf'(?m)^J-Link>{re.escape(command)}\s*$', out)[1:]
 
 
 def regs(out):
@@ -1635,12 +1395,12 @@ def udisks_ignored(dev):
   return 'UDISKS_IGNORE=1' in props.stdout.split()
 
 
-def check_exclusive(dev):
+def check_exclusive(dev, timeout=UDEV_TIMEOUT):
   # the block node shows in sysfs before udev has run its rules on it (bench: RT1060 re-entry), so the
   # property gets a bounded wait; the mount check still catches a rule that did not apply
   start = time.monotonic()
   try:
-    wait_for(lambda: udisks_ignored(dev), UDEV_TIMEOUT, f'UDISKS_IGNORE=1 on {dev}')
+    wait_for(lambda: udisks_ignored(dev), timeout, f'UDISKS_IGNORE=1 on {dev}')
   except StepFail:
     raise StepFail(f'{dev} has no UDISKS_IGNORE=1: desktop automount could race the raw I/O '
                    '(commissioning.md: 99-tinyuf2-hil.rules)')
@@ -1657,7 +1417,7 @@ class Fat:
   page cache (Linux block/bdev.c blkdev_put_whole -> kill_bdev), so a reader that reopened it per read would
   cost a USB read per cluster (bench: the nonce block 4 MiB into CURRENT.UF2 took >20s)."""
   def __init__(self, dev):
-    self.dev, self.fd = dev, os.open(dev, os.O_RDONLY)
+    self.dev, self.fd, self._entries = dev, os.open(dev, os.O_RDONLY), None
     try:
       self._geometry()
     except BaseException:
@@ -1690,15 +1450,18 @@ class Fat:
     return b
 
   def entries(self):
-    out = {}
-    raw = self.read(self.root, self.roots * 32)
-    for i in range(0, len(raw), 32):
-      e = raw[i:i + 32]
-      if e[0] in (0, 0xE5) or e[11] & 0x08:
-        continue
-      name = (e[:8].decode('ascii', 'replace').strip() + '.' + e[8:11].decode('ascii', 'replace').strip())
-      out[name.rstrip('.')] = (struct.unpack_from('<H', e, 26)[0], struct.unpack_from('<I', e, 28)[0])
-    return out
+    """The root directory, read once per Fat as the FAT is."""
+    if self._entries is None:
+      out = {}
+      raw = self.read(self.root, self.roots * 32)
+      for i in range(0, len(raw), 32):
+        e = raw[i:i + 32]
+        if e[0] in (0, 0xE5) or e[11] & 0x08:
+          continue
+        name = (e[:8].decode('ascii', 'replace').strip() + '.' + e[8:11].decode('ascii', 'replace').strip())
+        out[name.rstrip('.')] = (struct.unpack_from('<H', e, 26)[0], struct.unpack_from('<I', e, 28)[0])
+      self._entries = out
+    return self._entries
 
   def next_cluster(self, c):
     if self.fat16:
@@ -1729,11 +1492,28 @@ class Fat:
     return out, size
 
 
-def fat_read(dev, name, length, log, offset=0):
-  """{'entries': {...}, 'data': bytes} of `name` on `dev`, read by a bounded child process."""
+def flush_evidence(code, out):
+  """The flush child's exit with its phase and errno name, from its JSON last line when it printed one."""
+  res = last_json(out) or {}
+  if not res.get('phase'):
+    return {'exit': code, 'tail': out.strip().splitlines()[-5:]}
+  return {'exit': code, 'phase': res['phase'], 'errno': res.get('errno')}
+
+
+def last_json(out):
+  """A child's JSON last line as a dict, None when it printed none."""
+  try:
+    res = json.loads(out.strip().splitlines()[-1])
+  except (IndexError, ValueError):
+    return None
+  return res if isinstance(res, dict) else None
+
+
+def fat_read(dev, name, length, log, offset=0, timeout=USB_TIMEOUT):
+  """{'entries': {...}, 'data': bytes} of `name` on `dev`, read by a child process bounded by `timeout`."""
   try:
     r = child_json([sys.executable, '-B', __file__, 'fat-read', '--dev', dev, '--file', name, '--length', str(length),
-                    '--offset', str(offset)], log, USB_TIMEOUT, name)
+                    '--offset', str(offset)], log, timeout, name)
   except StepFail as e:
     e.evidence['dev'] = dev
     raise
@@ -1760,7 +1540,7 @@ def clear_pending_main(args):
       else:
         manual_holder(helper, lock, args.under_hold)
         hold = helper.read_record(lock)
-    cleared = clear_pending_mark(PendingMark(helper, lock), note, hold)
+    cleared = clear_pending_mark(pending_mark(helper, lock), note, hold)
   except Refused as e:
     print(json.dumps({'pass': False, 'error': str(e)}), flush=True)
     return 2
@@ -1769,6 +1549,57 @@ def clear_pending_main(args):
       recovery.close()
   print(json.dumps({'pass': True, 'cleared': cleared}), flush=True)
   return 0
+
+
+def flush_main(args):
+  """`flush`: fsync of one block device node, opened as coreutils `sync FILE` opens it. Exit 0 flushed,
+  FLUSH_GONE when the open found no node (ENOENT) or no live disk (ENXIO), 1 on any other failure."""
+  def failed(phase, e, code=1):
+    print(json.dumps({'ok': False, 'phase': phase, 'errno': errno.errorcode.get(e.errno, str(e.errno)),
+                      'error': str(e)}))
+    return code
+  try:
+    fd = os.open(args.dev, os.O_RDONLY | os.O_NONBLOCK)
+  except OSError as e:
+    return failed('open', e, FLUSH_GONE if e.errno in (errno.ENOENT, errno.ENXIO) else 1)
+  phase = 'fcntl'
+  try:
+    fcntl.fcntl(fd, fcntl.F_SETFL, fcntl.fcntl(fd, fcntl.F_GETFL) & ~os.O_NONBLOCK)
+    phase = 'fsync'
+    os.fsync(fd)
+  except OSError as e:
+    return failed(phase, e)
+  finally:
+    os.close(fd)
+  print(json.dumps({'ok': True}))
+  return 0
+
+
+def uf2_write_main(args):
+  """`uf2-write`: the file's bytes in one write to the device at `--offset`, opened with WRITE_FLAGS from a
+  page-aligned buffer (O_DIRECT); the JSON says how it ended, and when the write call itself started and returned
+  (`writeStart`, `writeEnd`: CLOCK_MONOTONIC, shared with the runner)."""
+  data = Path(args.file).read_bytes()
+  buf = mmap.mmap(-1, len(data))
+  buf.write(data)
+  res, phase = {'ok': False}, 'open'
+  try:
+    fd = os.open(args.dev, WRITE_FLAGS)
+    phase = 'write'
+    try:
+      res['writeStart'] = time.monotonic()
+      try:
+        n = os.pwrite(fd, buf, args.offset)
+      finally:
+        res['writeEnd'] = time.monotonic()
+      res.update(ok=n == len(data), written=n)
+    finally:
+      os.close(fd)
+  except OSError as e:
+    res.update(errno=errno.errorcode.get(e.errno, str(e.errno)), error=str(e))
+  res.update(phase=phase, bytes=len(data), end=time.monotonic())
+  print(json.dumps(res))
+  return 0 if res['ok'] else 1
 
 
 def fat_read_main(args):
@@ -1802,12 +1633,12 @@ def load_helper():
   if getattr(mod, 'PROTECTED_REASONS', None) != PROTECTED or getattr(mod, 'CI_REASON', None) != 'hil_test.py' or \
      getattr(mod, 'CLEANUP_ROLE', None) != HOLDER_ROLE or not isinstance(getattr(mod, 'HOLD_KIND', None), str) or \
      not all(isinstance(e, type) and issubclass(e, RuntimeError) for e in errors) or \
-     not all(callable(getattr(mod, f, None)) for f in ('_open_dir', '_open_file', '_read_file', 'journal_state',
-                                                        'release_token', 'write_record', 'proc_start',
-                                                        'is_recovery_blocker')):
+     not (isinstance(getattr(mod, 'PendingRefused', None), type) and issubclass(mod.PendingRefused, RuntimeError)) or \
+     not all(callable(getattr(mod, f, None)) for f in ('PendingSessions', 'takeover_predecessor', 'release_token',
+                                                        'write_record', 'proc_start', 'is_recovery_blocker')):
     raise Refused(f'lock helper {LOCK_HELPER}: protected reasons are not {sorted(PROTECTED)}, its CI reason is not '
                   f"'hil_test.py', its cleanup role is not {HOLDER_ROLE!r}, it has no LockUnavailable, RecoveryBlocked or "
-                  'ReleaseRefused, no checked file opens, no takeover journal, hold kind and token release, or no '
+                  'ReleaseRefused, no pending-session record, no takeover journal, hold kind and token release, or no '
                   'recovery-blocker check; recheck this contract')
   return mod
 
@@ -1915,18 +1746,10 @@ def takeover_predecessor(helper, board, token):
   prove_hold(helper, board, rec.get('pid'), role=HOLDER_ROLE)
   if helper.proc_start(rec['pid']) != rec.get('start'):
     raise Refused(f'{board}: pid {rec["pid"]} is not the takeover holder that wrote the record')
-  chain, journal = [], helper.journal_state(board)
-  while journal is not None:   # a takeover whose holder died before this one chains the original as `prior`
-    if not isinstance(journal, dict) or not journal:
-      raise Refused(f'{board}: a takeover journal in its chain cannot be read: the record it replaced is unknown')
-    chain.append(journal)
-    journal = journal.get('prior')
-  if not chain or chain[0].get('token') != token:
-    raise Refused(f'{board}: no takeover journal of token {token}: the record it replaced is unknown')
-  try:
-    pred = json.loads(chain[-1].get('predecessor') or '')
-  except (TypeError, ValueError):
-    pred = None
+  try:   # the oldest journal's: a takeover of a dead taker names the original holder
+    _, pred = helper.takeover_predecessor(board, token)
+  except LookupError as e:
+    raise Refused(f'{board}: {e}: the record it replaced is unknown') from None
   if not isinstance(pred, dict) or pred.get('reason') != 'hil_test.py' or \
      not helper.is_recovery_blocker(pred) or \
      pred.get('role') == HOLDER_ROLE and pred.get('board') != board:
@@ -2006,47 +1829,96 @@ def failed_row(body, report, board, holder):
 def probe_users(board):
   """Processes using this board's probe: for J-Link one opened by serial (a JLinkExe or GDB server from an
   earlier session), for ST-LINK any STM32CubeProgrammer CLI (its script names the probe, not its command line), for
-  esptool any process holding the bridge's tty open, for openocd_esp also any holding the USJ's usbfs node."""
-  if board['flasher'] in ('esptool', 'openocd_esp'):   # both devices resolved first, then one /proc walk
-    devs = [esp_port(board['probe'])] + ([usj_node(board['probe'])] if board['flasher'] == 'openocd_esp' else [])
+  openocd any holding the CMSIS-DAP probe's usbfs node open and any openocd naming its serial, which may not have
+  opened it yet, for esptool any process holding its tty open, for openocd_esp or an esptool USJ also any holding
+  the USJ's usbfs node. Devices are resolved first, then one /proc walk."""
+  if board['flasher'] in ('esptool', 'openocd_esp'):
+    usj = board['flasher'] == 'openocd_esp' or cb.USJ_SERIAL.fullmatch(board['probe'])
+    devs = [esp_port(board['probe'])] + ([usj_node(board['probe'])] if usj else [])
     return tty_users(*devs)
+  node = probe_node(board) if board['flasher'] == 'openocd' else None
   probe, users = board['probe'].encode(), []
   for d in Path('/proc').iterdir():
-    try:
-      cmd = (d / 'cmdline').read_bytes().split(b'\0')
-    except OSError:
-      continue
     if not d.name.isdigit() or int(d.name) == os.getpid():
       continue
-    if board['flasher'] == 'stlink' and Path(cmd[0].decode(errors='replace')).name == STM32_PROGRAMMER_CLI or \
-       board['flasher'] == 'jlink' and any(b'JLink' in c for c in cmd[:1]) and any(probe in c for c in cmd):
+    try:   # bytes: an argument need not decode, and must still name the probe
+      cmd = (d / 'cmdline').read_bytes().split(b'\0')
+    except OSError:
+      cmd = [b'']
+    name = Path(cmd[0].decode(errors='replace')).name
+    if board['flasher'] == 'stlink' and name == STM32_PROGRAMMER_CLI or \
+       board['flasher'] == 'jlink' and b'JLink' in cmd[0] and any(probe in c for c in cmd) or \
+       board['flasher'] == 'openocd' and (name == 'openocd' and any(probe in c for c in cmd) or
+                                          node is not None and holds_open(d, (node,))):
       users.append(int(d.name))
   return users
 
 
+PROBE_SERIAL_TIMEOUT = 2   # s for one bounded `serial` read of a device of the probe's USB ID that udev has no record of
+
+
+def probe_node(board):
+  """The usbfs node of the CMSIS-DAP probe with the roster's serial and USB ID, or None when none is enumerated. Each
+  device of that USB ID is named by udev's record, else a bounded read of `serial`, which the kernel serves under the
+  device lock a stuck usbfs ioctl holds (usb_observe): a peer whose serial does not answer is a StepFail unless this
+  probe was found, since it may be this probe. A device that re-enumerated while it was named may have handed its
+  bus and device number to another: the walk runs once more, and a second change is a StepFail."""
+  for _ in range(2):
+    node, moved = probe_scan(board)
+    if not moved:
+      return node
+  raise StepFail(f'probe {board["probe"]}: {moved} re-enumerated while their serial was read, in two walks')
+
+
+def probe_scan(board):
+  """One walk of probe_node: (the node, the devices whose enumeration changed across their serial's lookup)."""
+  obs, (vid, pid) = usb_observe(), (x.removeprefix('0x').lower() for x in board['vid_pid'].split())
+  mine, silent, moved = [], [], []
+  for dev in obs.usb_devices(vid_pid=(vid, pid)):
+    bus, num = dev['busnum'], dev['devnum']
+    # without its numbers a device is named through its directory, still refused below when its serial matches
+    sn = obs.usb_node_serial(usbfs_node(bus, num), PROBE_SERIAL_TIMEOUT) if None not in (bus, num) else \
+        obs.read_sysfs(os.path.join(dev['dir'], 'serial'), PROBE_SERIAL_TIMEOUT)
+    if obs.enumeration_id(dev['dir']) != dev['ino']:   # the serial, or the numbers it was found by, may be another's
+      moved.append(dev['busport'])
+    elif sn is None:
+      silent.append(dev['busport'])
+    elif sn.lower() == board['probe'].lower():
+      mine.append(dev)
+  if moved:
+    return None, moved
+  if len(mine) > 1 or not mine and silent:
+    raise StepFail(f'probe {board["probe"]}: {len(mine)} devices {vid}:{pid} with its serial, and {silent} did not '
+                   'answer for theirs')
+  if mine and None in (mine[0]['busnum'], mine[0]['devnum']):
+    raise StepFail(f'probe {board["probe"]} at {mine[0]["busport"]}: no bus or device number')
+  return usbfs_node(mine[0]['busnum'], mine[0]['devnum']) if mine else None, []
+
+
+def usbfs_node(bus, num):
+  return f'/dev/bus/usb/{bus:03d}/{num:03d}'
+
+
 def usj_node(serial):
-  """The USJ's usbfs node, which an openocd from an earlier session holds open, the device found as the provider
-  pins it."""
+  """The USJ's usbfs node, which an openocd from an earlier session holds open, the provider's (usj_node)."""
   try:
-    d = Path(openocd_esp().usb_observe.SYS_USB_DEVICES) / openocd_esp().usj_location(serial)
-    return f'/dev/bus/usb/{int((d / "busnum").read_text()):03d}/{int((d / "devnum").read_text()):03d}'
-  except (RuntimeError, OSError, ValueError) as e:
+    return openocd_esp().usj_node(serial)
+  except (RuntimeError, OSError) as e:
     raise StepFail(f'USJ {serial}: {e}')
 
 
 def tty_users(*devs):
   """Processes holding any of `devs` open, each once."""
-  users = []
-  for d in Path('/proc').iterdir():
-    if not d.name.isdigit() or int(d.name) == os.getpid():
-      continue
-    try:
-      fds = list((d / 'fd').iterdir())
-    except OSError:
-      continue
-    if any(readlink(fd) in devs for fd in fds):
-      users.append(int(d.name))
-  return users
+  return [int(d.name) for d in Path('/proc').iterdir()
+          if d.name.isdigit() and int(d.name) != os.getpid() and holds_open(d, devs)]
+
+
+def holds_open(proc, devs):
+  """Whether the /proc/<pid> `proc` holds any of `devs` open; False once its fds cannot be listed."""
+  try:
+    return any(readlink(fd) in devs for fd in list((proc / 'fd').iterdir()))
+  except OSError:
+    return False
 
 
 def readlink(fd):
@@ -2149,6 +2021,55 @@ def hand_off(fh, board, detail, survivors=(), *, helper):
 # ------------------------------------------------------------------ the battery
 
 def verify_record(record_path, board, facts, workdir):
+  rec, row, root, want = record_row(record_path, board)
+  flash = admit_flash(record_path, row, root, board)
+  # the runner reads its own copies of the BIN, segments and blinky: the build dir's lock covers the flash
+  # only, and a rebuild may replace the dir after it
+  copy = workdir / 'record'
+  if want == 'idf':
+    bin_rel = 'tinyuf2.bin'
+    copied(root, (*esp.RECORD_FILES, *flash['sha256']), row, copy)
+    files = esp_record(record_path, copy, board, facts)
+  else:
+    bin_rel, blinky_rel = CMAKE_RECORD_FILES
+    update = (UPDATE_UF2,) if UPDATE_UF2 in row.get('sha256', {}) else ()   # the update battery's, when built
+    copies = copied(root, (*CMAKE_RECORD_FILES, *update), row, copy)
+    files = dict(check_blinky(copies[blinky_rel], board['app'], facts), bin=copies[bin_rel], hex=root / 'tinyuf2.hex')
+    if update:
+      files['updater'] = copies[UPDATE_UF2]
+  files['flash'] = flash
+  return files, firmware_fields(record_path, rec, root / bin_rel, files['bin'])
+
+
+def firmware_fields(record_path, rec, built, copy):
+  """The reported identity of a record's bootloader: its build path `built`, hashed and versioned from the runner's
+  `copy` of it."""
+  return {'path': str(built), 'sha256': sha256(copy), 'buildRecord': str(record_path), 'defines': rec.get('defines', []),
+          'version': embedded_version(copy)}
+
+
+RECORDS = {}   # main's build records, by the path it was given: each admitted once, so facts and images share one
+
+
+def pin_records(*paths):
+  """Admit each of these build records once for the rest of main (record_row)."""
+  RECORDS.clear()
+  RECORDS.update(dict.fromkeys(os.path.abspath(p) for p in paths if p))
+
+
+def record_row(record_path, board):
+  """(record, its row of this board, build dir, backend) of a passing --shared build of this board on the checkout
+  now, clean, in the backend the HIL takes for it; a pinned record's first admission."""
+  key = os.path.abspath(record_path)
+  if RECORDS.get(key) is None:
+    admitted = read_record_row(record_path, board)
+    if key not in RECORDS:
+      return admitted
+    RECORDS[key] = admitted
+  return RECORDS[key]
+
+
+def read_record_row(record_path, board):
   try:
     rec = json.loads(Path(record_path).read_text())
   except (OSError, ValueError) as e:
@@ -2182,29 +2103,15 @@ def verify_record(record_path, board, facts, workdir):
           or state.get('inputsDirtiedByBuild')
     if bad:
       raise Refused(f'build inputs are not clean: {bad} (commit, or rebuild from a clean checkout)')
-  root = cb.ROOT / row['buildDir']
-  flash = admit_flash(record_path, row, root, board)
-  # the runner reads its own copies of the BIN, segments and blinky: the build dir's lock covers the flash
-  # only, and a rebuild may replace the dir after it
-  copy = workdir / 'record'
-  if want == 'idf':
-    bin_rel = 'tinyuf2.bin'
-    copied(root, (*esp.RECORD_FILES, *flash['sha256']), row, copy)
-    files = esp_record(record_path, copy, board, facts)
-  else:
-    bin_rel, blinky_rel = CMAKE_RECORD_FILES
-    copies = copied(root, CMAKE_RECORD_FILES, row, copy)
-    files = dict(check_blinky(copies[blinky_rel], board['app'], facts), bin=copies[bin_rel], hex=root / 'tinyuf2.hex')
-  files['flash'] = flash
-  return files, {'path': str(root / bin_rel), 'sha256': sha256(files['bin']), 'buildRecord': str(record_path),
-                 'defines': rec.get('defines', []), 'version': embedded_version(files['bin'])}
+  return rec, row, cb.ROOT / row['buildDir'], want
 
 
 def admit_flash(record_path, row, root, board):
   """The record's flash binding (check_build --hil-config: its flash target checked against this roster flasher at
   the build), with every file the install reads hash-checked; the install reads them under the build dir's lock,
   through the provider, never the target."""
-  want = {'name': board['flasher'], 'uid': board['probe'], 'device': board['device']}
+  want = {'name': board['flasher'], 'uid': board['probe'], 'device': board['device'],
+          **({'vid_pid': board['vid_pid']} if board['flasher'] == 'openocd' else {})}
   if board['flasher'] in cb.ROUTE_ARGS:   # a further route: the esptool binding's segments, bound to this route
     fl, (target, inputs) = (row.get('flashRoutes') or {}).get(board['flasher']) or {}, cb.FLASH['esptool']
     bound = (fl.get('flasher'), fl.get('inputs')) == (want, list(inputs))
@@ -2268,7 +2175,10 @@ def esp_record(record_path, root, board, facts):
     segments = esp.admit(root, board, facts, board['regions'])
   except (esp.Refused, OSError, ValueError) as e:
     raise Refused(f'{record_path}: {e}')
-  return {'segments': segments, 'bin': root / 'tinyuf2.bin', **esp_app_chunks(root / esp.APP_UF2, facts, board),
+  # the build's flash target writes without the flasher stub where the build disables it (check_build flash_binding)
+  no_stub = esp.sdkconfig((root / 'sdkconfig').read_text()).get('CONFIG_ESPTOOLPY_NO_STUB') == 'y'
+  return {'segments': segments, 'bin': root / 'tinyuf2.bin', 'noStub': no_stub,
+          **esp_app_chunks(root / esp.APP_UF2, facts, board),
           **check_blinky(root / esp.BLINKY_UF2, (0, board['app'][1] - board['app'][0]), facts)}
 
 
@@ -2280,12 +2190,118 @@ def sha256(p):
 
 
 def check_bootloader_bin(bin_path, board, facts, what):
-  """The BIN from its flash address (`binBase`) inside `install`, within the device's flash limits, and this
-  board's (its UF2_BOARD_ID)."""
+  """The BIN from its flash address (`binBase`) inside `install`, within the device's flash limits; board_facts
+  checked it is this board's (its Board-ID)."""
   start, size = facts['binBase'], Path(bin_path).stat().st_size
   check_ranges({start: 0, start + size - 1: 0}, [board['install']], FLASH_LIMITS[board['device']], what)
-  if facts['boardId'].encode() not in Path(bin_path).read_bytes():
-    raise Refused(f'{what}: {bin_path} does not carry board id {facts["boardId"]!r}; not this board\'s bootloader')
+
+
+def updater_image(uf2_path, bin_path, facts, what):
+  """An in-place updater's blocks (UPDATE_PORTS), contiguous from the BIN's flash address (binBase) and laying out
+  exactly `bin_path`, zero padding after it."""
+  blocks = contiguous_uf2(uf2_path, facts['family'], facts['binBase'], what)
+  try:
+    img = Path(bin_path).read_bytes()
+  except OSError as e:
+    raise Refused(f'{what}: {e}')
+  laid = b''.join(bl['data'] for bl in blocks)
+  if len(blocks) != -(-len(img) // 256) or laid[:len(img)] != img or laid[len(img):].strip(b'\0'):
+    raise Refused(f'{what}: {uf2_path} does not lay out {bin_path} at {facts["binBase"]:#x}')
+  return blocks
+
+
+def admit_update(record_path, board, facts, workdir, files, fw):
+  """The update battery's two updaters: the candidate record's own update-tinyuf2.uf2 and a variant record's (the
+  same checkout built with check_build --variant and a define that changes the image), each laying out its BIN in
+  place, the two BINs differing in a flash cache sector the interrupt's passes flush."""
+  sector = facts.get('flashCache')
+  if board['kind'] != 'jlink' or board['port'] not in UPDATE_PORTS:
+    raise Refused(f'{board["name"]}: no update battery for ports/{board["port"]} on a {board["flasher"]} board; '
+                  f'self-update and an interrupted update stay uncovered there (it runs on J-Link boards of '
+                  f'{", ".join(sorted(UPDATE_PORTS))})')
+  if sector is None:
+    raise Refused(f'{fw["buildRecord"]}: tinyuf2.elf has no _flash_cache, so the update sector is unknown')
+  if 'updater' not in files:
+    raise Refused(f'{fw["buildRecord"]}: no {UPDATE_UF2} in the record (notImplemented: self-update)')
+  if record_facts(record_path, board, workdir / 'variant-facts') != facts:
+    raise Refused(f'{record_path}: its board facts are not the candidate\'s')
+  rec, row, root, _ = record_row(record_path, board)
+  if UPDATE_UF2 not in row.get('sha256', {}):
+    raise Refused(f'{record_path}: no {UPDATE_UF2} in the record')
+  copies = copied(root, (CMAKE_RECORD_FILES[0], UPDATE_UF2), row, workdir / 'variant')
+  vbin = copies[CMAKE_RECORD_FILES[0]]
+  check_bootloader_bin(vbin, board, facts, 'update variant')
+  variant = firmware_fields(record_path, rec, root / CMAKE_RECORD_FILES[0], vbin)
+  imgs = {}
+  for name, (uf2, bin_path, version) in (('candidate', (files['updater'], files['bin'], fw['version'])),
+                                         ('variant', (copies[UPDATE_UF2], vbin, variant['version']))):
+    blocks = updater_image(uf2, bin_path, facts, f'{name} updater')
+    imgs[name] = {'uf2': Path(uf2), 'bin': Path(bin_path), 'blocks': blocks, 'version': version}
+  if imgs['variant']['version'] == fw['version']:
+    raise Refused(f'{record_path}: its version is the candidate\'s ({fw["version"]}): the drive could not tell which '
+                  'bootloader came back (build the variant with -D \'CFLAGS_CLI=-UUF2_VERSION -DUF2_VERSION="..."\')')
+  # the interrupt's passes write both images' blocks but the last, and flush every sector a later pass leaves: only
+  # an address both write, holding different bytes, makes a pass erase and program
+  c, v = (b''.join(bl['data'] for bl in imgs[k]['blocks'][:-1]) for k in ('candidate', 'variant'))
+  base = facts['binBase']
+  differ = sorted({(base + i) & ~(sector - 1) for i in range(min(len(c), len(v))) if c[i] != v[i]})
+  if not differ:
+    raise Refused(f'{record_path}: its bootloader and the candidate\'s hold the same bytes wherever both write but '
+                  'the last block: the interrupt\'s passes would program nothing')
+  report = {'variant': variant, 'updater': {k: sha256(imgs[k]['uf2']) for k in imgs},
+            'differingSectors': [hex(a) for a in differ]}
+  return dict(imgs, sector=sector), report
+
+
+def interleaved(imgs, passes):
+  """The interrupt's payload: `passes` alternating passes, variant first and last, over each updater's own bytes but
+  its last block, so TinyUF2 never sees a whole image and never resets on its own."""
+  body = {k: imgs[k]['uf2'].read_bytes()[:-512] for k in ('variant', 'candidate')}
+  return b''.join(body['variant' if i % 2 == 0 else 'candidate'] for i in range(passes))
+
+
+def inflight_writes(dev):
+  """Writes the block layer has issued to `dev` and not completed (sysfs block/<dev>/inflight), 0 when unreadable."""
+  try:
+    return int(Path(f'/sys/block/{Path(dev).name}/inflight').read_text().split()[1])
+  except (OSError, ValueError, IndexError):
+    return 0
+
+
+def usb_at(path):
+  """'vid:pid serial' of the device enumerated at USB port `path`, or None."""
+  d = Path('/sys/bus/usb/devices') / path
+  try:
+    ident = f'{d.joinpath("idVendor").read_text().strip()}:{d.joinpath("idProduct").read_text().strip()}'
+  except OSError:
+    return None
+  with contextlib.suppress(OSError):
+    ident += ' ' + d.joinpath('serial').read_text().strip()
+  return ident
+
+
+class UsbWatch:
+  """What USB port `path` shows, sampled by a thread from construction until stop(): whether it was ever empty
+  (`left`) and each distinct device seen, in order."""
+  def __init__(self, path, period=0.05):
+    self.path, self.period, self.seen, self.left = path, period, [], False
+    self.done = threading.Event()
+    self.thread = threading.Thread(target=self.sample, daemon=True)
+    self.thread.start()
+
+  def sample(self):
+    while True:
+      now = usb_at(self.path)
+      self.left = self.left or now is None
+      if now is not None and (not self.seen or self.seen[-1] != now):
+        self.seen.append(now)
+      if self.done.wait(self.period):
+        return
+
+  def stop(self):
+    self.done.set()
+    self.thread.join()
+    return {'left': self.left, 'seen': self.seen}
 
 
 class Battery:
@@ -2385,17 +2401,25 @@ class Battery:
     the caller's observation is the evidence."""
     return self.probe.sysreset()
 
-  def dfu(self, version):
+  def dfu(self, version, timeout=USB_TIMEOUT):
+    """DFU naming `version` within `timeout` in all: each wait and the read in turn gets only what is left."""
     f = self.f
+    end = time.monotonic() + timeout
+
+    def left():
+      remaining = end - time.monotonic()
+      if remaining <= 0:
+        raise StepFail(f'the DFU checks ran past their {timeout}s bound')
+      return remaining
     self.power.start()
-    path = wait_for(lambda: self.power.poll() or usb_device(f['vid'], f['pid'], self.b['uid']), USB_TIMEOUT,
+    path = wait_for(lambda: self.power.poll() or usb_device(f['vid'], f['pid'], self.b['uid']), left(),
                     f'{f["vid"]:04x}:{f["pid"]:04x} serial {self.b["uid"]}', NotEnumerated)
     if self.usb_path and path != self.usb_path:
       raise StepFail('came back on another USB port', {'usb': path, 'expected': self.usb_path})
     self.usb_path = path
-    dev = wait_for(lambda: block_device(path), USB_TIMEOUT, f'the block device of USB {path}')
-    udev_wait = check_exclusive(dev)
-    info = fat_read(dev, 'INFO_UF2.TXT', 512, self.log)
+    dev = wait_for(lambda: block_device(path), left(), f'the block device of USB {path}')
+    udev_wait = check_exclusive(dev, min(UDEV_TIMEOUT, left()))
+    info = fat_read(dev, 'INFO_UF2.TXT', 512, self.log, timeout=left())
     lines = info['data'].decode('ascii', 'replace').splitlines()
     want = f'TinyUF2 Bootloader {version}'
     if not lines or lines[0] != want or f'Board-ID: {f["boardId"]}' not in lines or \
@@ -2420,15 +2444,33 @@ class Battery:
         raise StepFail(f'CURRENT.UF2 block {i} is {bl["no"]} at {bl["addr"]:#x}, not at {self.app_start + 256 * i:#x}')
     return b''.join(bl['data'] for bl in blocks)
 
-  def copy(self, uf2, blocks, nonce=None):
+  def copy(self, uf2, blocks, nonce=None, leaves=True):
+    """`leaves` False is an in-place update's copy (update_to): its flush is evidence only, and the drive's version
+    read back afterwards, never DFU leaving, is the criterion."""
     dev = block_device(self.usb_path)
     code, out = spawn(['mcopy', '-o', '-i', dev, uf2, '::APP.UF2'], self.log, 60)
     if code:
       raise StepFail('mcopy failed', {'tail': out.strip().splitlines()[-5:]})
-    spawn(['sync'], self.log, 60)
+    # fsync of this node waits on this device's writeback only; a host-wide sync waits on every drive's (#552)
+    code, out = spawn([sys.executable, '-B', __file__, 'flush', '--dev', dev], self.log, 60)
+    flush = flush_evidence(code, out)
+    gone = code == FLUSH_GONE and flush.get('phase') == 'open' and flush.get('errno') in ('ENOENT', 'ENXIO')
+    if not leaves:
+      return {'blocks': blocks, 'flush': flush}
+    if code and not gone:
+      raise StepFail(f'flushing {dev} failed', {'flush': flush})
     f = self.f
-    wait_for(lambda: usb_device(f['vid'], f['pid'], self.b['uid']) is None, USB_TIMEOUT, 'the DFU device leaving')
-    return {'blocks': blocks, **({'nonce': nonce.hex()} if nonce else {})}
+    # TinyUF2 resets within ms of the last WRITE10 (src/msc.c), so the flush's open can find the device gone; that
+    # alone passes, and only once DFU has left
+    try:
+      wait_for(lambda: usb_device(f['vid'], f['pid'], self.b['uid']) is None, USB_TIMEOUT, 'the DFU device leaving')
+    except StepFail as e:
+      if code:
+        raise StepFail(f'{dev} disappeared before its flush and {e}', {'flush': flush}) from None
+      raise
+    if code:
+      flush['detail'] = 'device disappeared before flush'
+    return {'blocks': blocks, **({'nonce': nonce.hex()} if nonce else {}), **({'flush': flush} if code else {})}
 
   def run(self, files, version):
     f = self.f
@@ -2485,11 +2527,113 @@ class Battery:
       return ev
     self.step('reenter', reenter)
 
+  def run_update(self, files, version):
+    """The update battery (run --update-record): the candidate installed by the probe, each updater copied through the
+    drive in turn, the variant's first so the candidate's replaces a different bootloader, then an update interrupted
+    by a probe reset while its write is in flight, then the candidate installed again by the battery's own install."""
+    u = files['update']
+    self.step('install', lambda: self.install(files))
+    self.step('dfu', lambda: dict(self.dfu_after_install(version), dblTapReg=self.probe.write32(self.f['dblTapReg'], 0)))
+    self.step('update-variant', lambda: self.update_to(u['variant']))
+    self.step('update', lambda: self.update_to(u['candidate']))
+    missed = None
+    try:
+      self.step('interrupt', lambda: self.interrupt(u))
+    except NotInterrupted as e:   # the board is recovered all the same; the run still fails
+      missed = e
+    self.step('recover', lambda: dict(self.install(files), dfu=self.dfu_after_install(version)['info']))
+    if missed:
+      self.at = 'interrupt'
+      raise missed
+
+  def update_to(self, img):
+    """An updater copied through the drive, observed by the drive naming its version, never by DFU leaving (SKILL.md
+    Update, step 3); the probe then verifies its BIN and resets, and the drive must name it again."""
+    ev = {'copy': self.copy(img['uf2'], len(img['blocks']), leaves=False)}
+    ev['dfu'] = self.await_version(img['version'])
+    self.verify_flash([(self.f['binBase'], img['bin'])])
+    ev.update(verified=True, verifybin=Path(img['bin']).name)
+    ev['dfuAfterReset'] = self.await_version(img['version'])
+    return ev
+
+  def await_version(self, version):
+    """INFO_UF2.TXT's first line once the drive names `version`, read again until it does within 2 * USB_TIMEOUT: the
+    old bootloader's drive, or one mid-reset, is read first. Each attempt gets only what is left of the bound, and a
+    name read after it is no pass. A DFU that never enumerates or a stuck read is final."""
+    bound = 2 * USB_TIMEOUT
+    end, last = time.monotonic() + bound, None
+    while (left := end - time.monotonic()) > 0:
+      try:
+        info = self.dfu(version, left)['info']
+      except (NotEnumerated, SpawnTimeout):
+        raise
+      except StepFail as e:
+        last = e
+      else:
+        if time.monotonic() <= end:
+          return info
+        break
+      time.sleep(min(1, max(0, end - time.monotonic())))
+    raise StepFail(f'the drive did not name {version} within {bound}s' + (f': {last}' if last else ''),
+                   last.evidence if last else {})
+
+  def interrupt(self, u):
+    """An update interrupted mid-write (SKILL.md Update, step 5): interleaved() written raw by a bounded child, the
+    probe's SYSRESETREQ session started once inflight_writes shows it in flight. `writeInFlight` is their host-side
+    overlap, without which the step fails as NotInterrupted; the USB port (UsbWatch) is recorded, never required."""
+    dev = block_device(self.usb_path)
+    payload = self.dir / 'interrupt.uf2'
+    data = interleaved(u, INTERRUPT_PASSES)
+    payload.write_bytes(data)
+    cmd = [sys.executable, '-B', __file__, 'uf2-write', '--dev', dev, '--file', payload, '--offset', str(INTERRUPT_OFFSET)]
+    ev = {'passes': INTERRUPT_PASSES, 'blocks': len(data) // 512, 'dev': dev}
+    watch = UsbWatch(self.usb_path)
+    try:   # the watcher ends however the step does; every exit's evidence is `ev` itself
+      return self.interrupted(ev, cmd, dev)
+    finally:
+      ev['usb'] = watch.stop()
+
+  def interrupted(self, ev, cmd, dev):
+    p = launch(cmd, self.log)
+    try:
+      ev['trigger'] = wait_for(lambda: 'write in flight' if inflight_writes(dev) else
+                               'write ended' if p.poll() is not None else None, USB_TIMEOUT, f'a write in flight on {dev}')
+      ev['resetStart'] = time.monotonic()
+      ev['resetTail'] = self.sysreset().strip().splitlines()[-3:]
+      ev['resetEnd'] = time.monotonic()
+    finally:
+      try:
+        code, out = collect(p, cmd, self.log, INTERRUPT_TIMEOUT)
+      except SpawnTimeout as e:
+        ev['survivors'] = e.survivors
+        raise StepFail(str(e), ev) from None
+    res = last_json(out) or {}
+    ev['write'] = dict(res, exit=code)
+    ev['writeInFlight'] = res.get('phase') == 'write' and isinstance(res.get('writeStart'), (int, float)) and \
+      isinstance(res.get('writeEnd'), (int, float)) and res['writeStart'] < ev['resetStart'] and \
+      res['writeEnd'] > ev['resetEnd']
+    try:
+      ev['afterReset'] = wait_for(lambda: usb_at(self.usb_path), USB_TIMEOUT, f'a device at {self.usb_path}')
+    except StepFail:
+      ev['afterReset'] = None
+    ev['claim'] = 'host-side overlap of the write and the reset session; NOR erase/program at the reset inferred'
+    if not ev['writeInFlight']:
+      raise NotInterrupted('the reset session did not overlap the write: no mid-write interruption', ev)
+    return ev
+
+  def verify_flash(self, images, settle=None):
+    """`images` ([(address, file)]) verified at their flash addresses in a session of the runner's, `settle` ms after
+    its connect, then a reset, which reboots TinyUF2 whatever the verify's flash access left in RAM."""
+    verify = ['h', *(f'verifybin {path},{addr:#x}' for addr, path in images), 'r', 'g']
+    self.probe.run(([f'sleep {settle}'] if settle else []) + verify)
+
   def restore(self, files, version):
     """Cleanup: the record's TinyUF2 installed again and its blinky copied through the drive; the board must
     leave DFU and stay out of it."""
     self.install(files)
     ev = {'dfu': self.dfu_after_install(version)['usb'], 'copy': self.copy(files['blinky'], files['blinkyBlocks'])}
+    if 'flush' in ev['copy']:
+      ev['copy']['flush']['detail'] += '; restored image not independently verified'
     ev.update(self.after_copy())
     stays_away(lambda: usb_device(self.f['vid'], self.f['pid'], self.b['uid']), QUIET_TIME,
                'the DFU device came back after the blinky copy', ev)
@@ -2502,15 +2646,38 @@ class Battery:
 
   def install(self, files):
     """The record's HEX through the provider's J-Link flash (the script the record's tinyuf2-jlink target runs), then
-    the BIN verified at its flash address in a session of the runner's."""
+    what it programs verified in a session of the runner's (verify_images)."""
+    ops = []
+
     def flash(run):
-      return provider().flash_jlink(self.probe.flasher, str(files['hex']), timeout=PROBE_TIMEOUT, run=run,
-                                    workdir=str(self.dir))
-    ev = self.flash_target(files['flash'], flash, lambda code, out: judge_jlink_target(code, out, self.b, files['hex']),
+      ops.append(provider().flash_jlink(self.probe.flasher, str(files['hex']), timeout=PROBE_TIMEOUT, run=run,
+                                        workdir=str(self.dir)))
+      return ops[0]
+
+    def judge(code, out):
+      return judge_jlink_target(ops[0], self.b, files['hex'])
+    ev = self.flash_target(files['flash'], flash, judge,
                            lambda code, out: stopped_before_target(code, out, self.b['probe']), 'JLinkExe', PROBE_TIMEOUT)
-    settle = INSTALL_SETTLE_MS.get(self.b['device'])
-    verify = ['h', f'verifybin {files["bin"]},{self.f["binBase"]:#x}', 'r', 'g']
-    self.probe.run(([f'sleep {settle}'] if settle else []) + verify)
+    unlocks = JLINK_CONNECT_UNLOCKS.get(self.b['device'])
+    self.verify_flash(files['verify'], unlocks and unlocks[1])
+    return dict(ev, verified=True)
+
+  def readback(self, addr, want):
+    """A read of `want`'s length at `addr` into a file of the run dir in the tool's READ form: (the file, the
+    command). The file is the evidence, never the tool's printed result."""
+    path = self.dir / f'readback-{time.monotonic_ns()}.bin'
+    return path, self.READ.format(path=path, addr=addr, n=len(want))
+
+  def read_back_install(self, ev, files, halt, end):
+    """What the install programmed read back (verify_images) in one session of the runner's, `halt`, the reads,
+    then `end`, and compared byte for byte."""
+    reads = []
+    for addr, p in files['verify']:
+      want = Path(p).read_bytes()
+      reads.append((want, *self.readback(addr, want)))
+    self.probe.run([halt, *(op for _, _, op in reads), end])
+    if not all(uploaded(path, want) for want, path, _ in reads):
+      raise StepFail('the HEX does not read back from its flash addresses', ev)
     return dict(ev, verified=True)
 
   def after_copy(self):
@@ -2523,7 +2690,7 @@ class Battery:
     f = self.f
     out = self.probe.run(['h', 'g', f'sleep {2 * f["dblTapDelayMs"] + 200}', 'h', 'regs', f'mem32 {SCB_VTOR:08X} 1',
                           'g', 'sleep 10', 'h', 'regs', f'verifybin {app_bin},{f["appStart"]:#x}', 'g'])
-    chunks = after(out, 'regs')
+    chunks = provider().jlink_after(out, 'regs')
     if len(chunks) != 2:
       raise StepFail(f'expected two regs dumps, got {len(chunks)}', {'tail': out.strip().splitlines()[-8:]})
     first, second = regs(chunks[0]), regs(chunks[1])
@@ -2561,28 +2728,22 @@ class Battery:
 class StlinkBattery(Battery):
   """The J-Link battery's steps on an ST-LINK board, each probe session one STM32CubeProgrammer script."""
 
+  READ = '-u 0x{addr:08X} {n:#x} {path}'
+
   def __init__(self, board, facts, workdir, fail_at=None, commissioning=False):
     super().__init__(board, facts, workdir, fail_at, commissioning)
     self.probe = StlinkProbe(board, workdir, self.log)
 
-  def readback(self, addr, want):
-    return self.dir / f'readback-{time.monotonic_ns()}.bin', f'-u 0x{addr:08X} {len(want):#x}'
-
   def install(self, files):
     """The record's HEX through the provider's ST-LINK flash (the command the record's tinyuf2-stlink target runs,
-    without the CLI's verify), then the BIN read back from its flash address in a session of the runner's, which ends
-    in a system reset (bench: the core runs after `-rst`)."""
+    without the CLI's verify), then what it programs read back (verify_images) in a session of the runner's, which
+    ends in a system reset (bench: the core runs after `-rst`)."""
     ev = self.flash_target(files['flash'], lambda run: provider().flash_stlink(self.probe.flasher, str(files['hex']),
                                                                               timeout=PROBE_TIMEOUT, run=run),
                            lambda code, out: judge_stlink_target(code, out, self.b),
                            lambda code, out: stlink_failure(ANSI.sub('', out))['beforeTarget'], 'STM32_Programmer_CLI',
                            PROBE_TIMEOUT)
-    want = Path(files['bin']).read_bytes()
-    path, op = self.readback(self.f['binBase'], want)
-    self.probe.run(['-halt', f'{op} {path}', '-rst'])
-    if not uploaded(path, want):
-      raise StepFail('the BIN does not read back from its flash address', ev)
-    return dict(ev, verified=True)
+    return self.read_back_install(ev, files, '-halt', '-rst')
 
   def sysreset(self):
     """SYSRESETREQ without the CLI's read-back, which the reset would fail (bench: `-nv` writes and exits 0, the host
@@ -2599,12 +2760,146 @@ class StlinkBattery(Battery):
     path, op = self.readback(f['appStart'], want)
     vtor = f'-r32 0x{SCB_VTOR:08X} 1'
     ops = ['-halt', '-run', f'#Delay({2 * f["dblTapDelayMs"] + 200})', '-halt', '-coreReg', vtor, '-run', '#Delay(10)',
-           '-halt', '-coreReg', f'{op} {path}', '-run']
+           '-halt', '-coreReg', op, '-run']
     out = self.probe.run(ops)
     if not uploaded(path, want):
       raise StepFail('the fixture image does not read back from the app start')
     first, second = (core_regs(body) for o, body in zip(ops, out) if o == '-coreReg')
     return self.app_evidence(first, second, r32_value(out[ops.index(vtor)], SCB_VTOR))
+
+
+# openocd 0.12.0+dev-g0ce743125 (the rig's build): what its CMSIS-DAP driver logs with no probe of the serial and USB ID,
+# what `program ... reset exit` (startup.tcl) and the closing `shutdown` echo, and a debug port read
+OPENOCD_NO_PROBE = 'unable to find a matching CMSIS-DAP device'
+OPENOCD_SHUTDOWN = 'shutdown command invoked'
+OPENOCD_PROGRAM = ('** Programming Started **', '** Programming Finished **', '** Resetting Target **', OPENOCD_SHUTDOWN)
+
+
+def openocd_error(out):
+  """Whether an openocd transcript has an error line."""
+  return re.search(r'^\s*Error', out, re.M) is not None
+
+
+def openocd_failure(out):
+  """A session recognised as ending before any target connect: no probe with the serial and USB ID, and no debug port
+  read (a DPIDR line). Any other failure may have reached the target."""
+  return {'tail': out.strip().splitlines()[-5:], 'beforeTarget': OPENOCD_NO_PROBE in out and 'DPIDR' not in out}
+
+
+def judge_openocd_target(code, out, cmd, hex_path):
+  """The provider's openocd flash of the record's HEX (`program <hex> reset exit`, without program's verify: the
+  runner reads the image back itself): openocd exits 0 once the proc's own shutdown ran, so success is read from the
+  transcript too: each of program's phases echoed in order and no error line."""
+  seen = iter(l.strip() for l in out.splitlines())
+  if code or f'program {hex_path} reset exit' not in str(cmd) or not all(p in seen for p in OPENOCD_PROGRAM) or \
+     openocd_error(out):
+    raise StepFail(f'the openocd flash failed (exit {code})', openocd_failure(out))
+  return {'flashDownload': '** Programming Finished **'}
+
+
+class OpenocdProbe:
+  """openocd sessions on a CMSIS-DAP probe, each through the flash provider's run_openocd_commands: init, the commands,
+  shutdown, from a script in the run dir. openocd stops at the first failing command and exits 1; success is read from
+  the transcript too: the closing shutdown and no error line."""
+
+  def __init__(self, board, workdir, log):
+    self.b, self.dir, self.log = board, workdir, log
+    self.retried = []   # the report's jlinkRetried: an openocd session is never retried
+    self.flasher = {'name': 'openocd', 'uid': board['probe'], 'args': board['args'], 'vid_pid': board['vid_pid']}
+
+  def run(self, commands):
+    return self.judge(provider().run_openocd_commands(self.flasher, list(commands), timeout=PROBE_TIMEOUT,
+                                                      run=tool_runner(self.log), workdir=str(self.dir)))
+
+  def sysreset(self):
+    """The provider's SYSRESETREQ session (the AIRCR write). Bench: the write and the shutdown after it complete
+    cleanly, so it is judged as any session; the caller's observation is the evidence of the reset."""
+    return self.judge(provider().sysresetreq_openocd(self.flasher, timeout=PROBE_TIMEOUT, run=tool_runner(self.log),
+                                                     workdir=str(self.dir)))
+
+  def judge(self, op):
+    a = op.attempts[-1]
+    code, out = a.result.returncode, text(a.result.stdout)
+    if a.timed_out:
+      raise StepFail(f'openocd timed out after {PROBE_TIMEOUT}s', dict(openocd_failure(out), beforeTarget=False))
+    if code or OPENOCD_SHUTDOWN not in out or openocd_error(out):
+      raise StepFail(f'openocd failed (exit {code})', openocd_failure(out))
+    return out
+
+  def mem32(self, addrs):
+    out = self.run([shown(f'mdw 0x{a:08x}') for a in addrs])
+    return {a: mdw_value(out, a) for a in addrs}
+
+  def write32(self, addr, value):
+    """Halt, write, read back, resume: only the read-back proves the write."""
+    got = mdw_value(self.run(['halt', f'mww 0x{addr:08x} 0x{value:08x}', shown(f'mdw 0x{addr:08x}'), 'resume']), addr)
+    if got != value:
+      raise StepFail(f'{addr:#010x} reads back {got:08X}, not {value:#010x}')
+    return hex(value)
+
+
+def shown(command):
+  """A command whose result the runner parses: from a script, openocd prints a command's result only when it is echoed
+  (rig, openocd 0ce743125: a bare `mdw` in a -f script printed nothing, `echo [mdw ...]` its value)."""
+  return f'echo [{command}]'
+
+
+def mdw_value(out, addr):
+  m = re.findall(rf'^0x{addr:08x}: ([0-9a-f]{{8}}) *$', out, re.M)
+  if len(m) != 1:
+    raise StepFail(f'mdw gave no single value for {addr:#x}')
+  return int(m[0], 16)
+
+
+# armv7m's register names (rig: `reg xPSR` is "not found in current target"); `reg NAME` gives "NAME (/32): 0x%08x"
+OPENOCD_REGS = ('pc', 'r0', 'msp', 'xpsr')
+
+
+def openocd_regs(out):
+  """The two samples of OPENOCD_REGS a session read, in order."""
+  vals = {r: re.findall(rf'^{r} \(/32\): 0x([0-9a-f]{{8}})$', out, re.M) for r in OPENOCD_REGS}
+  if any(len(v) != 2 for v in vals.values()):
+    raise StepFail(f'expected two samples of {list(OPENOCD_REGS)}, got {[len(v) for v in vals.values()]}',
+                   {'tail': out.strip().splitlines()[-8:]})
+  return [{'pc': int(vals['pc'][i], 16), 'r0': int(vals['r0'][i], 16), 'msp': int(vals['msp'][i], 16),
+           'ipsr': int(vals['xpsr'][i], 16) & 0x1FF} for i in (0, 1)]
+
+
+class OpenocdBattery(Battery):
+  """The J-Link battery's steps on a CMSIS-DAP board, each probe session one openocd script."""
+
+  READ = 'dump_image {{{path}}} 0x{addr:08x} {n:#x}'
+
+  def __init__(self, board, facts, workdir, fail_at=None, commissioning=False):
+    super().__init__(board, facts, workdir, fail_at, commissioning)
+    self.probe = OpenocdProbe(board, workdir, self.log)
+
+  def install(self, files):
+    """The record's HEX through the provider's openocd flash (`program` with reset, without its verify, as the
+    ST-LINK install drops the CLI's: the file the record's tinyuf2-openocd target programs), then what it programs
+    read back (verify_images) and compared in a session of the runner's, which ends in `reset run`."""
+    hexp, ops, flasher = str(files['hex']), [], dict(self.probe.flasher, verify=False)
+    ev = self.flash_target(files['flash'], lambda run: ops.append(provider().flash_openocd(
+                             flasher, hexp, timeout=CMSIS_DAP_TIMEOUT, run=run)) or ops[-1],
+                           lambda code, out: judge_openocd_target(code, out, ops[-1].attempts[-1].cmd, hexp),
+                           lambda code, out: openocd_failure(out)['beforeTarget'], 'openocd', CMSIS_DAP_TIMEOUT)
+    return self.read_back_install(ev, files, 'halt', 'reset run')
+
+  def sysreset(self):
+    return self.probe.sysreset()
+
+  def observe_app(self, app_bin):
+    """observe_app's session as one script: two halts in one connection, the image read back in it."""
+    f = self.f
+    want = Path(app_bin).read_bytes()
+    path, dump = self.readback(f['appStart'], want)
+    regs_ = [shown(f'reg {r}') for r in OPENOCD_REGS]
+    out = self.probe.run(['halt', 'resume', f'sleep {2 * f["dblTapDelayMs"] + 200}', 'halt', *regs_,
+                          shown(f'mdw 0x{SCB_VTOR:08x}'), 'resume', 'sleep 10', 'halt', *regs_, dump, 'resume'])
+    if not uploaded(path, want):
+      raise StepFail('the fixture image does not read back from the app start')
+    first, second = openocd_regs(out)
+    return self.app_evidence(first, second, mdw_value(out, SCB_VTOR))
 
 
 def nonce_block(nonce):
@@ -2624,14 +2919,7 @@ def esp_app_chunks(uf2_path, facts, board):
   UF2 addresses are ota_0 offsets) and the nonce block's offset, ota_0's last 256 bytes, where the app reads it.
   The image must end before it, and TinyUF2's flash cache window over it must lie inside ota_0
   (board_flash.c reads and rewrites the whole FLASH_CACHE_SIZE-aligned window)."""
-  try:
-    blocks = parse_uf2(Path(uf2_path).read_bytes())
-  except (OSError, ValueError) as e:
-    raise Refused(f'{uf2_path}: {e}')
-  for i, bl in enumerate(blocks):
-    if (bl['no'], bl['total'], bl['addr'], bl['size'], bl['family']) != (i, len(blocks), 256 * i, 256, facts['family']) \
-       or not bl['flags'] & UF2_FLAG_FAMILY:
-      raise Refused(f'{uf2_path}: block {i} is not block {i} of {len(blocks)} at {256 * i:#x} for family {facts["family"]:#x}')
+  blocks = contiguous_uf2(uf2_path, facts['family'], 0, 'the app')
   size, cache = board['app'][1] - board['app'][0], facts['flashCache']
   off = size - NONCE_BLOCK
   if not blocks or off < 256 * len(blocks) or off % 256 or off // cache * cache + cache > size:
@@ -2640,15 +2928,14 @@ def esp_app_chunks(uf2_path, facts, board):
   return {'appChunks': [bl['data'] for bl in blocks], 'nonceOffset': off}
 
 
-def security_evidence(res, tty):
-  """The `security` the provider requires, from the esptool_session security op: off only when both the ROM's security
-  info and the eFuse registers read off; anything else refuses the JTAG flash before it starts."""
-  off = {'flashEncryption': 'off', 'secureBoot': 'off'}
-  if res.get('op') != 'security' or res.get('rom') != off or res.get('efuse') != off:
-    raise StepFail(f'flash encryption or secure boot is not read off on this chip: {res}; openocd_esp writes plaintext, '
-                   'so nothing was programmed', {'security': res})
-  return dict(off, source=f'esptool {ESPTOOL_VERSION} on {tty}, ROM loader: GET_SECURITY_INFO flags {res["flags"]:#010x}, '
-                          f'flash_crypt_cnt {res["flashCryptCnt"]:#x}; eFuse SPI_BOOT_CRYPT_CNT and SECURE_BOOT_EN off')
+def security_evidence(res, chip, source):
+  """The `security` the provider requires: its reading of the esptool_session security op (security_evidence), admitted
+  by its admit_security; anything else refuses the JTAG flash before it starts."""
+  try:
+    return openocd_esp().admit_security(openocd_esp().security_evidence(res, chip=chip, source=source))
+  except ValueError as e:
+    raise StepFail(f'flash encryption or secure boot is not read off on this chip: {e}; openocd_esp writes plaintext, '
+                   'so nothing was programmed', {'security': res}) from None
 
 
 def judge_openocd_esp(op):
@@ -2675,7 +2962,8 @@ class EspBattery(Battery):
   def after_copy(self):
     """The preserved regions checked again once blinky is copied, against the snapshot."""
     keep = self.b['regions']['preserved']
-    check_preserved(self.preserved, preserved_md5(keep, self.tool.run(preserved_ops(keep), 'hard-reset')), 'restore')
+    after = self.tool.run(preserved_ops(keep), 'hard-reset')['results']
+    check_preserved(self.preserved, preserved_md5(keep, after), 'restore')
     return {'preserved': 'unchanged since the snapshot before the install'}
 
   def install(self, files):
@@ -2689,7 +2977,7 @@ class EspBattery(Battery):
     self.touched = True
     if self.preserved is None:
       keep = self.b['regions']['preserved']
-      self.preserved = preserved_md5(keep, self.tool.run(preserved_ops(keep), 'no-reset'))
+      self.preserved = preserved_md5(keep, self.tool.run(preserved_ops(keep), 'no-reset')['results'])
     fl = files['flash']
 
     def flash(run):   # under the build dir's lock, its inputs checked: flash_args from bytes that hash as recorded
@@ -2697,14 +2985,15 @@ class EspBattery(Battery):
       if hashlib.sha256(raw).hexdigest() != fl['sha256']['flash_args']:
         raise StepFail('flash_args changed after the inputs were checked; nothing was flashed')
       # the settings line, then one "OFFSET FILE" per segment, relative to the build dir
-      return provider().flash_esptool({'name': 'esptool', 'uid': self.b['probe'], 'args': ''}, chip=self.b['device'],
+      args = '--no-stub' if files.get('noStub') else ''   # as the record's flash target runs it
+      return provider().flash_esptool({'name': 'esptool', 'uid': self.b['probe'], 'args': args}, chip=self.b['device'],
                                       port=tty, flash_args=' '.join(raw.decode().split()), cwd=str(fl['root']),
-                                      timeout=ESP_TIMEOUT, run=run)
+                                      timeout=ESP_TIMEOUT, run=run, esptool=esptool_runtime()['exe'])
     ev = self.flash_target(fl, flash,
                            lambda code, out: judge_esp_target(code, out, files['segments']), lambda code, out: False,
                            'esptool', ESP_TIMEOUT)
     ev.update(esp_verify(self.tool, self.b, files['segments'], self.dir, self.preserved))
-    return {'wrote': ev['wrote'], 'writes': ev['writes'], 'readBack': True, 'esptool': ESPTOOL_VERSION,
+    return {'wrote': ev['wrote'], 'writes': ev['writes'], 'readBack': True, **esptool_evidence(),
             'operation': ev['operation']}
 
   def jtag(self, files):
@@ -2713,24 +3002,29 @@ class EspBattery(Battery):
     the run's) and hard-resets the chip out of the loader; agentrc's flash_openocd_esp programs the record's segments with verify, reads each back and ends
     with reset run and a confirmed shutdown; then the runner's esptool read-back and preservation check. A session
     left running is cleanup pending, and nothing follows it."""
-    refuse_ci_job(self.b['flasher'])   # before the security and snapshot session, as the provider before its own
+    refuse_openocd(self.b['flasher'])   # before the security and snapshot session, as the provider before its own
     tty = esp_port(self.b['probe'])
     self.touched = True
     keep = self.b['regions']['preserved']
-    # hard-reset: a chip left in the ROM loader faults openocd's flash stub after its reset init (PMP Load access fault)
-    res = self.tool.run([{'op': 'security'}] + (preserved_ops(keep) if self.preserved is None else []), 'hard-reset')
-    security = security_evidence(res[0], tty)
+    # hard-reset: a chip left in the ROM loader faults openocd's flash stub after its reset init (PMP Load access fault);
+    # the provider starts openocd no earlier than its BOOT_SETTLE after the flash call, so no wait of the runner's
+    ops = [{'op': 'security'}] + (preserved_ops(keep) if self.preserved is None else [])
+    session = self.tool.run(ops, 'hard-reset')
+    res = session['results']
+    security = security_evidence(res[0], self.b['device'],
+                                 f'esptool {session["esptool"]} on {tty}, USJ {self.b["probe"]}, ROM loader')
     if self.preserved is None:
       self.preserved = preserved_md5(keep, res[1:])
-    segments = [{'offset': off, 'file': str(p), 'size': p.stat().st_size} for off, p in files['segments']]
+    recorded = files['flash']['sha256']   # the provider admits only bytes that hash as the build record says
+    segments = [{'offset': off, 'file': str(p), 'size': p.stat().st_size, 'sha256': recorded[esp.NATIVE[p.name]]}
+                for off, p in files['segments']]
     seen = []
-    time.sleep(OPENOCD_BOOT_SETTLE)
 
     def flash(run):   # the provider runs its own server, never a tracked child: run is unused
       op = None
       try:
         op = openocd_esp().flash_openocd_esp(self.b['route'], segments, security=security, workdir=str(self.dir),
-                                             timeout=OPENOCD_TIMEOUT)
+                                             timeout=OPENOCD_TIMEOUT, retains_lock=True)
       except BaseException as e:
         op = getattr(e, 'operation', None)
         if isinstance(e, Interrupted) or not isinstance(e, Exception):
@@ -2750,7 +3044,7 @@ class EspBattery(Battery):
                            'openocd_esp', OPENOCD_TIMEOUT)
     ev.update(esp_verify(self.tool, self.b, files['segments'], self.dir, self.preserved))
     return {'route': 'openocd_esp', 'wrote': ev['wrote'], 'writes': ev['writes'], 'readBack': True, 'security': security,
-            'jtag': ev['jtag'], 'esptool': ESPTOOL_VERSION, 'operation': ev['operation']}
+            'jtag': ev['jtag'], **esptool_evidence(), 'operation': ev['operation']}
 
   def report_fields(self):
     keep = self.b['regions']['preserved']
@@ -2824,7 +3118,7 @@ class EspBattery(Battery):
                                      claim='a fresh copy boots the app after re-entry'))
 
 
-BATTERIES = {'jlink': Battery, 'stlink': StlinkBattery, 'esp': EspBattery}
+BATTERIES = {'jlink': Battery, 'stlink': StlinkBattery, 'openocd': OpenocdBattery, 'esp': EspBattery}
 
 
 TERM_SIGNALS = {signal.SIGTERM, signal.SIGINT}
@@ -2860,34 +3154,30 @@ def check_stlink():
     raise Refused(f'{STM32_PROGRAMMER_CLI} must be on PATH')
 
 
-def check_esptool():
-  """The runner's own esptool ESPTOOL_VERSION: its package for this Python (esptool_session.py), and the `esptool` command
-  the provider runs, an entry script of this same Python, so the flash and the sessions run one esptool."""
-  import importlib.metadata
+def check_openocd():
+  """openocd on PATH, and the bounded USB observation the probe check needs (probe_node), loaded before the lock."""
+  if shutil.which('openocd') is None:
+    raise Refused('openocd must be on PATH')
+  usb_observe()
+
+
+@functools.cache
+def esptool_runtime():
+  """The provider's esptool_runtime of `esptool` first on PATH, checked once for this process, so every Espressif
+  flash and esptool_session.py session runs one esptool, whose version the evidence records. Refused otherwise."""
   try:
-    v = importlib.metadata.version('esptool')
-  except importlib.metadata.PackageNotFoundError:
-    v = None
-  if v != ESPTOOL_VERSION:
-    raise Refused(f'esptool {v} is installed for {sys.executable}; the runner needs esptool {ESPTOOL_VERSION}')
-  exe = shutil.which('esptool')
-  try:
-    with open(exe or '', 'rb') as f:
-      line = f.readline().decode(errors='replace').strip()
-  except OSError:
-    line = ''
-  py = line[2:].split()[0] if line.startswith('#!') and line[2:].split() else ''
-  # the same directory, as a venv's python links out of it, and the same interpreter, as one bin dir holds several
-  bindir = [os.path.realpath(os.path.dirname(a)) for a in (py, sys.executable)]
-  interpreter = [os.path.realpath(a) for a in (py, sys.executable)]
-  if not py or bindir[0] != bindir[1] or interpreter[0] != interpreter[1]:
-    raise Refused(f'the esptool on PATH ({exe}) does not run under {sys.executable}, whose esptool {ESPTOOL_VERSION} the '
-                  f'runner checked: put that installation\'s esptool first on PATH')
+    return provider().esptool_runtime()
+  except RuntimeError as e:
+    raise Refused(f'no esptool runtime: {e}; the runner needs esptool first on PATH (SKILL.md Limits)') from None
+
+
+def esptool_evidence():
+  return {'esptool': esptool_runtime()['version'], 'esptoolPath': esptool_runtime()['exe']}
 
 
 def check_openocd_esp():
   """The verified openocd-esp32 the provider runs, and the runner's esptool for the sessions over the USJ's tty."""
-  check_esptool()
+  esptool_runtime()
   try:
     openocd_esp().find_openocd()
   except RuntimeError as e:
@@ -2913,7 +3203,8 @@ def check_children():
 def check_flasher(board):
   if board['kind'] == 'esp':
     check_children()
-  {'esptool': check_esptool, 'stlink': check_stlink, 'openocd_esp': check_openocd_esp}.get(board['flasher'], check_jlink)()
+  {'esptool': esptool_runtime, 'stlink': check_stlink, 'openocd': check_openocd,
+   'openocd_esp': check_openocd_esp}.get(board['flasher'], check_jlink)()
   if board.get('usbPower'):
     try:
       disable = port_dir(board['usbPower']) / 'disable'
@@ -2950,6 +3241,7 @@ def admit_record(record_path, board, facts, workdir):
     check_ranges(data, [board['install']], FLASH_LIMITS[board['device']], files['hex'])
     if not hex_matches_bin(data, files['bin'], facts['binBase']):
       raise Refused(f'{files["hex"]} and {files["bin"]} do not hold the same bytes')
+    files['verify'] = verify_images(data, workdir)
     check_bootloader_bin(files['bin'], board, facts, 'candidate')
   exclusion_configured(facts, board['uid'])
   if shutil.which('mcopy') is None:
@@ -3000,7 +3292,10 @@ def run_board(args, board, facts, helper, workdir):
   if board['route']:
     row['route'] = board['flasher']
   methods = REENTRY[board['kind']]
-  if args.fail_at and args.fail_at not in (*STEPS[board['kind']], 'cleanup'):
+  update = args.update_record
+  if update and args.try_reentry:
+    raise Refused('--update-record runs on a commissioned board, never with --try-reentry')
+  if args.fail_at and args.fail_at not in (*STEPS['update' if update else board['kind']], 'cleanup'):
     raise Refused(f'{board["name"]}: its battery has no step {args.fail_at}')
   if args.try_reentry:
     board = trial_reentry(board, args.try_reentry)
@@ -3008,6 +3303,8 @@ def run_board(args, board, facts, helper, workdir):
   elif board['reentry'] not in methods:
     raise Refused(f'{board["name"]}: tinyuf2.reentry must be one of {methods} (set from commissioning)')
   files, row['firmware'] = admit_record(args.build_record, board, facts, workdir)
+  if update:
+    files['update'], row['update'] = admit_update(update, board, facts, workdir, files, row['firmware'])
   if board['kind'] == 'esp':
     check_pyusb()
   # blocked from here until the process exits or becomes the holder (keep_held): a signal acts only
@@ -3021,15 +3318,13 @@ def run_board(args, board, facts, helper, workdir):
       break
     except helper.LockUnavailable as e:
       raise Refused(f'{board["name"]}: {e}; refusing to run unlocked')
-    except helper.RecoveryBlocked as e:   # a stale record or a takeover journal: never waited for
+    except helper.RecoveryBlocked as e:   # a cleanup holder, a stale record or a takeover journal (SKILL.md Recovery)
       row.update(locked=True, recoveryBlocker=True, detail=str(e))
       return deferred(row), 1
     except RuntimeError as e:
-      # a cleanup holder never frees on its own (SKILL.md Recovery): a blocker, never waited for
-      blocker, held = helper.is_cleanup_holder(helper.read_record(board['lock'])), str(e)
-      left = deadline - time.monotonic()
-      if blocker or left <= 0:
-        row.update(locked=True, recoveryBlocker=blocker, detail=held)
+      held, left = str(e), deadline - time.monotonic()
+      if left <= 0:
+        row.update(locked=True, recoveryBlocker=False, detail=held)
         return deferred(row), 1
     try:
       with signals(signal.SIG_UNBLOCK):
@@ -3078,7 +3373,7 @@ def run_board(args, board, facts, helper, workdir):
   try:
     row['ran'] = True
     with signals(signal.SIG_UNBLOCK):
-      bat.run(files, row['firmware']['version'])
+      (bat.run_update if update else bat.run)(files, row['firmware']['version'])
     row['pass'] = True
   except BaseException as e:   # anything after admission still cleans up below
     row['detail'] = f'{bat.at}: {e}' if isinstance(e, StepFail) else f'{bat.at}: {type(e).__name__}: {e}'
@@ -3183,9 +3478,11 @@ def main(argv=None):
   r.add_argument('-b', '--board', required=True)
   r.add_argument('--build-record', required=True, help='check_build.py --board B [--backend cmake] --shared --hil-config ROSTER '
                  'JSON, under cmake-build/')
-  r.add_argument('--fail-at', choices=(*STEPS['esp'], 'cleanup'), help='acceptance only: fail this step, or the cleanup, '
-                 'to exercise cleanup and its holder')
+  r.add_argument('--fail-at', choices=(*STEPS['esp'], *STEPS['update'][2:], 'cleanup'),
+                 help='acceptance only: fail this step, or the cleanup, to exercise cleanup and its holder')
   r.add_argument('--try-reentry', choices=REENTRY_METHODS, help="commissioning only, while the roster's reentry is unset")
+  r.add_argument('--update-record', help='the update battery in place of the app battery: the check_build --variant '
+                 "record whose updater the board takes before the candidate's (SKILL.md Execution, Update)")
   r.add_argument('--lock-wait', type=int, default=0,
                  help='seconds to keep trying a held board; a cleanup holder or a recovery blocker is never waited for')
   r.add_argument('--run-root', type=Path, help="where this run's directory goes (default cmake-build/hil)")
@@ -3234,6 +3531,12 @@ def main(argv=None):
   fr.add_argument('--file', required=True)
   fr.add_argument('--length', type=int, required=True)
   fr.add_argument('--offset', type=int, default=0)
+  fl = sub.add_parser('flush')
+  fl.add_argument('--dev', required=True)
+  uw = sub.add_parser('uf2-write')
+  uw.add_argument('--dev', required=True)
+  uw.add_argument('--file', required=True)
+  uw.add_argument('--offset', type=int, required=True)
   kh = sub.add_parser('keep-held', help='internal: the re-executed cleanup holder (exec_holder)')
   kh.add_argument('fd', type=int)
   kh.add_argument('ack', type=int)
@@ -3244,6 +3547,10 @@ def main(argv=None):
   args = ap.parse_args(argv)
   if args.cmd == 'fat-read':
     return fat_read_main(args)
+  if args.cmd == 'flush':
+    return flush_main(args)
+  if args.cmd == 'uf2-write':
+    return uf2_write_main(args)
   if args.cmd == 'clear-pending':
     return clear_pending_main(args)
   if args.cmd == 'keep-held':
@@ -3252,6 +3559,9 @@ def main(argv=None):
     os.close(args.ack)
     keep_held(fh)
   if args.cmd == 'keep-build':
+    if any('receipt' in x for x in args.survivors):   # its runner checked the pin and loaded it before this exec
+      with contextlib.suppress(Exception):   # else session_state loads it, or reads every session unreadable
+        OPENOCD.append(run_report.load_agentrc(OPENOCD_ESP, 'agentrc_hil_openocd_esp'))
     os.write(args.ack, b'ok')
     os.close(args.ack)
     keep_build(args.survivors)
@@ -3266,11 +3576,12 @@ def main(argv=None):
   try:
     run_dir.mkdir(parents=True)
     board = select_route(load_board(args.config, args.board), args.route, run=args.cmd == 'run')
-    facts = source_facts(board)
+    pin_records(args.build_record, getattr(args, 'update_record', None))
+    facts = record_facts(args.build_record, board, run_dir)
     apply_layout(board, facts)
     helper = load_helper()
     provider()
-    board['pendingMark'] = PendingMark(helper, board['lock'])
+    board['pendingMark'] = pending_mark(helper, board['lock'])
     clear_pending_mark(board['pendingMark'])   # refused while an earlier invocation's session, any run dir, is not ended
     if args.cmd == 'run':
       row, code = run_board(args, board, facts, helper, run_dir)
@@ -3362,6 +3673,7 @@ def main(argv=None):
   except (StepFail, Interrupted) as e:
     result['error'] = str(e)
     code = 4 if bat is not None and bat.touched else 1   # a failed restore keeps the hold
+  RECORDS.clear()
   if recovery:
     recovery.close()
   if result.get('survivors'):   # a manual operation's survivor: keep your hold until it is gone

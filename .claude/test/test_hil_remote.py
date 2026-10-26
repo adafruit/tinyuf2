@@ -127,7 +127,7 @@ if os.environ.get('FAKE_REAL_RUNNER'):
       Path(os.environ['FAKE_PID']).write_text(str(os.getpid()))
       time.sleep(60)
   ht.load_helper = load_helper
-  ht.source_facts = lambda board: json.loads(os.environ['FAKE_FACTS'])
+  ht.record_facts = lambda record, board, workdir: json.loads(os.environ['FAKE_FACTS'])
   ht.admit_record = lambda *a: ({}, {'version': 'v'})
   ht.probe_users = lambda board: []
   ht.Battery.run = run
@@ -258,7 +258,8 @@ class Project(unittest.TestCase):
     for name in ('agentrc', 'tinyusb', 'uf2'):
       origin(o / name, name)
     core = 'skills/hil/scripts/hil_report_core.py'   # the driver prepares each report pair through it, as CI does
-    commit(o / 'agentrc', {core: (ROOT / 'lib' / 'agentrc' / core).read_text()}, 'report core')
+    staged = (core, hr.run_report.HIL_LOAD, *hr.run_report.files_of(ROOT / 'lib' / 'agentrc' / core))
+    commit(o / 'agentrc', {rel: (ROOT / 'lib' / 'agentrc' / rel).read_text() for rel in staged}, 'report core')
     primary = self.tmp / 'primary'
     primary.mkdir()
     git(primary, 'init', '-q')
@@ -325,12 +326,12 @@ class Refusals(Project):
                        (('clear-pending', '-b', LPC), 'manual or recovery operation')):
       self.refused(*argv, text=text)
     for flag in ('--under-hold=x', '--recover-holder', '--recover-takeover', '--try-reentry', '--route', '--run-root',
-                 '--ci-state-root', '--done-marker', '--started-marker', '--build-record'):
+                 '--ci-state-root', '--done-marker', '--started-marker', '--build-record', '--update-record'):
       self.refused('run', '-b', LPC, flag, 'v', text='takes no manual, recovery, commissioning or override option')
 
   def test_boards_and_run_ids(self):
     self.refused('run', '-b', 'nope', '--host', 'rig', text='not in test/hil/ci.json at HEAD')
-    self.refused('run', '-b', ESP, '--host', 'rig', text='Espressif boards are not run remotely')
+    self.assertEqual(hr.select([ESP, LPC], ROSTER, 'test/hil/ci.json'), sorted([ESP, LPC]))   # ESP-IDF builds on the rig
     self.refused('run', '-b', LPC, '--host', 'elsewhere', text='no rig elsewhere')
     self.refused('run', '-b', LPC, '--host', 'rig', '--run-id', '../x', text='a run id is')
     with mock.patch.dict(os.environ, {'HIL_NO_BOARD_LOCK': '1'}):
