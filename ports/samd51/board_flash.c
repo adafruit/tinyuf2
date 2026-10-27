@@ -257,7 +257,7 @@ static bool is_new_bootloader_valid(const uint8_t *bootloader_bin, uint32_t boot
   }
 
   const uint32_t *vector = (const uint32_t *)(uintptr_t)bootloader_bin;
-  return vector_table_valid(vector[0], vector[1], BOARD_FLASH_ADDR_ZERO, BOARD_FLASH_APP_START);
+  return vector_table_valid(vector[0], vector[1], BOARD_FLASH_ADDR_ZERO, BOARD_FLASH_ADDR_ZERO + bootloader_len);
 }
 
 // Make a block of the bootloader area hold its part of the new bootloader and nothing else
