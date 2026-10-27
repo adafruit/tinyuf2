@@ -39,7 +39,7 @@ static inline void exec_cmd(uint32_t cmd) {
   wait_ready();
 }
 
-// The cache in Rev A is not reliable when reading and writing to the NVM
+// Erratum 2.14.1: NVM reads can be corrupted while the page buffer is written with the cache enabled
 static void cache_disable(void) {
   NVMCTRL->CTRLA.bit.CACHEDIS0 = true;
   NVMCTRL->CTRLA.bit.CACHEDIS1 = true;
@@ -68,7 +68,21 @@ static bool is_equal(uint32_t addr, const uint8_t *data, uint32_t size) {
 
 static bool is_valid_row(uint32_t addr, uint32_t len) {
   return len == FLASH_ROW_SIZE && (addr % FLASH_ROW_SIZE) == 0 && addr >= BOARD_FLASH_APP_START &&
-         addr <= BOARD_FLASH_ADDR_ZERO + BOARD_FLASH_SIZE - len;
+         addr <= BOARD_FLASH_ADDR_ZERO + board_flash_size() - len;
+}
+
+// DS60001507 25.6.6.2: a read from AHB0 must follow the page buffer writes before the write command
+static inline void page_buffer_barrier(const volatile uint32_t *addr) {
+  (void)*addr;
+}
+
+static bool is_erased_value(const uint32_t *words, uint32_t count) {
+  for (uint32_t i = 0; i < count; i++) {
+    if (words[i] != 0xffffffff) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // Erase a block, skipped if it is already blank
@@ -107,11 +121,17 @@ static bool flash_program(uint32_t dst, const uint8_t *src, uint32_t len) {
     memset(words, 0xff, sizeof(words));
     memcpy(words, src + i, chunk);
 
-    // writes to the page buffer must be 16 or 32 bits wide
+    // an all-ones quad word stays erased, so flash reading all ones was never programmed and needs no erase
+    if (is_erased_value(words, QUAD_WORD_SIZE / sizeof(uint32_t))) {
+      continue;
+    }
+
+    // writes to the page buffer must be 32 bits wide
     wait_ready();
     for (uint32_t w = 0; w < QUAD_WORD_SIZE / sizeof(uint32_t); w++) {
       flash[w] = words[w];
     }
+    page_buffer_barrier(flash);
 
     NVMCTRL->ADDR.reg = dst + i;
     exec_cmd(NVMCTRL_CTRLB_CMD_WQW);
@@ -154,8 +174,9 @@ void board_flash_init(void) {
   memset(good_rows, 0, sizeof(good_rows));
 }
 
+// The SmartEEPROM raw data at the end of flash faults on any AHB access (DS60001507 25.6.2)
 uint32_t board_flash_size(void) {
-  return BOARD_FLASH_SIZE;
+  return BOARD_FLASH_SIZE - 2 * NVMCTRL->SEESTAT.bit.SBLK * FLASH_BLOCK_SIZE;
 }
 
 void board_flash_read(uint32_t addr, void *buffer, uint32_t len) {
@@ -225,6 +246,7 @@ bool board_flash_protect_bootloader(bool protect) {
     for (uint32_t w = 0; w < QUAD_WORD_SIZE / sizeof(uint32_t); w++) {
       user_page[i + w] = fuses[i + w];
     }
+    page_buffer_barrier(&user_page[i]);
     NVMCTRL->ADDR.reg = (uint32_t)&user_page[i];
     exec_cmd(NVMCTRL_CTRLB_CMD_WQW);
   }
@@ -270,7 +292,9 @@ static bool bootloader_block_update(uint32_t block, const uint8_t *bootloader_bi
   }
 
   memset(block_cache, 0xff, sizeof(block_cache));
-  memcpy(block_cache, bootloader_bin + offset, size);
+  if (size) {
+    memcpy(block_cache, bootloader_bin + offset, size);
+  }
   if (is_equal(base, block_cache, FLASH_BLOCK_SIZE)) {
     return true;
   }
@@ -293,7 +317,7 @@ static __attribute__((section(".ramfunc"), noinline, noreturn)) void flash_erase
 }
 
 void board_self_update(const uint8_t *bootloader_bin, uint32_t bootloader_len) {
-  // On failure this application stays in place so the update can be tried again
+  // An invalid image leaves the bootloader untouched, so the update can be tried again
   if (!is_new_bootloader_valid(bootloader_bin, bootloader_len)) {
     TUF2_LOG1("Invalid bootloader image\r\n");
     return;
@@ -312,6 +336,7 @@ void board_self_update(const uint8_t *bootloader_bin, uint32_t bootloader_len) {
     }
   }
 
+  // the bootloader area may already be erased: the board needs an SWD probe to recover
   if (!updated) {
     TUF2_LOG1("Bootloader update failed\r\n");
     return;

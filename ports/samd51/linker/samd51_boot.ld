@@ -1,6 +1,8 @@
 /* Bootloader linker script for SAMD51x20 (1 MB flash, 256 KB HSRAM) */
 
 __flash_boot_size = DEFINED(__flash_boot_size) ? __flash_boot_size : 16K;
+/* BOOTPROT protects (15 - BOOTPROT) * 8 KB */
+ASSERT(__flash_boot_size % 8K == 0 && __flash_boot_size <= 120K, "boot size must be a multiple of 8 KB, at most 120 KB")
 __ram_size = DEFINED(__ram_size) ? __ram_size : 256K;
 
 OUTPUT_FORMAT("elf32-littlearm", "elf32-littlearm", "elf32-littlearm")

@@ -14,7 +14,7 @@
 
 // Number of neopixels
 #define NEOPIXEL_NUMBER 16
-// Brightness percentage from 1 to 255
+// Brightness scale, in 256ths
 #define NEOPIXEL_BRIGHTNESS 0x08
 
 #define NEOPIXEL_PORT       1

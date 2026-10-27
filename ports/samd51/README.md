@@ -28,23 +28,32 @@ uf2conv.py -c -b 0x4000 -f 0x55114460 firmware.bin
 
 ## Self-update
 
-`update-tinyuf2.uf2` is built next to the bootloader in `_bin/<board>/apps`. Copy it to the bootloader drive: it runs from the application area,
-rewrites the bootloader and invalidates itself, then the new bootloader starts. The application area is overwritten, so
-copy the application again afterwards.
+`update-tinyuf2.uf2` is built next to the bootloader in `_bin/<board>/apps`. Copy it to the bootloader drive: it runs
+from the application area, rewrites the bootloader and invalidates itself, then the new bootloader starts. The
+application area is overwritten, so copy the application again afterwards.
 
-- The bootloader protects itself on every boot: if the BOOTPROT fuse in the user page does not match the 16 KB boot size, it is rewritten
-  and the board resets once. The self-update lifts the protection until the next reset (`SBPDIS`) to write the new bootloader.
-- Rewriting the BOOTPROT fuse erases the user page before it is programmed again. A power cut in between leaves the user page blank,
-  and the bootloader then leaves it alone: restore it with an SWD probe.
+- The bootloader protects itself on every boot: if the BOOTPROT fuse in the user page does not match the 16 KB boot
+  size, it is rewritten and the board resets once. The self-update lifts the protection until the next reset
+  (`SBPDIS`) to write the new bootloader.
+- Rewriting the BOOTPROT fuse erases the user page before it is programmed again. A power cut in between leaves the
+  user page blank, and the bootloader then leaves it alone: restore it with an SWD probe. The user page holds the
+  factory BOD12 calibration (bits 25:15), which exists nowhere else: read out and keep the user page of each board
+  before its first boot with this bootloader.
 - Updating between `intech_grid` and `intech_wrid` works the same way, the drive label shows which one is installed.
-- A power cut while the bootloader area is erased leaves the board without a bootloader: recover it with an SWD probe. To program the
-  bootloader over SWD, first remove the protection with `atsame5 bootloader 0` in OpenOCD and reset.
+- A power cut while the bootloader area is erased, or a write that still fails after three tries, leaves the board
+  without a bootloader: recover it with an SWD probe. To program the bootloader over SWD, first remove the protection
+  with `atsame5 bootloader 0` in OpenOCD and reset.
 
 ## Debugging
 
 - `BOD33` is set to 2.7 V at start. The default level is too low and flash writes can store zeros.
-- The application usually takes over the SWD pins. Hold the button while powering up so the bootloader runs and SWD stays usable.
-- The bootloader must fit in 16 KB. A Debug build or logging (`-DLOG=1 -DLOGGER=RTT`) does not: the Debug build type increases the boot
-  size to 64 KB, and the application then has to be linked at `0x10000`.
-- Flash with openocd and a CMSIS-DAP probe: `cmake --build build --target tinyuf2-openocd`. It lifts the bootloader protection first,
-  the bootloader protects itself again at boot.
+- The application usually takes over the SWD pins. Hold the button while powering up so the bootloader runs and SWD
+  stays usable.
+- The bootloader must fit in 16 KB. A Debug build or logging (`-DLOG=1 -DLOGGER=RTT`) does not: the Debug build type
+  increases the boot size to 64 KB, and the application then has to be linked at `0x10000`. The port has no UART:
+  `LOG` without `LOGGER=RTT` prints nothing.
+- Flash with openocd and a CMSIS-DAP probe: `cmake --build build --target tinyuf2-openocd`. It lifts the bootloader
+  protection first, the bootloader protects itself again at boot.
+- Erratum 2.6.10 (DS80000748, silicon revisions A, D and F): a power-up can corrupt the reset vector fetch. Its
+  workaround sets the user page fuses WDT Enable to 1 and WDT Period to 0; the bootloader does not set them. With them
+  set, the watchdog runs from reset until `board_init` disables it.
