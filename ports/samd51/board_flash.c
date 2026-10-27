@@ -76,15 +76,6 @@ static inline void page_buffer_barrier(const volatile uint32_t *addr) {
   (void)*addr;
 }
 
-static bool is_erased_value(const uint32_t *words, uint32_t count) {
-  for (uint32_t i = 0; i < count; i++) {
-    if (words[i] != 0xffffffff) {
-      return false;
-    }
-  }
-  return true;
-}
-
 // Erase a block, skipped if it is already blank
 static bool flash_erase(uint32_t block) {
   TUF2_ASSERT(block < BLOCK_COUNT);
@@ -121,8 +112,8 @@ static bool flash_program(uint32_t dst, const uint8_t *src, uint32_t len) {
     memset(words, 0xff, sizeof(words));
     memcpy(words, src + i, chunk);
 
-    // an all-ones quad word stays erased, so flash reading all ones was never programmed and needs no erase
-    if (is_erased_value(words, QUAD_WORD_SIZE / sizeof(uint32_t))) {
+    // an all-ones quad word is left erased, so flash this bootloader wrote reads all ones only where it is erased
+    if (is_blank((uint32_t)(uintptr_t)words, QUAD_WORD_SIZE)) {
       continue;
     }
 
@@ -266,20 +257,7 @@ static bool is_new_bootloader_valid(const uint8_t *bootloader_bin, uint32_t boot
   }
 
   const uint32_t *vector = (const uint32_t *)(uintptr_t)bootloader_bin;
-  const uint32_t  sp     = vector[0];
-  const uint32_t  entry  = vector[1];
-
-  // 1st word is stack pointer (must be in SRAM region)
-  if ((sp & 0xff000003) != 0x20000000) {
-    return false;
-  }
-
-  // 2nd word is the reset handler, must be inside the bootloader and have the Thumb bit set
-  if (entry >= BOARD_FLASH_APP_START || (entry & 1u) == 0) {
-    return false;
-  }
-
-  return true;
+  return vector_table_valid(vector[0], vector[1], BOARD_FLASH_ADDR_ZERO, BOARD_FLASH_APP_START);
 }
 
 // Make a block of the bootloader area hold its part of the new bootloader and nothing else
@@ -287,12 +265,10 @@ static bool bootloader_block_update(uint32_t block, const uint8_t *bootloader_bi
   const uint32_t base   = BOARD_FLASH_ADDR_ZERO + block * FLASH_BLOCK_SIZE;
   const uint32_t offset = block * FLASH_BLOCK_SIZE;
   uint32_t       size   = 0;
-  if (offset < bootloader_len) {
-    size = ((bootloader_len - offset) < FLASH_BLOCK_SIZE) ? (bootloader_len - offset) : FLASH_BLOCK_SIZE;
-  }
 
   memset(block_cache, 0xff, sizeof(block_cache));
-  if (size) {
+  if (offset < bootloader_len) {
+    size = ((bootloader_len - offset) < FLASH_BLOCK_SIZE) ? (bootloader_len - offset) : FLASH_BLOCK_SIZE;
     memcpy(block_cache, bootloader_bin + offset, size);
   }
   if (is_equal(base, block_cache, FLASH_BLOCK_SIZE)) {

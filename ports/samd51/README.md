@@ -51,7 +51,7 @@ application area is overwritten, so copy the application again afterwards.
   stays usable.
 - The bootloader must fit in 16 KB. A Debug build or logging (`-DLOG=1 -DLOGGER=RTT`) does not: the Debug build type
   increases the boot size to 64 KB, and the application then has to be linked at `0x10000`. The port has no UART:
-  `LOG` without `LOGGER=RTT` prints nothing.
+  `LOG` without a `LOGGER` selection prints nothing.
 - Flash with openocd and a CMSIS-DAP probe: `cmake --build build --target tinyuf2-openocd`. It lifts the bootloader
   protection first, the bootloader protects itself again at boot.
 - Erratum 2.6.10 (DS80000748, silicon revisions A, D and F): a power-up can corrupt the reset vector fetch. Its

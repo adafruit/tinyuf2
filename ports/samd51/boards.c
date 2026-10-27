@@ -158,18 +158,7 @@ bool board_app_valid(void) {
   TUF2_LOG1_HEX(sp);
   TUF2_LOG1_HEX(app_entry);
 
-  // 1st word is stack pointer (must be in SRAM region)
-  if ((sp & 3u) != 0 || sp <= HSRAM_ADDR || sp > HSRAM_ADDR + HSRAM_SIZE) {
-    return false;
-  }
-
-  // 2nd word is app entry point (reset), a Thumb address inside the application
-  if ((app_entry & 1u) == 0 || app_entry < BOARD_FLASH_APP_START ||
-      app_entry >= BOARD_FLASH_ADDR_ZERO + BOARD_FLASH_SIZE) {
-    return false;
-  }
-
-  return true;
+  return vector_table_valid(sp, app_entry, BOARD_FLASH_APP_START, BOARD_FLASH_ADDR_ZERO + board_flash_size());
 }
 
 void board_teardown(void) {
