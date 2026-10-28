@@ -589,6 +589,30 @@ class Stubbed(unittest.TestCase):
     with self.assertRaises(SystemExit), mock.patch.object(sys, 'stderr', io.StringIO()):
       hil_ci.main(['--roster', 'ci.json', '--out', str(self.out), '--board', BOARD])   # the rig never builds
 
+  def test_a_board_the_collection_left_out_is_not_run_with_its_reason(self):
+    ok = {'row': {'ran': True, 'pass': True, 'cleanup': {'pass': True, 'state': 'blinky copied'}}}
+    self.roster.write_text(json.dumps({'boards': [{'name': BOARD}, {'name': 'other'}]}))
+    collection = self.tmp / 'collection.json'
+    collection.write_text(json.dumps({'version': 1, 'run': 1, 'attempt': 2, 'boards': {
+      BOARD: {'conclusion': 'success', 'artifact': 11}, 'other': {'conclusion': 'failure', 'reason': 'its build failed'}}}))
+    self.assertEqual(self.main('--board', BOARD, 'other', '--collection', str(collection), battery=ok), 1)
+    rows = {r['board']: r for r in self.rows()}
+    self.assertEqual(rows[BOARD]['verdict'], 'pass')
+    self.assertEqual((rows['other']['verdict'], rows['other']['phase'], rows['other']['detail']),
+                     ('not-run', 'build', 'hosted build not collected: its build failed'))
+    self.assertEqual([a[0] for a in self.admitted], [BOARD], 'only a collected board is admitted')
+    for what, text in (('missing', None), ('unreadable', '{')):
+      with self.subTest(what):
+        self.admitted.clear()
+        collection.unlink(missing_ok=True)
+        if text:
+          collection.write_text(text)
+        out = self.state / f'run-{what}'
+        self.assertEqual(self.main('--board', BOARD, 'other', '--collection', str(collection), battery=ok, out=out), 1)
+        self.assertEqual({r['verdict'] for r in self.rows(out)}, {'not-run'})
+        self.assertTrue(all(r['detail'].startswith('hosted collection unavailable: ') for r in self.rows(out)))
+        self.assertEqual(self.admitted, [])
+
   def test_the_plan_runs_commissioned_boards_each_from_a_hosted_build(self):
     self.roster.write_text(json.dumps({'boards': [
       {'name': 'jlink_ok', 'tinyuf2': {'reentry': 'retained-register'}}, {'name': 'esp_ok', 'tinyuf2': {'reentry': 'dfu-detach'}},
@@ -633,19 +657,11 @@ class Stubbed(unittest.TestCase):
     selection = json.loads((work / 'hil-selection.json').read_text())
     self.assertEqual(selection['boards'], rig)
     self.assertIn(esp['name'], [u['target'] for u in selection['uncovered']])
-    # the hosted build's boards by backend: it sets up arm-gcc and pulls the IDF image only for the kinds it builds
-    idf = [b for b in hosted if (ROOT / 'ports' / 'espressif' / 'boards' / b).is_dir()]
-    cmake = [b for b in hosted if b not in idf]
-    self.assertTrue(idf and cmake)
-    self.assertEqual((got['hosted_idf'], got['hosted_cmake']), (' '.join(idf), ' '.join(cmake)))
-    for named, kinds in (([esp['name']], (esp['name'], '')), (cmake, ('', ' '.join(cmake)))):
-      output.write_text('')
-      r = subprocess.run([sys.executable, '-'], input=textwrap.dedent(body), cwd=work, capture_output=True, text=True,
-                         env=dict(os.environ, GITHUB_EVENT_NAME='workflow_dispatch', BOARD_INPUT=' '.join(named),
-                                  GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(summary)))
-      self.assertEqual(r.returncode, 0, r.stderr)
-      got = dict(ln.split('=', 1) for ln in output.read_text().splitlines())
-      self.assertEqual((got['hosted_idf'], got['hosted_cmake']), kinds, named)
+    # one hosted-build leg per board, with its backend: arm-gcc set up for cmake, the IDF image pulled for idf
+    want = [{'board': b, 'backend': 'idf' if (ROOT / 'ports' / 'espressif' / 'boards' / b).is_dir() else 'cmake'}
+            for b in hosted]
+    self.assertEqual({m['backend'] for m in want}, {'idf', 'cmake'})
+    self.assertEqual(json.loads(got['matrix']), want)
 
 def workflow_job(name):
   """The text of hil.yml's job `name`, up to the next job."""
@@ -654,55 +670,55 @@ def workflow_job(name):
 
 
 class Workflow(unittest.TestCase):
-  def test_the_rig_admits_only_the_latest_hosted_build_attempts_artifact(self):
-    """A re-run of hosted-build that packs nothing must never leave the rig an earlier attempt's records, and a re-run
-    of the rig job alone reuses the attempt that built."""
-    hosted, rig = workflow_job('hosted-build'), workflow_job('ci-lan')
-    self.assertIn('    outputs:\n      attempt: ${{ github.run_attempt }}\n', hosted)
-    self.assertIn('name: hil-hosted-build-${{ github.run_attempt }}\n', hosted)
-    self.assertNotIn('overwrite', hosted)
-    self.assertIn('name: hil-hosted-build-${{ needs.hosted-build.outputs.attempt || github.run_attempt }}\n', rig)
+  def test_each_board_builds_in_its_own_leg_that_deletes_its_earlier_artifact_first(self):
+    """A leg per board, named for it (hil_hosted_pick.py finds it by that name), that deletes this run's earlier
+    hil-hosted-<board> before it builds and fails on any error, so a succeeded leg holds the board's only artifact."""
+    leg = workflow_job('hosted-build')
+    self.assertIn('    name: hosted-build (${{ matrix.board }})\n', leg)
+    self.assertEqual(hil_ci.hil_hosted_pick.leg_name('b'), 'hosted-build (b)')
+    self.assertIn('      fail-fast: false\n      matrix:\n        include: ${{ fromJSON(needs.select.outputs.matrix) }}\n',
+                  leg)
+    self.assertIn('    permissions:\n      actions: write', leg)
+    self.assertNotRegex(leg, r'(?m)^ +continue-on-error:')
+    steps = re.findall(r'\n      - (?:name: (.+)|uses: (\S+))\n', leg)
+    self.assertEqual([n or u for n, u in steps], [
+      'actions/checkout@v4', 'Injected fault before the delete', "Delete this run's earlier build of the board",
+      'Fetch the build inputs', 'Set up arm-gcc', "Pull CI's ESP-IDF image", 'Build and pack the record',
+      'actions/upload-artifact@v4'])
+    self.assertIn("if: matrix.backend == 'cmake'\n        uses: ./.github/actions/setup_toolchain\n", leg)
+    self.assertIn("if: matrix.backend == 'idf'\n", leg)
+    self.assertIn(f'name: {hil_ci.hil_hosted_pick.artifact_name("${{ matrix.board }}")}\n', leg)
+    self.assertIn('if-no-files-found: error\n', leg)
+    self.assertNotIn('overwrite', leg)
+
+  def test_the_rig_admits_only_what_this_attempts_collection_picked(self):
+    """hosted-collect runs whatever the legs concluded and always uploads its manifest under its own attempt; the rig
+    downloads the attempt it last ran in (a re-run of the rig job alone reuses it) and reads every board through it."""
+    collect, rig = workflow_job('hosted-collect'), workflow_job('ci-lan')
+    self.assertIn('    needs: [select, hosted-build]\n', collect)
+    self.assertIn("    if: ${{ !cancelled() && needs.select.result == 'success' && needs.select.outputs.boards != '' }}\n",
+                  collect)
+    self.assertIn('    permissions:\n      actions: read\n', collect)
+    self.assertIn('    outputs:\n      attempt: ${{ github.run_attempt }}\n', collect)
+    self.assertIn('name: hil-hosted-build-${{ github.run_attempt }}\n', collect)
+    self.assertIn('if-no-files-found: error\n', collect)
+    self.assertRegex(collect, r"- name: Collect each board's build from this attempt\n(?:        .*\n)*?        shell: bash ")
+    self.assertIn('    needs: [select, hosted-collect]\n', rig)
+    self.assertIn('name: hil-hosted-build-${{ needs.hosted-collect.outputs.attempt || github.run_attempt }}\n', rig)
+    self.assertIn('--hosted "$RUNNER_TEMP/hil-hosted" \\\n            --collection "$RUNNER_TEMP/hil-hosted/collection.json"',
+                  rig)
+    self.assertNotIn('needs.hosted-build', rig)
 
   def test_each_job_fetches_every_boards_dependencies_in_one_call(self):
     with tempfile.TemporaryDirectory() as d:
       (Path(d) / 'python3').write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
       (Path(d) / 'python3').chmod(0o755)
-      for job, env in (('hosted-build', {'HOSTED_CMAKE': 'c1 c2', 'HOSTED_IDF': 'e1'}), ('ci-lan', {'BOARDS': 'c1 c2 e1'})):
+      for job, env, want in (('hosted-build', {'BOARD': 'c1'}, ['-b', 'c1']),
+                             ('ci-lan', {'BOARDS': 'c1 c2 e1'}, ['-b', 'c1', '-b', 'c2', '-b', 'e1'])):
         line, = [ln.strip() for ln in workflow_job(job).splitlines() if 'tools/get_deps.py' in ln]
         r = subprocess.run(['bash', '-e', '-c', line], capture_output=True, text=True,
                            env=dict(os.environ, PATH=f'{d}:{os.environ["PATH"]}', **env))
-        self.assertEqual(r.stdout.split(), ['tools/get_deps.py', '-b', 'c1', '-b', 'c2', '-b', 'e1'], job)
-
-  def test_a_backend_that_failed_to_prepare_fails_only_its_own_boards(self):
-    """The build step's script, run as the runner runs it (bash -e) with python3 a stand-in that logs each call and
-    fails a board named in FAIL: each backend's boards build only when its preparation succeeded, every board is tried,
-    and any failure fails the step after the rest."""
-    hosted = workflow_job('hosted-build')
-    for step in ('Set up arm-gcc', 'Pull CI\'s ESP-IDF image'):
-      self.assertRegex(hosted, rf"- name: {step}\n(?:        .*\n)*?        continue-on-error: true\n")
-    script = textwrap.dedent(re.search(r"- name: Build and pack each record\n(?:        .*\n)*?        run: \|\n((?:          .*\n)+)",
-                                       hosted).group(1))
-    with tempfile.TemporaryDirectory() as d:
-      d = Path(d)
-      (d / 'bin').mkdir()
-      (d / 'bin' / 'python3').write_text('#!/bin/sh\necho "$*" >> "$LOG"\ncase " $* " in *" $FAIL "*) exit 1;; esac\n')
-      (d / 'bin' / 'python3').chmod(0o755)
-      for (cmake_ready, idf_ready, fail), (code, built, failed) in {
-          ('success', 'failure', ''): (1, ['c1', 'c2'], 'e1'),
-          ('failure', 'success', ''): (1, ['e1'], 'c1 c2'),
-          ('success', 'success', 'c1'): (1, ['c2', 'e1'], 'c1'),
-          ('success', 'success', ''): (0, ['c1', 'c2', 'e1'], None)}.items():
-        with self.subTest(cmake=cmake_ready, idf=idf_ready, fail=fail):
-          log = d / f'log-{cmake_ready}-{idf_ready}-{fail}'
-          r = subprocess.run(['bash', '-e', '-c', script], cwd=d, capture_output=True, text=True, env=dict(
-            os.environ, PATH=f'{d / "bin"}:{os.environ["PATH"]}', LOG=str(log), FAIL=fail or 'none',
-            CMAKE_READY=cmake_ready, IDF_READY=idf_ready, HOSTED_CMAKE='c1 c2', HOSTED_IDF='e1', RUNNER_TEMP=str(d)))
-          calls = log.read_text().splitlines() if log.exists() else []
-          self.assertEqual(r.returncode, code, r.stdout + r.stderr)
-          self.assertEqual([c.split('--board ')[1].split()[0] for c in calls if ' build --board ' in c and
-                            c.split('--board ')[1].split()[0] != fail], built)
-          if failed:
-            self.assertIn(f'::error title=Hosted build failed:: {failed}', r.stdout)
+        self.assertEqual(r.stdout.split(), ['tools/get_deps.py', *want], job)
 
 
 LPC = 'lpcxpresso55s69'
