@@ -63,7 +63,7 @@ jobs:
   # ---------------------------------------
   # Build ARM
   # ---------------------------------------
-  arm-cmake:
+  arm:
     needs: set-matrix
     uses: ./.github/workflows/build_util.yml
     strategy:
