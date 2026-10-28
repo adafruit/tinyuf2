@@ -1701,8 +1701,21 @@ def recovery_lock(helper, board):
   none releases the holder while another is still between its probe sessions. The lock helper lists `*.lock`
   only, so it never reports this file as a holder."""
   path = helper.lock_path(board) + '.recover'
+  flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
   try:
-    fh = os.fdopen(os.open(path, os.O_RDONLY | os.O_CREAT, 0o666))
+    try:   # existing first: fs.protected_regular refuses O_CREAT on another account's file in the sticky lock dir
+      fd = os.open(path, flags)
+    except FileNotFoundError:
+      try:
+        fd = os.open(path, flags | os.O_CREAT | os.O_EXCL, 0o666)
+        try:
+          os.fchmod(fd, 0o666)   # whatever the umask, so the other account can open it
+        except OSError:
+          os.close(fd)
+          raise
+      except FileExistsError:
+        fd = os.open(path, flags)
+    fh = os.fdopen(fd)
   except OSError as e:
     raise Refused(f'cannot open {path}: {e}')
   try:

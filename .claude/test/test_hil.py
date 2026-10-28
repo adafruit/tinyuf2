@@ -2927,6 +2927,26 @@ class Locks(Tmp):
     first.close()
     ht.recovery_lock(self.helper, BOARD).close()
 
+  def test_the_recovery_file_is_created_exclusively_and_world_writable_and_reopened_without_o_creat(self):
+    path = self.lock + '.recover'
+    real_open, calls = os.open, []
+    opener = lambda p, flags, *a, **k: (calls.append((p, flags)), real_open(p, flags, *a, **k))[1]
+    old = os.umask(0o077)
+    try:
+      with mock.patch.object(ht.os, 'open', opener):
+        ht.recovery_lock(self.helper, BOARD).close()
+    finally:
+      os.umask(old)
+    self.assertEqual([p for p, _ in calls], [path, path])
+    self.assertFalse(calls[0][1] & os.O_CREAT)
+    self.assertEqual(calls[1][1] & (os.O_CREAT | os.O_EXCL), os.O_CREAT | os.O_EXCL)
+    self.assertEqual(os.stat(path).st_mode & 0o777, 0o666)
+    calls.clear()
+    with mock.patch.object(ht.os, 'open', opener):
+      ht.recovery_lock(self.helper, BOARD).close()
+    self.assertEqual(len(calls), 1)
+    self.assertFalse(calls[0][1] & os.O_CREAT)
+
   def test_survivors_are_identified_against_pid_reuse(self):
     me = {'pid': os.getpid(), 'start': ht.proc_start(os.getpid())}
     self.assertEqual(ht.still_alive([me, dict(me, start=me['start'] + 1), {'pid': 2 ** 22 + 1, 'start': 5}]), [me])
