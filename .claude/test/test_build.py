@@ -184,7 +184,20 @@ class Selection(unittest.TestCase):
 
   def test_top_level_app_selects_ports_whose_backend_compiles_it(self):
     ports = {cb.port_of(b) for b, _ in classify('apps/blinky/src/blinky.c')[2]}
-    self.assertEqual(ports, {'espressif', 'lpc55', 'maxim', 'mimxrt10xx', 'stm32f3', 'stm32f4', 'stm32h5'})
+    self.assertEqual(ports, {'espressif', 'lpc55', 'maxim', 'mimxrt10xx', 'stm32f3', 'stm32f4', 'stm32h5', 'stm32h7'})
+
+  def test_stm32h7_builds_with_cmake_and_its_make_files_are_uncovered(self):
+    reps = [('daisy_seed', 'cmake'), ('stm32h743nucleo', 'cmake')]
+    for path in ('ports/stm32h7/CMakeLists.txt', 'ports/stm32h7/family.cmake', 'ports/stm32h7/app.cmake'):
+      self.assertEqual(classify(path)[:3], ('port', 'select', reps), path)
+    self.assertEqual(classify('ports/stm32h7/boards/daisy_seed/board.cmake')[:3],
+                     ('board', 'select', [('daisy_seed', 'cmake')]))
+    for path in ('ports/stm32h7/port.mk', 'ports/stm32h7/Makefile', 'ports/stm32h7/apps/app.mk',
+                 'ports/stm32h7/boards/daisy_seed/board.mk'):
+      self.assertEqual(classify(path)[:3], ('other-backend', 'gap', []), path)
+    for path in cb.MAKE_SHARED:
+      self.assertNotIn('stm32h7', {cb.port_of(b) for b, _ in classify(path)[2]}, path)
+      self.assertNotIn('stm32h7', ci(path)['ports'], path)
 
   def test_dependency_selects_the_ports_get_deps_names(self):
     self.assertEqual(classify('lib/mcu/st/cmsis_device_f4/x.h')[2],
@@ -1436,6 +1449,10 @@ class BackendCommands(unittest.TestCase):
     self.assertEqual(names('mimxrt10xx', 'imxrt1060_evk', 'cmake'), rt)
     self.assertEqual(names('stm32f3', 'stm32f303disco', 'cmake'),
                      {'_bin/tinyuf2.bin', '_bin/tinyuf2.hex', '_bin/apps/update-tinyuf2.uf2', '_bin/apps/blinky.uf2'})
+    for board in ('daisy_seed', 'mini_stm32h750_v11', 'stm32h743nucleo'):   # its cmake build has no self-update
+      self.assertEqual(names('stm32h7', board, 'cmake'),
+                       {'_bin/tinyuf2.bin', '_bin/tinyuf2.hex', '_bin/apps/blinky.uf2', '_bin/apps/erase_firmware.uf2'},
+                       board)
 
 
 class FirstError(unittest.TestCase):

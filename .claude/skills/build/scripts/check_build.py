@@ -51,7 +51,7 @@ BACKENDS = {
   'stm32f3': 'cmake',
   'stm32f4': 'cmake',
   'stm32h5': 'cmake',
-  'stm32h7': 'make',
+  'stm32h7': 'cmake',
   'stm32l4': 'make',
 }
 
@@ -80,7 +80,7 @@ REPRESENTATIVES = {
   'stm32f3': ['stm32f303disco'],
   'stm32f4': ['stm32f411ve_discovery', 'feather_stm32f405_express'],
   'stm32h5': ['stm32h563_nucleo'],
-  'stm32h7': ['daisy_seed'],
+  'stm32h7': ['stm32h743nucleo', 'daisy_seed'],
   'stm32l4': ['swan_r5'],
 }
 # Ports no CI job builds: a change there is uncovered; --board may still build one explicitly.
