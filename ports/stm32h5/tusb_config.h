@@ -35,7 +35,7 @@
 //--------------------------------------------------------------------
 
 #ifndef CFG_TUSB_MCU
-#error CFG_TUSB_MCU must be defined in board.mk
+#error CFG_TUSB_MCU must be defined
 #endif
 
 #define CFG_TUSB_OS                OPT_OS_NONE

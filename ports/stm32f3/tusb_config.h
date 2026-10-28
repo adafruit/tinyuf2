@@ -35,7 +35,7 @@
 //--------------------------------------------------------------------
 
 #ifndef CFG_TUSB_MCU
-#error CFG_TUSB_MCU must be defined in board.mk
+#error CFG_TUSB_MCU must be defined
 #endif
 
 // This example doesn't use an RTOS
