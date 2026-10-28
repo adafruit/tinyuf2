@@ -57,15 +57,3 @@ function(family_add_board_target BOARD_TARGET)
     --specs=nosys.specs --specs=nano.specs
     )
 endfunction()
-
-#------------------------------------
-# Flashing target
-#------------------------------------
-
-# Add flash target using the ROM DFU bootloader
-function(family_flash_dfu_util TARGET)
-  add_custom_target(${TARGET}-dfu-util
-    DEPENDS ${TARGET}
-    COMMAND dfu-util -R -a 0 --dfuse-address 0x08000000 -D $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin
-    )
-endfunction()

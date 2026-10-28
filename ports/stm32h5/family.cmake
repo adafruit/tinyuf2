@@ -41,7 +41,7 @@ function(family_add_board_target BOARD_TARGET)
     ${ST_HAL_DRIVER}/Src/stm32h5xx_hal_pwr_ex.c
     ${ST_HAL_DRIVER}/Src/stm32h5xx_hal_flash.c
     ${ST_HAL_DRIVER}/Src/stm32h5xx_hal_flash_ex.c
-    #${ST_HAL_DRIVER}/Src/stm32h5xx_hal_uart.c
+    ${ST_HAL_DRIVER}/Src/stm32h5xx_hal_uart.c
     )
   target_include_directories(${BOARD_TARGET} PUBLIC
     # port & board

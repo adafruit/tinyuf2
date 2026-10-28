@@ -14,8 +14,11 @@ Initial flashing to load tinyUF2 must be done via the teensy CLI, or the teensy 
 1. Ensure that you *do* have the `teensy_loader_cli` program installed.  It's available [here](https://www.pjrc.com/teensy/loader_cli.html).
 1. Connect a micro-USB cable directly to the teensy (as opposed to any secondary USB connector you might have on a daughter board)
 1. press the teensy flash button.  Make sure that the teensy GUI does *NOT* come up.  The little red light adjacent to the USB connector should be on.
-1. Flash the board:
-```make BOARD=teensy40 flash```
+1. Build and flash the board from the repository root:
+```
+cmake -B build -G Ninja -DBOARD=teensy40 ports/mimxrt10xx
+cmake --build build --target tinyuf2-teensy
+```
 
 At this point, the board should be flashed, the red light adjacent to the micro USB connector should be off, and the orange light next to the teensy button should be flashing intermittently.  There should also be a new disk that appears called TEENSY40BT.
 

@@ -13,24 +13,11 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 idf_build_set_property(DEPENDENCIES_LOCK ${CMAKE_BINARY_DIR}/dependencies.lock) # keep the source tree clean
 idf_build_set_property(EXTRA_CMAKE_ARGS -DBOARD=${BOARD}) # Pass BOARD to bootloader
 
-execute_process(COMMAND git describe --dirty --always --tags
-                WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
-                OUTPUT_VARIABLE GIT_VERSION)
-string(STRIP ${GIT_VERSION} GIT_VERSION)
-
-execute_process(COMMAND bash "-c" "git submodule status ${TOP}/lib/tinyusb | cut -d\" \" -f3,4 | paste -s -d\" \" -"
-                WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
-                OUTPUT_VARIABLE GIT_SUBMODULE_VERSIONS)
-
-string(REPLACE ../ "" GIT_SUBMODULE_VERSIONS ${GIT_SUBMODULE_VERSIONS})
-string(REPLACE lib/ "" GIT_SUBMODULE_VERSIONS ${GIT_SUBMODULE_VERSIONS})
-string(STRIP ${GIT_SUBMODULE_VERSIONS} GIT_SUBMODULE_VERSIONS)
-
+family_get_uf2_version(UF2_VERSION_BASE UF2_VERSION)
 add_compile_definitions(
-  UF2_VERSION_BASE="${GIT_VERSION}"
-  UF2_VERSION="${GIT_VERSION} - ${GIT_SUBMODULE_VERSIONS}"
+  UF2_VERSION_BASE="${UF2_VERSION_BASE}"
+  UF2_VERSION="${UF2_VERSION}"
   )
-cmake_print_variables(GIT_VERSION GIT_SUBMODULE_VERSIONS)
 
 project(tinyuf2)
 

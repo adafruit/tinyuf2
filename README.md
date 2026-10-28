@@ -11,7 +11,7 @@ This repo is cross-platform UF2 Bootloader projects for MCUs based on [TinyUSB](
 ├── ports             # Port/family specific sources
 │   ├── espressif
 │   │   └── boards/   # Board specific sources
-│   │   └── Makefile  # Makefile for this port
+│   │   └── CMakeLists.txt  # CMake project for this port
 │   └── mimxrt10xx
 ├── src               # Cross-platform bootloader sources files
 ```
@@ -66,64 +66,73 @@ python tools/get_deps.py stm32f4
 python tools/get_deps.py --board feather_stm32f405_express
 ```
 
-To build this for a specific board, we need to change current directory to its port folder
-
-```
-cd ports/stm32f4
-```
-
-Then compile with `all` target:
-
-```
-make BOARD=feather_stm32f405_express all
-```
-
-Every port also builds with CMake, the way CI builds it (Espressif uses ESP-IDF's, see its README):
+Then build a board from the repository root with CMake, the way CI builds it (Espressif uses ESP-IDF's `idf.py`, see
+[its README](ports/espressif/README.md)):
 
 ```
 cmake -B build -G Ninja -DBOARD=feather_stm32f405_express ports/stm32f4
 cmake --build build
 ```
 
-The bootloader images land in `ports/<port>/_bin/<board>`. Each application the port supports (self-update, blinky, ...) is built as its own CMake project in `build/apps/<app>`, its UF2 in `_bin/<board>/apps`. Flash with targets such as `tinyuf2-jlink`, `tinyuf2-stlink` or `<app>-uf2`.
+The bootloader images land in `ports/<port>/_bin/<board>` (`-DARTIFACT_PATH=<dir>` puts them elsewhere). Each
+application the port supports (self-update, blinky, ...) is built as its own CMake project in `build/apps/<app>`, its
+UF2 in `_bin/<board>/apps`.
 
 ### Flash
 
-`flash` target will use the default on-board debugger (jlink/cmsisdap/stlink/dfu) to flash the binary, please install those support software in advance. Some board use bootloader/DFU via serial which is required to pass to make command
+Each port adds a flash target for each tool it supports; install the tool first, then build the target. For example
+feather_stm32f405_express through the STM32 ROM DFU bootloader:
 
 ```
-make BOARD=feather_stm32f405_express flash
+cmake --build build --target tinyuf2-dfu-util
 ```
 
-If you use an external debugger, there is `flash-jlink`, `flash-stlink`, `flash-pyocd` which are mostly like to work out of the box for most of the supported board.
+| Target                         | Tool                                             | Ports                                                    |
+|--------------------------------|--------------------------------------------------|----------------------------------------------------------|
+| `tinyuf2-jlink`                | J-Link `JLinkExe`                                | boards whose `board.cmake` sets `JLINK_DEVICE`           |
+| `tinyuf2-stlink`               | `STM32_Programmer_CLI`                           | stm32f3, stm32f4, stm32h5, stm32h7, stm32l4              |
+| `tinyuf2-pyocd`                | pyOCD                                            | kinetis_k32l2, lpc55, mimxrt10xx                         |
+| `tinyuf2-dfu-util`             | dfu-util to the STM32 ROM DFU bootloader         | stm32f4, stm32h5, stm32l4                                |
+| `tinyuf2-openocd`              | OpenOCD                                          | ch32v20x (WCH's fork), maxim (ADI's)                     |
+| `tinyuf2-sdp`                  | `sdphost`/`blhost` to the i.MX RT ROM            | mimxrt10xx, see [its README](ports/mimxrt10xx/README.md) |
+| `tinyuf2-teensy`               | `teensy_loader_cli`                              | teensy40, teensy41                                       |
+| `tinyuf2-erase-jlink`          | J-Link `JLinkExe` erase                          | boards whose `board.cmake` sets `JLINK_DEVICE`           |
+| `tinyuf2-erase-external-jlink` | J-Link `JLinkExe` erase of the external flash    | mimxrt10xx                                               |
+| `<app>-uf2`                    | `uf2conv.py --deploy` to the bootloader drive    | each application the port builds                         |
+
+Make's ST-LINK, st-flash, pyOCD and DFU erase helpers are removed: erase with the tool's own command for your chip.
 
 ### Debug
 
-To compile for debugging add `DEBUG=1`, this will mostly change the compiler optimization
+To compile for debugging configure with `-DCMAKE_BUILD_TYPE=Debug`, this will mostly change the compiler optimization
+(`-Og` in place of the default MinSizeRel's `-Os`)
 
 ```
-make BOARD=feather_stm32f405_express DEBUG=1 all
+cmake -B build -G Ninja -DBOARD=feather_stm32f405_express -DCMAKE_BUILD_TYPE=Debug ports/stm32f4
+cmake --build build
 ```
 
 #### Log
 
-Should you have an issue running example and/or submitting an bug report. You could enable TinyUSB built-in debug logging with optional `LOG=`.
+Should you have an issue running example and/or submitting an bug report. You could enable TinyUSB built-in debug logging with optional `-DLOG=`.
 - **LOG=1** will print message from bootloader and error if any from TinyUSB stack.
 - **LOG=2** and **LOG=3** will print more information with TinyUSB stack events
 
 ```
-make BOARD=feather_stm32f405_express LOG=1 all
+cmake -B build -G Ninja -DBOARD=feather_stm32f405_express -DCMAKE_BUILD_TYPE=MinSizeRel -DLOG=1 ports/stm32f4
+cmake --build build
 ```
 
 #### Logger
 
 By default log message is printed via on-board UART which is slow and take lots of CPU time comparing to USB speed. If your board support on-board/external debugger, it would be more efficient to use it for logging. There are 2 protocols:
 
-- `LOGGER=rtt`: use [Segger RTT protocol](https://www.segger.com/products/debug-probes/j-link/technology/about-real-time-transfer/)
+- `-DLOGGER=RTT`: use [Segger RTT protocol](https://www.segger.com/products/debug-probes/j-link/technology/about-real-time-transfer/)
   - Cons: requires jlink as the debugger.
   - Pros: work with most if not all MCUs
   - Software viewer is JLink RTT Viewer/Client/Logger which is bundled with JLink driver package.
 
 ```
-make BOARD=feather_stm32f405_express LOG=2 LOGGER=rtt all
+cmake -B build -G Ninja -DBOARD=feather_stm32f405_express -DCMAKE_BUILD_TYPE=MinSizeRel -DLOG=2 -DLOGGER=RTT ports/stm32f4
+cmake --build build
 ```

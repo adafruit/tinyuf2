@@ -645,8 +645,8 @@ class Rt1060(Tmp):
             ht.verify_record(rec, self.board, self.facts, work)
       blinky.write_bytes(good)
       rows['_bin/apps/blinky.uf2'] = ht.sha256(blinky)
-      rec.write_text(json.dumps({'pass': True, 'input': now, 'boards': [dict(row, backend='make')]}))
-      with self.assertRaisesRegex(ht.Refused, 'cmake builds only .*--backend cmake --shared'):
+      rec.write_text(json.dumps({'pass': True, 'input': now, 'boards': [dict(row, backend='idf')]}))
+      with self.assertRaisesRegex(ht.Refused, rf'cmake builds only .*\(check_build.py --board {self.board["name"]} --shared'):
         ht.verify_record(rec, self.board, self.facts, work)
       rec.write_text(json.dumps({'pass': True, 'input': now, 'boards': [row]}))
       (build / '_bin' / 'tinyuf2.bin').unlink()

@@ -63,27 +63,7 @@ jobs:
   # ---------------------------------------
   # Build ARM
   # ---------------------------------------
-  arm-make:
-    needs: set-matrix
-    uses: ./.github/workflows/build_util.yml
-    strategy:
-      fail-fast: false
-      matrix:
-        port:
-        # Alphabetical order
-        - 'kinetis_k32l2'
-        - 'stm32h7'
-        - 'stm32l4'
-    with:
-      port: ${{ matrix.port }}
-      boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)[matrix.port].board) }}
-      build-system: 'make'
-      toolchain: 'arm-gcc'
-
-  # ---------------------------------------
-  # Build ARM with CMake
-  # ---------------------------------------
-  arm-cmake:
+  arm:
     needs: set-matrix
     uses: ./.github/workflows/build_util.yml
     strategy:
@@ -91,16 +71,18 @@ jobs:
       matrix:
         port:
           # Alphabetical order by family
+          - 'kinetis_k32l2'
           - 'lpc55'
           - 'maxim'
           - 'mimxrt10xx'
           - 'stm32f3'
           - 'stm32f4'
           - 'stm32h5'
+          - 'stm32h7'
+          - 'stm32l4'
     with:
       port: ${{ matrix.port }}
       boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)[matrix.port].board) }}
-      build-system: 'cmake'
       toolchain: 'arm-gcc'
 
   # ---------------------------------------
@@ -113,7 +95,6 @@ jobs:
     with:
       port: 'espressif'
       boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)['espressif'].board) }}
-      build-system: 'make'
       toolchain: 'esp-idf'
       toolchain_version: 'v6.1'
 
@@ -133,7 +114,6 @@ jobs:
     with:
       port: ${{ matrix.port }}
       boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)[matrix.port].board) }}
-      build-system: 'make'
       toolchain: 'riscv-gcc'
 
   # ---------------------------------------

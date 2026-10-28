@@ -119,9 +119,7 @@ def hosted_record(board, roster, out, hosted):
 
 def build_record(board, roster, out):
   record = out / f'{board}.build.json'
-  # an Espressif board builds with ESP-IDF in CI's docker image (check_build's default for it), the rest with cmake
-  backend = [] if espressif(board) else ['--backend', 'cmake']
-  r = run([sys.executable, CHECK_BUILD, '--board', board, *backend, '--shared', '--hil-config', roster])
+  r = run([sys.executable, CHECK_BUILD, '--board', board, '--shared', '--hil-config', roster])
   record.write_text(r.stdout)
   try:
     rec = json.loads(r.stdout)

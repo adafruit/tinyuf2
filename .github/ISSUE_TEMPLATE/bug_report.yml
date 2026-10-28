@@ -52,7 +52,7 @@ body:
       placeholder: |
         TinyUF2 debug log where the issue occurred as attached txt file, best with comments to explain the actual events.
 
-        Note: To enable logging, add `LOG=3` to to the make command, more details can be found at [/README.md].
+        Note: To enable logging, add `-DLOG=3` to the cmake or idf.py command, more details can be found at [/README.md].
     validations:
       required: false
 

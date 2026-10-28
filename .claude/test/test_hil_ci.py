@@ -463,7 +463,7 @@ class Stubbed(unittest.TestCase):
                      ({'install': True, 'dfu': False}, True, 50, 122))
     self.assertEqual(json.loads((self.out / 'summary.json').read_text())['elapsedS'], 1000)
     self.assertFalse(r['espressif'])
-    self.assertEqual(self.commands[-1][self.commands[-1].index('--backend') + 1], 'cmake')
+    self.assertNotIn('--backend', self.commands[-1], "check_build gives the port's one backend")
     (self.tmp / 'ports' / 'espressif' / 'boards' / BOARD).mkdir(parents=True)   # the port decides, not the flasher
     self.assertEqual(self.main('--board', BOARD, battery=failed, out=self.state / 'esp'), 1)
     self.assertTrue(self.rows(self.state / 'esp')[0]['espressif'])

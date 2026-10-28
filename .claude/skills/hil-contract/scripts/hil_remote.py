@@ -185,8 +185,8 @@ def freeze(stage, run_id, host, cfg, boards, args):
 def members(manifest):
   """The copy-back: one group (the manifest, the driver's result and every board's records, run dirs, reports, logs
   and output under out/), and optional evidence: the driver's progress and a failed build's log, at the build dir
-  check_build.py names for either backend."""
-  logs = [f'{driver.CHECKOUT}/cmake-build/cmake-build-{b}{s}/check_build.log' for b in manifest['boards'] for s in ('', '-cmake')]
+  check_build.py names."""
+  logs = [f'{driver.CHECKOUT}/cmake-build/cmake-build-{b}/check_build.log' for b in manifest['boards']]
   return [['manifest.json', driver.RESULT, f'{driver.OUT}/']], [driver.PROGRESS, *logs]
 
 

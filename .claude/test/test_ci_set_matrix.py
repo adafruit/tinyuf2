@@ -102,7 +102,7 @@ class Push(unittest.TestCase):
       self.assertTrue(csm.builds_on_push(path), path)
 
   def test_every_full_build_input_of_the_selector_builds_on_push(self):
-    for path in cb.CORE + cb.BUILD_CONTROL + cb.GHOSTFAT_INPUTS + cb.MAKE_SHARED:
+    for path in cb.CORE + cb.BUILD_CONTROL + cb.GHOSTFAT_INPUTS:
       self.assertTrue(csm.builds_on_push(path + 'x.c' if path.endswith('/') else path), path)
 
   def test_push_compares_the_tips_and_never_runs_the_selector(self):
