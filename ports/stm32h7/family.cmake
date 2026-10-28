@@ -8,6 +8,7 @@ set(UF2_FAMILY_ID 0x6db66082)
 set(ST_HAL_DRIVER ${TOP}/lib/mcu/st/stm32h7xx_hal_driver)
 set(ST_CMSIS ${TOP}/lib/mcu/st/cmsis_device_h7)
 set(CMSIS_5 ${TOP}/lib/CMSIS_5)
+set(GIT_SUBMODULES tinyusb uf2)
 
 include(${CMAKE_CURRENT_LIST_DIR}/boards/${BOARD}/board.cmake)
 

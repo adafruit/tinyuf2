@@ -56,9 +56,10 @@ endif ()
 list(JOIN TOOLCHAIN_COMMON_FLAGS " " TOOLCHAIN_COMMON_FLAGS)
 foreach (LANG IN ITEMS C CXX ASM)
   set(CMAKE_${LANG}_FLAGS_INIT ${TOOLCHAIN_COMMON_FLAGS})
-  # optimization flags for LOG, LOGGER ?
-  #set(CMAKE_${LANG}_FLAGS_RELEASE_INIT "-Os")
-  #set(CMAKE_${LANG}_FLAGS_DEBUG_INIT "-O0")
+  if (TOOLCHAIN STREQUAL "gcc")
+    # -Og as make's DEBUG=1; CMake's GNU module appends -g
+    set(CMAKE_${LANG}_FLAGS_DEBUG_INIT "-Og")
+  endif ()
 endforeach ()
 
 # Linker

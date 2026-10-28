@@ -219,6 +219,7 @@ function(family_configure_common TARGET)
 
   # LOGGER option
   if (DEFINED LOGGER)
+    string(TOUPPER "${LOGGER}" LOGGER)
     target_compile_definitions(${TARGET} PUBLIC LOGGER_${LOGGER})
 
     # Add segger rtt to example
@@ -263,13 +264,36 @@ function(family_configure_tinyuf2 TARGET OPT_MCU)
 
   family_add_tinyusb(${TARGET} ${OPT_MCU})
 
-  # Add uf2 version
-  execute_process(COMMAND ${GIT_EXECUTABLE} describe --dirty --always --tags WORKING_DIRECTORY ${TOP} OUTPUT_VARIABLE GIT_VERSION)
-  string(STRIP ${GIT_VERSION} GIT_VERSION)
-  cmake_print_variables(GIT_VERSION)
+  # Add uf2 version: git describe, then each of GIT_SUBMODULES' versions
+  execute_process(COMMAND ${GIT_EXECUTABLE} describe --dirty --always --tags
+    WORKING_DIRECTORY ${TOP}
+    OUTPUT_VARIABLE GIT_VERSION ERROR_VARIABLE GIT_ERROR RESULT_VARIABLE GIT_RESULT
+    OUTPUT_STRIP_TRAILING_WHITESPACE)
+  if (NOT GIT_RESULT EQUAL 0)
+    message(FATAL_ERROR "git describe failed: ${GIT_ERROR}")
+  endif ()
+
+  list(TRANSFORM GIT_SUBMODULES PREPEND lib/ OUTPUT_VARIABLE SUBMODULE_PATHS)
+  execute_process(COMMAND ${GIT_EXECUTABLE} submodule status ${SUBMODULE_PATHS}
+    WORKING_DIRECTORY ${TOP}
+    OUTPUT_VARIABLE SUBMODULE_STATUS ERROR_VARIABLE GIT_ERROR RESULT_VARIABLE GIT_RESULT
+    OUTPUT_STRIP_TRAILING_WHITESPACE)
+  if (NOT GIT_RESULT EQUAL 0)
+    message(FATAL_ERROR "git submodule status failed: ${GIT_ERROR}")
+  endif ()
+  string(REPLACE "\n" ";" SUBMODULE_STATUS "${SUBMODULE_STATUS}")
+  set(GIT_SUBMODULE_VERSIONS "")
+  foreach (LINE IN LISTS SUBMODULE_STATUS)
+    # "<state><sha1> lib/<name> (<describe>)" -> "<name> (<describe>)"
+    string(REGEX REPLACE "^.[0-9a-f]+ lib/" "" LINE "${LINE}")
+    list(APPEND GIT_SUBMODULE_VERSIONS "${LINE}")
+  endforeach ()
+  list(JOIN GIT_SUBMODULE_VERSIONS " " GIT_SUBMODULE_VERSIONS)
+
+  cmake_print_variables(GIT_VERSION GIT_SUBMODULE_VERSIONS)
   target_compile_definitions(${TARGET} PUBLIC
     UF2_VERSION_BASE="${GIT_VERSION}"
-    UF2_VERSION="${GIT_VERSION}"
+    UF2_VERSION="${GIT_VERSION} - ${GIT_SUBMODULE_VERSIONS}"
     )
 
   # copy bin,hex to ARTIFACT_PATH
@@ -396,6 +420,15 @@ function(family_flash_pyocd TARGET)
 endfunction()
 
 
+# Add flash target using the STM32 ROM DFU bootloader, binary written at the flash base 0x08000000
+function(family_flash_dfu_util TARGET)
+  add_custom_target(${TARGET}-dfu-util
+    DEPENDS ${TARGET}
+    COMMAND dfu-util -R -a 0 --dfuse-address 0x08000000 -D $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.bin
+    )
+endfunction()
+
+
 # Add flash openocd target, optional parameter is the extension of the binary file
 function(family_flash_openocd TARGET)
   if (NOT DEFINED OPENOCD)
@@ -479,6 +512,9 @@ function(family_flash_uf2 TARGET FAMILY_ID)
     COMMAND ${Python_EXECUTABLE} ${UF2CONV_PY} -f ${FAMILY_ID} --deploy $<TARGET_FILE_DIR:${TARGET}>/${TARGET}.uf2
     )
 endfunction()
+
+# Submodules whose versions UF2_VERSION carries, a family.cmake may change it
+set(GIT_SUBMODULES tinyusb)
 
 # Family specific
 include(${CMAKE_CURRENT_LIST_DIR}/${FAMILY}/family.cmake)
