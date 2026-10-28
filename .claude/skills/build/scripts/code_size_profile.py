@@ -195,6 +195,7 @@ def build(src_dir, build_dir, board, example):
     if not has_build_dir:  # a base before --build-dir: its --shared root, moved where the engine sizes
       os.rmdir(build_dir)
       shutil.move(os.path.join(src_dir, result['boards'][0]['buildDir']), build_dir)
+    _link_make_elf(build_dir, board)
     return None
   rec = (result.get('boards') or [{}])[0]
   error = result.get('error') or result.get('firstError') or rec.get('firstError')
@@ -210,7 +211,16 @@ def first_error(text):
   return text.strip().splitlines()[0] if text.strip() else None
 
 
+def _link_make_elf(build_dir, board):
+  """A base built with make (before cmake built its port) gets tinyuf2.elf and tinyuf2.elf.map, links to make's
+  ports/<port>/tinyuf2-<board>.elf and its map, so its bootloader has the elf id of cmake's and pairs with it."""
+  make_elfs = glob.glob(f'{glob.escape(build_dir)}/ports/*/tinyuf2-{glob.escape(board)}.elf')
+  if len(make_elfs) == 1 and not os.path.lexists(os.path.join(build_dir, 'tinyuf2.elf')):
+    for suffix in ('', '.map'):
+      if os.path.isfile(make_elfs[0] + suffix):
+        os.symlink(os.path.relpath(make_elfs[0] + suffix, build_dir), os.path.join(build_dir, 'tinyuf2.elf' + suffix))
+
+
 def elfs(build_dir, example):
-  """The bootloader's elf: make's ports/<port>/tinyuf2-<board>.elf, cmake's and ESP-IDF's tinyuf2.elf."""
-  root = glob.escape(build_dir)
-  return glob.glob(f'{root}/tinyuf2.elf') + glob.glob(f'{root}/ports/*/tinyuf2-*.elf')
+  """The bootloader's elf, tinyuf2.elf: cmake's and ESP-IDF's, or the link build() gives make's."""
+  return glob.glob(f'{glob.escape(build_dir)}/tinyuf2.elf')
