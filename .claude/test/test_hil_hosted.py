@@ -23,7 +23,7 @@ BOARD, OTHER = 'espressif_esp32s3_devkitm_1', 'espressif_esp32s3_devkitc_1'
 BRIDGE = '3ea619acd1cdeb11a0a0b806e93fd3f1'
 NOW = {'head': 'h' * 40, 'submodules': {'lib/tinyusb': 't' * 40}, 'deps': {}, 'dirty': False}
 IDF = {'mode': 'docker', 'ciVersion': 'v6.1', 'image': 'espressif/idf:v6.1'}
-ARM_GCC = 'arm-none-eabi-gcc (Arm GNU Toolchain 13.3.Rel1 (Build arm-13.24)) 13.3.1 20240614'   # 13.3.Rel1's, measured
+ARM_GCC = 'arm-none-eabi-gcc (Arm GNU Toolchain 14.2.Rel1 (Build arm-14.52)) 14.2.1 20241119'   # 14.2.rel1's, measured
 # roster flashers of cmake boards: a J-Link board and an ST-LINK one (test/hil/ci.json)
 CMAKE_BOARDS = {
   'imxrt1064_evk': {'name': 'jlink', 'uid': '000725299165', 'args': '-device MIMXRT1064xxx6A'},
@@ -50,7 +50,7 @@ class Hosted(unittest.TestCase):
     mock.patch.object(cb, 'identity', lambda ports: self.now).start()
     mock.patch.object(cb, 'ci_idf_version', lambda: self.idf).start()
     mock.patch.object(cb, 'ci_arm_gcc_release', lambda: self.release).start()
-    self.release = '13.3.Rel1'
+    self.release = '14.2.rel1'   # as ci_arm_gcc_release reads it from the package url
     self.addCleanup(mock.patch.stopall)
     self.hosted = self.tmp / 'hosted'
     self.out = self.tmp / 'out'
@@ -272,14 +272,14 @@ class Hosted(unittest.TestCase):
 
   def test_a_cmake_record_not_compiled_by_cis_arm_gcc_refuses(self):
     board = 'imxrt1064_evk'
-    others = {'another release': 'arm-none-eabi-gcc (Arm GNU Toolchain 14.2.Rel1 (Build arm-14.52)) 14.2.1 20241119',
-              'a later point release': 'arm-none-eabi-gcc (Arm GNU Toolchain 13.3.Rel10 (Build arm-13.99)) 13.3.1',
-              'another vendor': 'arm-none-eabi-gcc (xPack GNU Arm Embedded GCC x86_64) 13.3.1 20240614',
+    others = {'another release': 'arm-none-eabi-gcc (Arm GNU Toolchain 13.3.Rel1 (Build arm-13.24)) 13.3.1 20240614',
+              'a later point release': 'arm-none-eabi-gcc (Arm GNU Toolchain 14.2.Rel10 (Build arm-14.99)) 14.2.1',
+              'another vendor': 'arm-none-eabi-gcc (xPack GNU Arm Embedded GCC x86_64) 14.2.1 20241119',
               'no version': None}
     for what, version in others.items():
       with self.subTest(what):
         hh.shutil.rmtree(self.hosted, ignore_errors=True)
-        with self.assertRaisesRegex(ht.Refused, 'compiled by .*a hosted record takes CI\'s Arm GNU Toolchain 13.3.Rel1 only'):
+        with self.assertRaisesRegex(ht.Refused, 'compiled by .*a hosted record takes CI\'s Arm GNU Toolchain 14.2.rel1 only'):
           self.build(board, self.cmake_tree(board, version))
         self.assertFalse((self.hosted / board).exists(), 'nothing packed')
         artifact = self.build(board)
@@ -292,14 +292,14 @@ class Hosted(unittest.TestCase):
     with self.assertRaisesRegex(ht.Refused, 'an unrecorded compiler'):
       self.admit(self.hosted / board, board)
     # the pin is setup_toolchain's release, matched whatever its case (13.2 prints rel1, 13.3 and 14.2 Rel1)
-    self.release = '14.2.Rel1'
+    self.release = '13.3.rel1'
     self.forge(artifact, lambda rec: rec['boards'][0].update(compiler={'version': others['another release'].lower()}),
                name=board)
     self.admit(self.hosted / board, board)
 
   def test_the_pin_is_the_release_the_hosted_build_installs(self):
     """hil.yml's hosted build sets up arm-gcc through setup_toolchain, whose release admission reads."""
-    self.assertRegex(REAL_RELEASE(), r'^\d+\.\d+\.Rel\d+$')
+    self.assertRegex(REAL_RELEASE(), r'^\d+\.\d+\.rel\d+$')
     job = (ROOT / '.github' / 'workflows' / 'hil.yml').read_text().split('\n  hosted-build:\n')[1].split('\n  ci-lan:\n')[0]
     self.assertRegex(job, r"uses: \./\.github/actions/setup_toolchain\n\s+with:\n\s+toolchain: arm-gcc\n")
 

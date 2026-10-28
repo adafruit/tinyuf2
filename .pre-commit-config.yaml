@@ -38,6 +38,6 @@ repos:
     language: system
     pass_filenames: false
     # a gitlink is tagged a directory, which the default types: [file] drops
-    files: ^(\.claude/|\.github/workflows/|ports/|test/hil/|tools/get_deps\.py$|lib/agentrc$)
+    files: ^(\.claude/|\.github/workflows/|\.github/actions/|ports/|test/hil/|tools/get_deps\.py$|lib/agentrc$)
     types: []
     types_or: [file, directory]

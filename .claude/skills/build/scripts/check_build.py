@@ -39,7 +39,7 @@ except ImportError:   # Windows, where hil_remote.py's wait and collect load thi
 
 ROOT = Path(__file__).resolve().parents[4]
 BUILD_YML = ROOT / '.github' / 'workflows' / 'build.yml'
-SETUP_TOOLCHAIN = ROOT / '.github' / 'actions' / 'setup_toolchain' / 'action.yml'
+SETUP_TOOLCHAIN = ROOT / '.github' / 'actions' / 'setup_toolchain' / 'toolchain.json'
 BUILD_DIR = ROOT / 'cmake-build'
 
 # The ports CI builds (build.yml's jobs; test_build.py holds the two equal) and the boards that stand in for each:
@@ -147,11 +147,16 @@ def ci_idf_version():
 
 
 def ci_arm_gcc_release():
-  """The Arm GNU Toolchain release CI's arm-gcc builds install (setup_toolchain's `release`), e.g. 13.3.Rel1."""
-  m = re.search(r"uses:\s*carlosperate/arm-none-eabi-gcc-action@\S+\s*\n\s*with:\s*\n\s*release:\s*'([^']+)'",
-                SETUP_TOOLCHAIN.read_text())
+  """The Arm GNU Toolchain release CI's arm-gcc builds install, from setup_toolchain's arm-gcc url: e.g. 14.2.rel1,
+  as Arm names the package (its compiler prints 14.2.Rel1)."""
+  try:
+    url = json.loads(SETUP_TOOLCHAIN.read_text())['arm-gcc']['url']
+  except (OSError, ValueError, KeyError, TypeError) as e:
+    raise Fail(f'no arm-gcc url in {SETUP_TOOLCHAIN}: {e!r}')
+  m = re.fullmatch(r'https://[^/]+/\S+/gnu-toolchain/(\d+\.\d+\.rel\d+)/'
+                   r'arm-gnu-toolchain-\1-x86_64-arm-none-eabi\.tar\.xz', url, re.I) if isinstance(url, str) else None
   if not m:
-    raise Fail(f'no arm-gcc release in {SETUP_TOOLCHAIN.relative_to(ROOT)}')
+    raise Fail(f'the arm-gcc url in {SETUP_TOOLCHAIN}, {url!r}, is no Arm GNU Toolchain x86_64 arm-none-eabi release')
   return m[1]
 
 

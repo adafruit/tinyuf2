@@ -3,11 +3,13 @@ that compile a change, and the JSON and exit code follow SKILL.md. Builds are st
 build is evidence only from a run of the script itself."""
 import contextlib
 import functools
+import hashlib
 import importlib.util
 import io
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -143,6 +145,109 @@ class TablesMatchTheTree(unittest.TestCase):
 
   def test_ci_idf_version_is_read_from_build_yml(self):
     self.assertRegex(cb.ci_idf_version(), r'^v\d+\.\d+')
+
+
+ACTIONS = ROOT / '.github' / 'actions' / 'setup_toolchain'
+ARM_URL = ('https://gitlab.arm.com/api/v4/projects/tooling%2Fgnu-toolchains-for-arm/packages/generic/gnu-toolchain/'
+           '{dir}/arm-gnu-toolchain-{rel}-{host}-arm-none-eabi.tar.xz')
+CURL = """#!/bin/sh
+# curl stand-in: logs its argv, writes $FAKE_BODY to the -o file
+printf '%s\\n' "$@" > "$FAKE_CURL_LOG"
+while [ $# -gt 0 ]; do [ "$1" = -o ] && printf '%s' "$FAKE_BODY" > "$2"; shift; done
+"""
+
+
+class SetupToolchain(unittest.TestCase):
+  """setup_toolchain's manifest, the https and sha256 fetch over it, and the arm-gcc release read from it."""
+  def setUp(self):
+    t = tempfile.TemporaryDirectory()
+    self.addCleanup(t.cleanup)
+    self.tmp = Path(t.name)
+
+  def release(self, manifest):
+    path = self.tmp / 'toolchain.json'
+    path.write_text(manifest if isinstance(manifest, str) else json.dumps(manifest))
+    with mock.patch.object(cb, 'SETUP_TOOLCHAIN', path):
+      return cb.ci_arm_gcc_release()
+
+  def test_every_entry_is_an_https_url_and_its_sha256(self):
+    manifest = json.loads((ACTIONS / 'toolchain.json').read_text())
+    self.assertIn('arm-gcc', manifest)
+    for name, entry in manifest.items():
+      with self.subTest(name):
+        self.assertEqual(set(entry), {'url', 'sha256'})
+        self.assertTrue(entry['url'].startswith('https://'), entry['url'])
+        self.assertRegex(entry['sha256'], r'^[0-9a-f]{64}$')
+
+  def test_the_release_is_read_from_the_arm_gcc_url(self):
+    self.assertRegex(cb.ci_arm_gcc_release(), r'^\d+\.\d+\.rel\d+$')
+    url = ARM_URL.format(dir='14.2.rel1', rel='14.2.rel1', host='x86_64')
+    self.assertEqual(self.release({'arm-gcc': {'url': url, 'sha256': '0' * 64}}), '14.2.rel1')
+
+  def test_a_missing_or_invalid_arm_gcc_entry_fails(self):
+    for what, manifest, error in (
+        ('no manifest', None, 'no arm-gcc url'),
+        ('not json', '{', 'no arm-gcc url'),
+        ('no arm-gcc', {'riscv-gcc': {'url': 'https://x/y.tar.gz'}}, 'no arm-gcc url'),
+        ('a flat url', {'arm-gcc': ARM_URL.format(dir='14.2.rel1', rel='14.2.rel1', host='x86_64')}, 'no arm-gcc url'),
+        ('no url', {'arm-gcc': {'sha256': '0' * 64}}, 'no arm-gcc url'),
+        ('a url not a string', {'arm-gcc': {'url': 14.2}}, 'is no Arm GNU Toolchain'),
+        ('xPack', {'arm-gcc': {'url': 'https://github.com/xpack-dev-tools/arm-none-eabi-gcc-xpack/releases/download/'
+                                      'v14.2.1-1.1/xpack-arm-none-eabi-gcc-14.2.1-1.1-linux-x64.tar.gz'}},
+         'is no Arm GNU Toolchain'),
+        ('plain http', {'arm-gcc': {'url': ARM_URL.format(dir='14.2.rel1', rel='14.2.rel1', host='x86_64')
+                                    .replace('https:', 'http:')}}, 'is no Arm GNU Toolchain'),
+        ('another host', {'arm-gcc': {'url': ARM_URL.format(dir='14.2.rel1', rel='14.2.rel1', host='darwin-arm64')}},
+         'is no Arm GNU Toolchain'),
+        ('a package of another release', {'arm-gcc': {'url': ARM_URL.format(dir='14.2.rel1', rel='13.3.rel1',
+                                                                             host='x86_64')}},
+         'is no Arm GNU Toolchain')):
+      with self.subTest(what):
+        if manifest is None:
+          with mock.patch.object(cb, 'SETUP_TOOLCHAIN', self.tmp / 'none.json'), self.assertRaisesRegex(cb.Fail, error):
+            cb.ci_arm_gcc_release()
+          continue
+        with self.assertRaisesRegex(cb.Fail, error):
+          self.release(manifest)
+
+  def fetch(self, manifest, name, body):
+    """The action's fetch.sh run from a copy beside `manifest`, with curl a stand-in that serves `body`."""
+    (self.tmp / 'download').mkdir(exist_ok=True)
+    script = self.tmp / 'download' / 'fetch.sh'
+    script.write_bytes((ACTIONS / 'download' / 'fetch.sh').read_bytes())
+    script.chmod(0o755)
+    (self.tmp / 'toolchain.json').write_text(json.dumps(manifest))
+    bin_dir = self.tmp / 'bin'
+    bin_dir.mkdir(exist_ok=True)
+    (bin_dir / 'curl').write_text(CURL)
+    (bin_dir / 'curl').chmod(0o755)
+    log = self.tmp / 'curl.log'
+    log.unlink(missing_ok=True)
+    out = self.tmp / 'out.bin'
+    out.unlink(missing_ok=True)
+    env = dict(os.environ, PATH=f'{bin_dir}{os.pathsep}{os.environ["PATH"]}', FAKE_CURL_LOG=str(log), FAKE_BODY=body)
+    r = subprocess.run(['bash', str(script), name, str(out)], env=env, capture_output=True, text=True)
+    return r, (log.read_text().splitlines() if log.exists() else None), out
+
+  @unittest.skipUnless(shutil.which('jq') and shutil.which('bash'), 'fetch.sh needs jq and bash')
+  def test_fetch_takes_https_only_and_keeps_a_download_only_with_its_sha256(self):
+    body = 'toolchain bytes'
+    sha = hashlib.sha256(body.encode()).hexdigest()
+    url = 'https://example.invalid/t.tar.xz'
+    r, argv, out = self.fetch({'t': {'url': url, 'sha256': sha}}, 't', body)
+    self.assertEqual(r.returncode, 0, r.stderr)
+    self.assertEqual(out.read_text(), body)
+    self.assertEqual(argv[argv.index('--proto') + 1], '=https')
+    self.assertEqual(argv[argv.index('--proto-redir') + 1], '=https')
+    self.assertIn(url, argv)
+    r, argv, _ = self.fetch({'t': {'url': url, 'sha256': '0' * 64}}, 't', body)
+    self.assertNotEqual(r.returncode, 0, 'a checksum mismatch is refused')
+    self.assertIn('FAILED', r.stdout + r.stderr)
+    for what, manifest in (('no entry', {'u': {'url': url, 'sha256': sha}}), ('no sha256', {'t': {'url': url}})):
+      with self.subTest(what):
+        r, argv, _ = self.fetch(manifest, 't', body)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIsNone(argv, 'nothing is downloaded')
 
 
 class Selection(unittest.TestCase):
