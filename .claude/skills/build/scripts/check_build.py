@@ -28,7 +28,6 @@ import shutil
 import subprocess
 import sys
 import time
-import typing
 import uuid
 from pathlib import Path
 
@@ -55,16 +54,6 @@ BACKENDS = {
   'stm32h7': 'cmake',
   'stm32l4': 'cmake',
 }
-
-
-class Builds(typing.NamedTuple):
-  """The builds a selection is for: who runs them, and whether CodeQL's build counts."""
-  by: str
-  codeql: bool
-
-
-CI = Builds('CI', True)
-HIL = Builds('the HIL', False)   # its records (hil-contract Build)
 
 # Boards that stand in for their port: rig boards first; espressif covers every IDF target,
 # mimxrt10xx both the RT10xx and RT1170 boot layouts.
@@ -93,9 +82,6 @@ GHOSTFAT_INPUTS = ('src/ghostfat.c', 'src/favicon/', 'src/board_api.h', 'src/com
                    'lib/uf2', 'ports/family_support.cmake', 'ports/test_ghostfat/',
                    '.github/workflows/build_ghostfat.yml')
 CORE = ('src/', 'lib/', 'ports/family_support.cmake', 'CMakeLists.txt', 'cmake/', 'tools/get_deps.py')
-# the removed make build's files: deleting one builds nothing; any other make file, or one still present, is refused
-MAKE_REMOVED = re.compile(r'ports/(make|rules)\.mk|ports/[^/]+/(Makefile|port\.mk|boards/[^/]+/board\.mk|apps/app\.mk|'
-                          r'apps/[^/]+/Makefile)')
 CONTRACT_TESTS = ('.claude/test/test_build', '.claude/test/test_hil', '.claude/test/test_code_size')
 # the code-size launcher and profile beside this script: no build or HIL run imports them
 CODE_SIZE = '.claude/skills/build/scripts/code_size'
@@ -176,10 +162,10 @@ def ci_idf_version():
 @functools.cache
 def codeql_build():
   """(port, board) codeql-buildscript.sh builds with cmake on every pull request, a port CI builds with cmake."""
-  text = (ROOT / CODEQL).read_text()
-  found = dict(re.findall(r'^(PORT|BOARD)=(\w+)\s*$', text, re.M))
-  if len(re.findall(r'^(?:PORT|BOARD)=', text, re.M)) != 2 or found.keys() != {'PORT', 'BOARD'}:
+  assigned = re.findall(r'^(PORT|BOARD)=(.*?)\s*$', (ROOT / CODEQL).read_text(), re.M)
+  if sorted(k for k, _ in assigned) != ['BOARD', 'PORT'] or not all(re.fullmatch(r'\w+', v) for _, v in assigned):
     raise Fail(f'cannot read one PORT and one BOARD from {CODEQL}: update codeql_build()')
+  found = dict(assigned)
   if BACKENDS.get(found['PORT']) != 'cmake':
     raise Fail(f'{CODEQL} builds ports/{found["PORT"]}, which CI does not build with cmake')
   return found['PORT'], found['BOARD']
@@ -301,8 +287,8 @@ def merge_ci(a, b):
   return out
 
 
-def classify(path, builds=CI):
-  """One path's rule under `builds`: effect none (nothing to build), gap (uncovered), select or core, the
+def classify(path):
+  """One path's rule: effect none (nothing to build), gap (uncovered), select or core, the
   boards it selects as {(board, backend): reason}, and whether it adds the ghostfat self-test or the
   contract's own tests."""
   def out(rule, effect, reason, boards=None, ghostfat=False, tests=False, hil=False, ci=None):
@@ -312,8 +298,8 @@ def classify(path, builds=CI):
   ghostfat = path.startswith(GHOSTFAT_INPUTS)
   parts = path.split('/')
   if make_file(parts[-1]) and parts[0] != 'lib':
-    if MAKE_REMOVED.fullmatch(path) and not (ROOT / path).exists():
-      return out('make-removed', 'none', 'a file of the removed make build, which no build read')
+    if not os.path.lexists(ROOT / path):
+      return out('make-removed', 'none', 'a deleted make file, which no build reads')
     raise Fail(f'{path}: a Makefile or .mk, which no TinyUF2 build reads (cmake and ESP-IDF only): '
                'build it with CMake or delete it')
   if path.startswith(CONTRACT_TESTS):
@@ -333,7 +319,7 @@ def classify(path, builds=CI):
                boards, tests=True, hil=runner, ci=FULL)
   if path.endswith('.md'):
     return out('docs', 'none', 'documentation')
-  if path == CODEQL and builds.codeql:
+  if path == CODEQL:
     _, codeql_board = codeql_build()
     return out('codeql', 'select', f'codeql-buildscript.sh builds {codeql_board} with cmake',
                {(codeql_board, 'cmake'): 'codeql build'})
@@ -356,14 +342,14 @@ def classify(path, builds=CI):
   if parts[0] == 'apps' and len(parts) >= 2:
     users = ports_using_app(parts[1])
     if not users:
-      return out('app', 'gap', f'no port {builds.by} builds compiles apps/{parts[1]}')
+      return out('app', 'gap', f'no build compiles apps/{parts[1]}')
     return out('app', 'select', f'apps/{parts[1]} is built by {", ".join(users)}',
                rep_selection(users, f'builds apps/{parts[1]}'), ci=whole_ports(users))
   if path.startswith(('lib/mcu/', 'lib/sct_neopixel')):
     families = deps_families(path)
     if families is not None:
       if not families:
-        return out('dep', 'gap', f'{path}: no port {builds.by} builds uses this dependency')
+        return out('dep', 'gap', f'{path}: no build uses this dependency')
       return out('dep', 'select', f'dependency of {", ".join(families)}',
                  rep_selection(families, f'uses {path}'), ci=whole_ports(families))
   if path.startswith(NOTHING):
@@ -488,8 +474,8 @@ def moved_inputs(before, after):
   return moved | (set(before['missingInputs']) ^ set(after['missingInputs']))
 
 
-def select(paths, builds=CI):
-  records = [classify(p, builds) for p in paths]
+def select(paths):
+  records = [classify(p) for p in paths]
   full = any(r['effect'] == 'core' for r in records)
   boards = rep_selection(sorted(REPRESENTATIVES), 'core: shared by every port') if full else {}
   for r in records:
@@ -523,8 +509,8 @@ HIL_APP = 'dfu_runtime'   # the app hil_test.py's Espressif battery copies throu
 
 
 def hil_selection(sel, config):
-  """Roster boards the selection's paths put under the HIL battery, selected again as the HIL builds (HIL: CI's
-  backends, without CodeQL's build), then held to the battery's policy and the roster. A board's own change reaches
+  """Roster boards the selection's paths put under the HIL battery: its records but CodeQL's build, held to the
+  battery's policy and the roster. A board's own change reaches
   that board, an app change none but dfu_runtime's on Espressif boards, any other change every roster board of the
   ports it selects, a core or HIL-control change the whole roster; what no roster board on this host can run is
   uncovered, whatever else was selected."""
@@ -537,7 +523,7 @@ def hil_selection(sel, config):
   by_port = {}
   for name in roster:
     by_port.setdefault(port_of(name), []).append(name)
-  hil = select([r['path'] for r in sel['records']], HIL)
+  records = [r for r in sel['records'] if r['rule'] != 'codeql']   # CodeQL's build is CI's, no HIL record
   boards, uncovered = set(), {}
 
   def missing(r, target, why):   # a build file is named by its own path, any other by the board or port it reaches
@@ -545,11 +531,12 @@ def hil_selection(sel, config):
       target, why = r['path'], f'no {config} board builds {r["path"]}'
     uncovered[target] = why
 
-  if hil['full']:
+  full = any(r['effect'] == 'core' for r in records)
+  if full:
     boards.update(roster)
     for p in sorted(set(BACKENDS) - set(by_port)):
       uncovered[p] = f'core change: no {config} board for {p}'
-  for r in hil['records']:
+  for r in records:
     parts = r['path'].split('/')
     if r['hil']:
       boards.update(roster)
@@ -580,7 +567,7 @@ def hil_selection(sel, config):
           boards.update(by_port[p])
         else:
           missing(r, p, f'{r["path"]}: no {config} board for {p}')
-  return {'config': config, 'full': hil['full'] or any(r['hil'] for r in hil['records']), 'boards': sorted(boards),
+  return {'config': config, 'full': full or any(r['hil'] for r in records), 'boards': sorted(boards),
           'uncovered': [{'target': t, 'reason': why} for t, why in sorted(uncovered.items())]}
 
 

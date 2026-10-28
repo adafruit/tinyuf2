@@ -87,18 +87,20 @@ feather_stm32f405_express through the STM32 ROM DFU bootloader:
 cmake --build build --target tinyuf2-dfu-util
 ```
 
-| Target             | Tool                                          | Ports                                                    |
-|--------------------|-----------------------------------------------|----------------------------------------------------------|
-| `tinyuf2-jlink`    | J-Link `JLinkExe`                             | boards whose `board.cmake` sets `JLINK_DEVICE`           |
-| `tinyuf2-stlink`   | `STM32_Programmer_CLI`                        | stm32f3, stm32f4, stm32h5, stm32h7, stm32l4              |
-| `tinyuf2-pyocd`    | pyOCD                                         | kinetis_k32l2, lpc55, mimxrt10xx                         |
-| `tinyuf2-dfu-util` | dfu-util to the STM32 ROM DFU bootloader      | stm32f4, stm32h5, stm32l4                                |
-| `tinyuf2-openocd`  | OpenOCD                                       | ch32v20x (WCH's fork), maxim (ADI's)                     |
-| `tinyuf2-sdp`      | `sdphost`/`blhost` to the i.MX RT ROM         | mimxrt10xx, see [its README](ports/mimxrt10xx/README.md) |
-| `tinyuf2-teensy`   | `teensy_loader_cli`                           | teensy40, teensy41                                       |
-| `<app>-uf2`        | `uf2conv.py --deploy` to the bootloader drive | each application the port builds                         |
+| Target                         | Tool                                             | Ports                                                    |
+|--------------------------------|--------------------------------------------------|----------------------------------------------------------|
+| `tinyuf2-jlink`                | J-Link `JLinkExe`                                | boards whose `board.cmake` sets `JLINK_DEVICE`           |
+| `tinyuf2-stlink`               | `STM32_Programmer_CLI`                           | stm32f3, stm32f4, stm32h5, stm32h7, stm32l4              |
+| `tinyuf2-pyocd`                | pyOCD                                            | kinetis_k32l2, lpc55, mimxrt10xx                         |
+| `tinyuf2-dfu-util`             | dfu-util to the STM32 ROM DFU bootloader         | stm32f4, stm32h5, stm32l4                                |
+| `tinyuf2-openocd`              | OpenOCD                                          | ch32v20x (WCH's fork), maxim (ADI's)                     |
+| `tinyuf2-sdp`                  | `sdphost`/`blhost` to the i.MX RT ROM            | mimxrt10xx, see [its README](ports/mimxrt10xx/README.md) |
+| `tinyuf2-teensy`               | `teensy_loader_cli`                              | teensy40, teensy41                                       |
+| `tinyuf2-erase-jlink`          | J-Link `JLinkExe` erase                          | boards whose `board.cmake` sets `JLINK_DEVICE`           |
+| `tinyuf2-erase-external-jlink` | J-Link `JLinkExe` erase of the external flash    | mimxrt10xx                                               |
+| `<app>-uf2`                    | `uf2conv.py --deploy` to the bootloader drive    | each application the port builds                         |
 
-There are no erase targets: erase with the tool's own command for your chip.
+Make's ST-LINK, st-flash, pyOCD and DFU erase helpers are removed: erase with the tool's own command for your chip.
 
 ### Debug
 

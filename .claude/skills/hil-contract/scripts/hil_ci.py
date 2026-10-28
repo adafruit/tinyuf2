@@ -119,7 +119,6 @@ def hosted_record(board, roster, out, hosted):
 
 def build_record(board, roster, out):
   record = out / f'{board}.build.json'
-  # check_build's backend for the port: ESP-IDF in CI's docker image for an Espressif board, else cmake
   r = run([sys.executable, CHECK_BUILD, '--board', board, '--shared', '--hil-config', roster])
   record.write_text(r.stdout)
   try:

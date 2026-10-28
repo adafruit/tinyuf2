@@ -212,8 +212,9 @@ def first_error(text):
 
 
 def _link_make_elf(build_dir, board):
-  """A base built with make (before cmake built its port) gets tinyuf2.elf and tinyuf2.elf.map, links to make's
-  ports/<port>/tinyuf2-<board>.elf and its map, so its bootloader has the elf id of cmake's and pairs with it."""
+  """Historical-base compatibility (comparisons against refs built with make): such a base gets tinyuf2.elf and
+  tinyuf2.elf.map, links to make's ports/<port>/tinyuf2-<board>.elf and its map, so its bootloader has the elf id of
+  cmake's and pairs with it."""
   make_elfs = glob.glob(f'{glob.escape(build_dir)}/ports/*/tinyuf2-{glob.escape(board)}.elf')
   if len(make_elfs) == 1 and not os.path.lexists(os.path.join(build_dir, 'tinyuf2.elf')):
     for suffix in ('', '.map'):

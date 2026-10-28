@@ -10,4 +10,4 @@ python3 tools/get_deps.py --board $BOARD
 # CodeQL sees only the compiles it traces: an empty build dir compiles every source
 rm -rf "$BUILD"
 cmake -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=MinSizeRel -DBOARD=$BOARD -DARTIFACT_PATH="$PWD/$BUILD/_bin" ports/$PORT
-cmake --build "$BUILD"
+cmake --build "$BUILD" --target tinyuf2

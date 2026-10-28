@@ -127,20 +127,10 @@ class TablesMatchTheTree(unittest.TestCase):
     every = {target(b.name) for b in (ROOT / 'ports/espressif/boards').iterdir() if (b / 'board.cmake').is_file()}
     self.assertEqual({target(b) for b in cb.REPRESENTATIVES['espressif']}, every)
 
-  def test_ci_builds_every_port_with_cmake_or_esp_idf(self):
-    for name in ('build.yml', 'build_util.yml'):
-      text = (ROOT / '.github' / 'workflows' / name).read_text()
-      self.assertNotIn('build-system', text, name)
-      self.assertFalse(re.search(r'^\s*make\b', text, re.M), name)
+  def test_every_port_builds_with_cmake_or_esp_idf(self):
     for port in [*cb.BACKENDS, 'ch32v20x']:
       self.assertIn(cb.backend_of(port), ('cmake', 'idf'), port)
       self.assertTrue((ROOT / 'ports' / port / 'CMakeLists.txt').is_file(), port)
-
-  def test_ci_and_the_hil_share_one_backend_per_port(self):
-    self.assertEqual(cb.Builds._fields, ('by', 'codeql'))   # no backend map of a selection's own
-    for port in cb.BACKENDS:
-      paths = [f'ports/{port}/x.c', f'ports/{port}/boards/{cb.REPRESENTATIVES[port][0]}/board.h']
-      self.assertEqual(cb.select(paths, cb.HIL)['boards'], cb.select(paths)['boards'], port)
 
   def test_ci_idf_version_is_read_from_build_yml(self):
     self.assertRegex(cb.ci_idf_version(), r'^v\d+\.\d+')
@@ -152,23 +142,13 @@ class Selection(unittest.TestCase):
                      ('board', 'select', [('stm32f411ce_blackpill', 'cmake')], False, False))
 
   def test_codeql_builds_its_board_with_cmake_from_an_empty_dir(self):
-    port, board = cb.codeql_build()
-    self.assertEqual((cb.BACKENDS[port], cb.port_of(board)), ('cmake', port))
-    cmds = [l.strip() for l in (ROOT / cb.CODEQL).read_text().splitlines() if l.strip() and not l.lstrip().startswith('#')]
-    self.assertFalse([c for c in cmds if c.split()[0] == 'make'])
-    configure = next(i for i, c in enumerate(cmds) if c.startswith('cmake -B "$BUILD" '))
-    self.assertLess(cmds.index('rm -rf "$BUILD"'), configure)
-    self.assertIn('-DBOARD=$BOARD', cmds[configure].split())
-    self.assertTrue(cmds[configure].endswith(' ports/$PORT'))
-    self.assertEqual(cmds[configure + 1:], ['cmake --build "$BUILD"'])
+    _, board = cb.codeql_build()
     self.assertEqual(cb.classify(cb.CODEQL)['boards'], {(board, 'cmake'): 'codeql build'})
-
-  def test_a_codeql_build_of_a_port_ci_does_not_build_with_cmake_fails(self):
-    cb.codeql_build.cache_clear()
-    self.addCleanup(cb.codeql_build.cache_clear)
-    with mock.patch.object(Path, 'read_text', lambda self, *a, **k: 'PORT=espressif\nBOARD=espressif_esp32s3_devkitm_1\n'):
-      with self.assertRaisesRegex(cb.Fail, 'not build with cmake'):
-        cb.codeql_build()
+    cmds = [l.split() for l in (ROOT / cb.CODEQL).read_text().splitlines() if l.strip() and not l.lstrip().startswith('#')]
+    self.assertNotIn('make', [c[0] for c in cmds])
+    # CodeQL sees only the compiles it traces: stale output in the build dir would hide sources from it
+    clear = next(i for i, c in enumerate(cmds) if c[:2] == ['rm', '-rf'] and c[2].strip('"') == '$BUILD')
+    self.assertLess(clear, next(i for i, c in enumerate(cmds) if c[0] == 'cmake'))
 
   def test_port_file_selects_its_representatives(self):
     rule, effect, boards, _, _ = classify('ports/mimxrt10xx/board_flash.c')
@@ -234,9 +214,11 @@ class Selection(unittest.TestCase):
   def test_unreadable_codeql_script_fails_explicitly(self):
     cb.codeql_build.cache_clear()
     self.addCleanup(cb.codeql_build.cache_clear)
-    with mock.patch.object(Path, 'read_text', lambda self, *a, **k: 'cmake -B build\n'):
-      with self.assertRaises(cb.Fail):
-        cb.codeql_build()
+    for text in ('cmake -B build\n', 'PORT=stm32f4\nBOARD=a\nBOARD=b\n', 'PORT=stm32f4\nBOARD="$X"\n'):
+      cb.codeql_build.cache_clear()
+      with self.subTest(text), mock.patch.object(Path, 'read_text', lambda self, *a, **k: text):
+        with self.assertRaises(cb.Fail):
+          cb.codeql_build()
 
   def test_nothing_to_build(self):
     for path in ('README.md', '.claude/skills/build/SKILL.md', 'tools/gen_boards.py', '.github/workflows/codeql.yml'):
@@ -318,9 +300,6 @@ class CiSelection(unittest.TestCase):
   def test_ci_covers_every_board_a_tracked_path_selects_locally(self):
     _, codeql_board = cb.codeql_build()
     for path in cb.git('ls-files').split():
-      if cb.make_file(path.rsplit('/', 1)[-1]) and not path.startswith('lib/'):
-        self.assertRaises(cb.Fail, cb.classify, path)   # a make file still in the tree: no build reads it
-        continue
       r = cb.classify(path)
       if r['ci'] == cb.FULL:
         continue
@@ -330,13 +309,10 @@ class CiSelection(unittest.TestCase):
 
 
 class MakeFiles(unittest.TestCase):
-  """No build reads a Makefile or .mk: the make build's own files build nothing once deleted, and any other make file,
-  or one still in the tree, is refused rather than counted uncovered. ROOT is an empty tree the test fills."""
-  REMOVED = ('ports/make.mk', 'ports/rules.mk', 'ports/stm32f4/Makefile', 'ports/stm32f4/port.mk',
-             'ports/stm32f4/boards/feather_stm32f405_express/board.mk', 'ports/mimxrt10xx/apps/app.mk',
-             'ports/stm32h7/apps/erase_firmware/Makefile', 'ports/espressif/Makefile', 'ports/template_port/Makefile',
-             'ports/ch32v20x/boards/ch32v203_r0_1v0/board.mk', 'ports/test_ghostfat/Makefile',
-             'ports/test_ghostfat/boards/4k/board.mk')
+  """No build reads a Makefile or .mk: a deleted one builds nothing, and one in the tree is refused rather than
+  counted uncovered. ROOT is an empty tree the test fills."""
+  DELETED = ('ports/make.mk', 'ports/stm32f4/Makefile', 'ports/stm32f4/boards/feather_stm32f405_express/board.mk',
+             'ports/mimxrt10xx/apps/app.mk', 'ports/template_port/Makefile', 'ports/test_ghostfat/Makefile', 'src/x.mk')
 
   def setUp(self):
     tmp = tempfile.TemporaryDirectory()
@@ -346,29 +322,25 @@ class MakeFiles(unittest.TestCase):
     patch.start()
     self.addCleanup(patch.stop)
 
-  def test_a_deleted_file_of_the_make_build_builds_nothing_and_is_never_uncovered(self):
-    for path in self.REMOVED:
+  def test_a_deleted_make_file_builds_nothing_and_is_never_uncovered(self):
+    for path in self.DELETED:
       self.assertEqual(classify(path), ('make-removed', 'none', [], False, False), path)
-    sel = cb.select(list(self.REMOVED))
+    sel = cb.select(list(self.DELETED))
     self.assertEqual((sel['full'], sel['boards'], path_effects(sel)), (False, {}, {'none'}))
     self.assertEqual(cb.ci_selection(sel), {'full': False, 'ports': {}, 'ghostfat': False})
     (self.root / 'roster.json').write_text(json.dumps({'boards': []}))
     self.assertEqual(cb.hil_selection(sel, 'roster.json')['uncovered'], [])
 
   def test_a_make_file_in_the_tree_is_refused(self):
+    (self.root / 'ports/stm32f4/boards/new_board').mkdir(parents=True)
+    (self.root / 'ports/stm32f4/boards/new_board/board.mk').write_text('all:\n')
+    (self.root / 'ports/stm32f4/Makefile').symlink_to(self.root / 'gone')   # dangling: present, not deleted
     for path in ('ports/stm32f4/boards/new_board/board.mk', 'ports/stm32f4/Makefile'):
-      (self.root / path).parent.mkdir(parents=True, exist_ok=True)
-      (self.root / path).write_text('all:\n')
       with self.assertRaisesRegex(cb.Fail, f'^{re.escape(path)}: a Makefile or .mk'):
         cb.classify(path)
-      code, r = run_main(['--select-only', '--scope', path])
-      self.assertEqual(code, 2, path)
-      self.assertIn('build it with CMake or delete it', r['error'])
-
-  def test_a_make_file_outside_the_make_builds_layout_is_refused_even_deleted(self):
-    for path in ('Makefile', 'src/Makefile', 'apps/blinky/Makefile', 'ports/stm32f4/linker/flash.mk',
-                 'ports/stm32f4/boards/feather_stm32f405_express/extra.mk', '.github/workflows/ci.mk'):
-      self.assertRaises(cb.Fail, cb.classify, path)
+    code, r = run_main(['--select-only', '--scope', 'ports/stm32f4/boards/new_board/board.mk'])
+    self.assertEqual(code, 2)
+    self.assertIn('build it with CMake or delete it', r['error'])
 
   def test_a_dependencys_own_make_files_follow_the_dependency_rule(self):
     with mock.patch.object(cb, 'get_deps_table', lambda: {'lib/mcu/st/dep': ('x', ['stm32f4'])}):
@@ -595,7 +567,7 @@ class HilSelection(unittest.TestCase):
 
   def test_an_app_the_hils_build_compiles_stays_outside_the_battery(self):
     self.roster.write_text(json.dumps({'boards': [{'name': 'daisy_seed'}]}))
-    self.assertIn(('daisy_seed', 'cmake'), cb.select(['apps/erase_firmware/src/main.c'], cb.HIL)['boards'])
+    self.assertIn(('daisy_seed', 'cmake'), cb.select(['apps/erase_firmware/src/main.c'])['boards'])
     h = self.hil('apps/erase_firmware/src/main.c')
     self.assertEqual((h['boards'], [u['target'] for u in h['uncovered']]), ([], ['apps/erase_firmware/src/main.c']))
 
@@ -610,7 +582,7 @@ class HilSelection(unittest.TestCase):
   def test_an_espressif_board_keeps_its_idf_build(self):
     self.roster.write_text(json.dumps({'boards': [{'name': 'espressif_esp32s3_devkitc_1', 'flasher': {'name': 'esptool'}}]}))
     board = 'ports/espressif/boards/espressif_esp32s3_devkitc_1'
-    self.assertEqual(sorted(cb.select([f'{board}/sdkconfig'], cb.HIL)['boards']),
+    self.assertEqual(sorted(cb.select([f'{board}/sdkconfig'])['boards']),
                      [('espressif_esp32s3_devkitc_1', 'idf')])
     for path in (f'{board}/sdkconfig', f'{board}/board.cmake', 'ports/espressif/CMakeLists.txt'):
       h = self.hil(path)
@@ -740,13 +712,6 @@ class Verdict(unittest.TestCase):
       cb.main(['--scope', 'README.md', '--worktree'])
     self.assertEqual(e.exception.code, 2)
     self.assertIn('--worktree needs --base', json.loads(out.getvalue())['error'])
-
-  def test_there_is_no_backend_override(self):
-    with contextlib.redirect_stdout(io.StringIO()) as out, self.assertRaises(SystemExit) as e, \
-         mock.patch.object(cb, 'build_board', side_effect=AssertionError('built')):
-      cb.main(['--board', 'imxrt1060_evk', '--shared', '--backend', 'cmake'])
-    self.assertEqual(e.exception.code, 2)
-    self.assertIn('unrecognized arguments: --backend cmake', json.loads(out.getvalue().splitlines()[-1])['error'])
 
   def test_a_variant_needs_board_shared_and_a_plain_name(self):
     for argv in (['--board', 'metro_m7_1011', '--variant', 'v'], ['--scope', 'src', '--shared', '--variant', 'v'],

@@ -50,7 +50,7 @@ if (NOT DEFINED JLINK_IF)
   set(JLINK_IF swd)
 endif ()
 
-# TUF2_LOG and CFG_TUSB_DEBUG level, off by default as in make
+# TUF2_LOG and CFG_TUSB_DEBUG level, off by default
 if (NOT DEFINED LOG)
   set(LOG 0)
 endif ()
@@ -107,8 +107,8 @@ function(family_gen_bin_hex TARGET)
     VERBATIM)
 endfunction()
 
-# Build an application as its own CMake project (ExternalProject), as make builds each app with its own
-# flags: the app's defines then also reach the board library it compiles.
+# Build an application as its own CMake project (ExternalProject), so it builds with its own flags: the app's
+# defines then also reach the board library it compiles.
 # SELF_UPDATE passes the bootloader binary as BOOTLOADER_BIN, BOARDS limits the app to those boards.
 function(family_add_app NAME SOURCE_DIR)
   cmake_parse_arguments(ARG "SELF_UPDATE" "" "BOARDS" ${ARGN})
@@ -256,15 +256,8 @@ function(family_add_tinyusb TARGET OPT_MCU)
   endif ()
 endfunction()
 
-function(family_configure_tinyuf2 TARGET OPT_MCU)
-  family_configure_common(${TARGET})
-
-  include(${TOP}/src/tinyuf2.cmake)
-  add_tinyuf2_src(${TARGET})
-
-  family_add_tinyusb(${TARGET} ${OPT_MCU})
-
-  # Add uf2 version: git describe, then each of GIT_SUBMODULES' versions
+# UF2 version: git describe, then each of GIT_SUBMODULES' versions; sets OUT_BASE and OUT_VERSION
+function(family_get_uf2_version OUT_BASE OUT_VERSION)
   execute_process(COMMAND ${GIT_EXECUTABLE} describe --dirty --always --tags
     WORKING_DIRECTORY ${TOP}
     OUTPUT_VARIABLE GIT_VERSION ERROR_VARIABLE GIT_ERROR RESULT_VARIABLE GIT_RESULT
@@ -291,9 +284,22 @@ function(family_configure_tinyuf2 TARGET OPT_MCU)
   list(JOIN GIT_SUBMODULE_VERSIONS " " GIT_SUBMODULE_VERSIONS)
 
   cmake_print_variables(GIT_VERSION GIT_SUBMODULE_VERSIONS)
+  set(${OUT_BASE} "${GIT_VERSION}" PARENT_SCOPE)
+  set(${OUT_VERSION} "${GIT_VERSION} - ${GIT_SUBMODULE_VERSIONS}" PARENT_SCOPE)
+endfunction()
+
+function(family_configure_tinyuf2 TARGET OPT_MCU)
+  family_configure_common(${TARGET})
+
+  include(${TOP}/src/tinyuf2.cmake)
+  add_tinyuf2_src(${TARGET})
+
+  family_add_tinyusb(${TARGET} ${OPT_MCU})
+
+  family_get_uf2_version(UF2_VERSION_BASE UF2_VERSION)
   target_compile_definitions(${TARGET} PUBLIC
-    UF2_VERSION_BASE="${GIT_VERSION}"
-    UF2_VERSION="${GIT_VERSION} - ${GIT_SUBMODULE_VERSIONS}"
+    UF2_VERSION_BASE="${UF2_VERSION_BASE}"
+    UF2_VERSION="${UF2_VERSION}"
     )
 
   # copy bin,hex to ARTIFACT_PATH

@@ -12,7 +12,7 @@ set(GIT_SUBMODULES tinyusb uf2)
 
 include(${CMAKE_CURRENT_LIST_DIR}/boards/${BOARD}/board.cmake)
 
-# LTO is off unless -DLTO_ON=1, as in make
+# LTO is off unless -DLTO_ON=1
 if (LTO_ON)
   set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
 else ()
@@ -96,7 +96,7 @@ function(family_add_board_target BOARD_TARGET)
     )
 endfunction()
 
-# memory.ld, common.ld then the MCU's layout, the order make links them in
+# memory.ld, common.ld then the MCU's layout: keep the order the bootloader has always been linked in
 function(family_add_linker_scripts TARGET)
   target_link_options(${TARGET} PUBLIC
     "LINKER:--script=${CMAKE_CURRENT_FUNCTION_LIST_DIR}/linker/memory.ld"
