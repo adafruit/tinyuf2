@@ -38,7 +38,6 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     outputs:
       boards: ${{ steps.select.outputs.boards }}
-      hosted: ${{ steps.select.outputs.hosted }}
       matrix: ${{ steps.select.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
@@ -91,7 +90,7 @@ jobs:
               json.dump({'boards': rig, 'full': full, 'uncovered': uncovered}, f)
           matrix = [{'board': b, 'backend': hil_ci.backend(b)} for b in hosted]
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f'boards={" ".join(rig)}\nhosted={" ".join(hosted)}\nmatrix={json.dumps(matrix)}\n')
+              f.write(f'boards={" ".join(rig)}\nmatrix={json.dumps(matrix)}\n')
           EOF
 
       # for the comment job; overwrite: a re-run of every job selects again under the same name
@@ -105,7 +104,7 @@ jobs:
   # one leg per board builds and packs its record as hil-hosted-<board> (hil_hosted_pick.py has the collection rules)
   hosted-build:
     needs: select
-    if: needs.select.outputs.hosted != ''
+    if: needs.select.outputs.matrix != '[]'
     name: hosted-build (${{ matrix.board }})
     runs-on: ubuntu-latest
     timeout-minutes: 30

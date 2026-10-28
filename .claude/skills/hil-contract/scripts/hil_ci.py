@@ -38,6 +38,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True   # as hil_test.py: nothing CI imports writes into the checkout it builds
 import hil_run_report as run_report  # noqa: E402
+from hil_hosted_pick import VERSION as COLLECTION_VERSION  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[4]
 CHECK_BUILD = ROOT / '.claude' / 'skills' / 'build' / 'scripts' / 'check_build.py'
@@ -50,7 +51,6 @@ UNPREPARED = 'report not prepared'
 UPLOAD_VIEWS = 'upload-views'
 STEPS = ('install', 'dfu', 'copy', 'app-ran', 'reenter', 'recopy', 'cleanup')   # hil_test.py --fail-at
 LOCK_WAIT = 600
-COLLECTION_VERSION = 1   # hil_hosted_pick.py's
 PRUNE_DAYS = 30
 
 

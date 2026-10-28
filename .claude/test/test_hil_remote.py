@@ -306,7 +306,7 @@ class Project(unittest.TestCase):
              '.claude/skills/build/scripts/check_build.py': CHECK_BUILD,
              'test/hil/ci.json': json.dumps(ROSTER), f'ports/lpc55/boards/{LPC}/board.h': 'lpc\n', f'ports/lpc55/boards/{OTHER}/board.h': 'lpc\n',
              'tools/get_deps.py': GET_DEPS % self.dep}
-    files.update({f'{scripts}/{n}': (SCRIPTS / n).read_text() for n in ('hil_ci.py', 'hil_run_report.py', 'hil_remote_driver.py')})
+    files.update({f'{scripts}/{n}': (SCRIPTS / n).read_text() for n in ('hil_ci.py', 'hil_hosted_pick.py', 'hil_run_report.py', 'hil_remote_driver.py')})
     commit(primary, files, 'project')
     for name in ('agentrc', 'tinyusb', 'uf2'):
       git(primary, 'submodule', 'add', '-q', str(o / name), f'lib/{name}')
