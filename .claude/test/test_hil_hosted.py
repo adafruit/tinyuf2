@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# An Espressif record built on a hosted runner and admitted on the rig (hil_hosted.py): the pack, and admission's
-# refusal of a board, roster, record or file that differs. check_build is stubbed; the build is a synthetic IDF tree.
+# A record built off the rig (a hosted runner, or the dev PC of a remote run) and admitted on the rig (hil_hosted.py):
+# the pack, and admission's refusal of a board, roster, record, compiler or file that differs. check_build is stubbed;
+# the build is a synthetic IDF or cmake tree.
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -16,10 +18,17 @@ sys.path.insert(0, str(ROOT / '.claude' / 'skills' / 'hil-contract' / 'scripts')
 import hil_hosted as hh  # noqa: E402
 
 ht, cb = hh.ht, hh.cb
+REAL_RELEASE = cb.ci_arm_gcc_release   # setUp stubs it
 BOARD, OTHER = 'espressif_esp32s3_devkitm_1', 'espressif_esp32s3_devkitc_1'
 BRIDGE = '3ea619acd1cdeb11a0a0b806e93fd3f1'
 NOW = {'head': 'h' * 40, 'submodules': {'lib/tinyusb': 't' * 40}, 'deps': {}, 'dirty': False}
 IDF = {'mode': 'docker', 'ciVersion': 'v6.1', 'image': 'espressif/idf:v6.1'}
+ARM_GCC = 'arm-none-eabi-gcc (Arm GNU Toolchain 13.3.Rel1 (Build arm-13.24)) 13.3.1 20240614'   # 13.3.Rel1's, measured
+# roster flashers of cmake boards: a J-Link board and an ST-LINK one (test/hil/ci.json)
+CMAKE_BOARDS = {
+  'imxrt1064_evk': {'name': 'jlink', 'uid': '000725299165', 'args': '-device MIMXRT1064xxx6A'},
+  'stm32h743nucleo': {'name': 'stlink', 'uid': '004C00343137510F39383538', 'args': '-device stm32h743zi'},
+}
 
 
 def entry(name, uid=BRIDGE, **tinyuf2):
@@ -35,15 +44,21 @@ class Hosted(unittest.TestCase):
     self.roster = self.tmp / 'ci.json'
     self.write_roster()
     self.now, self.idf = json.loads(json.dumps(NOW)), 'v6.1'
+    (self.tmp / 'ports').symlink_to(ROOT / 'ports')   # the checkout admission places build dirs in is this one
+    mock.patch.object(cb, 'ROOT', self.tmp).start()
     mock.patch.object(cb, 'BUILD_DIR', self.tmp / 'cmake-build').start()
     mock.patch.object(cb, 'identity', lambda ports: self.now).start()
     mock.patch.object(cb, 'ci_idf_version', lambda: self.idf).start()
+    mock.patch.object(cb, 'ci_arm_gcc_release', lambda: self.release).start()
+    self.release = '13.3.Rel1'
     self.addCleanup(mock.patch.stopall)
     self.hosted = self.tmp / 'hosted'
     self.out = self.tmp / 'out'
 
   def write_roster(self, uid=BRIDGE):
-    self.roster.write_text(json.dumps({'boards': [entry(BOARD, uid, lock='espressif_s3_devkitm'), entry(OTHER, 'x')]}))
+    cmake = [{'name': b, 'uid': 'U', 'flasher': fl} for b, fl in CMAKE_BOARDS.items()]
+    self.roster.write_text(json.dumps({'boards': [entry(BOARD, uid, lock='espressif_s3_devkitm'), entry(OTHER, 'x'),
+                                                  *cmake]}))
 
   def idf_tree(self, board=BOARD):
     """A --shared IDF build dir of `board` and its passing record."""
@@ -60,8 +75,27 @@ class Hosted(unittest.TestCase):
     return {'pass': True, 'input': dict(NOW, missingInputs=[], depsOffPin=[], dirtyInputs=[], inputsDirtiedByBuild=[]),
             'boards': [row], 'idf': dict(IDF), 'built': []}
 
-  def build(self, board=BOARD):
-    rec = self.idf_tree(board)
+  def cmake_tree(self, board, compiler=ARM_GCC):
+    """A --shared cmake build dir of `board` (CMAKE_BOARDS) and its passing record."""
+    fl = CMAKE_BOARDS[board]
+    root = cb.BUILD_DIR / f'cmake-build-{board}'
+    target, inputs = cb.FLASH[fl['name']]
+    files = {rel: rel.encode() * 3 for rel in (*inputs, *cb.FACTS_FILES, '_bin/tinyuf2.bin', '_bin/tinyuf2.hex',
+                                               '_bin/apps/blinky.uf2')}
+    for rel, data in files.items():
+      (root / rel).parent.mkdir(parents=True, exist_ok=True)
+      (root / rel).write_bytes(data)
+    (root / 'CMakeCache.txt').write_text('not hashed, not packed\n')
+    row = {'board': board, 'port': cb.port_of(board), 'backend': 'cmake', 'buildDir': f'cmake-build/cmake-build-{board}',
+           'status': 'ok', 'firstError': '', 'artifacts': sorted(files), 'sha256': {r: hh.sha256(d) for r, d in files.items()},
+           'flash': {'target': target, 'flasher': {'name': fl['name'], 'uid': fl['uid'], 'device': fl['args'].split()[-1]},
+                     'command': 'cd /home/runner/work/x && JLinkExe ...', 'inputs': list(inputs), 'defines': []},
+           'compiler': {'path': '/opt/arm/bin/arm-none-eabi-gcc', 'version': compiler}}
+    return {'pass': True, 'input': dict(NOW, missingInputs=[], depsOffPin=[], dirtyInputs=[], inputsDirtiedByBuild=[]),
+            'boards': [row], 'built': []}
+
+  def build(self, board=BOARD, rec=None):
+    rec = rec or (self.idf_tree(board) if board in (BOARD, OTHER) else self.cmake_tree(board))
     with mock.patch.object(hh.subprocess, 'run', return_value=mock.Mock(returncode=0, stdout='log\n' + json.dumps(rec),
                                                                           stderr='')) as run:
       result = hh.build(board, str(self.roster), self.hosted)
@@ -75,9 +109,9 @@ class Hosted(unittest.TestCase):
     with self.assertRaisesRegex(ht.Refused, pattern):
       self.admit(artifact, board)
 
-  def forge(self, artifact, record=None, files=None):
+  def forge(self, artifact, record=None, files=None, name=BOARD):
     """The artifact changed by `record` (a function of the record) and `files` ({rel: bytes or None})."""
-    name = hh.record_name(BOARD)
+    name = hh.record_name(name)
     if record:
       rec = json.loads((artifact / name).read_text())
       record(rec)
@@ -133,6 +167,7 @@ class Hosted(unittest.TestCase):
         if here:
           here()
         self.refused(err)
+        self.assertFalse((cb.BUILD_DIR / 'cmake-build-x').exists(), 'only the expected build dir is ever placed')
 
   def test_a_refused_admission_leaves_the_admitted_record_and_build_dir_as_they_were(self):
     artifact = self.build()
@@ -217,13 +252,61 @@ class Hosted(unittest.TestCase):
     (artifact / hh.PROVENANCE).write_text(json.dumps(dict(prov, version=1, files={})))   # the earlier format
     self.refused('not a version 2 provenance')
 
-  def test_a_non_espressif_board_has_no_hosted_build(self):
-    self.roster.write_text(json.dumps({'boards': [{'name': 'imxrt1064_evk', 'uid': 'U', 'flasher': {
-      'name': 'jlink', 'uid': '000725299165', 'args': '-device MIMXRT1064xxx6A'}}]}))
-    for op in (lambda: hh.build('imxrt1064_evk', str(self.roster), self.hosted),
-               lambda: self.admit(self.hosted / 'imxrt1064_evk', 'imxrt1064_evk')):
-      with self.assertRaisesRegex(ht.Refused, 'Espressif boards only'):
-        op()
+  def test_a_cmake_board_is_built_with_cmake_and_admitted_as_its_records_build_dir(self):
+    for board in CMAKE_BOARDS:
+      with self.subTest(board):
+        artifact = self.build(board)
+        rec = json.loads((artifact / f'{board}.build.json').read_text())
+        row = rec['boards'][0]
+        self.assertEqual(row['buildDir'], f'cmake-build/cmake-build-{board}')
+        # every file the battery reads from the build dir travels: the install's, the board facts', blinky's
+        self.assertLessEqual({*cb.FLASH[row['flash']['flasher']['name']][1], *cb.FACTS_FILES, *ht.CMAKE_RECORD_FILES,
+                              '_bin/tinyuf2.hex'}, set(row['sha256']))
+        self.assertEqual(set(hh.inventory(artifact)), {f'{board}.build.json', *(f'build/{r}' for r in row['sha256'])})
+        root = cb.BUILD_DIR / f'cmake-build-{board}'
+        built = {r: (root / r).read_bytes() for r in row['sha256']}
+        hh.shutil.rmtree(root)   # the rig has never built it
+        record = self.admit(self.hosted / board, board)
+        self.assertEqual(json.loads(record.read_text()), rec)
+        self.assertEqual({p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob('*') if p.is_file()}, built)
+
+  def test_a_cmake_record_not_compiled_by_cis_arm_gcc_refuses(self):
+    board = 'imxrt1064_evk'
+    others = {'another release': 'arm-none-eabi-gcc (Arm GNU Toolchain 14.2.Rel1 (Build arm-14.52)) 14.2.1 20241119',
+              'a later point release': 'arm-none-eabi-gcc (Arm GNU Toolchain 13.3.Rel10 (Build arm-13.99)) 13.3.1',
+              'another vendor': 'arm-none-eabi-gcc (xPack GNU Arm Embedded GCC x86_64) 13.3.1 20240614',
+              'no version': None}
+    for what, version in others.items():
+      with self.subTest(what):
+        hh.shutil.rmtree(self.hosted, ignore_errors=True)
+        with self.assertRaisesRegex(ht.Refused, 'compiled by .*a hosted record takes CI\'s Arm GNU Toolchain 13.3.Rel1 only'):
+          self.build(board, self.cmake_tree(board, version))
+        self.assertFalse((self.hosted / board).exists(), 'nothing packed')
+        artifact = self.build(board)
+        self.forge(artifact, lambda rec: rec['boards'][0]['compiler'].update(version=version), name=board)
+        with self.assertRaisesRegex(ht.Refused, 'compiled by'):
+          self.admit(self.hosted / board, board)
+    hh.shutil.rmtree(self.hosted)
+    artifact = self.build(board)
+    self.forge(artifact, lambda rec: rec['boards'][0].pop('compiler'), name=board)
+    with self.assertRaisesRegex(ht.Refused, 'an unrecorded compiler'):
+      self.admit(self.hosted / board, board)
+    # the pin is setup_toolchain's release, matched whatever its case (13.2 prints rel1, 13.3 and 14.2 Rel1)
+    self.release = '14.2.Rel1'
+    self.forge(artifact, lambda rec: rec['boards'][0].update(compiler={'version': others['another release'].lower()}),
+               name=board)
+    self.admit(self.hosted / board, board)
+
+  def test_the_pin_is_the_release_the_hosted_build_installs(self):
+    """hil.yml's hosted build sets up arm-gcc through setup_toolchain, whose release admission reads."""
+    self.assertRegex(REAL_RELEASE(), r'^\d+\.\d+\.Rel\d+$')
+    job = (ROOT / '.github' / 'workflows' / 'hil.yml').read_text().split('\n  hosted-build:\n')[1].split('\n  ci-lan:\n')[0]
+    self.assertRegex(job, r"uses: \./\.github/actions/setup_toolchain\n\s+with:\n\s+toolchain: arm-gcc\n")
+
+  def test_an_espressif_record_needs_no_compiler(self):
+    artifact = self.build()
+    self.assertNotIn('compiler', json.loads((artifact / f'{BOARD}.build.json').read_text())['boards'][0])
+    self.admit()
 
   def test_a_failed_hosted_build_packs_nothing(self):
     rec = dict(self.idf_tree(), **{'pass': False, 'firstError': 'boom'})

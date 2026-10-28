@@ -56,7 +56,7 @@ class Render(unittest.TestCase):
 
       **✅ 2 passed · ❌ 1 failed** · HIL driver elapsed 20m
 
-      | Board | install | dfu | copy | app-ran | reenter | recopy | blinky | build | run |
+      | Board | install | dfu | copy | app-ran | reenter | recopy | blinky | admit | run |
       | --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | --: | --: |
       | `imxrt1064_evk` | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | 49s | 22s |
       | `espressif_p4_function_ev` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 4m30s | 2m40s |

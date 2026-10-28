@@ -85,6 +85,7 @@ def step_cell(r, step):
 
 def table_row(r):
   blinky = '' if withheld(r) else run_report.STEP_MARK.get(r.get('cleanupPass'), '')
+  # buildS keeps its name across the move off the rig: it times the record's admission there
   cells = [literal(r['board'], table=True), *(step_cell(r, s) for s in STEPS), blinky, duration(r.get('buildS')),
            duration(r.get('runS'))]
   return '| ' + ' | '.join(cells) + ' |'
@@ -117,7 +118,7 @@ def report(summary, views):
     head += f' · HIL driver elapsed {duration(summary["elapsedS"])}'
   lines = [head, '']
   if rows:
-    lines += ['| Board | ' + ' | '.join(STEPS) + ' | blinky | build | run |',
+    lines += ['| Board | ' + ' | '.join(STEPS) + ' | blinky | admit | run |',
               '| --- | ' + ' | '.join(':-:' for _ in STEPS) + ' | :-: | --: | --: |']
     lines += [table_row(r) for r in rows] + ['', LEGEND, '']
   notes = [note(r) for r in rows if kind(r) != 'passed']

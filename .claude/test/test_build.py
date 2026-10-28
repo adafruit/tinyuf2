@@ -967,6 +967,11 @@ class CompileFacts(unittest.TestCase):
     self.log = self.root / 'log'
     self.log.write_text('')
 
+  def facts(self):
+    """compile_facts over the main_command entry, as a HIL record's build composes them."""
+    main = cb.main_command(self.root)
+    return main if isinstance(main, str) else cb.compile_facts(main, self.root, self.log, False)
+
   def commands(self, *entries):
     (self.root / 'compile_commands.json').write_text(json.dumps([
       {'directory': str(self.root), 'file': str(ROOT / f), 'output': out, 'command': cmd} for f, out, cmd in entries]))
@@ -977,24 +982,31 @@ class CompileFacts(unittest.TestCase):
                   ('src/main.c', 'apps/blinky.dir/main.c.obj', 'gcc -DAPP -c src/main.c'))
     ran = []
     with mock.patch.object(cb, 'run', lambda cmd, log, verbose, cwd: ran.append((cmd, cwd)) or 0):
-      self.assertEqual(cb.compile_facts(self.root, self.log, False), '')
+      self.assertEqual(self.facts(), '')
     self.assertEqual(ran, [(['gcc', '-DB=x y', '-I/inc', '-flto', '-o', str(self.root / 'board_facts.o'), '-c',
                              str(cb.FACTS_SOURCE), '-fno-lto'], str(self.root))])
 
   def test_no_single_tinyuf2_main_c_command_or_a_failed_compile_fails(self):
-    self.assertIn('compile_commands.json', cb.compile_facts(self.root, self.log, False))
+    self.assertIn('compile_commands.json', self.facts())
     self.commands(('src/ghostfat.c', 'CMakeFiles/tinyuf2.dir/g.obj', 'gcc -c g.c'))
-    self.assertIn('found 0', cb.compile_facts(self.root, self.log, False))
+    self.assertIn('found 0', self.facts())
     self.commands(('src/main.c', 'CMakeFiles/tinyuf2.dir/m.obj', f'gcc -o m.obj -c {ROOT}/src/main.c'))
     self.log.write_text('board_facts.c:9:1: error: initializer element is not constant\n')
     with mock.patch.object(cb, 'run', lambda *a, **k: 1):
-      self.assertIn('initializer element is not constant', cb.compile_facts(self.root, self.log, False))
+      self.assertIn('initializer element is not constant', self.facts())
+
+  def test_the_compiler_is_the_main_c_commands_with_the_first_line_of_its_version(self):
+    self.commands(('src/main.c', 'CMakeFiles/tinyuf2.dir/m.obj', f'{sys.executable} -o m.obj -c {ROOT}/src/main.c'))
+    version = subprocess.run([sys.executable, '--version'], capture_output=True, text=True).stdout.splitlines()[0]
+    self.assertEqual(cb.compiler_of(cb.main_command(self.root)), {'path': sys.executable, 'version': version})
+    self.commands(('src/main.c', 'CMakeFiles/tinyuf2.dir/m.obj', f'/nonexistent/gcc -o m.obj -c {ROOT}/src/main.c'))
+    self.assertEqual(cb.compiler_of(cb.main_command(self.root)), {'path': '/nonexistent/gcc', 'version': None})
 
   def test_a_preprocessor_dependency_option_is_refused_rather_than_split(self):
     self.commands(('src/main.c', 'CMakeFiles/tinyuf2.dir/m.obj',
                    f'gcc -Wp,-MD,m.d,-DHIL_VALUE=7 -o m.obj -c {ROOT}/src/main.c'))
     with mock.patch.object(cb, 'run', lambda *a, **k: self.fail('compiled')):
-      self.assertIn("would write the build's own dependency file", cb.compile_facts(self.root, self.log, False))
+      self.assertIn("would write the build's own dependency file", self.facts())
 
 
 class FakeTools:
@@ -1352,13 +1364,14 @@ class HilRecord(FakeTools, unittest.TestCase):
         (root / rel).write_text(rel)
       return True
 
-    def fake_facts(root, log, verbose):
+    def fake_facts(main, root, log, verbose):
       (root / 'board_facts.o').write_text('o')
       return ''
     build_dir = self.tmp / 'cmake-build'   # absent: the first shared build creates it before its lock
     with mock.patch.object(cb, 'BUILD_DIR', build_dir), mock.patch.object(cb, 'check_deps', lambda p: None), \
          mock.patch.object(cb, 'check_tools', lambda *a: None), mock.patch.object(cb, 'build_cmake', fake_cmake), \
          mock.patch.object(cb, 'expected_artifacts', lambda *a: []), mock.patch.object(cb, 'compile_facts', fake_facts), \
+         mock.patch.object(cb, 'main_command', lambda root: {'command': f'{sys.executable} -c 1'}), \
          mock.patch.object(cb, 'ninja_in', lambda backend, mode, image, root, args: self.jlink_tree(root)(root, args)):
       rec = cb.build_board('metro_m7_1011', 'cmake', args, {}, cb.roster_flasher(self.config, 'metro_m7_1011'))
     self.assertEqual(rec['status'], 'ok', rec)
@@ -1367,6 +1380,7 @@ class HilRecord(FakeTools, unittest.TestCase):
     self.assertIn('tinyuf2.jlink', rec['sha256'])
     self.assertLessEqual(set(cb.FACTS_FILES), set(rec['sha256']))   # what the runner reads the board facts from
     self.assertEqual(rec['flash']['defines'], ['JLINK_OPTION=-USB 000801012283 -ExitOnError 1 -NoGui 1'])
+    self.assertEqual(set(rec['compiler']), {'path', 'version'})   # what a hosted record is pinned by
 
   def test_a_hil_record_takes_probe_selection_only_from_the_roster(self):
     for argv in (['--board', 'metro_m7_1011', '--shared', '--hil-config', self.config, '-D', 'JLINK_OPTION=-USB 1'],
