@@ -20,8 +20,7 @@ each battery's `steps`, `cleanupPass` (null when the board was untouched) and wh
 (`espressif`), the seconds its record's admission (`buildS`, a name kept from when the rig built it) and battery
 (`runS`) took, and the board loop's `elapsedS`.
 `upload-views`, written last, is the upload's decision on the report views (UPLOAD_VIEWS).
-`--collection` is the workflow's hosted-collect manifest (hil_hosted_pick.py): a board it did not collect is not-run
-with its reason, and every board is not-run when the file is missing or unreadable.
+`--collection` is the workflow's collection.json (hil_hosted_pick.py): only a board it maps to '' is admitted.
 
 Exit 0: every board passed. 1: a board failed or was not run (held past `--lock-wait`, its hosted build not
 collected, missing or its admission refused). 2: a blocker (a run without a report, a failed cleanup, a cleanup holder, a dead battery's
@@ -38,7 +37,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True   # as hil_test.py: nothing CI imports writes into the checkout it builds
-import hil_hosted_pick  # noqa: E402
 import hil_run_report as run_report  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -52,6 +50,7 @@ UNPREPARED = 'report not prepared'
 UPLOAD_VIEWS = 'upload-views'
 STEPS = ('install', 'dfu', 'copy', 'app-ran', 'reenter', 'recopy', 'cleanup')   # hil_test.py --fail-at
 LOCK_WAIT = 600
+COLLECTION_VERSION = 1   # hil_hosted_pick.py's
 PRUNE_DAYS = 30
 
 
@@ -123,6 +122,20 @@ def hosted_record(board, roster, out, hosted):
     return hil_hosted.admit(hosted / board, board, roster, out), True, ''
   except (hil_hosted.ht.Refused, hil_hosted.cb.Fail, OSError) as e:
     return record, False, f'hosted build refused: {e}'[:400]
+
+
+def collection_reasons(path, boards):
+  """Per board, why the workflow's collection.json did not hand it a build: '' only for an entry that is ''."""
+  try:
+    d = json.loads(Path(path).read_text())
+    if not isinstance(d, dict) or d.get('version') != COLLECTION_VERSION or not isinstance(d.get('boards'), dict) or \
+       not all(isinstance(r, str) for r in d['boards'].values()):
+      raise ValueError(f'{path} is no version {COLLECTION_VERSION} hosted collection')
+  except (OSError, ValueError) as e:
+    return {b: f'hosted collection unavailable: {e}'[:400] for b in boards}
+  got = d['boards']
+  return {b: f'the hosted collection has no entry for {b}' if b not in got else
+          got[b] and f'hosted build not collected: {got[b]}'[:400] for b in boards}
 
 
 def launch(cmd, where, board):
@@ -229,8 +242,8 @@ def withhold(where, why, pinned):
 
 def run_board(board, roster, out, state, lock_wait, hosted, fail_at=None, markers=True, collection=None):
   """One board's row: CI's markers under `state`, the record admitted from `hosted` (the directory of hosted builds,
-  one <board> each) once `collection` (load_collection's boards, a str when it is unavailable; None outside the
-  workflow) has it collected, the battery, its verdict and its prepared report pair. `markers` false is a remote driver's:
+  one <board> each) once `collection` (collection_reasons(); None outside the workflow) has no reason against it, the
+  battery, its verdict and its prepared report pair. `markers` false is a remote driver's:
   `state` is CI's state directory, read, never written, and checked again by the runner under its lock
   (--ci-state-root). `lock_wait` is seconds, or a function giving them as the battery starts. Its `buildS` and `runS`
   are the seconds the admission and the battery took, lock wait included."""
@@ -243,10 +256,8 @@ def run_board(board, roster, out, state, lock_wait, hosted, fail_at=None, marker
     return {'board': board, 'phase': 'preflight', 'verdict': 'blocker', 'unfinishedAttempts': earlier,
             'detail': f'run {", ".join(earlier)} under {state} started a battery on {board} and never finished: '
                       'recover the board, then remove its marker'}
-  if collection is not None:
-    why = collection if isinstance(collection, str) else hil_hosted_pick.gap(collection, board)
-    if why:
-      return {'board': board, 'phase': 'build', 'verdict': 'not-run', 'detail': why, 'buildS': 0}
+  if collection is not None and collection[board]:
+    return {'board': board, 'phase': 'build', 'verdict': 'not-run', 'detail': collection[board], 'buildS': 0}
   t0 = time.monotonic()
   record, ok, why = hosted_record(board, roster, out, hosted)
   build_s = round(time.monotonic() - t0)
@@ -306,7 +317,7 @@ def main(argv=None):
   ap.add_argument('--fail-at', choices=STEPS, help='acceptance only (SKILL.md Execution): passed to every battery')
   ap.add_argument('--hosted', type=Path, required=True,
                   help="the hosted builds' directory (hil_hosted.py build), one <board> each")
-  ap.add_argument('--collection', type=Path, help="the workflow's hosted-collect manifest (hil_hosted_pick.py)")
+  ap.add_argument('--collection', type=Path, help="the workflow's collection.json (hil_hosted_pick.py)")
   args = ap.parse_args(argv)
   boards = sorted(set(args.board))
   unknown = sorted(set(boards) - set(roster_boards(args.roster)))
@@ -316,12 +327,7 @@ def main(argv=None):
   (args.out / UPLOAD_VIEWS).unlink(missing_ok=True)
   state = args.out.parent
   prune(state, keep=args.out)
-  collection = None
-  if args.collection:
-    try:
-      collection = hil_hosted_pick.load_collection(args.collection)
-    except (OSError, ValueError) as e:
-      collection = f'hosted collection unavailable: {e}'[:400]
+  collection = collection_reasons(args.collection, boards) if args.collection else None
   t0 = time.monotonic()
   rows = [run_board(b, args.roster, args.out, state, args.lock_wait, args.hosted, args.fail_at,
                     collection=collection) for b in boards]

@@ -7,17 +7,26 @@ inputs:
   toolchain_url:
     description: 'Toolchain URL'
     required: true
+  toolchain_sha256:
+    description: "The archive's sha256 (toolchain.json), which keys its cache"
+    required: true
 
 runs:
   using: "composite"
   steps:
+    - name: Check the toolchain's sha256
+      env:
+        SHA256: ${{ inputs.toolchain_sha256 }}
+      run: '[ -n "$SHA256" ] || { echo "::error::no toolchain_sha256"; exit 1; }'
+      shell: bash
+
     - name: Cache Toolchain
       if: ${{ !startsWith(inputs.toolchain_url, 'https://github.com') }}
       uses: actions/cache@v4
       id: cache-toolchain-download
       with:
         path: ~/cache/${{ inputs.toolchain }}
-        key: ${{ runner.os }}-${{ inputs.toolchain }}-${{ hashFiles('.github/actions/setup_toolchain/toolchain.json') }}
+        key: ${{ runner.os }}-${{ inputs.toolchain }}-${{ inputs.toolchain_sha256 }}
 
     - name: Install Toolchain
       if: steps.cache-toolchain-download.outputs.cache-hit != 'true'

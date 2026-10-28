@@ -118,17 +118,20 @@ def own_runs():
   return set((ht.cb.BUILD_DIR / 'hil').glob(f'run-*-{os.getpid()}'))
 
 
-RUNS_BEFORE = set()
-
-
 def setUpModule():
-  RUNS_BEFORE.update(own_runs())
+  """The module's default run root is a tmp dir, removed after tearDownModule has checked it: a test that omits
+  --run-root never writes into the checkout's cmake-build/hil."""
+  t = tempfile.TemporaryDirectory()
+  unittest.addModuleCleanup(t.cleanup)
+  p = mock.patch.object(ht.cb, 'BUILD_DIR', Path(t.name) / 'cmake-build')
+  p.start()
+  unittest.addModuleCleanup(p.stop)
 
 
 def tearDownModule():
   """No `hil_test.py keep-build` or `keep-held` child of this process outlives the suite, and no test wrote a run dir
-  into the checkout's cmake-build/hil."""
-  leaked = sorted(str(d) for d in own_runs() - RUNS_BEFORE)
+  to the default run root."""
+  leaked = sorted(str(d) for d in own_runs())
   mine = []
   for d in Path('/proc').iterdir():
     try:

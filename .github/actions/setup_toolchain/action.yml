@@ -30,8 +30,10 @@ runs:
         TOOLCHAIN: ${{ inputs.toolchain }}
       run: |
         TOOLCHAIN_URL=$(jq -er --arg tc "$TOOLCHAIN" '.[$tc].url' .github/actions/setup_toolchain/toolchain.json)
+        TOOLCHAIN_SHA256=$(jq -er --arg tc "$TOOLCHAIN" '.[$tc].sha256' .github/actions/setup_toolchain/toolchain.json)
         echo "toolchain_url=$TOOLCHAIN_URL"
         echo "toolchain_url=$TOOLCHAIN_URL" >> $GITHUB_OUTPUT
+        echo "toolchain_sha256=$TOOLCHAIN_SHA256" >> $GITHUB_OUTPUT
       shell: bash
 
     - name: Download Toolchain
@@ -40,6 +42,7 @@ runs:
       with:
         toolchain: ${{ inputs.toolchain }}
         toolchain_url: ${{ steps.set-toolchain-url.outputs.toolchain_url }}
+        toolchain_sha256: ${{ steps.set-toolchain-url.outputs.toolchain_sha256 }}
 
     - name: Set toolchain option
       id: set-toolchain-option

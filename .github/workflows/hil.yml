@@ -20,7 +20,7 @@ on:
         required: false
         default: ''
       hosted_fault:
-        description: 'acceptance only: fail <pre-clear|clear|build>:<board>@<attempt> or collect@<attempt>, space separated'
+        description: 'acceptance only: fail build:<board>@<attempt> or collect@<attempt>, space separated'
         required: false
         default: ''
 
@@ -52,6 +52,7 @@ jobs:
         id: select
         env:
           BOARD_INPUT: ${{ github.event.inputs.board }}
+          HOSTED_FAULT: ${{ github.event.inputs.hosted_fault }}
         shell: bash   # -o pipefail: a failed selection must not become an empty, skipped rig job through tee
         run: |
           python3 - <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
@@ -74,6 +75,14 @@ jobs:
           rig, hosted, pending = hil_ci.split('test/hil/ci.json', boards,
                                               os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch')
           uncovered += [{'target': b, 'reason': 'pending commissioning (no tinyuf2.reentry): not run'} for b in pending]
+          import re
+          fault = os.environ.get('HOSTED_FAULT', '')
+          if re.search(r'[^\S ]', fault):   # the jobs match a token only between spaces
+              sys.exit(f'hosted_fault {fault!r}: separate its tokens with spaces only')
+          bad = [t for t in fault.split(' ') if t and (not re.fullmatch(r'(build:(\S+)|collect)@[1-9][0-9]*', t) or
+                 t.startswith('build:') and t[6:].rsplit('@', 1)[0] not in hosted)]
+          if bad:
+              sys.exit(f'hosted_fault {bad}: not build:<a built board>@<attempt> or collect@<attempt>')
           print('boards:', ' '.join(rig) or 'none')
           print('hosted builds:', ' '.join(hosted) or 'none')
           for u in uncovered:
@@ -93,19 +102,13 @@ jobs:
           path: hil-selection.json
           overwrite: true
 
-  # one leg per board builds its CI record, packed with the roster it was built against for the rig to admit: cmake
-  # with the arm-gcc build.yml's release builds install, an Espressif board in CI's image (build.yml's
-  # toolchain_version). A leg's builds go up as hil-hosted-<board>, one per run: its first step deletes an earlier
-  # attempt's, so a leg that succeeded holds the only one, and a leg that failed is never collected.
+  # one leg per board builds and packs its record as hil-hosted-<board> (hil_hosted_pick.py has the collection rules)
   hosted-build:
     needs: select
     if: needs.select.outputs.hosted != ''
     name: hosted-build (${{ matrix.board }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    permissions:
-      actions: write   # deleting this run's earlier hil-hosted-<board>
-      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -113,21 +116,8 @@ jobs:
     env:
       BOARD: ${{ matrix.board }}
       FAULT: ${{ github.event.inputs.hosted_fault }}
-      PICK: .claude/skills/hil-contract/scripts/hil_hosted_pick.py
     steps:
       - uses: actions/checkout@v4
-
-      - name: Injected fault before the delete
-        if: env.FAULT != ''
-        run: python3 "$PICK" fault --spec "$FAULT" --step pre-clear --board "$BOARD" --attempt "$GITHUB_RUN_ATTEMPT"
-
-      # a leg that keeps an earlier attempt's artifact must fail: this step never continues on error
-      - name: Delete this run's earlier build of the board
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          python3 "$PICK" fault --spec "$FAULT" --step clear --board "$BOARD" --attempt "$GITHUB_RUN_ATTEMPT"
-          python3 "$PICK" clear --repo "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID" --board "$BOARD"
 
       - name: Fetch the build inputs
         run: |
@@ -141,25 +131,36 @@ jobs:
         with:
           toolchain: arm-gcc
 
-      - name: Pull CI's ESP-IDF image
+      - name: CI's ESP-IDF image version
+        id: idf
         if: matrix.backend == 'idf'
-        run: docker pull "$(python3 .claude/skills/hil-contract/scripts/hil_hosted.py image)"
+        run: |
+          image=$(python3 .claude/skills/hil-contract/scripts/hil_hosted.py image)
+          [[ $image == espressif/idf:?* ]] || { echo "::error::not an espressif/idf image: $image"; exit 1; }
+          echo "version=${image#espressif/idf:}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up ESP-IDF
+        if: matrix.backend == 'idf'
+        uses: ./.github/actions/setup_toolchain
+        with:
+          toolchain: esp-idf
+          toolchain_version: ${{ steps.idf.outputs.version }}
 
       - name: Build and pack the record
         run: |
-          python3 "$PICK" fault --spec "$FAULT" --step build --board "$BOARD" --attempt "$GITHUB_RUN_ATTEMPT"
+          case " $FAULT " in *" build:$BOARD@$GITHUB_RUN_ATTEMPT "*) echo "::error::hosted_fault build"; exit 1;; esac
           python3 .claude/skills/hil-contract/scripts/hil_hosted.py build --board "$BOARD" --roster test/hil/ci.json \
             --out "$RUNNER_TEMP/hil-hosted"
 
+      # overwrite: a re-run of this leg replaces its earlier attempt's artifact
       - uses: actions/upload-artifact@v4
         with:
           name: hil-hosted-${{ matrix.board }}
           path: ${{ runner.temp }}/hil-hosted
           if-no-files-found: error
+          overwrite: true
 
-  # the rig's boards' builds from this attempt's legs only (hil_hosted_pick.py collect): a board whose leg did not
-  # succeed with its one artifact is left out with the reason, never given an older attempt's; the manifest goes up
-  # even when nothing was collected. A re-run of any leg re-runs this job; a re-run of the rig job alone reuses it.
+  # this attempt's builds of the rig's boards and collection.json, uploaded even when nothing was collected
   hosted-collect:
     needs: [select, hosted-build]
     if: ${{ !cancelled() && needs.select.result == 'success' && needs.select.outputs.boards != '' }}
@@ -173,7 +174,6 @@ jobs:
     env:
       BOARDS: ${{ needs.select.outputs.boards }}
       FAULT: ${{ github.event.inputs.hosted_fault }}
-      PICK: .claude/skills/hil-contract/scripts/hil_hosted_pick.py
     steps:
       - uses: actions/checkout@v4
 
@@ -182,9 +182,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash   # -o pipefail: a collection that failed must not pass through tee
         run: |
-          python3 "$PICK" fault --spec "$FAULT" --step collect --attempt "$GITHUB_RUN_ATTEMPT"
-          python3 "$PICK" collect --repo "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
-            --board $BOARDS --out "$RUNNER_TEMP/hil-hosted" | tee -a "$GITHUB_STEP_SUMMARY"
+          case " $FAULT " in *" collect@$GITHUB_RUN_ATTEMPT "*) echo "::error::hosted_fault collect"; exit 1;; esac
+          python3 .claude/skills/hil-contract/scripts/hil_hosted_pick.py collect --repo "$GITHUB_REPOSITORY" \
+            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --board $BOARDS --out "$RUNNER_TEMP/hil-hosted" |
+            tee -a "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -192,8 +193,7 @@ jobs:
           path: ${{ runner.temp }}/hil-hosted
           if-no-files-found: error
 
-  # a board the collection left out is not-run here with its reason, every board when there is no collection; the rest
-  # still run
+  # a board collection.json does not admit is not-run with its reason; no collection makes every board not-run
   ci-lan:
     needs: [select, hosted-collect]
     if: ${{ !cancelled() && needs.select.result == 'success' && needs.select.outputs.boards != '' }}

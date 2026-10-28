@@ -23,6 +23,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / '.claude' / 'skills' / 'hil-contract' / 'scripts'))
 import hil_ci  # noqa: E402
+import hil_hosted_pick  # noqa: E402
 import hil_run_report as run_report  # noqa: E402
 import hil_test as ht  # noqa: E402
 
@@ -593,24 +594,28 @@ class Stubbed(unittest.TestCase):
     ok = {'row': {'ran': True, 'pass': True, 'cleanup': {'pass': True, 'state': 'blinky copied'}}}
     self.roster.write_text(json.dumps({'boards': [{'name': BOARD}, {'name': 'other'}]}))
     collection = self.tmp / 'collection.json'
-    collection.write_text(json.dumps({'version': 1, 'run': 1, 'attempt': 2, 'boards': {
-      BOARD: {'conclusion': 'success', 'artifact': 11}, 'other': {'conclusion': 'failure', 'reason': 'its build failed'}}}))
+    collection.write_text(json.dumps({'version': hil_hosted_pick.VERSION, 'boards': {BOARD: '',
+                                                                                     'other': 'its build failed'}}))
     self.assertEqual(self.main('--board', BOARD, 'other', '--collection', str(collection), battery=ok), 1)
     rows = {r['board']: r for r in self.rows()}
     self.assertEqual(rows[BOARD]['verdict'], 'pass')
     self.assertEqual((rows['other']['verdict'], rows['other']['phase'], rows['other']['detail']),
                      ('not-run', 'build', 'hosted build not collected: its build failed'))
     self.assertEqual([a[0] for a in self.admitted], [BOARD], 'only a collected board is admitted')
-    for what, text in (('missing', None), ('unreadable', '{')):
+    for what, text, why in (
+        ('missing', None, 'hosted collection unavailable: '), ('unreadable', '{', 'hosted collection unavailable: '),
+        ('another version', json.dumps({'version': 2, 'boards': {BOARD: ''}}), 'hosted collection unavailable: '),
+        ('a reason not a string', json.dumps({'version': 1, 'boards': {BOARD: None}}), 'hosted collection unavailable: '),
+        ('no entry', json.dumps({'version': 1, 'boards': {}}), 'the hosted collection has no entry for ')):
       with self.subTest(what):
         self.admitted.clear()
         collection.unlink(missing_ok=True)
         if text:
           collection.write_text(text)
-        out = self.state / f'run-{what}'
+        out = self.state / f'run-{what.replace(" ", "-")}'
         self.assertEqual(self.main('--board', BOARD, 'other', '--collection', str(collection), battery=ok, out=out), 1)
         self.assertEqual({r['verdict'] for r in self.rows(out)}, {'not-run'})
-        self.assertTrue(all(r['detail'].startswith('hosted collection unavailable: ') for r in self.rows(out)))
+        self.assertTrue(all(r['detail'].startswith(why) for r in self.rows(out)))
         self.assertEqual(self.admitted, [])
 
   def test_the_plan_runs_commissioned_boards_each_from_a_hosted_build(self):
@@ -662,6 +667,20 @@ class Stubbed(unittest.TestCase):
             for b in hosted]
     self.assertEqual({m['backend'] for m in want}, {'idf', 'cmake'})
     self.assertEqual(json.loads(got['matrix']), want)
+    # hosted_fault is checked once, here: a token that names no built board or step fails the selection
+    for fault, ok in ((f'build:{hosted[0]}@1 collect@2', True), ('', True), ('build', False), ('collect', False),
+                      (f'build:{hosted[0]}@0', False), (f'clear:{hosted[0]}@1', False), ('build:nope@1', False),
+                      (f'build:{hosted[0]}@1 collect@x', False), (f' build:{hosted[0]}@1  collect@2 ', True),
+                      (f'build:{hosted[0]}@1\tcollect@1', False), (f'build:{hosted[0]}@1\ncollect@1', False)):
+      with self.subTest(hosted_fault=fault):
+        output.write_text('')
+        r = subprocess.run([sys.executable, '-'], input=textwrap.dedent(body), cwd=work, capture_output=True, text=True,
+                           env=dict(os.environ, GITHUB_EVENT_NAME='workflow_dispatch', BOARD_INPUT=' '.join(roster),
+                                    HOSTED_FAULT=fault, GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(summary)))
+        self.assertEqual(r.returncode == 0, ok, r.stderr)
+        if not ok:
+          self.assertIn('hosted_fault', r.stderr)
+          self.assertEqual(output.read_text(), '', 'a rejected fault selects nothing')
 
 def workflow_job(name):
   """The text of hil.yml's job `name`, up to the next job."""
@@ -671,25 +690,41 @@ def workflow_job(name):
 
 class Workflow(unittest.TestCase):
   def test_each_board_builds_in_its_own_leg_that_deletes_its_earlier_artifact_first(self):
-    """A leg per board, named for it (hil_hosted_pick.py finds it by that name), that deletes this run's earlier
-    hil-hosted-<board> before it builds and fails on any error, so a succeeded leg holds the board's only artifact."""
+    """A leg per board, named for it (hil_hosted_pick.py finds it by that name), whose upload, never skipped on an
+    error, replaces an earlier attempt's artifact of its board."""
     leg = workflow_job('hosted-build')
     self.assertIn('    name: hosted-build (${{ matrix.board }})\n', leg)
-    self.assertEqual(hil_ci.hil_hosted_pick.leg_name('b'), 'hosted-build (b)')
+    self.assertEqual(hil_hosted_pick.leg_name('b'), 'hosted-build (b)')
     self.assertIn('      fail-fast: false\n      matrix:\n        include: ${{ fromJSON(needs.select.outputs.matrix) }}\n',
                   leg)
-    self.assertIn('    permissions:\n      actions: write', leg)
+    self.assertNotIn('permissions:', leg)   # the workflow's contents: read
     self.assertNotRegex(leg, r'(?m)^ +continue-on-error:')
     steps = re.findall(r'\n      - (?:name: (.+)|uses: (\S+))\n', leg)
     self.assertEqual([n or u for n, u in steps], [
-      'actions/checkout@v4', 'Injected fault before the delete', "Delete this run's earlier build of the board",
-      'Fetch the build inputs', 'Set up arm-gcc', "Pull CI's ESP-IDF image", 'Build and pack the record',
-      'actions/upload-artifact@v4'])
+      'actions/checkout@v4', 'Fetch the build inputs', 'Set up arm-gcc', "CI's ESP-IDF image version", 'Set up ESP-IDF',
+      'Build and pack the record', 'actions/upload-artifact@v4'])
     self.assertIn("if: matrix.backend == 'cmake'\n        uses: ./.github/actions/setup_toolchain\n", leg)
-    self.assertIn("if: matrix.backend == 'idf'\n", leg)
-    self.assertIn(f'name: {hil_ci.hil_hosted_pick.artifact_name("${{ matrix.board }}")}\n', leg)
-    self.assertIn('if-no-files-found: error\n', leg)
-    self.assertNotIn('overwrite', leg)
+    self.assertIn("if: matrix.backend == 'idf'\n        uses: ./.github/actions/setup_toolchain\n        with:\n"
+                  "          toolchain: esp-idf\n          toolchain_version: ${{ steps.idf.outputs.version }}\n", leg)
+    self.assertIn(f'name: {hil_hosted_pick.artifact_name("${{ matrix.board }}")}\n', leg)
+    self.assertIn('if-no-files-found: error\n          overwrite: true\n', leg)
+
+  def test_the_idf_leg_sets_up_the_image_hil_hosted_names_and_fails_on_any_other(self):
+    m = re.search(r"- name: CI's ESP-IDF image version\n(?:        .*\n)*?        run: \|\n((?:          .*\n)+)",
+                  workflow_job('hosted-build'))
+    with tempfile.TemporaryDirectory() as d:
+      d = Path(d)
+      for image, code, version in (('espressif/idf:v6.1', 0, 'v6.1'), ('espressif/idf:', 1, None),
+                                   ('other/idf:v6.1', 1, None), ('', 1, None)):
+        with self.subTest(image=image):
+          (d / 'python3').write_text(f'#!/bin/sh\n[ -n "{image}" ] || exit 3\necho "{image}"\n')
+          (d / 'python3').chmod(0o755)
+          out = d / 'output'
+          out.write_text('')
+          r = subprocess.run(['bash', '-e', '-c', textwrap.dedent(m.group(1))], capture_output=True, text=True,
+                             env=dict(os.environ, PATH=f'{d}:{os.environ["PATH"]}', GITHUB_OUTPUT=str(out)))
+          self.assertEqual(r.returncode != 0, bool(code), r.stdout + r.stderr)
+          self.assertEqual(out.read_text(), f'version={version}\n' if version else '')
 
   def test_the_rig_admits_only_what_this_attempts_collection_picked(self):
     """hosted-collect runs whatever the legs concluded and always uploads its manifest under its own attempt; the rig

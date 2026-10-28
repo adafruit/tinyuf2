@@ -153,8 +153,8 @@ def ci_arm_gcc_release():
     url = json.loads(SETUP_TOOLCHAIN.read_text())['arm-gcc']['url']
   except (OSError, ValueError, KeyError, TypeError) as e:
     raise Fail(f'no arm-gcc url in {SETUP_TOOLCHAIN}: {e!r}')
-  m = re.fullmatch(r'https://[^/]+/\S+/gnu-toolchain/(\d+\.\d+\.rel\d+)/'
-                   r'arm-gnu-toolchain-\1-x86_64-arm-none-eabi\.tar\.xz', url, re.I) if isinstance(url, str) else None
+  m = re.fullmatch(r'https://\S+/arm-gnu-toolchain-(\d+\.\d+\.rel\d+)-x86_64-arm-none-eabi\.tar\.xz', url, re.I) \
+    if isinstance(url, str) else None
   if not m:
     raise Fail(f'the arm-gcc url in {SETUP_TOOLCHAIN}, {url!r}, is no Arm GNU Toolchain x86_64 arm-none-eabi release')
   return m[1]

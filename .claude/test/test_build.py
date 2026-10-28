@@ -185,6 +185,8 @@ class SetupToolchain(unittest.TestCase):
     self.assertRegex(cb.ci_arm_gcc_release(), r'^\d+\.\d+\.rel\d+$')
     url = ARM_URL.format(dir='14.2.rel1', rel='14.2.rel1', host='x86_64')
     self.assertEqual(self.release({'arm-gcc': {'url': url, 'sha256': '0' * 64}}), '14.2.rel1')
+    mirror = 'https://example.org/arm/arm-gnu-toolchain-13.3.Rel1-x86_64-arm-none-eabi.tar.xz'   # any layout
+    self.assertEqual(self.release({'arm-gcc': {'url': mirror, 'sha256': '0' * 64}}), '13.3.Rel1')
 
   def test_a_missing_or_invalid_arm_gcc_entry_fails(self):
     for what, manifest, error in (
@@ -201,9 +203,10 @@ class SetupToolchain(unittest.TestCase):
                                     .replace('https:', 'http:')}}, 'is no Arm GNU Toolchain'),
         ('another host', {'arm-gcc': {'url': ARM_URL.format(dir='14.2.rel1', rel='14.2.rel1', host='darwin-arm64')}},
          'is no Arm GNU Toolchain'),
-        ('a package of another release', {'arm-gcc': {'url': ARM_URL.format(dir='14.2.rel1', rel='13.3.rel1',
-                                                                             host='x86_64')}},
-         'is no Arm GNU Toolchain')):
+        ('another target', {'arm-gcc': {'url': ARM_URL.format(dir='14.2.rel1', rel='14.2.rel1', host='x86_64')
+                                        .replace('-arm-none-eabi', '-aarch64-none-elf')}}, 'is no Arm GNU Toolchain'),
+        ('a suffixed package', {'arm-gcc': {'url': ARM_URL.format(dir='14.2.rel1', rel='14.2.rel1', host='x86_64')
+                                            .replace('.tar.xz', '-debug.tar.xz')}}, 'is no Arm GNU Toolchain')):
       with self.subTest(what):
         if manifest is None:
           with mock.patch.object(cb, 'SETUP_TOOLCHAIN', self.tmp / 'none.json'), self.assertRaisesRegex(cb.Fail, error):
@@ -250,6 +253,28 @@ class SetupToolchain(unittest.TestCase):
         r, argv, _ = self.fetch(manifest, 't', body)
         self.assertNotEqual(r.returncode, 0)
         self.assertIsNone(argv, 'nothing is downloaded')
+
+  def step(self, action, name):
+    """The `run` of `action`'s step `name`, dedented."""
+    text = action.read_text().split(f'    - name: {name}\n', 1)[1]
+    run = re.search(r"      run: (?:\|\n((?:        .*\n|\n)+)|'(.*)'\n)", text)
+    return textwrap.dedent(run[1]) if run[1] else run[2]
+
+  def test_the_cache_is_keyed_on_the_entrys_sha256_which_must_be_given(self):
+    manifest = json.loads((ACTIONS / 'toolchain.json').read_text())
+    out = self.tmp / 'github-output'
+    r = subprocess.run(['bash', '-e', '-c', self.step(ACTIONS / 'action.yml', 'Get Toolchain URL')], cwd=ROOT,
+                       capture_output=True, text=True, env=dict(os.environ, TOOLCHAIN='arm-gcc', GITHUB_OUTPUT=str(out)))
+    self.assertEqual(r.returncode, 0, r.stderr)
+    self.assertEqual(dict(ln.split('=', 1) for ln in out.read_text().splitlines()),
+                     {'toolchain_url': manifest['arm-gcc']['url'], 'toolchain_sha256': manifest['arm-gcc']['sha256']})
+    download = ACTIONS / 'download' / 'action.yml'
+    self.assertIn('key: ${{ runner.os }}-${{ inputs.toolchain }}-${{ inputs.toolchain_sha256 }}\n', download.read_text())
+    check = self.step(download, "Check the toolchain's sha256")
+    for sha, code in (('', 1), ('0' * 64, 0)):
+      with self.subTest(sha=sha):
+        r = subprocess.run(['bash', '-e', '-c', check], capture_output=True, text=True, env=dict(os.environ, SHA256=sha))
+        self.assertEqual(r.returncode, code, r.stdout)
 
   def install(self, action, toolchain, url, payload):
     """`action`'s Install Toolchain script run in a fresh git checkout, as a composite step runs it, with fetch.sh a
