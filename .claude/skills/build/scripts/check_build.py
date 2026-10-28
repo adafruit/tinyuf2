@@ -716,14 +716,23 @@ def build_idf(board, root, defines, log, verbose, idf_mode, image):
   try:
     code = run(cmd, log, verbose)
   finally:
-    # a stopped or killed client leaves its container building: PID 1 there ignores the SIGTERM docker forwards
-    left = container_left(container) if code != 0 else ''
-    if left:
-      msg = f'{root.name}: ' + ('interrupted docker build' if code is None else f'docker run exited {code}') + left
-      with open(log, 'a') as f:
-        f.write(msg + '\n')
-      if code is None:
-        print(msg, file=sys.stderr)
+    # a stopped or killed client leaves its container building: PID 1 there ignores the SIGTERM docker forwards; a
+    # client that exited by itself has waited for --rm's removal
+    if code is None or code < 0:
+      left, again = '', None
+      try:
+        left = container_left(container)
+      except BaseException as e:   # a second interrupt: still name the container, and keep the first one
+        again, left = e, f'; cleanup interrupted, so container {container} may be left: docker rm -f {container}'
+      if left:
+        msg = f'{root.name}: ' + ('interrupted docker build' if code is None else f'docker run exited {code}') + left
+        with contextlib.suppress(OSError), open(log, 'a') as f:
+          f.write(msg + '\n')
+        if code is None or again:
+          with contextlib.suppress(OSError):
+            print(msg, file=sys.stderr)
+      if again and code is not None:
+        raise again
   return code == 0
 
 
@@ -1181,11 +1190,10 @@ def main(argv=None):
 
 
 def exit_on_sigterm():
-  """Exit on a SIGTERM as on Ctrl-C, through run()'s reap of its child and build_idf()'s container removal. A SIGKILL
-  skips both and can leave the build's container (`tinyuf2-build-<pid>-<hex>`) running."""
+  """Exit on a SIGTERM as on Ctrl-C, through build_idf()'s container removal; installed only when run as a script."""
   signal.signal(signal.SIGTERM, lambda sig, frame: sys.exit(128 + sig))
 
 
 if __name__ == '__main__':
-  exit_on_sigterm()   # here only: an importer keeps its own SIGTERM handling
+  exit_on_sigterm()
   sys.exit(main())
