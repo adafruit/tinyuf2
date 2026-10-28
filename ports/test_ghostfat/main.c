@@ -352,6 +352,7 @@ int DumpDiskImage(void) {
 }
 
 _Static_assert(sizeof(UF2_Block) == GHOSTFAT_SECTOR_SIZE, "UF2 block must fill one sector");
+_Static_assert(sizeof(((UF2_Block *) 0)->data) == sizeof(test_flash_write_data), "write record must hold a payload");
 
 #define TEST_UF2_NUM_BLOCKS 2
 #define TEST_UF2_TARGET_ADDR(blockNo) (0x1000u + 256u * (blockNo))
@@ -360,8 +361,8 @@ static UF2_Block uf2Block;
 static WriteState writeState;
 static WriteState writeStateBefore;
 
-// otherwise-valid block of a TEST_UF2_NUM_BLOCKS-block file
-static void MakeUf2Block(uint32_t blockNo, uint32_t payloadSize) {
+// otherwise-valid block of a TEST_UF2_NUM_BLOCKS-block file, its data a pattern that differs per block and offset
+static void MakeUf2Block(uint32_t blockNo, uint32_t payloadSize, uint32_t familyID) {
     memset(&uf2Block, 0, sizeof(uf2Block));
     uf2Block.magicStart0 = UF2_MAGIC_START0;
     uf2Block.magicStart1 = UF2_MAGIC_START1;
@@ -370,13 +371,17 @@ static void MakeUf2Block(uint32_t blockNo, uint32_t payloadSize) {
     uf2Block.payloadSize = payloadSize;
     uf2Block.blockNo     = blockNo;
     uf2Block.numBlocks   = TEST_UF2_NUM_BLOCKS;
-    uf2Block.familyID    = BOARD_UF2_FAMILY_ID;
+    uf2Block.familyID    = familyID;
     uf2Block.magicEnd    = UF2_MAGIC_END;
+    for (size_t i = 0; i < sizeof(uf2Block.data); i++) {
+        uf2Block.data[i] = (uint8_t) (0xA5u ^ (i * 13u) ^ (blockNo * 0x5Bu));
+    }
 }
 
-// a payloadSize beyond the 476-byte data field must be rejected before flashing or touching the state
-static int ExpectWriteRejected(uint32_t blockNo, uint32_t payloadSize) {
-    MakeUf2Block(blockNo, payloadSize);
+// a payloadSize beyond the 476-byte data field, or another family, must be rejected before flashing or touching
+// the state
+static int ExpectWriteRejected(uint32_t blockNo, uint32_t payloadSize, uint32_t familyID) {
+    MakeUf2Block(blockNo, payloadSize, familyID);
     memcpy(&writeStateBefore, &writeState, sizeof(writeState));
     uint32_t const writes  = test_flash_write_count;
     uint32_t const flushes = test_flash_flush_count;
@@ -384,9 +389,9 @@ static int ExpectWriteRejected(uint32_t blockNo, uint32_t payloadSize) {
     int r = uf2_write_block(0, (uint8_t *) &uf2Block, &writeState);
     bool const stateChanged = (0 != memcmp(&writeStateBefore, &writeState, sizeof(writeState)));
     if ((r != -1) || (test_flash_write_count != writes) || (test_flash_flush_count != flushes) || stateChanged) {
-        printf("FAIL: payloadSize 0x%08" PRIx32 " block %" PRIu32 ": returned %d, %" PRIu32 " write(s), %" PRIu32
-               " flush(es), state %s; expected -1, no write, no flush, state unchanged\n",
-               payloadSize, blockNo, r, test_flash_write_count - writes, test_flash_flush_count - flushes,
+        printf("FAIL: payloadSize 0x%08" PRIx32 " block %" PRIu32 " family 0x%08" PRIx32 ": returned %d, %" PRIu32
+               " write(s), %" PRIu32 " flush(es), state %s; expected -1, no write, no flush, state unchanged\n",
+               payloadSize, blockNo, familyID, r, test_flash_write_count - writes, test_flash_flush_count - flushes,
                stateChanged ? "changed" : "unchanged");
         return ERR_WRITE_BLOCK_UNEXPECTED_RESULT;
     }
@@ -394,7 +399,7 @@ static int ExpectWriteRejected(uint32_t blockNo, uint32_t payloadSize) {
 }
 
 static int ExpectWriteAccepted(uint32_t blockNo, uint32_t payloadSize, uint32_t expectedFlushes) {
-    MakeUf2Block(blockNo, payloadSize);
+    MakeUf2Block(blockNo, payloadSize, BOARD_UF2_FAMILY_ID);
     uint32_t const writes  = test_flash_write_count;
     uint32_t const flushes = test_flash_flush_count;
     uint32_t const numWritten = writeState.numWritten;
@@ -403,11 +408,13 @@ static int ExpectWriteAccepted(uint32_t blockNo, uint32_t payloadSize, uint32_t 
     bool const marked = (0 != (writeState.writtenMask[blockNo / 8] & (1u << (blockNo % 8))));
     if ((r != GHOSTFAT_SECTOR_SIZE) || (test_flash_write_count != writes + 1) ||
         (test_flash_write_addr != TEST_UF2_TARGET_ADDR(blockNo)) || (test_flash_write_len != payloadSize) ||
+        memcmp(test_flash_write_data, uf2Block.data, payloadSize) ||
         (test_flash_flush_count != flushes + expectedFlushes) || (writeState.numBlocks != TEST_UF2_NUM_BLOCKS) ||
         (writeState.numWritten != numWritten + 1) || !marked) {
         printf("FAIL: payloadSize %" PRIu32 " block %" PRIu32 ": returned %d, %" PRIu32 " write(s) last 0x%08" PRIx32
-               "+%" PRIu32 ", %" PRIu32 " flush(es), numBlocks %" PRIu32 ", numWritten %" PRIu32 ", %s\n",
+               "+%" PRIu32 " data %s, %" PRIu32 " flush(es), numBlocks %" PRIu32 ", numWritten %" PRIu32 ", %s\n",
                payloadSize, blockNo, r, test_flash_write_count - writes, test_flash_write_addr, test_flash_write_len,
+               memcmp(test_flash_write_data, uf2Block.data, payloadSize) ? "differs" : "matches",
                test_flash_flush_count - flushes, writeState.numBlocks, writeState.numWritten,
                marked ? "marked" : "not marked");
         return ERR_WRITE_BLOCK_UNEXPECTED_RESULT;
@@ -415,24 +422,29 @@ static int ExpectWriteAccepted(uint32_t blockNo, uint32_t payloadSize, uint32_t 
     return ERR_NONE;
 }
 
-static int TestWriteBlockPayloadSize(void) {
+static int TestWriteBlock(void) {
     static uint32_t const oversized[] = { 477, 481, 0xFFFFFFFFu };
+    uint32_t const otherFamily = BOARD_UF2_FAMILY_ID ^ 1u;
     int r;
 
     memset(&writeState, 0, sizeof(writeState));
     for (size_t i = 0; i < sizeof(oversized) / sizeof(oversized[0]); i++) {
-        r = ExpectWriteRejected(1, oversized[i]);
+        r = ExpectWriteRejected(1, oversized[i], BOARD_UF2_FAMILY_ID);
         if (r) { return r; }
     }
+    r = ExpectWriteRejected(0, 256, otherFamily);
+    if (r) { return r; }
 
     r = ExpectWriteAccepted(0, 256, 0);
     if (r) { return r; }
 
-    // same checks with an update in progress
+    // same checks with an update in progress, on the block that would complete it
     for (size_t i = 0; i < sizeof(oversized) / sizeof(oversized[0]); i++) {
-        r = ExpectWriteRejected(1, oversized[i]);
+        r = ExpectWriteRejected(1, oversized[i], BOARD_UF2_FAMILY_ID);
         if (r) { return r; }
     }
+    r = ExpectWriteRejected(1, sizeof(uf2Block.data), otherFamily);
+    if (r) { return r; }
 
     // last block of the file flushes
     return ExpectWriteAccepted(1, sizeof(uf2Block.data), 1);
@@ -453,8 +465,8 @@ int main(void)
     r = CompareDiskImages();
     if (r) { goto errorExit; }
 
-    printf("testing uf2_write_block payloadSize bound\n"); fflush(stdout);
-    r = TestWriteBlockPayloadSize();
+    printf("testing uf2_write_block\n"); fflush(stdout);
+    r = TestWriteBlock();
     if (r) { goto errorExit; }
 
     printf("PASS: Ghostfat generation validation completed successfully.\n");
