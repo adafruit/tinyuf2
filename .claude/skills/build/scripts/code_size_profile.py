@@ -64,7 +64,7 @@ def _dep_checkout(src):
 
 def _dep_clean(src):
   """Whether the checkout `src` is clean, counting untracked and ignored files too: a build can test a file's
-  existence (imxrt family.mk's fsl_dcdc.c)."""
+  existence."""
   status = subprocess.run(['git', '--no-optional-locks', '-C', src, 'status', '--porcelain', '--ignored',
                            '--untracked-files=all'], capture_output=True, text=True)
   return status.returncode == 0 and not status.stdout

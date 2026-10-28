@@ -8,15 +8,11 @@ H750 boards run the application from external QSPI flash at 0x90000000. Boards w
 
 ## Build
 
+From the repository root:
+
 ```
-cmake -B build -DBOARD=stm32h743nucleo
+cmake -B build -G Ninja -DBOARD=stm32h743nucleo ports/stm32h7
 cmake --build build
-```
-
-Make is also available:
-
-```
-make BOARD=stm32h743nucleo all
 ```
 
 ## Supported Boards

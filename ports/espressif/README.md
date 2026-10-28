@@ -14,21 +14,31 @@ See [Metro ESP32-P4](boards/adafruit_metro_esp32p4/README.md) for its USB routin
 
 ### Build
 
-Once installed and setup ESP-IDF, you can build with all target
+Once installed and setup ESP-IDF, you can build from the repository root with
 
 ```
-idf.py -DBOARD=adafruit_feather_esp32s2 build
+idf.py -C ports/espressif -DBOARD=adafruit_feather_esp32s2 build
 ```
+
+idf.py builds in `ports/espressif/build` unless `-B <dir>` names another; give each board its own. The images, including
+`combined.bin` (every image merged at offset 0), land in `ports/espressif/_bin/<board>`.
 
 ### Flash
 
-You could flash it with flash target
+You could flash it with flash target, `-p <port>` naming the serial port, and watch its log with monitor
 
 ```
-idf.py -DBOARD=adafruit_feather_esp32s2 flash
+idf.py -C ports/espressif -DBOARD=adafruit_feather_esp32s2 flash monitor
 ```
 
-or you could also use pre-built binaries from [release page](https://github.com/adafruit/tinyuf2/releases). Extract and run following esptool commands
+or write the merged image once built, which esptool can also write by itself (`esptool --chip esp32s2 write-flash 0x0
+<build dir>/combined.bin`)
+
+```
+idf.py -C ports/espressif -DBOARD=adafruit_feather_esp32s2 combined-flash
+```
+
+You could also use pre-built binaries from [release page](https://github.com/adafruit/tinyuf2/releases). Extract and run following esptool commands
 
 ```
 esptool --chip esp32s2 -p /dev/ttyUSB0 -b 460800 --before default-reset --after hard-reset write-flash --flash-mode dio --flash-freq 80m --flash-size 4MB 0x8000 partition-table.bin 0xe000 ota_data_initial.bin 0x1000 bootloader.bin 0x2d0000 tinyuf2.bin
