@@ -717,8 +717,8 @@ def build_idf(board, root, defines, log, verbose, idf_mode, image):
     code = run(cmd, log, verbose)
   finally:
     # a stopped or killed client leaves its container building: PID 1 there ignores the SIGTERM docker forwards; a
-    # client that exited by itself has waited for --rm's removal
-    if code is None or code < 0:
+    # failing client may return before --rm's removal (docker/cli v26.1.5 run.go returns on an attach error)
+    if code != 0:
       left, again = '', None
       try:
         left = container_left(container)

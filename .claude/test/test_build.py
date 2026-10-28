@@ -1439,11 +1439,13 @@ class IdfBuildContainer(FakeTools, unittest.TestCase):
     log = self.log.read_text().splitlines()[-3:]
     self.assertEqual((log[0], sorted(log[1:])), ('$ ' + line, ["ninja: Entering directory `x'", 'ninja: warning: on stderr']))
 
-  def test_a_failed_build_stays_failed_and_runs_no_cleanup(self):
-    # a client that exits by itself has waited for --rm's removal of its container
-    with self.fake_tools(UNKNOWN_TARGET='1'):
+  def test_a_failed_build_stays_failed_and_removes_only_its_own_container(self):
+    with self.fake_tools(UNKNOWN_TARGET='1'):   # the fake daemon keeps the failed run's container
       self.assertFalse(self.build())
-    self.assertEqual([c[0] for c in self.tool_calls('docker')], ['run'])
+    name = self.names()[0]
+    self.assertEqual({tuple(c) for c in self.tool_calls('docker') if c[0] != 'run'},
+                     {('rm', '-f', name), ('ps', '-aq', '-f', f'name=^{name}$')})
+    self.assertFalse((self.tmp / 'container').exists())
     self.assertIn('ninja: error: unknown target', self.log.read_text())
     self.assertNotIn('docker rm', self.log.read_text())
 
