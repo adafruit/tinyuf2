@@ -327,6 +327,22 @@ class SetupToolchain(unittest.TestCase):
         self.assertEqual(status, '', 'the install left files in the checkout')
         self.assertTrue((home / 'cache' / toolchain / installed).exists())
 
+  def test_setup_takes_exactly_one_bin_dir(self):
+    """An unmatched glob stays one literal word in bash: an empty cache must fail, not put the pattern on PATH."""
+    setup = self.step(ACTIONS / 'download' / 'action.yml', 'Setup Toolchain')
+    for dirs, code in (((), 1), (('a',), 0), (('a', 'b'), 1)):
+      with self.subTest(dirs=dirs):
+        home = Path(tempfile.mkdtemp(dir=self.tmp))
+        (home / 'cache' / 'arm-gcc').mkdir(parents=True)
+        for d in dirs:
+          (home / 'cache' / 'arm-gcc' / d / 'bin').mkdir(parents=True)
+        path = home / 'github-path'
+        r = subprocess.run(['bash', '--noprofile', '--norc', '-e', '-c', setup], capture_output=True, text=True,
+                           env=dict(os.environ, HOME=str(home), TOOLCHAIN='arm-gcc', GITHUB_PATH=str(path)))
+        self.assertEqual(r.returncode, code, r.stdout + r.stderr)
+        self.assertEqual(path.read_text() if path.exists() else '',
+                         f'{home}/cache/arm-gcc/a/bin\n' if code == 0 else '')
+
 
 class Selection(unittest.TestCase):
   def test_board_file_selects_that_board(self):

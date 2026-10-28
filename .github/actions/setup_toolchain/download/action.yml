@@ -64,7 +64,8 @@ runs:
           sudo apt-get install -y ~/cache/${TOOLCHAIN}/cxarm.deb
           TOOLCHAIN_PATH="/opt/iar/cxarm/arm/bin"
         else
-          # Find the single toolchain bin directory
+          # Find the single toolchain bin directory; nullglob makes no match count as zero
+          shopt -s nullglob
           TOOLCHAIN_BIN_DIRS=(~/cache/${TOOLCHAIN}/*/bin)
           if [[ ${#TOOLCHAIN_BIN_DIRS[@]} -ne 1 ]]; then
             echo "Error: Expected exactly one toolchain bin directory, found ${#TOOLCHAIN_BIN_DIRS[@]}"
