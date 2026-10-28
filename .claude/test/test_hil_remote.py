@@ -1003,6 +1003,10 @@ class Driver(unittest.TestCase):
           (attempt / rel).write_bytes(data)
       stage()
       drv.check_hosted(attempt, m)
+
+      def blocked(*_):   # not an OSError, which sha256() would swallow as a mismatch
+        self.fail('check_hosted blocked reading a staged entry')
+      self.addCleanup(signal.signal, signal.SIGALRM, signal.signal(signal.SIGALRM, blocked))
       for what, change in (
           ('an extra file', lambda: (attempt / 'hosted/b/build/extra.bin').write_bytes(b'x')),
           ('another board', lambda: (attempt / 'hosted/c').mkdir() or (attempt / 'hosted/c/x').write_bytes(b'x')),
@@ -1010,6 +1014,8 @@ class Driver(unittest.TestCase):
           ('a missing file', lambda: (attempt / 'hosted/b/provenance.json').unlink()),
           ('a link in place of a file', lambda: (attempt / 'hosted/b/build/tinyuf2.hex').unlink() or
            (attempt / 'hosted/b/build/tinyuf2.hex').symlink_to(attempt / 'hosted/b/b.build.json')),
+          ('a FIFO in place of a file', lambda: (attempt / 'hosted/b/provenance.json').unlink() or
+           os.mkfifo(attempt / 'hosted/b/provenance.json')),
           ('a linked dir', lambda: (attempt / 'hosted/b/sub').symlink_to(attempt / 'hosted/b/build')),
           ('a linked root', lambda: [(attempt / 'hosted').rename(attempt / 'elsewhere'),   # the same files, elsewhere
                                      (attempt / 'hosted').symlink_to(attempt / 'elsewhere')]),
@@ -1018,8 +1024,12 @@ class Driver(unittest.TestCase):
         with self.subTest(what):
           stage()
           change()
-          with self.assertRaisesRegex(drv.Refused, 'not the ones the manifest froze'):
-            drv.check_hosted(attempt, m)
+          signal.alarm(5)   # a staged entry that blocks its read fails here rather than hanging the suite
+          try:
+            with self.assertRaisesRegex(drv.Refused, 'not the ones the manifest froze'):
+              drv.check_hosted(attempt, m)
+          finally:
+            signal.alarm(0)
 
   def test_inventory_entries_outside_the_boards_artifacts_are_an_incomplete_copy_back(self):
     with tempfile.TemporaryDirectory() as d:

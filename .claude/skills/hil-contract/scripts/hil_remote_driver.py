@@ -114,7 +114,7 @@ def check_hosted(attempt, m):
       if p.is_symlink() or not (p.is_dir() or p.is_file()):
         odd.append(p.relative_to(attempt).as_posix())
     dirs[:] = [x for x in dirs if not os.path.islink(os.path.join(d, x))]
-    found |= {Path(d, f).relative_to(attempt).as_posix() for f in files if not os.path.islink(os.path.join(d, f))}
+    found |= {Path(d, f).relative_to(attempt).as_posix() for f in files} - {*odd}   # unhashed: open() blocks on a FIFO
   bad = sorted({*odd, *(found ^ set(m['hosted'])),
                 *(rel for rel in found & set(m['hosted']) if sha256(attempt / rel) != m['hosted'][rel])})
   if bad:
