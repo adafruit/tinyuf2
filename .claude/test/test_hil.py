@@ -113,8 +113,22 @@ def reap_detached(test):
     test.addCleanup(p.stop)
 
 
+def own_runs():
+  """This process's run dirs at the runner's default run root, named as main() names them."""
+  return set((ht.cb.BUILD_DIR / 'hil').glob(f'run-*-{os.getpid()}'))
+
+
+RUNS_BEFORE = set()
+
+
+def setUpModule():
+  RUNS_BEFORE.update(own_runs())
+
+
 def tearDownModule():
-  """No `hil_test.py keep-build` or `keep-held` child of this process outlives the suite."""
+  """No `hil_test.py keep-build` or `keep-held` child of this process outlives the suite, and no test wrote a run dir
+  into the checkout's cmake-build/hil."""
+  leaked = sorted(str(d) for d in own_runs() - RUNS_BEFORE)
   mine = []
   for d in Path('/proc').iterdir():
     try:
@@ -128,6 +142,9 @@ def tearDownModule():
   left = [pid for pid in mine if end_child(pid)]
   if left:
     raise AssertionError(f'keep-build or keep-held children {left} outlived the suite')
+  if leaked:
+    raise AssertionError(f'run dirs {leaked} were written to the default run root: give the test a --run-root under '
+                         'its tmp dir or redirect cb.BUILD_DIR')
 
 
 def no_ci_job(test):
@@ -4845,9 +4862,19 @@ class RecordFacts(Tmp):
     rec = self.record(rels=('_bin/tinyuf2.bin',))
     with contextlib.redirect_stdout(io.StringIO()) as out, \
          mock.patch.object(ht, 'load_helper', side_effect=AssertionError('the lock helper was loaded')):
-      code = ht.main(['run', '-b', BOARD, '--build-record', str(rec), str(roster(self.tmp))])
+      code = ht.main(['run', '-b', BOARD, '--build-record', str(rec), '--run-root', str(self.tmp / 'runs'),
+                      str(roster(self.tmp))])
     self.assertEqual(code, 2)
     self.assertIn('no board facts in the record', out.getvalue())
+
+  def test_a_run_without_a_run_root_is_one_the_module_guard_sees(self):
+    with contextlib.redirect_stdout(io.StringIO()), mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / 'build'), \
+         mock.patch.object(ht, 'load_helper', side_effect=AssertionError('the lock helper was loaded')):
+      self.assertEqual(ht.main(['run', '-b', BOARD, '--build-record', str(self.record(rels=('_bin/tinyuf2.bin',))),
+                                str(roster(self.tmp))]), 2)
+      runs = own_runs()
+    self.assertEqual([d.parent for d in runs], [self.tmp / 'build' / 'hil'])
+    self.assertTrue((runs.pop() / 'hil_report.json').is_file())
 
 
 def bf_read(build):
