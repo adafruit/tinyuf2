@@ -13,7 +13,9 @@ import shutil
 import signal
 import subprocess
 import sys
+import tarfile
 import tempfile
+import textwrap
 import threading
 import time
 import unittest
@@ -248,6 +250,57 @@ class SetupToolchain(unittest.TestCase):
         r, argv, _ = self.fetch(manifest, 't', body)
         self.assertNotEqual(r.returncode, 0)
         self.assertIsNone(argv, 'nothing is downloaded')
+
+  def install(self, action, toolchain, url, payload):
+    """`action`'s Install Toolchain script run in a fresh git checkout, as a composite step runs it, with fetch.sh a
+    stand-in that writes `payload`: its exit, the checkout's `git status --porcelain` and the fake HOME. Every GIT_*
+    variable is dropped: a pre-commit hook's GIT_DIR and GIT_INDEX_FILE would aim this git at the checkout under test."""
+    clean = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+    text = action.read_text()
+    body = text.split('    - name: Install Toolchain\n', 1)[1].split('      run: |\n', 1)[1].split('      shell: bash\n')[0]
+    root = Path(tempfile.mkdtemp(dir=self.tmp))
+    repo, home, temp = root / 'repo', root / 'home', root / 'runner-temp'
+    for d in (repo, home, temp):
+      d.mkdir()
+    git = ['git', '-C', str(repo), '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false']
+    (repo / 'README').write_text('x')
+    for cmd in (['init', '-q'], ['add', 'README'], ['commit', '-qm', 'x']):
+      subprocess.run([*git, *cmd], env=clean, check=True)
+    self.assertEqual(Path(subprocess.run([*git, 'rev-parse', '--absolute-git-dir'], env=clean, capture_output=True,
+                                         text=True, check=True).stdout.strip()).resolve(), (repo / '.git').resolve())
+    (root / 'payload').write_bytes(payload)
+    fetch = root / 'fetch.sh'
+    fetch.write_text(f'#!/bin/sh\ncp {root / "payload"} "$2"\n')
+    fetch.chmod(0o755)
+    env = dict(clean, HOME=str(home), RUNNER_TEMP=str(temp), TOOLCHAIN=toolchain, TOOLCHAIN_URL=url,
+               FETCH=str(fetch))
+    r = subprocess.run(['bash', '--noprofile', '--norc', '-eo', 'pipefail', '-c', textwrap.dedent(body)], cwd=repo,
+                       env=env, capture_output=True, text=True)
+    status = subprocess.run([*git, 'status', '--porcelain'], env=clean, capture_output=True, text=True, check=True).stdout
+    return r, status, home
+
+  def test_installing_leaves_the_checkout_clean(self):
+    """An untracked download in the checkout would make check_build's identity dirty, which admission refuses."""
+    def archive(mode):
+      buf = io.BytesIO()
+      with tarfile.open(fileobj=buf, mode=f'w:{mode}') as t:
+        info = tarfile.TarInfo('tc/bin/gcc')
+        info.size = 2
+        t.addfile(info, io.BytesIO(b'cc'))
+      return buf.getvalue()
+    action = ACTIONS / 'download' / 'action.yml'
+    installer = b'#!/bin/sh\nmkdir -p "$2/bin"\n'   # rx-gcc's .run: -p <dir> -y
+    for toolchain, url, payload, installed in (
+        ('arm-gcc', ARM_URL.format(dir='14.2.rel1', rel='14.2.rel1', host='x86_64'), archive('xz'), 'tc/bin/gcc'),
+        ('riscv-gcc', 'https://x/t.tar.gz', archive('gz'), 'tc/bin/gcc'),
+        ('msp430-gcc', 'https://x/t.tar.bz2', archive('bz2'), 'tc/bin/gcc'),
+        ('rx-gcc', 'https://x/t.run', installer, 'gnurx/bin'),
+        ('arm-iar', 'https://x/cxarm.deb', b'deb', 'cxarm.deb')):
+      with self.subTest(toolchain):
+        r, status, home = self.install(action, toolchain, url, payload)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(status, '', 'the install left files in the checkout')
+        self.assertTrue((home / 'cache' / toolchain / installed).exists())
 
 
 class Selection(unittest.TestCase):
