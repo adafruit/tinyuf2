@@ -12,6 +12,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -34,6 +35,9 @@ if sys.argv[1] == 'rm':
   container.unlink(missing_ok=True)
   sys.exit(0)
 if sys.argv[1] == 'ps':
+  if os.environ.get('PS_EXIT'):
+    print('Cannot connect to the Docker daemon', file=sys.stderr)
+    sys.exit(int(os.environ['PS_EXIT']))
   print('c0ffee' if container.exists() else '')
   sys.exit(0)
 if sys.argv[1] == 'run' and os.environ.get('CREATE_AFTER'):   # the daemon's create, landing after its client is gone
@@ -986,7 +990,39 @@ class CompileFacts(unittest.TestCase):
       self.assertIn("would write the build's own dependency file", cb.compile_facts(self.root, self.log, False))
 
 
-class HilRecord(unittest.TestCase):
+class FakeTools:
+  """Fake `ninja` and `docker` for a test case whose setUp sets `self.tmp`."""
+
+  def fake_tools(self, **env):
+    """`ninja` and `docker` on PATH that log their argv; as the query, each prints ninja's dry run with a warning on
+    stderr, or with HANG starts a grandchild, adds both pids to `self.pids` and hangs. `docker run` creates the
+    container, CREATE_AFTER s later if set; `docker rm` removes it, or exits RM_EXIT; `docker ps` lists it, or exits PS_EXIT."""
+    tools = self.tmp / 'bin'
+    tools.mkdir(exist_ok=True)
+    for name in ('ninja', 'docker'):
+      (tools / name).write_text(FAKE_TOOL.format(python=sys.executable))
+      (tools / name).chmod(0o755)
+    self.tools_log, self.pids = self.tmp / 'tools.log', self.tmp / 'pids'
+    self.tools_log.unlink(missing_ok=True)
+    (self.tmp / 'container').unlink(missing_ok=True)
+    self.addCleanup(self.kill_hung)
+    return mock.patch.dict(os.environ, {'PATH': f'{tools}:{os.environ["PATH"]}', 'TOOLS_LOG': str(self.tools_log),
+                                        'PIDS': str(self.pids), **env})
+
+  def hung(self):
+    return [int(pid) for pid in self.pids.read_text().split()] if self.pids.exists() else []
+
+  def kill_hung(self):
+    for pid in self.hung():
+      if alive(pid, wait=0):
+        with contextlib.suppress(ProcessLookupError):   # it may exit between the check and the kill
+          os.kill(pid, signal.SIGKILL)
+
+  def tool_calls(self, tool):
+    return [l.split()[1:] for l in self.tools_log.read_text().splitlines() if l.split()[0] == tool]
+
+
+class HilRecord(FakeTools, unittest.TestCase):
   """A HIL record binds the build's own flash target to the roster's probe or bridge."""
 
   def setUp(self):
@@ -1097,34 +1133,6 @@ class HilRecord(unittest.TestCase):
         cfg.write_text(json.dumps({'boards': [{'name': p4, 'tinyuf2': {'routes': [{'flasher': dict(route, args=args)}]}}]}))
         with self.subTest(args), self.assertRaisesRegex(cb.Fail, 'not the roster form'):
           cb.roster_routes(str(cfg), p4)
-
-  def fake_tools(self, **env):
-    """`ninja` and `docker` on PATH that log their argv; as the query, each prints ninja's dry run with a warning on
-    stderr, or with HANG starts a grandchild, adds both pids to `self.pids` and hangs. `docker run` creates the
-    container, CREATE_AFTER s later if set; `docker rm` removes it, or exits RM_EXIT; `docker ps` lists it."""
-    tools = self.tmp / 'bin'
-    tools.mkdir(exist_ok=True)
-    for name in ('ninja', 'docker'):
-      (tools / name).write_text(FAKE_TOOL.format(python=sys.executable))
-      (tools / name).chmod(0o755)
-    self.tools_log, self.pids = self.tmp / 'tools.log', self.tmp / 'pids'
-    self.tools_log.unlink(missing_ok=True)
-    (self.tmp / 'container').unlink(missing_ok=True)
-    self.addCleanup(self.kill_hung)
-    return mock.patch.dict(os.environ, {'PATH': f'{tools}:{os.environ["PATH"]}', 'TOOLS_LOG': str(self.tools_log),
-                                        'PIDS': str(self.pids), **env})
-
-  def hung(self):
-    return [int(pid) for pid in self.pids.read_text().split()] if self.pids.exists() else []
-
-  def kill_hung(self):
-    for pid in self.hung():
-      if alive(pid, wait=0):
-        with contextlib.suppress(ProcessLookupError):   # it may exit between the check and the kill
-          os.kill(pid, signal.SIGKILL)
-
-  def tool_calls(self, tool):
-    return [l.split()[1:] for l in self.tools_log.read_text().splitlines() if l.split()[0] == tool]
 
   def test_an_unbound_query_returns_ninja_stdout_alone_and_a_timeout_kills_it(self):
     root = self.tmp / 'b'
@@ -1361,6 +1369,144 @@ class HilRecord(unittest.TestCase):
         cb.main(argv)
       self.assertEqual(e.exception.code, 2)
       self.assertIn('usage', json.loads(out.getvalue())['error'])
+
+
+
+class IdfBuildContainer(FakeTools, unittest.TestCase):
+  """The ESP-IDF docker build runs in a container named for it, removed when its client stops or is stopped."""
+
+  def setUp(self):
+    tmp = build_tmpdir()
+    self.addCleanup(tmp.cleanup)
+    self.tmp = Path(tmp.name)
+    self.root = self.tmp / 'b'
+    self.root.mkdir()
+    self.log = self.root / 'check_build.log'
+    for p in (mock.patch.object(cb, 'git', return_value=str(self.tmp)), mock.patch.object(cb, 'CONTAINER_SETTLE', 0.2),
+              mock.patch.object(cb, 'CONTAINER_GONE_WAIT', 0.5)):
+      p.start()
+      self.addCleanup(p.stop)
+
+  def build(self, idf_mode='docker'):
+    return cb.build_idf('espressif_esp32s3_devkitc_1', self.root, ['LOG=2'], self.log, False, idf_mode, 'idf:image')
+
+  def fresh(self):
+    """Before each subtest's hang: the last one's processes gone, and its pids and log with them."""
+    self.kill_hung()
+    self.pids.unlink(missing_ok=True)
+    self.log.unlink(missing_ok=True)
+
+  def name(self):
+    [run] = [c for c in self.tool_calls('docker') if c[0] == 'run']
+    return run[run.index('--name') + 1]
+
+  def after_hang(self, act):
+    """`act(pids)` once the hung client and its grandchild are up, from another thread."""
+    def wait():
+      end = time.monotonic() + 10
+      while len(self.hung()) < 2 and time.monotonic() < end:
+        time.sleep(0.05)
+      act(self.hung())
+    t = threading.Thread(target=wait)
+    t.start()
+    self.addCleanup(t.join)
+
+  def test_a_build_runs_in_a_container_of_its_own_name_and_a_pass_removes_nothing(self):
+    with self.fake_tools(), mock.patch.object(cb.uuid, 'uuid4', return_value=mock.Mock(hex='deadbeef')):
+      self.assertTrue(self.build())
+    name = f'tinyuf2-build-{os.getpid()}-deadbeef'
+    [line] = [l for l in self.tools_log.read_text().splitlines() if l.startswith('docker run')]
+    self.assertTrue(line.startswith(' '.join(cb.idf_docker(self.root, name=name) + ['idf:image', 'bash', '-c', ''])), line)
+    self.assertLessEqual({'-DBOARD=espressif_esp32s3_devkitc_1', '-DLOG=2', f'-DARTIFACT_PATH={self.root}/_bin', 'build'},
+                         set(line.split()))
+    self.assertEqual([c[0] for c in self.tool_calls('docker')], ['run'])
+    log = self.log.read_text().splitlines()
+    self.assertEqual((log[0], sorted(log[1:])), ('$ ' + line, ["ninja: Entering directory `x'", 'ninja: warning: on stderr']))
+
+  def test_each_build_gets_a_distinct_container_name(self):
+    with self.fake_tools():
+      self.build()
+      self.build()
+    names = [c[c.index('--name') + 1] for c in self.tool_calls('docker') if c[0] == 'run']
+    self.assertEqual(len(set(names)), 2)
+    for name in names:
+      self.assertRegex(name, '^' + re.escape(f'tinyuf2-build-{os.getpid()}-') + '[0-9a-f]{32}$')
+
+  def test_a_failed_build_stays_failed_and_removes_only_its_own_container(self):
+    with self.fake_tools(UNKNOWN_TARGET='1'):
+      self.assertFalse(self.build())
+    name = self.name()
+    self.assertEqual({tuple(c) for c in self.tool_calls('docker') if c[0] != 'run'},
+                     {('rm', '-f', name), ('ps', '-aq', '-f', f'name=^{name}$')})
+    self.assertFalse((self.tmp / 'container').exists())
+    self.assertIn('ninja: error: unknown target', self.log.read_text())
+    self.assertNotIn('docker rm', self.log.read_text())
+
+  def test_ctrl_c_reaps_the_client_and_removes_its_container_or_names_it(self):
+    old = signal.signal(signal.SIGINT, signal.default_int_handler)
+    self.addCleanup(signal.signal, signal.SIGINT, old)
+    main = threading.get_ident()
+    for what, env in (('removed', {}), ('still listed', {'RM_EXIT': '1'})):
+      stderr = io.StringIO()
+      with self.subTest(what), self.fake_tools(HANG='1', **env), contextlib.redirect_stderr(stderr):
+        self.fresh()
+        self.after_hang(lambda pids: signal.pthread_kill(main, signal.SIGINT))   # during run()'s streaming read
+        with self.assertRaises(KeyboardInterrupt):
+          self.build()
+        client, name = self.hung()[0], self.name()
+        self.assertFalse(Path(f'/proc/{client}').exists())   # gone, not a zombie: reaped before the cleanup
+        self.assertIn(['rm', '-f', name], self.tool_calls('docker'))
+        left = f'b: interrupted docker build; container {name} still exists: docker rm -f {name}' if env else ''
+        self.assertEqual(((self.tmp / 'container').exists(), stderr.getvalue().strip()), (bool(env), left))
+        self.assertEqual(self.log.read_text().splitlines()[-1] == left, bool(env))
+
+  def test_a_killed_client_fails_the_build_and_its_container_is_removed_or_named(self):
+    kill = lambda pids: [os.kill(pid, signal.SIGKILL) for pid in pids]   # check_build lives on, no exception
+    for what, env, tail in (('removed', {}, ''),
+                            ('still listed', {'RM_EXIT': '1'}, 'container {n} still exists: docker rm -f {n}'),
+                            ('docker ps failing', {'PS_EXIT': '1'}, 'docker ps failed (Cannot connect to the Docker daemon), '
+                                                                     'so container {n} may be left: docker rm -f {n}')):
+      with self.subTest(what), self.fake_tools(HANG='1', **env):
+        self.fresh()
+        self.after_hang(kill)
+        start = time.monotonic()
+        self.assertFalse(self.build())
+        self.assertLess(time.monotonic() - start, 10)
+        name, last = self.name(), self.log.read_text().splitlines()[-1]
+        self.assertIn(['rm', '-f', name], self.tool_calls('docker'))
+        self.assertEqual((self.tmp / 'container').exists(), 'RM_EXIT' in env)
+        if tail:
+          self.assertEqual(last, 'b: docker run exited -9; ' + tail.format(n=name))
+        else:
+          self.assertNotIn('docker rm', self.log.read_text())
+
+  def test_a_sigterm_to_check_build_ends_it_through_the_cleanup(self):
+    # a real SIGTERM to a process running check_build's build with its handler: no mocked exception
+    code = ('import importlib.util, sys; from pathlib import Path; from unittest import mock; '
+            'spec = importlib.util.spec_from_file_location("check_build", sys.argv[1]); '
+            'cb = importlib.util.module_from_spec(spec); spec.loader.exec_module(cb); cb.exit_on_sigterm(); '
+            'root = Path(sys.argv[2]); cb.git = lambda *a: sys.argv[3]; '
+            'cb.build_idf("espressif_esp32s3_devkitc_1", root, [], root / "check_build.log", False, "docker", "idf:image")')
+    with self.fake_tools(HANG='1'):
+      outer = subprocess.Popen([sys.executable, '-c', code, str(SCRIPT), str(self.root), str(self.tmp)], cwd=ROOT,
+                               stderr=subprocess.PIPE, text=True)
+      end = time.monotonic() + 10
+      while len(self.hung()) < 2 and time.monotonic() < end:
+        time.sleep(0.05)
+      outer.send_signal(signal.SIGTERM)
+      _, err = outer.communicate(timeout=30)
+    self.assertEqual((outer.returncode, err), (128 + signal.SIGTERM, ''))
+    self.assertFalse(alive(self.hung()[0]))
+    self.assertIn(['rm', '-f', self.name()], self.tool_calls('docker'))
+    self.assertFalse((self.tmp / 'container').exists())
+
+  def test_a_local_idf_build_runs_no_docker_cleanup(self):
+    for stop in (mock.Mock(return_value=1), mock.Mock(side_effect=KeyboardInterrupt)):
+      with self.subTest(stop), mock.patch.object(cb, 'run', stop), mock.patch.object(cb, 'container_left') as left, \
+           contextlib.suppress(KeyboardInterrupt):
+        self.assertFalse(self.build('local'))
+      left.assert_not_called()
+      self.assertEqual(stop.call_args[0][0][0], 'idf.py')
 
 
 class Ghostfat(unittest.TestCase):
