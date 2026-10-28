@@ -105,31 +105,29 @@ def classify(path):
 
 
 class TablesMatchTheTree(unittest.TestCase):
-  def test_backends_are_build_yml_jobs(self):
+  def test_the_ports_and_their_backends_are_build_yml_jobs(self):
     enabled, disabled = ci_jobs()
-    self.assertEqual(cb.BACKENDS, enabled)
+    self.assertEqual({p: cb.backend_of(p) for p in cb.REPRESENTATIVES}, enabled)
     self.assertLessEqual(disabled, set(cb.UNBUILT))
 
   def test_every_port_dir_has_a_backend_or_a_reason(self):
     ports = {p.name for p in (ROOT / 'ports').iterdir() if p.is_dir()} - {cb.GHOSTFAT}
-    self.assertEqual(ports, set(cb.BACKENDS) | set(cb.UNBUILT))
+    self.assertEqual(ports, set(cb.REPRESENTATIVES) | set(cb.UNBUILT))
 
   def test_representatives_exist(self):
-    self.assertEqual(set(cb.REPRESENTATIVES), set(cb.BACKENDS))
     for port, boards in cb.REPRESENTATIVES.items():
       for b in boards:
         self.assertTrue((ROOT / 'ports' / port / 'boards' / b).is_dir(), f'{port}/{b}')
     for backend, board in cb.SMOKE.items():
-      self.assertEqual(cb.BACKENDS[cb.port_of(board)], backend)
+      self.assertEqual(cb.backend_of(cb.port_of(board)), backend)
 
   def test_espressif_representatives_cover_every_idf_target(self):
     target = lambda b: re.search(r'IDF_TARGET "(\w+)"', (ROOT / 'ports/espressif/boards' / b / 'board.cmake').read_text())[1]
     every = {target(b.name) for b in (ROOT / 'ports/espressif/boards').iterdir() if (b / 'board.cmake').is_file()}
     self.assertEqual({target(b) for b in cb.REPRESENTATIVES['espressif']}, every)
 
-  def test_every_port_builds_with_cmake_or_esp_idf(self):
-    for port in [*cb.BACKENDS, 'ch32v20x']:
-      self.assertIn(cb.backend_of(port), ('cmake', 'idf'), port)
+  def test_every_built_port_has_a_cmake_build(self):
+    for port in [*cb.REPRESENTATIVES, *(set(cb.UNBUILT) - {'template_port'})]:
       self.assertTrue((ROOT / 'ports' / port / 'CMakeLists.txt').is_file(), port)
 
   def test_ci_idf_version_is_read_from_build_yml(self):
@@ -205,8 +203,10 @@ class Selection(unittest.TestCase):
     self.assertEqual(classify('.claude/test/test_code_size.py'), ('contract-tests', 'select', [], False, True))
 
   def test_unknown_port_fails_explicitly(self):
-    with self.assertRaises(cb.Fail):
-      cb.backend_of('no_such_port')
+    for fail in (lambda: cb.backend_of('no_such_port'), lambda: cb.classify('ports/no_such_port/x.c')):
+      with mock.patch.object(Path, 'is_dir', lambda self: True), \
+           self.assertRaisesRegex(cb.Fail, 'add it to REPRESENTATIVES or UNBUILT'):
+        fail()
 
   def test_contract_test_edit_runs_the_tests_only(self):
     self.assertEqual(classify('.claude/test/test_build.py'), ('contract-tests', 'select', [], False, True))

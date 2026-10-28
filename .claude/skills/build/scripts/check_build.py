@@ -40,23 +40,8 @@ ROOT = Path(__file__).resolve().parents[4]
 BUILD_YML = ROOT / '.github' / 'workflows' / 'build.yml'
 BUILD_DIR = ROOT / 'cmake-build'
 
-# Backend of every port CI builds, as build.yml's jobs build it; test_build.py holds the two equal. The HIL's
-# records build with the same backend.
-BACKENDS = {
-  'espressif': 'idf',
-  'kinetis_k32l2': 'cmake',
-  'lpc55': 'cmake',
-  'maxim': 'cmake',
-  'mimxrt10xx': 'cmake',
-  'stm32f3': 'cmake',
-  'stm32f4': 'cmake',
-  'stm32h5': 'cmake',
-  'stm32h7': 'cmake',
-  'stm32l4': 'cmake',
-}
-
-# Boards that stand in for their port: rig boards first; espressif covers every IDF target,
-# mimxrt10xx both the RT10xx and RT1170 boot layouts.
+# The ports CI builds (build.yml's jobs; test_build.py holds the two equal) and the boards that stand in for each:
+# rig boards first; espressif covers every IDF target, mimxrt10xx both the RT10xx and RT1170 boot layouts.
 REPRESENTATIVES = {
   'espressif': ['espressif_esp32s3_devkitm_1', 'espressif_esp32s2_devkitc_1', 'espressif_p4_function_ev',
                 'espressif_esp32s31_func_core'],
@@ -72,8 +57,8 @@ REPRESENTATIVES = {
 }
 # Ports no CI job builds: a change there is uncovered; --board may still build one explicitly.
 UNBUILT = {
-  'ch32v20x': ('cmake', 'its riscv job is disabled in build.yml'),
-  'template_port': (None, 'a template no build compiles'),
+  'ch32v20x': 'its riscv job is disabled in build.yml',
+  'template_port': 'a template no build compiles',
 }
 # compiler a port's cmake build needs, when not arm-none-eabi-gcc
 COMPILER = {'ch32v20x': 'riscv-none-elf-gcc'}
@@ -166,7 +151,7 @@ def codeql_build():
   if sorted(k for k, _ in assigned) != ['BOARD', 'PORT'] or not all(re.fullmatch(r'\w+', v) for _, v in assigned):
     raise Fail(f'cannot read one PORT and one BOARD from {CODEQL}: update codeql_build()')
   found = dict(assigned)
-  if BACKENDS.get(found['PORT']) != 'cmake':
+  if found['PORT'] not in REPRESENTATIVES or backend_of(found['PORT']) != 'cmake':
     raise Fail(f'{CODEQL} builds ports/{found["PORT"]}, which CI does not build with cmake')
   return found['PORT'], found['BOARD']
 
@@ -208,7 +193,7 @@ def port_app_selection(port, path):
   """Boards that compile a change under ports/<port>/apps/: the boards each app reading it is enabled
   for; and CI's scope."""
   parts = path.split('/')
-  if BACKENDS[port] == 'idf':
+  if backend_of(port) == 'idf':
     if len(parts) >= 4 and parts[3] not in espressif_apps():
       return None, f'ports/espressif/CMakeLists.txt builds no ExternalProject for apps/{parts[3]}', {}
     return (rep_selection([port], f'builds {"/".join(parts[2:4])}'), f'{port} {"/".join(parts[2:4])}',
@@ -228,7 +213,7 @@ def ports_using_app(app):
   """Ports whose build compiles sources of the top-level apps/<app>."""
   hits = []
   ref = re.compile(rf'\$\{{TOP\}}/apps/{app}\b')
-  for port in sorted(BACKENDS):
+  for port in sorted(REPRESENTATIVES):
     files = [f for f in ports_dir(port).rglob('*') if f.is_file() and cmake_file(f.name)]
     for f in files:
       if ref.search(code_lines(f)):
@@ -261,12 +246,12 @@ def deps_families(path):
   """Ports CI builds whose dependency rows in tools/get_deps.py cover the dependency directory `path`."""
   for dep, families in deps_rows().items():
     if path == dep or path.startswith(dep + '/'):
-      return [p for p in families if p in BACKENDS]
+      return [p for p in families if p in REPRESENTATIVES]
   return None
 
 
 def rep_selection(ports, why):
-  return {(b, BACKENDS[p]): why for p in ports for b in REPRESENTATIVES[p]}
+  return {(b, backend_of(p)): why for p in ports for b in REPRESENTATIVES[p]}
 
 
 # CI's scope of a path: FULL, or {port: None for every board | [boards]}. CI builds every board a
@@ -326,19 +311,19 @@ def classify(path):
   if path.startswith(f'ports/{GHOSTFAT}/') or path == '.github/workflows/build_ghostfat.yml':
     return out('ghostfat', 'select', 'ghostfat self-test input', ghostfat=True)
   if len(parts) >= 2 and parts[0] == 'ports' and parts[1] in UNBUILT:
-    return out('unbuilt-port', 'gap', f'ports/{parts[1]}: {UNBUILT[parts[1]][1]}')
-  if len(parts) >= 3 and parts[0] == 'ports' and parts[1] in BACKENDS:
+    return out('unbuilt-port', 'gap', f'ports/{parts[1]}: {UNBUILT[parts[1]]}')
+  if len(parts) >= 3 and parts[0] == 'ports' and parts[1] in REPRESENTATIVES:
     port = parts[1]
     if parts[2] == 'boards' and len(parts) >= 4 and (ports_dir(port) / 'boards' / parts[3]).is_dir():
       return out('board', 'select', f'board {parts[3]} changed',
-                 {(parts[3], BACKENDS[port]): f'{path} is its own'}, ghostfat, ci={port: [parts[3]]})
+                 {(parts[3], backend_of(port)): f'{path} is its own'}, ghostfat, ci={port: [parts[3]]})
     if parts[2] == 'apps':
       boards, reason, ci = port_app_selection(port, path)
       return out('port-app', 'select' if boards else 'gap', reason, boards, ci=ci)
     return out('port', 'select', f'{port} port file', rep_selection([port], f'{port} representative'),
                ghostfat, ci=whole_ports([port]))
   if len(parts) >= 2 and parts[0] == 'ports' and len(parts) >= 3 and (ROOT / 'ports' / parts[1]).is_dir():
-    raise Fail(f'ports/{parts[1]} has no backend in check_build.py: add it to BACKENDS or UNBUILT')
+    raise Fail(f'ports/{parts[1]} is unknown to check_build.py: add it to REPRESENTATIVES or UNBUILT')
   if parts[0] == 'apps' and len(parts) >= 2:
     users = ports_using_app(parts[1])
     if not users:
@@ -534,7 +519,7 @@ def hil_selection(sel, config):
   full = any(r['effect'] == 'core' for r in records)
   if full:
     boards.update(roster)
-    for p in sorted(set(BACKENDS) - set(by_port)):
+    for p in sorted(set(REPRESENTATIVES) - set(by_port)):
       uncovered[p] = f'core change: no {config} board for {p}'
   for r in records:
     parts = r['path'].split('/')
@@ -781,10 +766,10 @@ def container_left(name):
 
 
 def backend_of(port):
-  """The backend CI builds a port with, or an unbuilt port's on-request backend (None for none)."""
-  if port not in BACKENDS and port not in UNBUILT:
-    raise Fail(f'ports/{port} has no backend in check_build.py: add it to BACKENDS or UNBUILT')
-  return BACKENDS.get(port) or UNBUILT[port][0]
+  """A port's backend, CI's or an unbuilt port's on request: ESP-IDF for espressif, else cmake."""
+  if port not in REPRESENTATIVES and port not in UNBUILT:
+    raise Fail(f'ports/{port} is unknown to check_build.py: add it to REPRESENTATIVES or UNBUILT')
+  return 'idf' if port == 'espressif' else 'cmake'
 
 
 def roster_flasher(config, board):
@@ -916,7 +901,7 @@ def build_board(board, backend, args, idf, flasher=None):
   rec = {'board': board, 'port': port, 'backend': backend, 'buildDir': shown(root),
          'status': 'ok', 'firstError': '', 'artifacts': []}
   if port in UNBUILT:
-    rec['note'] = f'ports/{port}: {UNBUILT[port][1]}'
+    rec['note'] = f'ports/{port}: {UNBUILT[port]}'
   if args.variant:
     rec['variant'] = args.variant
   if backend == 'cmake' and 'update-tinyuf2.uf2' not in {p.name for p in expected_artifacts(port, board, backend, root)}:
@@ -1106,10 +1091,9 @@ def main(argv=None):
       boards = {}
       for b in args.board:
         port = port_of(b)
-        backend = backend_of(port)
-        if not backend:
-          raise Fail(f'ports/{port}: {UNBUILT[port][1]}')
-        boards[(b, backend)] = 'named'
+        if port == 'template_port':
+          raise Fail(f'ports/{port}: {UNBUILT[port]}')
+        boards[(b, backend_of(port))] = 'named'
       sel = {'full': False, 'boards': boards, 'ghostfat': False, 'tests': False, 'records': []}
       info = {'mode': 'boards'}
     else:
