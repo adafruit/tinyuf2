@@ -29,7 +29,7 @@ uint32_t board_flash_size(void) { return CFG_UF2_FLASH_SIZE; }
 uint32_t test_flash_write_count;
 uint32_t test_flash_write_addr;
 uint32_t test_flash_write_len;
-uint8_t  test_flash_write_data[476];
+uint8_t  test_flash_write_data[sizeof(((UF2_Block *) 0)->data)];
 uint32_t test_flash_flush_count;
 
 // records the call; copies data only when it fits the record, since the test may make its length out of range
@@ -37,7 +37,6 @@ bool board_flash_write(uint32_t addr, void const* data, uint32_t len) {
   test_flash_write_count++;
   test_flash_write_addr = addr;
   test_flash_write_len = len;
-  memset(test_flash_write_data, 0, sizeof(test_flash_write_data));
   if (len <= sizeof(test_flash_write_data)) {
     memcpy(test_flash_write_data, data, len);
   }

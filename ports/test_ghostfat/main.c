@@ -352,7 +352,6 @@ int DumpDiskImage(void) {
 }
 
 _Static_assert(sizeof(UF2_Block) == GHOSTFAT_SECTOR_SIZE, "UF2 block must fill one sector");
-_Static_assert(sizeof(((UF2_Block *) 0)->data) == sizeof(test_flash_write_data), "write record must hold a payload");
 
 #define TEST_UF2_NUM_BLOCKS 2
 #define TEST_UF2_TARGET_ADDR(blockNo) (0x1000u + 256u * (blockNo))
@@ -406,15 +405,16 @@ static int ExpectWriteAccepted(uint32_t blockNo, uint32_t payloadSize, uint32_t 
 
     int r = uf2_write_block(0, (uint8_t *) &uf2Block, &writeState);
     bool const marked = (0 != (writeState.writtenMask[blockNo / 8] & (1u << (blockNo % 8))));
+    bool const dataMatches = (0 == memcmp(test_flash_write_data, uf2Block.data, payloadSize));
     if ((r != GHOSTFAT_SECTOR_SIZE) || (test_flash_write_count != writes + 1) ||
         (test_flash_write_addr != TEST_UF2_TARGET_ADDR(blockNo)) || (test_flash_write_len != payloadSize) ||
-        memcmp(test_flash_write_data, uf2Block.data, payloadSize) ||
+        !dataMatches ||
         (test_flash_flush_count != flushes + expectedFlushes) || (writeState.numBlocks != TEST_UF2_NUM_BLOCKS) ||
         (writeState.numWritten != numWritten + 1) || !marked) {
         printf("FAIL: payloadSize %" PRIu32 " block %" PRIu32 ": returned %d, %" PRIu32 " write(s) last 0x%08" PRIx32
                "+%" PRIu32 " data %s, %" PRIu32 " flush(es), numBlocks %" PRIu32 ", numWritten %" PRIu32 ", %s\n",
                payloadSize, blockNo, r, test_flash_write_count - writes, test_flash_write_addr, test_flash_write_len,
-               memcmp(test_flash_write_data, uf2Block.data, payloadSize) ? "differs" : "matches",
+               dataMatches ? "matches" : "differs",
                test_flash_flush_count - flushes, writeState.numBlocks, writeState.numWritten,
                marked ? "marked" : "not marked");
         return ERR_WRITE_BLOCK_UNEXPECTED_RESULT;
