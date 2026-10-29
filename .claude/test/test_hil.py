@@ -785,7 +785,7 @@ class Esp(EspCase):
     f = self.facts
     self.assertEqual((f['flashSize'], f['partitionCsv'], f['partitions']), (0x800000, 'partitions-8MB.csv', S3_PARTS))
     self.assertEqual((f['vid'], f['pid'], f['boardId'], f['family'], f['detectionDelayMs']),
-                     (0x239a, 0x00a5, 'ESP32S3-DevKitC-v1.1', 0xc47e5767, 500))
+                     (0x303a, 0x7002, 'ESP32S3-DevKitC-v1.1', 0xc47e5767, 500))
     self.assertEqual(f['flashCache'], 0x10000)
     self.assertEqual((self.board['flasher'], self.board['probe'], self.board['device']), ('esptool', 'cp2102n', 'esp32s3'))
 
@@ -936,7 +936,7 @@ class EspP4(EspCase):
     f = self.facts
     self.assertEqual((f['flashSize'], f['partitionCsv'], f['partitions']), (0x1000000, 'partitions-16MB.csv', P4_PARTS))
     self.assertEqual((f['vid'], f['pid'], f['boardId'], f['family']),
-                     (0x239a, 0x00a5, 'ESP32P4-FunctionEV-v1.4', 0x3d308e94))
+                     (0x303a, 0x7012, 'ESP32P4-FunctionEV-v1.4', 0x3d308e94))
     self.assertEqual(self.board['device'], 'esp32p4')
 
   def test_the_layout_names_what_an_install_writes_and_what_is_preserved(self):
