@@ -300,7 +300,7 @@ class Hosted(unittest.TestCase):
   def test_the_pin_is_the_release_the_hosted_build_installs(self):
     """hil.yml's hosted build sets up arm-gcc through setup_toolchain, whose release admission reads."""
     self.assertRegex(REAL_RELEASE(), r'^\d+\.\d+\.rel\d+$')
-    job = (ROOT / '.github' / 'workflows' / 'hil.yml').read_text().split('\n  hosted-build:\n')[1].split('\n  ci-lan:\n')[0]
+    job = (ROOT / '.github' / 'workflows' / 'hil.yml').read_text().split('\n  hil-build:\n')[1].split('\n  ci-lan:\n')[0]
     self.assertRegex(job, r"uses: \./\.github/actions/setup_toolchain\n\s+with:\n\s+toolchain: arm-gcc\n")
 
   def test_an_espressif_record_needs_no_compiler(self):

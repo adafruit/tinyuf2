@@ -4,10 +4,10 @@ run-name: "${{ github.event.pull_request && format('HIL PR #{0}', github.event.p
 
 # The battery on the ci.lan rig (.claude/skills/hil-contract/SKILL.md, roster test/hil/ci.json) for the commissioned
 # boards a pull request's change reaches, each built by its own hosted runner leg (cmake with CI's arm-gcc, or an
-# Espressif board in CI's ESP-IDF image), collected from the latest attempt (hil_hosted_pick.py) and admitted on the
-# rig against its record and roster (hil_hosted.py): the rig has no toolchain and builds nothing. A pull request from a
-# fork never reaches the rig. A dispatch runs named boards, with fail_at and hosted_fault for the contract's acceptance
-# only, and also builds a named board pending commissioning, whose artifact commissioning admits by hand.
+# Espressif board in CI's ESP-IDF image) and admitted on the rig against its record and roster (hil_hosted.py): the
+# rig has no toolchain and builds nothing. A pull request from a fork never reaches the rig. A dispatch runs named
+# boards, with fail_at and hosted_fault for the contract's acceptance only, and also builds a named board pending
+# commissioning, whose artifact commissioning admits by hand.
 on:
   pull_request:
   workflow_dispatch:
@@ -20,7 +20,7 @@ on:
         required: false
         default: ''
       hosted_fault:
-        description: 'acceptance only: fail build:<board>@<attempt> or collect@<attempt>, space separated'
+        description: 'acceptance only: fail build:<board>@<attempt>, space separated'
         required: false
         default: ''
 
@@ -78,10 +78,10 @@ jobs:
           fault = os.environ.get('HOSTED_FAULT', '')
           if re.search(r'[^\S ]', fault):   # the jobs match a token only between spaces
               sys.exit(f'hosted_fault {fault!r}: separate its tokens with spaces only')
-          bad = [t for t in fault.split(' ') if t and (not re.fullmatch(r'(build:(\S+)|collect)@[1-9][0-9]*', t) or
-                 t.startswith('build:') and t[6:].rsplit('@', 1)[0] not in hosted)]
+          bad = [t for t in fault.split(' ') if t and (not (m := re.fullmatch(r'build:(\S+)@[1-9][0-9]*', t)) or
+                 m[1] not in hosted)]
           if bad:
-              sys.exit(f'hosted_fault {bad}: not build:<a built board>@<attempt> or collect@<attempt>')
+              sys.exit(f'hosted_fault {bad}: not build:<a built board>@<attempt>')
           print('boards:', ' '.join(rig) or 'none')
           print('hosted builds:', ' '.join(hosted) or 'none')
           for u in uncovered:
@@ -101,11 +101,11 @@ jobs:
           path: hil-selection.json
           overwrite: true
 
-  # one leg per board builds and packs its record as hil-hosted-<board> (hil_hosted_pick.py has the collection rules)
-  hosted-build:
+  # one leg per board builds and packs its record as hil-build-<board>
+  hil-build:
     needs: select
     if: needs.select.outputs.matrix != '[]'
-    name: hosted-build (${{ matrix.board }})
+    name: hil-build (${{ matrix.board }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -149,52 +149,19 @@ jobs:
         run: |
           case " $FAULT " in *" build:$BOARD@$GITHUB_RUN_ATTEMPT "*) echo "::error::hosted_fault build"; exit 1;; esac
           python3 .claude/skills/hil-contract/scripts/hil_hosted.py build --board "$BOARD" --roster test/hil/ci.json \
-            --out "$RUNNER_TEMP/hil-hosted"
+            --out "$RUNNER_TEMP/hil-build"
 
       # overwrite: a re-run of this leg replaces its earlier attempt's artifact
       - uses: actions/upload-artifact@v4
         with:
-          name: hil-hosted-${{ matrix.board }}
-          path: ${{ runner.temp }}/hil-hosted
+          name: hil-build-${{ matrix.board }}
+          path: ${{ runner.temp }}/hil-build
           if-no-files-found: error
           overwrite: true
 
-  # this attempt's builds of the rig's boards and collection.json, uploaded even when nothing was collected
-  hosted-collect:
-    needs: [select, hosted-build]
-    if: ${{ !cancelled() && needs.select.result == 'success' && needs.select.outputs.boards != '' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      actions: read
-      contents: read
-    outputs:
-      attempt: ${{ github.run_attempt }}
-    env:
-      BOARDS: ${{ needs.select.outputs.boards }}
-      FAULT: ${{ github.event.inputs.hosted_fault }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Collect each board's build from this attempt
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash   # -o pipefail: a collection that failed must not pass through tee
-        run: |
-          case " $FAULT " in *" collect@$GITHUB_RUN_ATTEMPT "*) echo "::error::hosted_fault collect"; exit 1;; esac
-          python3 .claude/skills/hil-contract/scripts/hil_hosted_pick.py collect --repo "$GITHUB_REPOSITORY" \
-            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --board $BOARDS --out "$RUNNER_TEMP/hil-hosted" |
-            tee -a "$GITHUB_STEP_SUMMARY"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: hil-hosted-build-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/hil-hosted
-          if-no-files-found: error
-
-  # a board collection.json does not admit is not-run with its reason; no collection makes every board not-run
+  # a board without a build artifact, or whose artifact admission refuses, is not-run with its reason
   ci-lan:
-    needs: [select, hosted-collect]
+    needs: [select, hil-build]
     if: ${{ !cancelled() && needs.select.result == 'success' && needs.select.outputs.boards != '' }}
     runs-on: [ self-hosted, Linux, X64, tinyuf2 ]
     # one board is a ~2 min battery; a locked board waits up to hil_ci.py's --lock-wait
@@ -227,19 +194,20 @@ jobs:
           git submodule update --init --depth 1 lib/tinyusb lib/uf2 lib/agentrc
           python3 tools/get_deps.py $(printf -- '-b %s ' $BOARDS)
 
-      # the attempt hosted-collect last ran in; none when it failed: hil_ci.py then reads every board not-run
+      # every leg's <board>/ into one dir; a leg that failed in this attempt may have left an earlier attempt's build
+      # of the same merge commit, which admission checks like any other
       - name: Fetch the hosted builds
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          name: hil-hosted-build-${{ needs.hosted-collect.outputs.attempt || github.run_attempt }}
-          path: ${{ runner.temp }}/hil-hosted
+          pattern: hil-build-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/hil-build
 
       - name: Battery on the rig
         run: |
           python3 .claude/skills/hil-contract/scripts/hil_ci.py --board $BOARDS ${FAIL_AT:+--fail-at "$FAIL_AT"} \
-            --roster test/hil/ci.json --out "$HIL_OUT" --hosted "$RUNNER_TEMP/hil-hosted" \
-            --collection "$RUNNER_TEMP/hil-hosted/collection.json"
+            --roster test/hil/ci.json --out "$HIL_OUT" --hosted "$RUNNER_TEMP/hil-build"
 
       # hil_ci.py's decision, written last (upload-views): `upload` only when no report view is unsafe; any other
       # content, no file (hil_ci.py did not finish) or a failed step uploads no hil_report.md at all
