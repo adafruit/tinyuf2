@@ -40,13 +40,13 @@
 | espressif_esp32s2_devkitc_1 | Espressif ESP32S2 DevKitC 1 | 0x303A:0x7008 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-s2-devkitc-1.html |
 | espressif_esp32s31_func_core | Espressif ESP32-S31 Function CoreBoard-1 | 0x239A:0x00A5 | https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32s31/esp32-s31-function-coreboard-1/user_guide.html |
 | espressif_esp32s3_box | Espressif ESP32S3 Box 2.5 | 0x303A:0x7004 | https://github.com/espressif/esp-box |
-| espressif_esp32s3_devkitc_1 | Espressif ESP32S3 DevKitC 1 | 0x239A:0x00A5 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/hw-reference/esp32s3/user-guide-devkitc-1.html |
-| espressif_esp32s3_devkitc_1_n32r16 | Espressif ESP32S3 DevKitC 1 N32R16 | 0x239A:0x00A5 | https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32s3/esp32-s3-devkitc-1/user_guide_v1.1.html |
-| espressif_esp32s3_devkitm_1 | Espressif ESP32S3 DevKitM 1 | 0x239A:0x00A5 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/hw-reference/esp32s3/user-guide-devkitm-1.html |
+| espressif_esp32s3_devkitc_1 | Espressif ESP32S3 DevKitC 1 | 0x303A:0x7002 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/hw-reference/esp32s3/user-guide-devkitc-1.html |
+| espressif_esp32s3_devkitc_1_n32r16 | Espressif ESP32S3 DevKitC 1 N32R16 | 0x303A:0x7002 | https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32s3/esp32-s3-devkitc-1/user_guide_v1.1.html |
+| espressif_esp32s3_devkitm_1 | Espressif ESP32S3 DevKitM 1 | 0x303A:0x7006 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/hw-reference/esp32s3/user-guide-devkitm-1.html |
 | espressif_esp32s3_eye | Espressif ESP32S3 EYE | 0x303A:0x700E | https://github.com/espressif/esp-who/blob/master/docs/en/get-started/ESP32-S3-EYE_Getting_Started_Guide.md |
 | espressif_hmi_1 | Espressif HMI 1 | 0x303A:0x7000 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-esp32-s2-kaluga-1-kit.html |
 | espressif_kaluga_1 | Espressif Kaluga 1 | 0x239A:0x00C7 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-esp32-s2-kaluga-1-kit.html |
-| espressif_p4_function_ev | Espressif ESP32P4 Function EV | 0x239A:0x00A5 | https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32p4/esp32-p4-function-ev-board/index.html |
+| espressif_p4_function_ev | Espressif ESP32P4 Function EV | 0x303A:0x7012 | https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32p4/esp32-p4-function-ev-board/index.html |
 | espressif_saola_1_wroom | Espressif Saola 1M WROOM | 0x239A:0x00A7 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-saola-1-v1.2.html |
 | espressif_saola_1_wrover | Espressif Saola 1R WROVER | 0x239A:0x00A5 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-saola-1-v1.2.html |
 | firebeetle2_esp32s3 | DFRobot FireBeetle 2 ESP32-S3 | 0x3343:0x83CF | https://www.dfrobot.com/product-2676.html |
