@@ -41,6 +41,7 @@
 | espressif_esp32s31_func_core | Espressif ESP32-S31 Function CoreBoard-1 | 0x239A:0x00A5 | https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32s31/esp32-s31-function-coreboard-1/user_guide.html |
 | espressif_esp32s3_box | Espressif ESP32S3 Box 2.5 | 0x303A:0x7004 | https://github.com/espressif/esp-box |
 | espressif_esp32s3_devkitc_1 | Espressif ESP32S3 DevKitC 1 | 0x239A:0x00A5 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/hw-reference/esp32s3/user-guide-devkitc-1.html |
+| espressif_esp32s3_devkitc_1_n32r16 | Espressif ESP32S3 DevKitC 1 N32R16 | 0x239A:0x00A5 | https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32s3/esp32-s3-devkitc-1/user_guide_v1.1.html |
 | espressif_esp32s3_devkitm_1 | Espressif ESP32S3 DevKitM 1 | 0x239A:0x00A5 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/hw-reference/esp32s3/user-guide-devkitm-1.html |
 | espressif_esp32s3_eye | Espressif ESP32S3 EYE | 0x303A:0x700E | https://github.com/espressif/esp-who/blob/master/docs/en/get-started/ESP32-S3-EYE_Getting_Started_Guide.md |
 | espressif_hmi_1 | Espressif HMI 1 | 0x303A:0x7000 | https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/hw-reference/esp32s2/user-guide-esp32-s2-kaluga-1-kit.html |
@@ -85,8 +86,8 @@
 | muselab_nanoesp32-s2_wrover | Muse Lab nanoESP32-S2 WROVER | 0x303A:0x80B3 | https://github.com/wuxx/nanoESP32-S2 |
 | olimex_esp32s2_devkit_lipo_vB1 | Olimex ESP32S2 DevKit Lipo | 0x15BA:0x28DC | https://www.olimex.com/Products/IoT/ESP32-S2/ESP32-S2-DevKit-Lipo/open-source-hardware |
 | seeed_xiao_esp32s3 | Seeed Studio XIAO ESP32-S3 | 0x2886:0x8056 | https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html |
-| sensebox_mcu_eye | senseBox MCU Eye ESP32S3 | 0x303A:0x82D3 | https://sensebox.de |
 | sensebox_mcu_esp32s2 | senseBox MCU-S2 ESP32S2 | 0x303A:0x81BA | https://sensebox.de |
+| sensebox_mcu_eye | senseBox MCU Eye ESP32S3 | 0x303A:0x82D3 | https://sensebox.de |
 | smartbeedesigns_bee_motion_s3 | Smart Bee Designs Bee Motion S3 | 0x303A:0x8115 | N/A |
 | smartbeedesigns_bee_s3 | Smart Bee Designs Bee S3 | 0x303A:0x8112 | N/A |
 | targett_mcb_wroom | Targett Module Clip w/Wroom | 0x1209:0x3252 | https://www.targettpcb.co.uk/s2-mcb-1 |
@@ -105,11 +106,13 @@
 | unexpectedmaker_tinys3 | Unexpected Maker TinyS3 | 0x303A:0x80D2 | https://circuitpython.org/board/unexpectedmaker_tinys3/ |
 | unexpectedmaker_tinywatchs3 | Unexpected Maker TinyWATCHS3 | 0x303A:0x81B2 | N/A |
 | waveshare_esp32_s2_pico_lcd | Waveshare Electronics ESP32-S2-Pico-LCD | 0x303A:0x810B | http://www.waveshare.com/wiki/ESP32-S2-Pico |
+| waveshare_esp32_s3_eth_8di_8ro | Waveshare Electronics ESP32-S3-ETH-8DI-8RO | 0x303A:0x83A3 | https://www.waveshare.com/esp32-s3-eth-8di-8ro.htm |
 | waveshare_esp32_s3_matrix | Waveshare Electronics ESP32-S3-Matrix | 0x303A:0x826F | https://www.waveshare.com/wiki/ESP32-S3-Matrix |
 | waveshare_esp32_s3_pico | Waveshare Electronics ESP32-S3-Pico | 0x303A:0x81A2 | http://www.waveshare.com/wiki/ESP32-S2-Pico |
+| waveshare_esp32_s3_tiny | Waveshare Electronics ESP32-S3-Tiny | 0x303A:0x81F8 | https://www.waveshare.com/wiki/ESP32-S3-Tiny |
+| waveshare_esp32_s3_tiny_n8r8 | Waveshare Electronics ESP32-S3-Tiny-N8R8 | 0x303A:0x837A | https://docs.waveshare.com/ESP32-S3-Tiny?variant=ESP32-S3-Tiny-N8R8 |
 | waveshare_esp32_s3_touch_lcd_169 | Waveshare Electronics ESP32-S3-Touch-LCD-1.69 | 0x303A:0x8220 | https://www.waveshare.com/product/esp32-s3-touch-lcd-1.69.htm |
 | waveshare_esp32_s3_touch_lcd_2 | Waveshare Electronics ESP32-S3-Touch-LCD-2 | 0x303A:0x82CF | https://www.waveshare.com/esp32-s3-touch-lcd-2.htm?sku=29667 |
-| waveshare_esp32_s3_tiny | Waveshare Electronics ESP32-S3-Tiny | 0x303A:0x81F8 | https://www.waveshare.com/wiki/ESP32-S3-Tiny |
 | waveshare_esp32_s3_zero | Waveshare Electronics ESP32-S3-Zero | 0x303A:0x81B3 | https://www.waveshare.com/wiki/ESP32-S3-Zero |
 | waveshare_esp32s2_pico | Waveshare Electronics ESP32-S2-Pico | 0x303A:0x8109 | http://www.waveshare.com/wiki/ESP32-S2-Pico |
 | waveshare_esp32s3_lcd_169 | Waveshare Electronics ESP32-S3-LCD-1.69 | 0x303A:0x8223 | https://www.waveshare.com/product/esp32-s3-lcd-1.69.htm |
