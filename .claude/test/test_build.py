@@ -12,6 +12,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -29,11 +30,17 @@ container = log.with_name('container')   # the one container the fake daemon hol
 with open(log, 'a') as f:
   f.write(' '.join([Path(sys.argv[0]).name] + sys.argv[1:]) + '\\n')
 if sys.argv[1] == 'rm':
+  if os.environ.get('RM_HANG'):
+    Path(os.environ['RM_HANG']).touch()
+    time.sleep(60)
   if os.environ.get('RM_EXIT'):
     sys.exit(int(os.environ['RM_EXIT']))
   container.unlink(missing_ok=True)
   sys.exit(0)
 if sys.argv[1] == 'ps':
+  if os.environ.get('PS_EXIT'):
+    print('Cannot connect to the Docker daemon', file=sys.stderr)
+    sys.exit(int(os.environ['PS_EXIT']))
   print('c0ffee' if container.exists() else '')
   sys.exit(0)
 if sys.argv[1] == 'run' and os.environ.get('CREATE_AFTER'):   # the daemon's create, landing after its client is gone
@@ -77,6 +84,10 @@ def build_tmpdir():
 spec = importlib.util.spec_from_file_location('check_build', SCRIPT)
 cb = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(cb)
+# `python3 -c` code, SCRIPT its first argument, that loads it as `cb` in a process of its own
+LOAD_CB = ('import importlib.util, sys; from pathlib import Path; '
+           'spec = importlib.util.spec_from_file_location("check_build", sys.argv[1]); '
+           'cb = importlib.util.module_from_spec(spec); spec.loader.exec_module(cb); ')
 
 
 def ci_jobs():
@@ -986,7 +997,46 @@ class CompileFacts(unittest.TestCase):
       self.assertIn("would write the build's own dependency file", cb.compile_facts(self.root, self.log, False))
 
 
-class HilRecord(unittest.TestCase):
+class FakeTools:
+  """Fake `ninja` and `docker` for a test case whose setUp sets `self.tmp`."""
+
+  def fake_tools(self, **env):
+    """`ninja` and `docker` on PATH that log their argv; as the query, each prints ninja's dry run with a warning on
+    stderr, or with HANG starts a grandchild, adds both pids to `self.pids` and hangs. `docker run` creates the
+    container, CREATE_AFTER s later if set; `docker rm` removes it, or exits RM_EXIT, or touches RM_HANG and hangs; `docker ps` lists it, or exits PS_EXIT."""
+    tools = self.tmp / 'bin'
+    tools.mkdir(exist_ok=True)
+    for name in ('ninja', 'docker'):
+      (tools / name).write_text(FAKE_TOOL.format(python=sys.executable))
+      (tools / name).chmod(0o755)
+    self.tools_log, self.pids = self.tmp / 'tools.log', self.tmp / 'pids'
+    self.tools_log.unlink(missing_ok=True)
+    (self.tmp / 'container').unlink(missing_ok=True)
+    self.addCleanup(self.kill_hung)
+    return mock.patch.dict(os.environ, {'PATH': f'{tools}:{os.environ["PATH"]}', 'TOOLS_LOG': str(self.tools_log),
+                                        'PIDS': str(self.pids), **env})
+
+  def hung(self):
+    return [int(pid) for pid in self.pids.read_text().split()] if self.pids.exists() else []
+
+  def wait_hung(self):
+    """The hung tool's and its grandchild's pids, once both are up (up to 10 s)."""
+    end = time.monotonic() + 10
+    while len(self.hung()) < 2 and time.monotonic() < end:
+      time.sleep(0.05)
+    return self.hung()
+
+  def kill_hung(self):
+    for pid in self.hung():
+      if alive(pid, wait=0):
+        with contextlib.suppress(ProcessLookupError):   # it may exit between the check and the kill
+          os.kill(pid, signal.SIGKILL)
+
+  def tool_calls(self, tool):
+    return [l.split()[1:] for l in self.tools_log.read_text().splitlines() if l.split()[0] == tool]
+
+
+class HilRecord(FakeTools, unittest.TestCase):
   """A HIL record binds the build's own flash target to the roster's probe or bridge."""
 
   def setUp(self):
@@ -1098,34 +1148,6 @@ class HilRecord(unittest.TestCase):
         with self.subTest(args), self.assertRaisesRegex(cb.Fail, 'not the roster form'):
           cb.roster_routes(str(cfg), p4)
 
-  def fake_tools(self, **env):
-    """`ninja` and `docker` on PATH that log their argv; as the query, each prints ninja's dry run with a warning on
-    stderr, or with HANG starts a grandchild, adds both pids to `self.pids` and hangs. `docker run` creates the
-    container, CREATE_AFTER s later if set; `docker rm` removes it, or exits RM_EXIT; `docker ps` lists it."""
-    tools = self.tmp / 'bin'
-    tools.mkdir(exist_ok=True)
-    for name in ('ninja', 'docker'):
-      (tools / name).write_text(FAKE_TOOL.format(python=sys.executable))
-      (tools / name).chmod(0o755)
-    self.tools_log, self.pids = self.tmp / 'tools.log', self.tmp / 'pids'
-    self.tools_log.unlink(missing_ok=True)
-    (self.tmp / 'container').unlink(missing_ok=True)
-    self.addCleanup(self.kill_hung)
-    return mock.patch.dict(os.environ, {'PATH': f'{tools}:{os.environ["PATH"]}', 'TOOLS_LOG': str(self.tools_log),
-                                        'PIDS': str(self.pids), **env})
-
-  def hung(self):
-    return [int(pid) for pid in self.pids.read_text().split()] if self.pids.exists() else []
-
-  def kill_hung(self):
-    for pid in self.hung():
-      if alive(pid, wait=0):
-        with contextlib.suppress(ProcessLookupError):   # it may exit between the check and the kill
-          os.kill(pid, signal.SIGKILL)
-
-  def tool_calls(self, tool):
-    return [l.split()[1:] for l in self.tools_log.read_text().splitlines() if l.split()[0] == tool]
-
   def test_an_unbound_query_returns_ninja_stdout_alone_and_a_timeout_kills_it(self):
     root = self.tmp / 'b'
     with self.fake_tools():
@@ -1140,16 +1162,11 @@ class HilRecord(unittest.TestCase):
 
   def test_a_kill_of_check_builds_process_group_also_ends_its_query(self):
     # as `timeout` ends what it runs: the whole process group, which the query and what it starts never leave
-    code = ('import importlib.util, sys; from pathlib import Path; '
-            'spec = importlib.util.spec_from_file_location("check_build", sys.argv[1]); '
-            'cb = importlib.util.module_from_spec(spec); spec.loader.exec_module(cb); '
-            'cb.ninja_in("cmake", None, None, Path(sys.argv[2]), ["-n", "-v"])')
+    code = LOAD_CB + 'cb.ninja_in("cmake", None, None, Path(sys.argv[2]), ["-n", "-v"])'
     with self.fake_tools(HANG='1'):
       outer = subprocess.Popen([sys.executable, '-c', code, str(SCRIPT), str(self.tmp / 'b')], cwd=ROOT,
                                start_new_session=True)
-    end = time.monotonic() + 10
-    while len(self.hung()) < 2 and time.monotonic() < end:
-      time.sleep(0.05)
+    self.wait_hung()
     os.killpg(outer.pid, signal.SIGKILL)
     outer.wait()
     self.assertEqual(len(self.hung()), 2)
@@ -1361,6 +1378,172 @@ class HilRecord(unittest.TestCase):
         cb.main(argv)
       self.assertEqual(e.exception.code, 2)
       self.assertIn('usage', json.loads(out.getvalue())['error'])
+
+
+class IdfBuildContainer(FakeTools, unittest.TestCase):
+  """The ESP-IDF docker build runs in a container named for it, removed when its client is stopped or killed."""
+
+  def setUp(self):
+    tmp = build_tmpdir()
+    self.addCleanup(tmp.cleanup)
+    self.tmp = Path(tmp.name)
+    self.root = self.tmp / 'b'
+    self.root.mkdir()
+    self.log = self.root / 'check_build.log'
+    for p in (mock.patch.object(cb, 'git', return_value=str(self.tmp)), mock.patch.object(cb, 'CONTAINER_SETTLE', 0.2),
+              mock.patch.object(cb, 'CONTAINER_GONE_WAIT', 0.5)):
+      p.start()
+      self.addCleanup(p.stop)
+
+  def build(self, idf_mode='docker'):
+    return cb.build_idf('espressif_esp32s3_devkitc_1', self.root, ['LOG=2'], self.log, False, idf_mode, 'idf:image')
+
+  def fresh(self):
+    """Before each subtest's hang: the last one's processes gone, and its pids and log with them."""
+    self.kill_hung()
+    self.pids.unlink(missing_ok=True)
+    self.log.unlink(missing_ok=True)
+
+  def names(self):
+    return [c[c.index('--name') + 1] for c in self.tool_calls('docker') if c[0] == 'run']
+
+  def after_hang(self, act):
+    """`act(pids)` once the hung client and its grandchild are up, from another thread."""
+    t = threading.Thread(target=lambda: act(self.wait_hung()))
+    t.start()
+    self.addCleanup(t.join)
+
+  def check_build(self, code, **env):
+    """A process running check_build's docker build of `self.root` (LOAD_CB + `code` + the build), as a script:
+    with its SIGTERM handler."""
+    code = (LOAD_CB + 'cb.exit_on_sigterm(); cb.CONTAINER_SETTLE = 0.2; cb.CONTAINER_GONE_WAIT = 0.5; '
+            'root = Path(sys.argv[2]); cb.git = lambda *a: sys.argv[3]; ' + code +
+            'cb.build_idf("espressif_esp32s3_devkitc_1", root, [], root / "check_build.log", False, "docker", "idf:image")')
+    return subprocess.Popen([sys.executable, '-c', code, str(SCRIPT), str(self.root), str(self.tmp)], cwd=ROOT,
+                            stderr=subprocess.PIPE, text=True)
+
+  def test_each_build_runs_in_a_container_of_its_own_name_and_a_pass_removes_nothing(self):
+    with self.fake_tools():
+      self.assertTrue(self.build())
+      self.assertTrue(self.build())
+    names = self.names()
+    self.assertEqual(len(set(names)), 2)
+    for name in names:
+      self.assertRegex(name, '^' + re.escape(f'tinyuf2-build-{os.getpid()}-') + '[0-9a-f]{32}$')
+    line = [l for l in self.tools_log.read_text().splitlines() if l.startswith('docker run')][-1]
+    self.assertTrue(line.startswith(' '.join(cb.idf_docker(self.root, name=names[-1]) + ['idf:image', 'bash', '-c', ''])),
+                    line)
+    self.assertLessEqual({'-DBOARD=espressif_esp32s3_devkitc_1', '-DLOG=2', f'-DARTIFACT_PATH={self.root}/_bin', 'build'},
+                         set(line.split()))
+    self.assertEqual([c[0] for c in self.tool_calls('docker')], ['run', 'run'])
+    log = self.log.read_text().splitlines()[-3:]
+    self.assertEqual((log[0], sorted(log[1:])), ('$ ' + line, ["ninja: Entering directory `x'", 'ninja: warning: on stderr']))
+
+  def test_a_failed_build_stays_failed_and_removes_only_its_own_container(self):
+    with self.fake_tools(UNKNOWN_TARGET='1'):   # the fake daemon keeps the failed run's container
+      self.assertFalse(self.build())
+    name = self.names()[0]
+    self.assertEqual({tuple(c) for c in self.tool_calls('docker') if c[0] != 'run'},
+                     {('rm', '-f', name), ('ps', '-aq', '-f', f'name=^{name}$')})
+    self.assertFalse((self.tmp / 'container').exists())
+    self.assertIn('ninja: error: unknown target', self.log.read_text())
+    self.assertNotIn('docker rm', self.log.read_text())
+
+  def test_ctrl_c_reaps_the_client_and_removes_its_container_or_names_it(self):
+    old = signal.signal(signal.SIGINT, signal.default_int_handler)
+    self.addCleanup(signal.signal, signal.SIGINT, old)
+    main = threading.get_ident()
+    for what, env in (('removed', {}), ('still listed', {'RM_EXIT': '1'})):
+      stderr = io.StringIO()
+      with self.subTest(what), self.fake_tools(HANG='1', **env), contextlib.redirect_stderr(stderr):
+        self.fresh()
+        self.after_hang(lambda pids: signal.pthread_kill(main, signal.SIGINT))   # during run()'s streaming read
+        with self.assertRaises(KeyboardInterrupt):
+          self.build()
+        client, name = self.hung()[0], self.names()[0]
+        self.assertFalse(Path(f'/proc/{client}').exists())   # gone, not a zombie: reaped before the cleanup
+        self.assertIn(['rm', '-f', name], self.tool_calls('docker'))
+        left = f'b: interrupted docker build; container {name} still exists: docker rm -f {name}' if env else ''
+        self.assertEqual(((self.tmp / 'container').exists(), stderr.getvalue().strip()), (bool(env), left))
+        self.assertEqual(self.log.read_text().splitlines()[-1] == left, bool(env))
+
+  def test_a_killed_client_fails_the_build_and_its_container_is_removed_or_named(self):
+    kill = lambda pids: [os.kill(pid, signal.SIGKILL) for pid in pids]   # check_build lives on, no exception
+    for what, env, tail in (('removed', {}, ''),
+                            ('still listed', {'RM_EXIT': '1'}, 'container {n} still exists: docker rm -f {n}'),
+                            ('docker ps failing', {'PS_EXIT': '1'}, 'docker ps failed (Cannot connect to the Docker daemon), '
+                                                                     'so container {n} may be left: docker rm -f {n}')):
+      with self.subTest(what), self.fake_tools(HANG='1', **env):
+        self.fresh()
+        self.after_hang(kill)
+        start = time.monotonic()
+        self.assertFalse(self.build())
+        self.assertLess(time.monotonic() - start, 10)
+        name, last = self.names()[0], self.log.read_text().splitlines()[-1]
+        self.assertIn(['rm', '-f', name], self.tool_calls('docker'))
+        self.assertEqual((self.tmp / 'container').exists(), 'RM_EXIT' in env)
+        if tail:
+          self.assertEqual(last, 'b: docker run exited -9; ' + tail.format(n=name))
+        else:
+          self.assertNotIn('docker rm', self.log.read_text())
+
+  def test_an_interrupt_of_a_killed_clients_cleanup_names_the_container_and_is_kept(self):
+    stderr = io.StringIO()
+    with self.fake_tools(HANG='1'), contextlib.redirect_stderr(stderr), \
+         mock.patch.object(cb, 'container_left', side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
+      self.after_hang(lambda pids: [os.kill(pid, signal.SIGKILL) for pid in pids])
+      self.build()
+    name = self.names()[0]
+    left = f'b: docker run exited -9; cleanup interrupted, so container {name} may be left: docker rm -f {name}'
+    self.assertEqual((self.log.read_text().splitlines()[-1], stderr.getvalue().strip()), (left, left))
+
+  def test_a_sigterm_to_check_build_ends_it_through_the_cleanup(self):
+    # a real SIGTERM to a process running check_build's build with its handler: no mocked exception
+    with self.fake_tools(HANG='1'):
+      outer = self.check_build('')
+      self.wait_hung()
+      outer.send_signal(signal.SIGTERM)
+      _, err = outer.communicate(timeout=30)
+    self.assertEqual((outer.returncode, err), (128 + signal.SIGTERM, ''))
+    self.assertFalse(alive(self.hung()[0]))
+    self.assertIn(['rm', '-f', self.names()[0]], self.tool_calls('docker'))
+    self.assertFalse((self.tmp / 'container').exists())
+
+  def test_a_second_interrupt_during_the_cleanup_keeps_the_first_and_names_the_container(self):
+    removing = self.tmp / 'removing'
+    with self.fake_tools(HANG='1', RM_HANG=str(removing)):
+      outer = self.check_build('')
+      self.wait_hung()
+      outer.send_signal(signal.SIGTERM)
+      end = time.monotonic() + 10
+      while not removing.exists() and time.monotonic() < end:
+        time.sleep(0.05)
+      outer.send_signal(signal.SIGINT)   # during the blocked `docker rm`
+      _, err = outer.communicate(timeout=30)
+    name = self.names()[0]
+    left = f'b: interrupted docker build; cleanup interrupted, so container {name} may be left: docker rm -f {name}'
+    self.assertEqual((outer.returncode, err.strip(), self.log.read_text().splitlines()[-1]),
+                     (128 + signal.SIGTERM, left, left))
+
+  def test_the_diagnostic_cannot_mask_the_interruption(self):
+    stderr = mock.Mock(write=mock.Mock(side_effect=OSError('stderr closed')))
+    with mock.patch.object(cb, 'run', side_effect=SystemExit(128 + signal.SIGTERM)), \
+         mock.patch.object(cb, 'container_left', return_value='; container x still exists: docker rm -f x'), \
+         mock.patch('builtins.open', side_effect=OSError('log unwritable')), contextlib.redirect_stderr(stderr), \
+         self.assertRaises(SystemExit) as stopped:
+      self.build()
+    self.assertEqual(stopped.exception.code, 128 + signal.SIGTERM)
+    stderr.write.assert_called()
+
+  def test_a_local_idf_build_runs_no_docker_cleanup(self):
+    with mock.patch.object(cb, 'run', return_value=1) as run, mock.patch.object(cb, 'container_left') as left:
+      self.assertFalse(self.build('local'))
+    self.assertEqual(run.call_args[0][0][0], 'idf.py')
+    left.assert_not_called()
+    with mock.patch.object(cb, 'run', side_effect=KeyboardInterrupt), mock.patch.object(cb, 'container_left') as left, \
+         self.assertRaises(KeyboardInterrupt):
+      self.build('local')
+    left.assert_not_called()
 
 
 class Ghostfat(unittest.TestCase):
