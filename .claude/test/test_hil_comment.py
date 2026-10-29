@@ -311,14 +311,14 @@ class Cli(unittest.TestCase):
     self.assertEqual(self.fresh_step(broken)[:2], (2, ''))
 
   def test_the_rig_artifact_is_the_rig_jobs_attempts_and_fresh_checks_this_one(self):
-    # re-running failed jobs keeps a passed rig job's outputs and artifact, so the comment job's own attempt has none
+    # re-running failed jobs keeps a passed rig job's outputs and artifact, so the pr-comment job's own attempt has none
     text = (ROOT / '.github' / 'workflows' / 'hil.yml').read_text()
     jobs = dict(re.findall(r'^  ([\w-]+):\n((?:(?:    .*)?\n)+)', text[text.index('\njobs:\n'):], re.M))
-    self.assertIn('    outputs:\n      attempt: ${{ github.run_attempt }}\n', jobs['ci-lan'])
-    self.assertIn('          name: hil-ci-lan-${{ github.run_attempt }}\n', jobs['ci-lan'])
-    comment = jobs['comment']
-    self.assertIn('      RIG_ATTEMPT: ${{ needs.ci-lan.outputs.attempt || github.run_attempt }}\n', comment)
-    self.assertIn('          name: hil-ci-lan-${{ env.RIG_ATTEMPT }}\n', comment)
+    self.assertIn('    outputs:\n      attempt: ${{ github.run_attempt }}\n', jobs['hil-run'])
+    self.assertIn('          name: hil-run-${{ github.run_attempt }}\n', jobs['hil-run'])
+    comment = jobs['pr-comment']
+    self.assertIn('      RIG_ATTEMPT: ${{ needs.hil-run.outputs.attempt || github.run_attempt }}\n', comment)
+    self.assertIn('          name: hil-run-${{ env.RIG_ATTEMPT }}\n', comment)
     self.assertIn('/attempts/$RIG_ATTEMPT" \\\n', comment)
     self.assertIn('--attempt "$RIG_ATTEMPT" --out comment.md', comment)
     self.assertIn('--run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT")', comment)   # fresh

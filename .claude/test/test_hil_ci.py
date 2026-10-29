@@ -702,7 +702,7 @@ class Workflow(unittest.TestCase):
   def test_the_rig_takes_every_legs_build_from_one_merged_download(self):
     """The rig runs whatever the legs concluded, downloads every hil-build-<board> artifact of the run into one
     directory and admits each board from its own <board>/ there; a board with none is not-run."""
-    rig = workflow_job('ci-lan')
+    rig = workflow_job('hil-run')
     self.assertIn('    needs: [select, hil-build]\n', rig)
     self.assertIn("    if: ${{ !cancelled() && needs.select.result == 'success' && needs.select.outputs.boards != '' }}\n",
                   rig)
@@ -735,7 +735,7 @@ class Workflow(unittest.TestCase):
       (Path(d) / 'python3').write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
       (Path(d) / 'python3').chmod(0o755)
       for job, env, want in (('hil-build', {'BOARD': 'c1'}, ['-b', 'c1']),
-                             ('ci-lan', {'BOARDS': 'c1 c2 e1'}, ['-b', 'c1', '-b', 'c2', '-b', 'e1'])):
+                             ('hil-run', {'BOARDS': 'c1 c2 e1'}, ['-b', 'c1', '-b', 'c2', '-b', 'e1'])):
         line, = [ln.strip() for ln in workflow_job(job).splitlines() if 'tools/get_deps.py' in ln]
         r = subprocess.run(['bash', '-e', '-c', line], capture_output=True, text=True,
                            env=dict(os.environ, PATH=f'{d}:{os.environ["PATH"]}', **env))

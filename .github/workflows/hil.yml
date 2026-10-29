@@ -93,7 +93,7 @@ jobs:
               f.write(f'boards={" ".join(rig)}\nmatrix={json.dumps(matrix)}\n')
           EOF
 
-      # for the comment job; overwrite: a re-run of every job selects again under the same name
+      # for the pr-comment job; overwrite: a re-run of every job selects again under the same name
       - name: Upload the selection
         uses: actions/upload-artifact@v4
         with:
@@ -160,7 +160,7 @@ jobs:
           overwrite: true
 
   # a board without a build artifact, or whose artifact admission refuses, is not-run with its reason
-  ci-lan:
+  hil-run:
     needs: [select, hil-build]
     if: ${{ !cancelled() && needs.select.result == 'success' && needs.select.outputs.boards != '' }}
     runs-on: [ self-hosted, Linux, X64, tinyuf2 ]
@@ -225,7 +225,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: hil-ci-lan-${{ github.run_attempt }}
+          name: hil-run-${{ github.run_attempt }}
           path: |
             ${{ env.HIL_OUT }}
             ${{ steps.views.outputs.exclude }}
@@ -234,8 +234,8 @@ jobs:
 
   # the sticky report comment, posted only by the newest attempt of the newest run for the PR's current head, so an
   # older run finishing late never replaces a newer report
-  comment:
-    needs: [select, ci-lan]
+  pr-comment:
+    needs: [select, hil-run]
     if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
@@ -246,7 +246,7 @@ jobs:
       PR: ${{ github.event.pull_request.number }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       # the attempt the rig job last ran in, whose artifact this is; this attempt when the rig job was skipped
-      RIG_ATTEMPT: ${{ needs.ci-lan.outputs.attempt || github.run_attempt }}
+      RIG_ATTEMPT: ${{ needs.hil-run.outputs.attempt || github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
 
@@ -277,7 +277,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          name: hil-ci-lan-${{ env.RIG_ATTEMPT }}
+          name: hil-run-${{ env.RIG_ATTEMPT }}
           path: hil-out
 
       - name: Render the report

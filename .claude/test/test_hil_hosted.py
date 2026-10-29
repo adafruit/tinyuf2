@@ -16,6 +16,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / '.claude' / 'skills' / 'hil-contract' / 'scripts'))
 import hil_hosted as hh  # noqa: E402
+from test_hil_ci import workflow_job  # noqa: E402
 
 ht, cb = hh.ht, hh.cb
 REAL_RELEASE = cb.ci_arm_gcc_release   # setUp stubs it
@@ -300,8 +301,8 @@ class Hosted(unittest.TestCase):
   def test_the_pin_is_the_release_the_hosted_build_installs(self):
     """hil.yml's hosted build sets up arm-gcc through setup_toolchain, whose release admission reads."""
     self.assertRegex(REAL_RELEASE(), r'^\d+\.\d+\.rel\d+$')
-    job = (ROOT / '.github' / 'workflows' / 'hil.yml').read_text().split('\n  hil-build:\n')[1].split('\n  ci-lan:\n')[0]
-    self.assertRegex(job, r"uses: \./\.github/actions/setup_toolchain\n\s+with:\n\s+toolchain: arm-gcc\n")
+    self.assertRegex(workflow_job('hil-build'),
+                     r"uses: \./\.github/actions/setup_toolchain\n\s+with:\n\s+toolchain: arm-gcc\n")
 
   def test_an_espressif_record_needs_no_compiler(self):
     artifact = self.build()
