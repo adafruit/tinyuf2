@@ -4,25 +4,25 @@
 
 | Board | Name | VID PID | URL |
 | --- | --- | --- | --- |
-| adafruit_camera_esp32s3 | Adafruit PyCamera | 0x239A:0x0117 | https://www.adafruit.com/ |
+| adafruit_camera_esp32s3 | Adafruit PyCamera | 0x239A:0x0117 | https://www.adafruit.com/product/5420 |
 | adafruit_feather_esp32s2 | Adafruit Feather ESP32-S2 | 0x239A:0x00EB | https://www.adafruit.com/product/5000 |
 | adafruit_feather_esp32s2_reverse_tft | Adafruit Feather ESP32-S2 Reverse TFT | 0x239A:0x00ED | https://www.adafruit.com/product/5345 |
 | adafruit_feather_esp32s2_tft | Adafruit Feather ESP32-S2 TFT | 0x239A:0x010F | https://www.adafruit.com/product/5300 |
 | adafruit_feather_esp32s3 | Adafruit Feather ESP32-S3 | 0x239A:0x011B | https://www.adafruit.com/product/5477 |
 | adafruit_feather_esp32s3_nopsram | Adafruit Feather ESP32-S3 No PSRAM | 0x239A:0x0113 | https://www.adafruit.com/product/5323 |
-| adafruit_feather_esp32s3_reverse_tft | Adafruit Feather ESP32-S3 Reverse TFT | 0x239A:0x0123 | https://www.adafruit.com/ |
+| adafruit_feather_esp32s3_reverse_tft | Adafruit Feather ESP32-S3 Reverse TFT | 0x239A:0x0123 | https://www.adafruit.com/product/5691 |
 | adafruit_feather_esp32s3_tft | Adafruit Feather ESP32-S3 TFT | 0x239A:0x011D | https://www.adafruit.com/product/5483 |
-| adafruit_funhouse_esp32s2 | Adafruit FunHouse | 0x239A:0x00F9 | https://www.adafruit.com/ |
+| adafruit_funhouse_esp32s2 | Adafruit FunHouse | 0x239A:0x00F9 | https://www.adafruit.com/product/4985 |
 | adafruit_magtag_29gray | Adafruit MagTag 2.9 Grayscale | 0x239A:0x00E5 | https://www.adafruit.com/product/4800 |
-| adafruit_matrixportal_s3 | Adafruit MatrixPortal S3 | 0x239A:0x0125 | https://www.adafruit.com/ |
-| adafruit_metro_esp32p4 | Adafruit Metro ESP32-P4 | 0x239A:0x017B | https://www.adafruit.com |
+| adafruit_matrixportal_s3 | Adafruit MatrixPortal S3 | 0x239A:0x0125 | https://www.adafruit.com/product/5778 |
+| adafruit_metro_esp32p4 | Adafruit Metro ESP32-P4 | 0x239A:0x017B | https://www.adafruit.com/product/6536 |
 | adafruit_metro_esp32s2 | Adafruit Metro ESP32-S2 | 0x239A:0x00DF | https://www.adafruit.com/product/4775 |
 | adafruit_metro_esp32s3 | Adafruit Metro ESP32-S3 | 0x239A:0x0145 | https://www.adafruit.com/product/5500 |
-| adafruit_mylittlehacker_esp32s2 | Adafruit My Little Hacker ESP32-S2 | 0x239A:0x013F | https://www.adafruit.com/products/5742 |
+| adafruit_mylittlehacker_esp32s2 | Adafruit My Little Hacker ESP32-S2 | 0x239A:0x013F | https://www.adafruit.com/product/5742 |
 | adafruit_qtpy_esp32s2 | Adafruit QT Py ESP32-S2 | 0x239A:0x0111 | https://www.adafruit.com/product/5325 |
 | adafruit_qtpy_esp32s3 | Adafruit QT Py ESP32-S3 | 0x239A:0x0119 | https://adafruit.com/product/5426 |
 | adafruit_qtpy_esp32s3_n4r2 | Adafruit QT Py ESP32-S3 (4M Flash, 2M PSRAM) | 0x239A:0x0143 | https://adafruit.com/product/5700 |
-| adafruit_qualia_s3_rgb666 | Adafruit Qualia ESP32-S3 RGB666 | 0x239A:0x0147 | https://www.adafruit.com/5800 |
+| adafruit_qualia_s3_rgb666 | Adafruit Qualia ESP32-S3 RGB666 | 0x239A:0x0147 | https://www.adafruit.com/product/5800 |
 | adafruit_vindie_s2 | Adafruit Vindie S2 | 0x239A:0x015F | https://www.adafruit.com/product/5901 |
 | artisense_rd00 | Artisense Reference Design RD00 | 0x303A:0x80B0 | https://artisense.ai/ |
 | atmegazero_esp32s2 | ATMegaZero ATMegaZero ESP32-S2 | 0x239A:0x800B | https://atmegazero.com |
