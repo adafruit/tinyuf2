@@ -61,8 +61,8 @@
 // USB UF2
 //--------------------------------------------------------------------+
 
-#define USB_VID           0x239A
-#define USB_PID           0x00A5    // TODO temporarily shared with S2 saola wrover
+#define USB_VID           0x303A
+#define USB_PID           0x7002
 #define USB_MANUFACTURER  "Espressif"
 #define USB_PRODUCT       "ESP32S3 DevKitC 1 N32R16"
 
