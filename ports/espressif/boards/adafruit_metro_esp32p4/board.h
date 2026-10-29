@@ -29,7 +29,7 @@
 #define UF2_PRODUCT_NAME                 USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID                     "ESP32P4-Metro-revA"
 #define UF2_VOLUME_LABEL                 "METROP4BOOT"
-#define UF2_INDEX_URL                    "https://www.adafruit.com"
+#define UF2_INDEX_URL                    "https://www.adafruit.com/product/6536"
 #define TINYUF2_FAVICON_HEADER            "favicon_adafruit_256.h"
 
 #endif

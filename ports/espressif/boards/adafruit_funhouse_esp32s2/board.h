@@ -100,7 +100,7 @@
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID             "ESP32S2-FunHouse-revB"
 #define UF2_VOLUME_LABEL         "HOUSEBOOT"
-#define UF2_INDEX_URL            "https://www.adafruit.com/"
+#define UF2_INDEX_URL            "https://www.adafruit.com/product/4985"
 
 // Use favicon
 #define TINYUF2_FAVICON_HEADER   "favicon_adafruit_256.h"

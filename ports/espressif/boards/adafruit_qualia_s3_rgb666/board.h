@@ -50,7 +50,7 @@
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID             "ESP32S3-Qualia-revC"
 #define UF2_VOLUME_LABEL         "TFT_S3BOOT"
-#define UF2_INDEX_URL            "https://www.adafruit.com/5800"
+#define UF2_INDEX_URL            "https://www.adafruit.com/product/5800"
 
 // Use favicon
 #define TINYUF2_FAVICON_HEADER   "favicon_adafruit_256.h"

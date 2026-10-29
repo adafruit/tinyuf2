@@ -1,4 +1,4 @@
-# TinyUF2 "Bootloader Application" for Espressif (S2/S3/P4)
+# TinyUF2 "Bootloader Application" for Espressif (S2/S3/S31/P4)
 
 The project is composed of customizing the 2nd stage bootloader from IDF and UF2 factory application as 3rd stage bootloader.
 
@@ -73,7 +73,7 @@ There are a few ways to enter UF2 mode:
 
 ## Convert Binary to UF2
 
-To create your own UF2 file, simply use the [Python conversion script](https://github.com/Microsoft/uf2/blob/master/utils/uf2conv.py) on a .bin file, specifying the family id as `ESP32S2`, `ESP32S3`, `ESP32P4` or their magic number as follows. Note you must specify application address of 0x00 with the -b switch, the bootloader will use it as offset to write to ota partition.
+To create your own UF2 file, simply use the [Python conversion script](https://github.com/Microsoft/uf2/blob/master/utils/uf2conv.py) on a .bin file, specifying the family id as `ESP32S2`, `ESP32S3`, `ESP32P4`, `ESP32S31` or their magic number as follows. Note you must specify application address of 0x00 with the -b switch, the bootloader will use it as offset to write to ota partition.
 
 ```
 uf2conv.py firmware.bin -c -b 0x00 -f ESP32S2
@@ -83,6 +83,7 @@ uf2conv.py firmware.bin -c -b 0x00 -f ESP32S3
 uf2conv.py firmware.bin -c -b 0x00 -f 0xc47e5767
 
 uf2conv.py firmware.bin -c -b 0x00 -f 0x3d308e94   # ESP32P4
+uf2conv.py firmware.bin -c -b 0x00 -f 0x3101f7c1   # ESP32S31
 
 ```
 
@@ -112,4 +113,4 @@ NOTE: uf2 bootloader, customized 2nd bootloader and partition table can be overw
 
 ## Partition
 
-Each board has its own flash size and partition table. check out the one in `boards/BOARD/sdkconfig` and `partition-xMB.csv` for details
+Each board has its own flash size and partition table. check out the one in `boards/BOARD/sdkconfig` and `partitions-*.csv` for details

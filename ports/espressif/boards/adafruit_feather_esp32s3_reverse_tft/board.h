@@ -104,7 +104,7 @@
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID             "ESP32S3-FeatherRevTFT-revC"
 #define UF2_VOLUME_LABEL         "FTHRS3BOOT"
-#define UF2_INDEX_URL            "https://www.adafruit.com/"
+#define UF2_INDEX_URL            "https://www.adafruit.com/product/5691"
 
 // Use favicon
 #define TINYUF2_FAVICON_HEADER   "favicon_adafruit_256.h"

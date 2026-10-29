@@ -69,7 +69,7 @@
 #define UF2_PRODUCT_NAME         USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID             "ESP32-S3-MatrixPortal-revB"
 #define UF2_VOLUME_LABEL         "MATRXS3BOOT"
-#define UF2_INDEX_URL            "https://www.adafruit.com/"
+#define UF2_INDEX_URL            "https://www.adafruit.com/product/5778"
 
 // Use favicon
 #define TINYUF2_FAVICON_HEADER   "favicon_adafruit_256.h"

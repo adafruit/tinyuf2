@@ -28,15 +28,18 @@ Supported features are
 
 Not all features are implemented for all MCUs, following is supported MCUs and its feature
 
-| MCU         | MSC  | Double Reset | Self-update | Write Protection | Neopixel | TFT  |
-|:------------| :--: | :----------: |:-----------:| :--------------: |:--------:| :--: |
-| ESP32 S2/S3 |  ✔   |   Need RC    |      ✔      |                  |    ✔     |  ✔   |
-| K32L2       |  ✔   |      ✔       |             |                  |          |      |
-| LPC55       |  ✔   |      ✔       |             |                  |    ✔     |      |
-| iMXRT       |  ✔   |      ✔       |      ✔      |                  |    ✔     |      |
-| STM32F3     |  ✔   |      ✔       |      ✔      |        ✔         |    ✔     |      |
-| STM32F4     |  ✔   |      ✔       |      ✔      |        ✔         |    ✔     |      |
-| STM32H5     |  ✔   |      ✔       |      ✔      |        ✔         |          |      |
+| MCU                | MSC  | Double Reset | Self-update | Write Protection | Neopixel | TFT  |
+|:-------------------| :--: | :----------: |:-----------:| :--------------: |:--------:| :--: |
+| ESP32 S2/S3/S31/P4 |  ✔   |   Need RC    |      ✔      |                  |    ✔     |  ✔   |
+| K32L2              |  ✔   |      ✔       |             |                  |          |      |
+| LPC55              |  ✔   |      ✔       |             |                  |    ✔     |      |
+| MAX32              |  ✔   |      ✔       |      ✔      |                  |          |      |
+| iMXRT              |  ✔   |      ✔       |      ✔      |                  |    ✔     |      |
+| STM32F3            |  ✔   |      ✔       |      ✔      |        ✔         |    ✔     |      |
+| STM32F4            |  ✔   |      ✔       |      ✔      |        ✔         |    ✔     |      |
+| STM32H5            |  ✔   |      ✔       |      ✔      |        ✔         |          |      |
+| STM32H7            |  ✔   |      ✔       |             |                  |          |  ✔   |
+| STM32L4            |  ✔   |      ✔       |             |                  |    ✔     |      |
 
 ## Supported MCUs and Boards
 
@@ -98,7 +101,7 @@ cmake --build build --target tinyuf2-dfu-util
 | `tinyuf2-teensy`               | `teensy_loader_cli`                              | teensy40, teensy41                                       |
 | `tinyuf2-erase-jlink`          | J-Link `JLinkExe` erase                          | boards whose `board.cmake` sets `JLINK_DEVICE`           |
 | `tinyuf2-erase-external-jlink` | J-Link `JLinkExe` erase of the external flash    | mimxrt10xx                                               |
-| `<app>-uf2`                    | `uf2conv.py --deploy` to the bootloader drive    | each application the port builds                         |
+| `<app>-uf2`                    | `uf2conv.py --deploy` to the bootloader drive    | each application a port builds, except espressif         |
 
 Make's ST-LINK, st-flash, pyOCD and DFU erase helpers are removed: erase with the tool's own command for your chip.
 
