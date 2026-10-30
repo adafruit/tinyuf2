@@ -3,10 +3,11 @@ name: HIL
 run-name: "${{ github.event.pull_request && format('HIL PR #{0}', github.event.pull_request.number) || 'HIL' }}"
 
 # The battery on the ci.lan rig (.claude/skills/hil-contract/SKILL.md, roster test/hil/ci.json) for the commissioned
-# boards a pull request's change reaches, built on the rig from its clean checkout, or for an Espressif board on a hosted
-# runner in CI's ESP-IDF image and admitted on the rig against its record and roster (hil_hosted.py). A pull request
-# from a fork never reaches the rig. A dispatch runs named boards, with fail_at for the contract's acceptance only, and
-# also builds a named Espressif board pending commissioning, whose artifact commissioning admits by hand.
+# boards a pull request's change reaches, each built by its own hosted runner leg (cmake with CI's arm-gcc, or an
+# Espressif board in CI's ESP-IDF image) and admitted on the rig against its record and roster (hil_hosted.py): the
+# rig has no toolchain and builds nothing. A pull request from a fork never reaches the rig. A dispatch runs named
+# boards, with fail_at and hosted_fault for the contract's acceptance only, and also builds a named board pending
+# commissioning, whose artifact commissioning admits by hand.
 on:
   pull_request:
   workflow_dispatch:
@@ -16,6 +17,10 @@ on:
         required: true
       fail_at:
         description: 'acceptance only: fail this battery step or the cleanup (the contract, Execution)'
+        required: false
+        default: ''
+      hosted_fault:
+        description: 'acceptance only: fail build:<board>@<attempt>, space separated'
         required: false
         default: ''
 
@@ -33,7 +38,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     outputs:
       boards: ${{ steps.select.outputs.boards }}
-      hosted: ${{ steps.select.outputs.hosted }}
+      matrix: ${{ steps.select.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -46,6 +51,7 @@ jobs:
         id: select
         env:
           BOARD_INPUT: ${{ github.event.inputs.board }}
+          HOSTED_FAULT: ${{ github.event.inputs.hosted_fault }}
         shell: bash   # -o pipefail: a failed selection must not become an empty, skipped rig job through tee
         run: |
           python3 - <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
@@ -68,17 +74,26 @@ jobs:
           rig, hosted, pending = hil_ci.split('test/hil/ci.json', boards,
                                               os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch')
           uncovered += [{'target': b, 'reason': 'pending commissioning (no tinyuf2.reentry): not run'} for b in pending]
+          import re
+          fault = os.environ.get('HOSTED_FAULT', '')
+          if re.search(r'[^\S ]', fault):   # the jobs match a token only between spaces
+              sys.exit(f'hosted_fault {fault!r}: separate its tokens with spaces only')
+          bad = [t for t in fault.split(' ') if t and (not (m := re.fullmatch(r'build:(\S+)@[1-9][0-9]*', t)) or
+                 m[1] not in hosted)]
+          if bad:
+              sys.exit(f'hosted_fault {bad}: not build:<a built board>@<attempt>')
           print('boards:', ' '.join(rig) or 'none')
           print('hosted builds:', ' '.join(hosted) or 'none')
           for u in uncovered:
               print(f'- `{u["target"]}`: {u["reason"]}')
           with open('hil-selection.json', 'w') as f:
               json.dump({'boards': rig, 'full': full, 'uncovered': uncovered}, f)
+          matrix = [{'board': b, 'backend': hil_ci.backend(b)} for b in hosted]
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f'boards={" ".join(rig)}\nhosted={" ".join(hosted)}\n')
+              f.write(f'boards={" ".join(rig)}\nmatrix={json.dumps(matrix)}\n')
           EOF
 
-      # for the comment job; overwrite: a re-run of every job selects again under the same name
+      # for the pr-comment job; overwrite: a re-run of every job selects again under the same name
       - name: Upload the selection
         uses: actions/upload-artifact@v4
         with:
@@ -86,47 +101,70 @@ jobs:
           path: hil-selection.json
           overwrite: true
 
-  # an Espressif board's CI record is built here in CI's image (build.yml's toolchain_version), packed with the roster
-  # it was built against for the rig to admit
-  hosted-build:
+  # one leg per board builds and packs its record as hil-build-<board>
+  hil-build:
     needs: select
-    if: needs.select.outputs.hosted != ''
+    if: needs.select.outputs.matrix != '[]'
+    name: hil-build (${{ matrix.board }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.select.outputs.matrix) }}
     env:
-      HOSTED: ${{ needs.select.outputs.hosted }}
+      BOARD: ${{ matrix.board }}
+      FAULT: ${{ github.event.inputs.hosted_fault }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Fetch the build inputs
         run: |
           git submodule update --init --depth 1 lib/tinyusb lib/uf2 lib/agentrc
-          for b in $HOSTED; do python3 tools/get_deps.py -b "$b"; done
+          python3 tools/get_deps.py -b "$BOARD"
 
-      - name: Pull CI's ESP-IDF image
-        run: docker pull "$(python3 .claude/skills/hil-contract/scripts/hil_hosted.py image)"
+      # hil_hosted.py admits a cmake record only from the release this installs (setup_toolchain's)
+      - name: Set up arm-gcc
+        if: matrix.backend == 'cmake'
+        uses: ./.github/actions/setup_toolchain
+        with:
+          toolchain: arm-gcc
 
-      - name: Build and pack each record
+      - name: CI's ESP-IDF image version
+        id: idf
+        if: matrix.backend == 'idf'
         run: |
-          for b in $HOSTED; do
-            python3 .claude/skills/hil-contract/scripts/hil_hosted.py build --board "$b" --roster test/hil/ci.json \
-              --out "$RUNNER_TEMP/hil-hosted"
-          done
+          image=$(python3 .claude/skills/hil-contract/scripts/hil_hosted.py image)
+          [[ $image == espressif/idf:?* ]] || { echo "::error::not an espressif/idf image: $image"; exit 1; }
+          echo "version=${image#espressif/idf:}" >> "$GITHUB_OUTPUT"
 
-      # overwrite: a re-run of every job builds again under the same name
+      - name: Set up ESP-IDF
+        if: matrix.backend == 'idf'
+        uses: ./.github/actions/setup_toolchain
+        with:
+          toolchain: esp-idf
+          toolchain_version: ${{ steps.idf.outputs.version }}
+
+      - name: Build and pack the record
+        run: |
+          case " $FAULT " in *" build:$BOARD@$GITHUB_RUN_ATTEMPT "*) echo "::error::hosted_fault build"; exit 1;; esac
+          python3 .claude/skills/hil-contract/scripts/hil_hosted.py build --board "$BOARD" --roster test/hil/ci.json \
+            --out "$RUNNER_TEMP/hil-build"
+
+      # overwrite: a re-run of this leg replaces its earlier attempt's artifact
       - uses: actions/upload-artifact@v4
         with:
-          name: hil-hosted-build
-          path: ${{ runner.temp }}/hil-hosted
+          name: hil-build-${{ matrix.board }}
+          path: ${{ runner.temp }}/hil-build
           if-no-files-found: error
           overwrite: true
 
-  # a failed hosted build leaves its boards not-run here (no artifact to admit); the rest still run
-  ci-lan:
-    needs: [select, hosted-build]
+  # a board without a build artifact, or whose artifact admission refuses, is not-run with its reason
+  hil-run:
+    needs: [select, hil-build]
     if: ${{ !cancelled() && needs.select.result == 'success' && needs.select.outputs.boards != '' }}
     runs-on: [ self-hosted, Linux, X64, tinyuf2 ]
-    # one board is a ~2 min build and a ~2 min battery; a locked board waits up to hil_ci.py's --lock-wait
+    # one board is a ~2 min battery; a locked board waits up to hil_ci.py's --lock-wait
     timeout-minutes: 45
     # the attempt that uploaded the artifact: a re-run of failed jobs that does not re-run this job keeps its outputs
     outputs:
@@ -145,24 +183,31 @@ jobs:
           rm -rf "${{ github.workspace }}"
           mkdir -p "${{ github.workspace }}"
 
+      # the rig keeps state between jobs: no token stays in its checkout
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
+      # what admission compares each record's identity with
       - name: Fetch the build inputs
         run: |
           git submodule update --init --depth 1 lib/tinyusb lib/uf2 lib/agentrc
-          for b in $BOARDS; do python3 tools/get_deps.py -b "$b"; done
+          python3 tools/get_deps.py $(printf -- '-b %s ' $BOARDS)
 
+      # every leg's <board>/ into one dir; a leg that failed in this attempt may have left an earlier attempt's build
+      # of the same merge commit, which admission checks like any other
       - name: Fetch the hosted builds
-        if: needs.hosted-build.result == 'success'
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          name: hil-hosted-build
-          path: ${{ runner.temp }}/hil-hosted
+          pattern: hil-build-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/hil-build
 
       - name: Battery on the rig
         run: |
           python3 .claude/skills/hil-contract/scripts/hil_ci.py --board $BOARDS ${FAIL_AT:+--fail-at "$FAIL_AT"} \
-            --roster test/hil/ci.json --out "$HIL_OUT" --hosted "$RUNNER_TEMP/hil-hosted"
+            --roster test/hil/ci.json --out "$HIL_OUT" --hosted "$RUNNER_TEMP/hil-build"
 
       # hil_ci.py's decision, written last (upload-views): `upload` only when no report view is unsafe; any other
       # content, no file (hil_ci.py did not finish) or a failed step uploads no hil_report.md at all
@@ -180,7 +225,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: hil-ci-lan-${{ github.run_attempt }}
+          name: hil-run-${{ github.run_attempt }}
           path: |
             ${{ env.HIL_OUT }}
             ${{ steps.views.outputs.exclude }}
@@ -189,8 +234,8 @@ jobs:
 
   # the sticky report comment, posted only by the newest attempt of the newest run for the PR's current head, so an
   # older run finishing late never replaces a newer report
-  comment:
-    needs: [select, ci-lan]
+  pr-comment:
+    needs: [select, hil-run]
     if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
@@ -201,7 +246,7 @@ jobs:
       PR: ${{ github.event.pull_request.number }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       # the attempt the rig job last ran in, whose artifact this is; this attempt when the rig job was skipped
-      RIG_ATTEMPT: ${{ needs.ci-lan.outputs.attempt || github.run_attempt }}
+      RIG_ATTEMPT: ${{ needs.hil-run.outputs.attempt || github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
 
@@ -232,7 +277,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          name: hil-ci-lan-${{ env.RIG_ATTEMPT }}
+          name: hil-run-${{ env.RIG_ATTEMPT }}
           path: hil-out
 
       - name: Render the report

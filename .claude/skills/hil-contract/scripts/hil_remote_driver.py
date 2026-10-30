@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 """The rig side of hil_remote.py (SKILL.md Execution, Remote): launched detached in its attempt directory by
-agentrc's remote core, it rebuilds the committed checkout from the staged git bundles, verifies it against the
-manifest, then per board builds the HIL record and runs one battery as hil_ci.py does (its report pair prepared
-before the copy-back), and writes result.json, the attempt's outcome.
+agentrc's remote core, it checks the staged bundles and hosted builds against the manifest, rebuilds the committed
+checkout from the bundles and verifies it, then per board admits the HIL record the dev PC built (hosted/<board>,
+hil_hosted.py admit, as CI admits its hosted runner's) and runs one battery as hil_ci.py does (its report pair
+prepared before the copy-back), and writes result.json, the attempt's outcome. The rig builds nothing.
 
   python3 driver/hil_remote_driver.py manifest.json        (cwd: the attempt directory)
 
 Stdlib only until the checkout is rebuilt; from then on the checkout's own hil_ci.py (run_board(markers=False): CI's
-markers read, never written, the build record, the battery, the verdict and the report pair). The driver takes no
+markers read, never written, the admission, the battery, the verdict and the report pair). The driver takes no
 board lock: each `hil_test.py run` locks its board itself, protected, and checks CI's state directory
 (`--ci-state-root`) once it holds the lock.
 
-Exit 0 every board passed, 1 a board failed or was not run, 2 a blocker, 3 refused before any build.
+Exit 0 every board passed, 1 a board failed or was not run, 2 a blocker, 3 refused before any admission.
 """
 import hashlib
 import json
@@ -24,17 +25,19 @@ import sys
 import time
 from pathlib import Path
 
-SCHEMA, VERSION = 'tinyuf2-hil-remote', 1
+SCHEMA, VERSION = 'tinyuf2-hil-remote', 2
 RESULT = 'result.json'          # written once, when the driver ends
 PROGRESS = 'progress.json'      # the rows so far, after each board: what a driver that died had reached
 CHECKOUT = 'src'
 OUT = 'out'
+HOSTED = 'hosted'   # the dev PC's hil_hosted.py builds, one <board> each, every file in the manifest's `hosted`
 REFUSED = 3
 SCRIPTS = '.claude/skills/hil-contract/scripts'
 REPO_PATH = re.compile(r'[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*')
 SHA = re.compile(r'[0-9a-f]{40}')
+SHA256 = re.compile(r'[0-9a-f]{64}')
 FIELDS = ('runId', 'head', 'hostname', 'repos', 'submodules', 'roster', 'driver', 'boards', 'lockWait', 'failAt',
-          'ciStateRoot')
+          'ciStateRoot', 'hosted')
 
 
 class Refused(Exception):
@@ -81,6 +84,12 @@ def load_manifest(path):
         raise Refused(f'manifest repo entry {r} is malformed')
   except (KeyError, TypeError) as e:
     raise Refused(f'manifest {path}: a repo entry lacks {e}')
+  hosted = m['hosted']
+  if not isinstance(hosted, dict) or not all(
+      isinstance(rel, str) and REPO_PATH.fullmatch(rel) and rel.split('/')[0] == HOSTED and len(rel.split('/')) > 2
+      and '..' not in rel.split('/') and isinstance(digest, str) and SHA256.fullmatch(digest)
+      for rel, digest in hosted.items()):
+    raise Refused(f'manifest {path}: hosted is not {{"{HOSTED}/<board>/<file>": sha256}}')
   return m
 
 
@@ -90,6 +99,26 @@ def check_packages(attempt, m):
   bad = [r['bundle'] for r in m['repos'] if sha256(attempt / r['bundle']) != r['sha256']]
   if bad:
     raise Refused(f'staged packages missing or changed since the manifest froze them: {", ".join(bad)}')
+
+
+def check_hosted(attempt, m):
+  """The staged hosted builds are exactly the files the manifest froze, each with its hash: a file it does not name,
+  a link or anything not a regular file refuses, before any of them is read."""
+  root = attempt / HOSTED
+  if root.is_symlink() or root.exists() and not root.is_dir():   # os.walk follows a linked root
+    raise Refused(f'staged hosted builds are not the ones the manifest froze: {HOSTED} is not a directory of its own')
+  found, odd = set(), []
+  for d, dirs, files in os.walk(root):
+    for name in dirs + files:
+      p = Path(d, name)
+      if p.is_symlink() or not (p.is_dir() or p.is_file()):
+        odd.append(p.relative_to(attempt).as_posix())
+    dirs[:] = [x for x in dirs if not os.path.islink(os.path.join(d, x))]
+    found |= {Path(d, f).relative_to(attempt).as_posix() for f in files} - {*odd}   # unhashed: open() blocks on a FIFO
+  bad = sorted({*odd, *(found ^ set(m['hosted'])),
+                *(rel for rel in found & set(m['hosted']) if sha256(attempt / rel) != m['hosted'][rel])})
+  if bad:
+    raise Refused(f'staged hosted builds are not the ones the manifest froze: {", ".join(bad[:5])}')
 
 
 def rebuild(attempt, m):
@@ -160,10 +189,11 @@ def inventory(attempt, board):
 
 
 def run_board(hil_ci, board, m, attempt, ci_root, budget):
-  def lock_wait():   # one budget for every battery, counted from the first one's start, after its build
+  def lock_wait():   # one budget for every battery, counted from the first one's start, after its admission
     deadline = budget.setdefault('deadline', time.monotonic() + m['lockWait'])
     return max(0, round(deadline - time.monotonic()))
-  row = hil_ci.run_board(board, m['roster']['path'], attempt / OUT, ci_root, lock_wait, m['failAt'], markers=False)
+  row = hil_ci.run_board(board, m['roster']['path'], attempt / OUT, ci_root, lock_wait, attempt / HOSTED, m['failAt'],
+                         markers=False)
   if row.get('unsafeArtifacts'):   # attempt-relative, for the copy-back to withhold
     row['unsafeArtifacts'] = [Path(p).relative_to(attempt).as_posix() for p in row['unsafeArtifacts']]
   return row
@@ -177,6 +207,7 @@ def drive(attempt, m, driver, result):
   if socket.gethostname() != m['hostname']:
     raise Refused(f'this rig is {socket.gethostname()}, not {m["hostname"]}, the host {m["roster"]["path"]} is for')
   check_packages(attempt, m)
+  check_hosted(attempt, m)
   src = rebuild(attempt, m)
   why = verify(src, m, driver)
   if why:

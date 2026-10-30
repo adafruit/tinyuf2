@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 # The CI job's orchestration of the battery (hil_ci.py): record, one run per board, verdicts, markers, pruning
-# and the exit. check_build is stubbed; the battery is a stand-in script that prints a canned report into the run
-# root it is given, so the streaming, the run directory and the in-process holder path run for real.
+# and the exit. The hosted build's admission is stubbed; the battery is a stand-in script that prints a canned report
+# into the run root it is given, so the streaming, the run directory and the in-process holder path run for real.
 import contextlib
 import io
 import json
@@ -28,6 +28,7 @@ import hil_test as ht  # noqa: E402
 
 BOARD = 'imxrt1064_evk'
 CHECK_PIN = hil_ci.check_pin   # the real one: the tests patch it, as a commit's git env would fail it
+HOSTED_RECORD = hil_ci.hosted_record   # the real one: Stubbed patches it
 
 STAND_IN = '''
 import json, os, sys, time
@@ -101,10 +102,6 @@ GOLDEN = {
 }
 
 
-def completed(stdout='', code=0, stderr=''):
-  return mock.Mock(returncode=code, stdout=stdout, stderr=stderr)
-
-
 class Stubbed(unittest.TestCase):
   def setUp(self):
     t = tempfile.TemporaryDirectory()
@@ -117,11 +114,11 @@ class Stubbed(unittest.TestCase):
     self.stand_in = self.tmp / 'hil_test.py'
     self.stand_in.write_text(STAND_IN)
     self.spec = self.tmp / 'spec.json'
-    self.build_ok = True
-    self.commands = []
+    self.admit_ok = True
+    self.admitted = []
     mock.patch.object(hil_ci, 'HIL_TEST', self.stand_in).start()
     mock.patch.object(hil_ci, 'ROOT', self.tmp).start()
-    mock.patch.object(hil_ci, 'run', self.fake_run).start()
+    mock.patch.object(hil_ci, 'hosted_record', self.fake_admit).start()
     mock.patch.object(hil_ci, 'check_pin').start()
     mock.patch.dict(os.environ, {'HIL_STAND_IN': str(self.spec)}).start()
     self.addCleanup(mock.patch.stopall)
@@ -135,17 +132,19 @@ class Stubbed(unittest.TestCase):
       os.kill(pid, 9)
       os.waitpid(pid, 0)
 
-  def fake_run(self, cmd):
-    cmd = [str(c) for c in cmd]
-    self.commands.append(cmd)
-    assert cmd[1].endswith('check_build.py'), cmd
-    row = {'board': BOARD, 'status': 'ok' if self.build_ok else 'failed', 'firstError': '' if self.build_ok else 'boom'}
-    return completed(json.dumps({'pass': self.build_ok, 'boards': [row]}))
+  def fake_admit(self, board, roster, out, hosted):
+    self.admitted.append((board, roster, hosted))
+    record = out / f'{board}.build.json'
+    if not self.admit_ok:
+      return record, False, 'hosted build refused: boom'
+    record.write_text(json.dumps({'pass': True, 'boards': [{'board': board, 'status': 'ok', 'firstError': ''}]}))
+    return record, True, ''
 
   def main(self, *argv, battery=None, out=None):
     self.spec.write_text(json.dumps(battery or {}))
+    hosted = [] if '--hosted' in argv else ['--hosted', str(self.tmp / 'hosted')]
     with mock.patch.object(sys, 'stdout', io.StringIO()):
-      return hil_ci.main(['--roster', 'ci.json', '--out', str(out or self.out), *argv])
+      return hil_ci.main(['--roster', 'ci.json', '--out', str(out or self.out), *hosted, *argv])
 
   def rows(self, out=None):
     return json.loads(((out or self.out) / 'summary.json').read_text())['boards']
@@ -409,7 +408,8 @@ class Stubbed(unittest.TestCase):
         stdout = io.StringIO()
         self.spec.write_text(json.dumps(battery))
         with mock.patch.object(sys, 'stdout', stdout):
-          self.assertEqual(hil_ci.main(['--roster', 'ci.json', '--out', str(out), '--board', BOARD]), 0)
+          self.assertEqual(hil_ci.main(['--roster', 'ci.json', '--out', str(out), '--board', BOARD, '--hosted',
+                                        str(self.tmp)]), 0)
         text = stdout.getvalue()
         self.assertEqual(step_summary.read_text(), text)
         self.assertIn('| board | native verdict | detail | shared run rules |', text)
@@ -439,8 +439,8 @@ class Stubbed(unittest.TestCase):
     row['steps'] = []
     self.assertEqual(run_report.verdict(1, {'results': [row]}, BOARD)[0], 'blocker')   # an abort
 
-  def test_a_failed_build_is_not_run_and_touches_nothing(self):
-    self.build_ok = False
+  def test_a_refused_admission_is_not_run_and_touches_nothing(self):
+    self.admit_ok = False
     self.assertEqual(self.main('--board', BOARD), 1)
     r = self.rows()[0]
     self.assertEqual(r['verdict'], 'not-run')
@@ -463,11 +463,10 @@ class Stubbed(unittest.TestCase):
                      ({'install': True, 'dfu': False}, True, 50, 122))
     self.assertEqual(json.loads((self.out / 'summary.json').read_text())['elapsedS'], 1000)
     self.assertFalse(r['espressif'])
-    self.assertNotIn('--backend', self.commands[-1], "check_build gives the port's one backend")
     (self.tmp / 'ports' / 'espressif' / 'boards' / BOARD).mkdir(parents=True)   # the port decides, not the flasher
     self.assertEqual(self.main('--board', BOARD, battery=failed, out=self.state / 'esp'), 1)
     self.assertTrue(self.rows(self.state / 'esp')[0]['espressif'])
-    self.assertNotIn('--backend', self.commands[-1], 'an Espressif board builds with ESP-IDF in docker')
+    self.assertEqual({a[2] for a in self.admitted}, {self.tmp / 'hosted'}, 'every board is admitted from --hosted')
     out = self.state / 'no-cleanup'
     locked = {'row': {'ran': False, 'locked': True, 'recoveryBlocker': False, 'detail': 'board locked: pid 7'}}
     self.assertEqual(self.main('--board', BOARD, battery=locked, out=out), 1)
@@ -487,8 +486,8 @@ class Stubbed(unittest.TestCase):
     r = self.rows()[0]
     self.assertEqual((r['verdict'], 'steps' in r, 'cleanupPass' in r, type(r['runS'])), ('blocker', False, False, int))
 
-  def test_a_failed_build_has_its_build_time_only_and_a_preflight_blocker_neither(self):
-    self.build_ok = False
+  def test_a_refused_admission_has_its_admission_time_only_and_a_preflight_blocker_neither(self):
+    self.admit_ok = False
     with self.clock(0, 10, 13.2, 20):
       self.assertEqual(self.main('--board', BOARD), 1)
     r = self.rows()[0]
@@ -540,10 +539,10 @@ class Stubbed(unittest.TestCase):
     self.assertEqual(hil_ci.unfinished(self.state, BOARD), ['real'])
     with self.assertRaises(OSError):
       hil_ci.unfinished(self.tmp / 'missing', BOARD)
-    row = hil_ci.run_board(BOARD, 'ci.json', self.out, self.tmp / 'missing', 0)
+    row = hil_ci.run_board(BOARD, 'ci.json', self.out, self.tmp / 'missing', 0, self.tmp / 'hosted')
     self.assertEqual((row['verdict'], row['phase']), ('blocker', 'preflight'))
     self.assertIn('cannot be read', row['detail'])
-    self.assertEqual(self.commands, [], 'nothing built')
+    self.assertEqual(self.admitted, [], 'nothing admitted')
 
   def test_old_finished_runs_are_pruned_and_an_unfinished_one_is_kept_whatever_its_age(self):
     old = time.time() - 40 * 86400
@@ -558,7 +557,7 @@ class Stubbed(unittest.TestCase):
     hil_ci.prune(self.state, keep=self.out)
     self.assertEqual(sorted(p.name for p in self.state.iterdir()), ['run-new-held', 'run-old-held'])
 
-  def test_with_hosted_an_espressif_board_runs_only_from_an_admitted_build(self):
+  def test_every_board_runs_only_from_an_admitted_hosted_build(self):
     import hil_hosted
     ok = {'row': {'ran': True, 'pass': True, 'cleanup': {'pass': True, 'state': 'blinky copied'}}}
     admitted = []
@@ -570,31 +569,35 @@ class Stubbed(unittest.TestCase):
       record = out / f'{board}.build.json'
       record.write_text('{}')
       return record
-    with mock.patch.object(hil_ci, 'espressif', lambda b: True), mock.patch.object(hil_hosted, 'admit', admit):
-      for what, argv, verdict, detail in (
-          ('a refused artifact', ['--hosted', str(self.tmp / 'refuse')], 'not-run',
-           'hosted build refused: built against roster x'),
-          ('an admitted artifact', ['--hosted', str(self.tmp / 'hosted')], 'pass', '')):
+    for d in ('refuse', 'hosted'):
+      (self.tmp / d / BOARD).mkdir(parents=True)
+    with mock.patch.object(hil_ci, 'hosted_record', HOSTED_RECORD), mock.patch.object(hil_hosted, 'admit', admit):
+      for what, hosted, verdict, detail in (
+          ('a missing artifact', self.tmp / 'missing', 'not-run',
+           f'no hosted build of {BOARD} under {self.tmp / "missing"}: its build failed or never reached the rig'),
+          ('a refused artifact', self.tmp / 'refuse', 'not-run', 'hosted build refused: built against roster x'),
+          ('an admitted artifact', self.tmp / 'hosted', 'pass', '')):
         with self.subTest(what):
           out = self.state / what.replace(' ', '-')
-          self.assertEqual(self.main('--board', BOARD, *argv, battery=ok, out=out), 0 if verdict == 'pass' else 1)
+          self.assertEqual(self.main('--board', BOARD, '--hosted', str(hosted), battery=ok, out=out),
+                           0 if verdict == 'pass' else 1)
           r = self.rows(out)[0]
-          self.assertEqual((r['verdict'], r['detail']), (verdict, detail))
+          self.assertEqual((r['verdict'], r['phase'], r['detail']), (verdict, 'battery' if verdict == 'pass' else 'build',
+                                                                      detail))
           self.assertEqual((out / BOARD).exists(), verdict == 'pass', 'a battery only from an admitted record')
-    self.assertEqual(self.commands, [], 'the rig built nothing')
     self.assertEqual(admitted, [(self.tmp / 'refuse' / BOARD, BOARD, 'ci.json'), (self.tmp / 'hosted' / BOARD, BOARD, 'ci.json')])
+    with self.assertRaises(SystemExit), mock.patch.object(sys, 'stderr', io.StringIO()):
+      hil_ci.main(['--roster', 'ci.json', '--out', str(self.out), '--board', BOARD])   # the rig never builds
 
-  def test_the_plan_runs_commissioned_boards_and_builds_espressif_ones_on_a_hosted_runner(self):
+  def test_the_plan_runs_commissioned_boards_each_from_a_hosted_build(self):
     self.roster.write_text(json.dumps({'boards': [
       {'name': 'jlink_ok', 'tinyuf2': {'reentry': 'retained-register'}}, {'name': 'esp_ok', 'tinyuf2': {'reentry': 'dfu-detach'}},
       {'name': 'esp_pending', 'tinyuf2': {'lock': 'x'}}, {'name': 'jlink_pending'}]}))
     boards = ['esp_ok', 'esp_pending', 'jlink_ok', 'jlink_pending']
-    with mock.patch.object(hil_ci, 'espressif', lambda b: b.startswith('esp')):
-      self.assertEqual(hil_ci.split('ci.json', boards), (['esp_ok', 'jlink_ok'], ['esp_ok'], ['esp_pending', 'jlink_pending']))
-      # a dispatch also builds a pending Espressif board, for its commissioning to admit by hand
-      self.assertEqual(hil_ci.split('ci.json', boards, build_pending=True)[1], ['esp_ok', 'esp_pending'])
-    with mock.patch.object(hil_ci, 'ROOT', ROOT):
-      self.assertEqual((hil_ci.espressif('espressif_esp32s3_devkitm_1'), hil_ci.espressif('imxrt1064_evk')), (True, False))
+    rig, pending = ['esp_ok', 'jlink_ok'], ['esp_pending', 'jlink_pending']
+    self.assertEqual(hil_ci.split('ci.json', boards), (rig, rig, pending))
+    # a dispatch also builds the boards pending commissioning, for its commissioning to admit by hand
+    self.assertEqual(hil_ci.split('ci.json', boards, build_pending=True), (rig, boards, pending))
 
   def test_the_workflow_selection_step_hands_the_rig_and_the_hosted_build_their_boards(self):
     """The select step's script run on a dispatch as the runner runs it, in a checkout whose roster is this one's with
@@ -608,6 +611,7 @@ class Stubbed(unittest.TestCase):
     work = self.tmp / 'work'   # the step writes hil-selection.json into its cwd, and hil_ci reads the roster under ROOT
     scripts = work / '.claude' / 'skills' / 'hil-contract' / 'scripts'
     shutil.copytree(ROOT / '.claude' / 'skills' / 'hil-contract' / 'scripts', scripts)
+    shutil.copytree(ROOT / '.claude' / 'skills' / 'build' / 'scripts', work / '.claude' / 'skills' / 'build' / 'scripts')
     for d in ('ports', 'lib'):
       (work / d).symlink_to(ROOT / d)
     (work / 'test' / 'hil').mkdir(parents=True)
@@ -623,12 +627,120 @@ class Stubbed(unittest.TestCase):
     with mock.patch.object(hil_ci, 'ROOT', work):
       rig, hosted, pending = hil_ci.split('test/hil/ci.json', sorted(roster), build_pending=True)
     self.assertEqual(pending, [esp['name']])
-    self.assertIn(esp['name'], hosted, 'a dispatch builds the pending Espressif board')
-    self.assertEqual((got['boards'], got['hosted']), (' '.join(rig), ' '.join(hosted)))
+    self.assertEqual(hosted, sorted(roster), 'a dispatch builds every named board, the pending one too')
+    self.assertEqual(set(got), {'boards', 'matrix'})
+    self.assertEqual(got['boards'], ' '.join(rig))
     self.assertIn(f'`{esp["name"]}`: pending commissioning', r.stdout)
     selection = json.loads((work / 'hil-selection.json').read_text())
     self.assertEqual(selection['boards'], rig)
     self.assertIn(esp['name'], [u['target'] for u in selection['uncovered']])
+    # one hil-build leg per board, with its backend: arm-gcc set up for cmake, the IDF image pulled for idf
+    want = [{'board': b, 'backend': 'idf' if (ROOT / 'ports' / 'espressif' / 'boards' / b).is_dir() else 'cmake'}
+            for b in hosted]
+    self.assertEqual({m['backend'] for m in want}, {'idf', 'cmake'})
+    self.assertEqual(json.loads(got['matrix']), want)
+    # hosted_fault is checked once, here: a token that names no built board fails the selection
+    for fault, ok in ((f'build:{hosted[0]}@1 build:{hosted[1]}@2', True), ('', True), ('build', False),
+                      (f'build:{hosted[0]}@0', False), (f'clear:{hosted[0]}@1', False),
+                      ('build:nope@1', False), (f'build:{hosted[0]}@x', False),
+                      (f' build:{hosted[0]}@1  build:{hosted[1]}@2 ', True),
+                      (f'build:{hosted[0]}@1\tbuild:{hosted[1]}@1', False),
+                      (f'build:{hosted[0]}@1\nbuild:{hosted[1]}@1', False)):
+      with self.subTest(hosted_fault=fault):
+        output.write_text('')
+        r = subprocess.run([sys.executable, '-'], input=textwrap.dedent(body), cwd=work, capture_output=True, text=True,
+                           env=dict(os.environ, GITHUB_EVENT_NAME='workflow_dispatch', BOARD_INPUT=' '.join(roster),
+                                    HOSTED_FAULT=fault, GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(summary)))
+        self.assertEqual(r.returncode == 0, ok, r.stderr)
+        if not ok:
+          self.assertIn('hosted_fault', r.stderr)
+          self.assertEqual(output.read_text(), '', 'a rejected fault selects nothing')
+
+def workflow_job(name):
+  """The text of hil.yml's job `name`, up to the next job."""
+  text = (ROOT / '.github' / 'workflows' / 'hil.yml').read_text()
+  return re.search(rf'\n  {name}:\n((?:    .*\n|\n)+)', text).group(1)
+
+
+class Workflow(unittest.TestCase):
+  def test_each_board_builds_in_its_own_leg_that_replaces_its_earlier_artifact(self):
+    """A leg per board, named for it, whose upload replaces an earlier attempt's artifact of its board; a leg that
+    fails before the upload leaves its earlier attempt's artifact."""
+    leg = workflow_job('hil-build')
+    self.assertIn('    name: hil-build (${{ matrix.board }})\n', leg)
+    self.assertIn('      fail-fast: false\n      matrix:\n        include: ${{ fromJSON(needs.select.outputs.matrix) }}\n',
+                  leg)
+    self.assertNotIn('permissions:', leg)   # the workflow's contents: read
+    self.assertNotRegex(leg, r'(?m)^ +continue-on-error:')
+    steps = re.findall(r'\n      - (?:name: (.+)|uses: (\S+))\n', leg)
+    self.assertEqual([n or u for n, u in steps], [
+      'actions/checkout@v4', 'Fetch the build inputs', 'Set up arm-gcc', "CI's ESP-IDF image version", 'Set up ESP-IDF',
+      'Build and pack the record', 'actions/upload-artifact@v4'])
+    self.assertIn("if: matrix.backend == 'cmake'\n        uses: ./.github/actions/setup_toolchain\n", leg)
+    self.assertIn("if: matrix.backend == 'idf'\n        uses: ./.github/actions/setup_toolchain\n        with:\n"
+                  "          toolchain: esp-idf\n          toolchain_version: ${{ steps.idf.outputs.version }}\n", leg)
+    self.assertIn('name: hil-build-${{ matrix.board }}\n', leg)
+    self.assertIn('if-no-files-found: error\n          overwrite: true\n', leg)
+
+  def test_the_idf_leg_sets_up_the_image_hil_hosted_names_and_fails_on_any_other(self):
+    m = re.search(r"- name: CI's ESP-IDF image version\n(?:        .*\n)*?        run: \|\n((?:          .*\n)+)",
+                  workflow_job('hil-build'))
+    with tempfile.TemporaryDirectory() as d:
+      d = Path(d)
+      for image, code, version in (('espressif/idf:v6.1', 0, 'v6.1'), ('espressif/idf:', 1, None),
+                                   ('other/idf:v6.1', 1, None), ('', 1, None)):
+        with self.subTest(image=image):
+          (d / 'python3').write_text(f'#!/bin/sh\n[ -n "{image}" ] || exit 3\necho "{image}"\n')
+          (d / 'python3').chmod(0o755)
+          out = d / 'output'
+          out.write_text('')
+          r = subprocess.run(['bash', '-e', '-c', textwrap.dedent(m.group(1))], capture_output=True, text=True,
+                             env=dict(os.environ, PATH=f'{d}:{os.environ["PATH"]}', GITHUB_OUTPUT=str(out)))
+          self.assertEqual(r.returncode != 0, bool(code), r.stdout + r.stderr)
+          self.assertEqual(out.read_text(), f'version={version}\n' if version else '')
+
+  def test_the_rig_takes_every_legs_build_from_one_merged_download(self):
+    """The rig runs whatever the legs concluded, downloads every hil-build-<board> artifact of the run into one
+    directory and admits each board from its own <board>/ there; a board with none is not-run."""
+    rig = workflow_job('hil-run')
+    self.assertIn('    needs: [select, hil-build]\n', rig)
+    self.assertIn("    if: ${{ !cancelled() && needs.select.result == 'success' && needs.select.outputs.boards != '' }}\n",
+                  rig)
+    self.assertIn('          pattern: hil-build-*\n          merge-multiple: true\n          path: ${{ runner.temp }}/hil-build\n',
+                  rig)
+    self.assertIn('--out "$HIL_OUT" --hosted "$RUNNER_TEMP/hil-build"\n', rig)
+
+  def test_a_build_fault_fails_only_its_board_in_its_attempt_before_building(self):
+    m = re.search(r'- name: Build and pack the record\n(?:        .*\n)*?        run: \|\n((?:          .*\n)+)',
+                  workflow_job('hil-build'))
+    a, b = 'stm32f407disco', 'imxrt1064_evk'
+    for fault, attempt, board, fails in ((f'build:{a}@1', '1', a, True), (f'build:{b}@1 build:{a}@1', '1', a, True),
+                                         (f'build:{a}@1', '2', a, False), (f'build:{a}@1', '1', b, False),
+                                         (f'build:{a}@10', '1', a, False), ('', '1', a, False)):
+      with self.subTest(fault=fault, attempt=attempt, board=board), tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        (d / 'python3').write_text('#!/bin/sh\necho "python3 $*" >> "$LOG"\n')
+        (d / 'python3').chmod(0o755)
+        log = d / 'calls.log'
+        base = {k: v for k, v in os.environ.items() if not k.startswith(('GIT_', 'GITHUB_'))}
+        r = subprocess.run(['bash', '-eo', 'pipefail', '-c', textwrap.dedent(m.group(1))], cwd=ROOT,
+                           capture_output=True, text=True,
+                           env=dict(base, PATH=f'{d}:{os.environ["PATH"]}', LOG=str(log), RUNNER_TEMP=str(d / 'temp'),
+                                    BOARD=board, FAULT=fault, GITHUB_RUN_ATTEMPT=attempt))
+        self.assertEqual(r.returncode, 1 if fails else 0, r.stdout + r.stderr)
+        self.assertEqual(log.exists(), not fails, 'a fault fires before the build')
+
+  def test_each_job_fetches_every_boards_dependencies_in_one_call(self):
+    with tempfile.TemporaryDirectory() as d:
+      (Path(d) / 'python3').write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+      (Path(d) / 'python3').chmod(0o755)
+      for job, env, want in (('hil-build', {'BOARD': 'c1'}, ['-b', 'c1']),
+                             ('hil-run', {'BOARDS': 'c1 c2 e1'}, ['-b', 'c1', '-b', 'c2', '-b', 'e1'])):
+        line, = [ln.strip() for ln in workflow_job(job).splitlines() if 'tools/get_deps.py' in ln]
+        r = subprocess.run(['bash', '-e', '-c', line], capture_output=True, text=True,
+                           env=dict(os.environ, PATH=f'{d}:{os.environ["PATH"]}', **env))
+        self.assertEqual(r.stdout.split(), ['tools/get_deps.py', *want], job)
+
 
 LPC = 'lpcxpresso55s69'
 LPC_FACTS = {'flashBase': 0, 'binBase': 0, 'appStart': 0x10000, 'flashSize': 0x98000, 'vid': 0x1fc9, 'pid': 0x0094,
@@ -704,13 +816,19 @@ class RealRunner(unittest.TestCase):
     mock.patch.object(hil_ci, 'HIL_TEST', runner).start()
     mock.patch.object(hil_ci, 'ROOT', self.tmp).start()
     mock.patch.object(hil_ci, 'check_pin').start()
-    mock.patch.object(hil_ci, 'run', lambda cmd: completed(json.dumps(
-      {'pass': True, 'boards': [{'board': LPC, 'status': 'ok', 'firstError': ''}]}))).start()
+    mock.patch.object(hil_ci, 'hosted_record', self.admit).start()
     self.addCleanup(mock.patch.stopall)
+
+  @staticmethod
+  def admit(board, roster, out, hosted):
+    record = out / f'{board}.build.json'
+    record.write_text(json.dumps({'pass': True, 'boards': [{'board': LPC, 'status': 'ok', 'firstError': ''}]}))
+    return record, True, ''
 
   def main(self, battery, out, lock_wait):
     with mock.patch.dict(os.environ, dict(self.env, HIL_BATTERY=battery)), mock.patch.object(sys, 'stdout', io.StringIO()):
-      return hil_ci.main(['--roster', 'ci.json', '--out', str(out), '--board', LPC, '--lock-wait', str(lock_wait)])
+      return hil_ci.main(['--roster', 'ci.json', '--out', str(out), '--board', LPC, '--lock-wait', str(lock_wait),
+                          '--hosted', str(self.tmp / 'hosted')])
 
   def row(self, out):
     return json.loads((out / 'summary.json').read_text())['boards'][0]
@@ -772,7 +890,7 @@ class RealRunner(unittest.TestCase):
     env = dict(self.env, HIL_BATTERY='pass', HIL_LOCK_POLL='4', HIL_TRIES=str(tries))
     with mock.patch.dict(os.environ, env), mock.patch.object(sys, 'stdout', io.StringIO()):
       ci = threading.Thread(target=lambda: ended.update(code=hil_ci.main(
-        ['--roster', 'ci.json', '--out', str(self.out), '--board', LPC, '--lock-wait', '4'])))
+        ['--roster', 'ci.json', '--out', str(self.out), '--board', LPC, '--lock-wait', '4', '--hosted', str(self.tmp)])))
       ci.start()
       end = time.monotonic() + 20
       while not tries.exists() and time.monotonic() < end:   # CI's battery tried the board and sleeps on it

@@ -3,15 +3,19 @@ that compile a change, and the JSON and exit code follow SKILL.md. Builds are st
 build is evidence only from a run of the script itself."""
 import contextlib
 import functools
+import hashlib
 import importlib.util
 import io
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
+import tarfile
 import tempfile
+import textwrap
 import threading
 import time
 import unittest
@@ -143,6 +147,201 @@ class TablesMatchTheTree(unittest.TestCase):
 
   def test_ci_idf_version_is_read_from_build_yml(self):
     self.assertRegex(cb.ci_idf_version(), r'^v\d+\.\d+')
+
+
+ACTIONS = ROOT / '.github' / 'actions' / 'setup_toolchain'
+ARM_URL = ('https://gitlab.arm.com/api/v4/projects/tooling%2Fgnu-toolchains-for-arm/packages/generic/gnu-toolchain/'
+           '{dir}/arm-gnu-toolchain-{rel}-{host}-arm-none-eabi.tar.xz')
+CURL = """#!/bin/sh
+# curl stand-in: logs its argv, writes $FAKE_BODY to the -o file
+printf '%s\\n' "$@" > "$FAKE_CURL_LOG"
+while [ $# -gt 0 ]; do [ "$1" = -o ] && printf '%s' "$FAKE_BODY" > "$2"; shift; done
+"""
+
+
+class SetupToolchain(unittest.TestCase):
+  """setup_toolchain's manifest, the https and sha256 fetch over it, and the arm-gcc release read from it."""
+  def setUp(self):
+    t = tempfile.TemporaryDirectory()
+    self.addCleanup(t.cleanup)
+    self.tmp = Path(t.name)
+
+  def release(self, manifest):
+    path = self.tmp / 'toolchain.json'
+    path.write_text(manifest if isinstance(manifest, str) else json.dumps(manifest))
+    with mock.patch.object(cb, 'SETUP_TOOLCHAIN', path):
+      return cb.ci_arm_gcc_release()
+
+  def test_every_entry_is_an_https_url_and_its_sha256(self):
+    manifest = json.loads((ACTIONS / 'toolchain.json').read_text())
+    self.assertIn('arm-gcc', manifest)
+    for name, entry in manifest.items():
+      with self.subTest(name):
+        self.assertEqual(set(entry), {'url', 'sha256'})
+        self.assertTrue(entry['url'].startswith('https://'), entry['url'])
+        self.assertRegex(entry['sha256'], r'^[0-9a-f]{64}$')
+
+  def test_the_release_is_read_from_the_arm_gcc_url(self):
+    self.assertRegex(cb.ci_arm_gcc_release(), r'^\d+\.\d+\.rel\d+$')
+    url = ARM_URL.format(dir='14.2.rel1', rel='14.2.rel1', host='x86_64')
+    self.assertEqual(self.release({'arm-gcc': {'url': url, 'sha256': '0' * 64}}), '14.2.rel1')
+    mirror = 'https://example.org/arm/arm-gnu-toolchain-13.3.Rel1-x86_64-arm-none-eabi.tar.xz'   # any layout
+    self.assertEqual(self.release({'arm-gcc': {'url': mirror, 'sha256': '0' * 64}}), '13.3.Rel1')
+
+  def test_a_missing_or_invalid_arm_gcc_entry_fails(self):
+    for what, manifest, error in (
+        ('no manifest', None, 'no arm-gcc url'),
+        ('not json', '{', 'no arm-gcc url'),
+        ('no arm-gcc', {'riscv-gcc': {'url': 'https://x/y.tar.gz'}}, 'no arm-gcc url'),
+        ('a flat url', {'arm-gcc': ARM_URL.format(dir='14.2.rel1', rel='14.2.rel1', host='x86_64')}, 'no arm-gcc url'),
+        ('no url', {'arm-gcc': {'sha256': '0' * 64}}, 'no arm-gcc url'),
+        ('a url not a string', {'arm-gcc': {'url': 14.2}}, 'is no Arm GNU Toolchain'),
+        ('xPack', {'arm-gcc': {'url': 'https://github.com/xpack-dev-tools/arm-none-eabi-gcc-xpack/releases/download/'
+                                      'v14.2.1-1.1/xpack-arm-none-eabi-gcc-14.2.1-1.1-linux-x64.tar.gz'}},
+         'is no Arm GNU Toolchain'),
+        ('plain http', {'arm-gcc': {'url': ARM_URL.format(dir='14.2.rel1', rel='14.2.rel1', host='x86_64')
+                                    .replace('https:', 'http:')}}, 'is no Arm GNU Toolchain'),
+        ('another host', {'arm-gcc': {'url': ARM_URL.format(dir='14.2.rel1', rel='14.2.rel1', host='darwin-arm64')}},
+         'is no Arm GNU Toolchain'),
+        ('another target', {'arm-gcc': {'url': ARM_URL.format(dir='14.2.rel1', rel='14.2.rel1', host='x86_64')
+                                        .replace('-arm-none-eabi', '-aarch64-none-elf')}}, 'is no Arm GNU Toolchain'),
+        ('a suffixed package', {'arm-gcc': {'url': ARM_URL.format(dir='14.2.rel1', rel='14.2.rel1', host='x86_64')
+                                            .replace('.tar.xz', '-debug.tar.xz')}}, 'is no Arm GNU Toolchain')):
+      with self.subTest(what):
+        if manifest is None:
+          with mock.patch.object(cb, 'SETUP_TOOLCHAIN', self.tmp / 'none.json'), self.assertRaisesRegex(cb.Fail, error):
+            cb.ci_arm_gcc_release()
+          continue
+        with self.assertRaisesRegex(cb.Fail, error):
+          self.release(manifest)
+
+  def fetch(self, manifest, name, body):
+    """The action's fetch.sh run from a copy beside `manifest`, with curl a stand-in that serves `body`."""
+    (self.tmp / 'download').mkdir(exist_ok=True)
+    script = self.tmp / 'download' / 'fetch.sh'
+    script.write_bytes((ACTIONS / 'download' / 'fetch.sh').read_bytes())
+    script.chmod(0o755)
+    (self.tmp / 'toolchain.json').write_text(json.dumps(manifest))
+    bin_dir = self.tmp / 'bin'
+    bin_dir.mkdir(exist_ok=True)
+    (bin_dir / 'curl').write_text(CURL)
+    (bin_dir / 'curl').chmod(0o755)
+    log = self.tmp / 'curl.log'
+    log.unlink(missing_ok=True)
+    out = self.tmp / 'out.bin'
+    out.unlink(missing_ok=True)
+    env = dict(os.environ, PATH=f'{bin_dir}{os.pathsep}{os.environ["PATH"]}', FAKE_CURL_LOG=str(log), FAKE_BODY=body)
+    r = subprocess.run(['bash', str(script), name, str(out)], env=env, capture_output=True, text=True)
+    return r, (log.read_text().splitlines() if log.exists() else None), out
+
+  @unittest.skipUnless(shutil.which('jq') and shutil.which('bash'), 'fetch.sh needs jq and bash')
+  def test_fetch_takes_https_only_and_keeps_a_download_only_with_its_sha256(self):
+    body = 'toolchain bytes'
+    sha = hashlib.sha256(body.encode()).hexdigest()
+    url = 'https://example.invalid/t.tar.xz'
+    r, argv, out = self.fetch({'t': {'url': url, 'sha256': sha}}, 't', body)
+    self.assertEqual(r.returncode, 0, r.stderr)
+    self.assertEqual(out.read_text(), body)
+    self.assertEqual(argv[argv.index('--proto') + 1], '=https')
+    self.assertEqual(argv[argv.index('--proto-redir') + 1], '=https')
+    self.assertIn(url, argv)
+    r, argv, _ = self.fetch({'t': {'url': url, 'sha256': '0' * 64}}, 't', body)
+    self.assertNotEqual(r.returncode, 0, 'a checksum mismatch is refused')
+    self.assertIn('FAILED', r.stdout + r.stderr)
+    for what, manifest in (('no entry', {'u': {'url': url, 'sha256': sha}}), ('no sha256', {'t': {'url': url}})):
+      with self.subTest(what):
+        r, argv, _ = self.fetch(manifest, 't', body)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIsNone(argv, 'nothing is downloaded')
+
+  def step(self, action, name):
+    """The `run` of `action`'s step `name`, dedented."""
+    text = action.read_text().split(f'    - name: {name}\n', 1)[1]
+    run = re.search(r"      run: (?:\|\n((?:        .*\n|\n)+)|'(.*)'\n)", text)
+    return textwrap.dedent(run[1]) if run[1] else run[2]
+
+  def test_the_cache_is_keyed_on_the_entrys_sha256_which_must_be_given(self):
+    manifest = json.loads((ACTIONS / 'toolchain.json').read_text())
+    out = self.tmp / 'github-output'
+    r = subprocess.run(['bash', '-e', '-c', self.step(ACTIONS / 'action.yml', 'Get Toolchain URL')], cwd=ROOT,
+                       capture_output=True, text=True, env=dict(os.environ, TOOLCHAIN='arm-gcc', GITHUB_OUTPUT=str(out)))
+    self.assertEqual(r.returncode, 0, r.stderr)
+    self.assertEqual(dict(ln.split('=', 1) for ln in out.read_text().splitlines()),
+                     {'toolchain_url': manifest['arm-gcc']['url'], 'toolchain_sha256': manifest['arm-gcc']['sha256']})
+    download = ACTIONS / 'download' / 'action.yml'
+    self.assertIn('key: ${{ runner.os }}-${{ inputs.toolchain }}-${{ inputs.toolchain_sha256 }}\n', download.read_text())
+    check = self.step(download, "Check the toolchain's sha256")
+    for sha, code in (('', 1), ('0' * 64, 0)):
+      with self.subTest(sha=sha):
+        r = subprocess.run(['bash', '-e', '-c', check], capture_output=True, text=True, env=dict(os.environ, SHA256=sha))
+        self.assertEqual(r.returncode, code, r.stdout)
+
+  def install(self, action, toolchain, url, payload):
+    """`action`'s Install Toolchain script run in a fresh git checkout, as a composite step runs it, with fetch.sh a
+    stand-in that writes `payload`: its exit, the checkout's `git status --porcelain` and the fake HOME. Every GIT_*
+    variable is dropped: a pre-commit hook's GIT_DIR and GIT_INDEX_FILE would aim this git at the checkout under test."""
+    clean = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+    text = action.read_text()
+    body = text.split('    - name: Install Toolchain\n', 1)[1].split('      run: |\n', 1)[1].split('      shell: bash\n')[0]
+    root = Path(tempfile.mkdtemp(dir=self.tmp))
+    repo, home, temp = root / 'repo', root / 'home', root / 'runner-temp'
+    for d in (repo, home, temp):
+      d.mkdir()
+    git = ['git', '-C', str(repo), '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false']
+    (repo / 'README').write_text('x')
+    for cmd in (['init', '-q'], ['add', 'README'], ['commit', '-qm', 'x']):
+      subprocess.run([*git, *cmd], env=clean, check=True)
+    self.assertEqual(Path(subprocess.run([*git, 'rev-parse', '--absolute-git-dir'], env=clean, capture_output=True,
+                                         text=True, check=True).stdout.strip()).resolve(), (repo / '.git').resolve())
+    (root / 'payload').write_bytes(payload)
+    fetch = root / 'fetch.sh'
+    fetch.write_text(f'#!/bin/sh\ncp {root / "payload"} "$2"\n')
+    fetch.chmod(0o755)
+    env = dict(clean, HOME=str(home), RUNNER_TEMP=str(temp), TOOLCHAIN=toolchain, TOOLCHAIN_URL=url,
+               FETCH=str(fetch))
+    r = subprocess.run(['bash', '--noprofile', '--norc', '-eo', 'pipefail', '-c', textwrap.dedent(body)], cwd=repo,
+                       env=env, capture_output=True, text=True)
+    status = subprocess.run([*git, 'status', '--porcelain'], env=clean, capture_output=True, text=True, check=True).stdout
+    return r, status, home
+
+  def test_installing_leaves_the_checkout_clean(self):
+    """An untracked download in the checkout would make check_build's identity dirty, which admission refuses."""
+    def archive(mode):
+      buf = io.BytesIO()
+      with tarfile.open(fileobj=buf, mode=f'w:{mode}') as t:
+        info = tarfile.TarInfo('tc/bin/gcc')
+        info.size = 2
+        t.addfile(info, io.BytesIO(b'cc'))
+      return buf.getvalue()
+    action = ACTIONS / 'download' / 'action.yml'
+    installer = b'#!/bin/sh\nmkdir -p "$2/bin"\n'   # rx-gcc's .run: -p <dir> -y
+    for toolchain, url, payload, installed in (
+        ('arm-gcc', ARM_URL.format(dir='14.2.rel1', rel='14.2.rel1', host='x86_64'), archive('xz'), 'tc/bin/gcc'),
+        ('riscv-gcc', 'https://x/t.tar.gz', archive('gz'), 'tc/bin/gcc'),
+        ('msp430-gcc', 'https://x/t.tar.bz2', archive('bz2'), 'tc/bin/gcc'),
+        ('rx-gcc', 'https://x/t.run', installer, 'gnurx/bin'),
+        ('arm-iar', 'https://x/cxarm.deb', b'deb', 'cxarm.deb')):
+      with self.subTest(toolchain):
+        r, status, home = self.install(action, toolchain, url, payload)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(status, '', 'the install left files in the checkout')
+        self.assertTrue((home / 'cache' / toolchain / installed).exists())
+
+  def test_setup_takes_exactly_one_bin_dir(self):
+    """An unmatched glob stays one literal word in bash: an empty cache must fail, not put the pattern on PATH."""
+    setup = self.step(ACTIONS / 'download' / 'action.yml', 'Setup Toolchain')
+    for dirs, code in (((), 1), (('a',), 0), (('a', 'b'), 1)):
+      with self.subTest(dirs=dirs):
+        home = Path(tempfile.mkdtemp(dir=self.tmp))
+        (home / 'cache' / 'arm-gcc').mkdir(parents=True)
+        for d in dirs:
+          (home / 'cache' / 'arm-gcc' / d / 'bin').mkdir(parents=True)
+        path = home / 'github-path'
+        r = subprocess.run(['bash', '--noprofile', '--norc', '-e', '-c', setup], capture_output=True, text=True,
+                           env=dict(os.environ, HOME=str(home), TOOLCHAIN='arm-gcc', GITHUB_PATH=str(path)))
+        self.assertEqual(r.returncode, code, r.stdout + r.stderr)
+        self.assertEqual(path.read_text() if path.exists() else '',
+                         f'{home}/cache/arm-gcc/a/bin\n' if code == 0 else '')
 
 
 class Selection(unittest.TestCase):
@@ -967,6 +1166,11 @@ class CompileFacts(unittest.TestCase):
     self.log = self.root / 'log'
     self.log.write_text('')
 
+  def facts(self):
+    """compile_facts over the main_command entry, as a HIL record's build composes them."""
+    main = cb.main_command(self.root)
+    return main if isinstance(main, str) else cb.compile_facts(main, self.root, self.log, False)
+
   def commands(self, *entries):
     (self.root / 'compile_commands.json').write_text(json.dumps([
       {'directory': str(self.root), 'file': str(ROOT / f), 'output': out, 'command': cmd} for f, out, cmd in entries]))
@@ -977,24 +1181,31 @@ class CompileFacts(unittest.TestCase):
                   ('src/main.c', 'apps/blinky.dir/main.c.obj', 'gcc -DAPP -c src/main.c'))
     ran = []
     with mock.patch.object(cb, 'run', lambda cmd, log, verbose, cwd: ran.append((cmd, cwd)) or 0):
-      self.assertEqual(cb.compile_facts(self.root, self.log, False), '')
+      self.assertEqual(self.facts(), '')
     self.assertEqual(ran, [(['gcc', '-DB=x y', '-I/inc', '-flto', '-o', str(self.root / 'board_facts.o'), '-c',
                              str(cb.FACTS_SOURCE), '-fno-lto'], str(self.root))])
 
   def test_no_single_tinyuf2_main_c_command_or_a_failed_compile_fails(self):
-    self.assertIn('compile_commands.json', cb.compile_facts(self.root, self.log, False))
+    self.assertIn('compile_commands.json', self.facts())
     self.commands(('src/ghostfat.c', 'CMakeFiles/tinyuf2.dir/g.obj', 'gcc -c g.c'))
-    self.assertIn('found 0', cb.compile_facts(self.root, self.log, False))
+    self.assertIn('found 0', self.facts())
     self.commands(('src/main.c', 'CMakeFiles/tinyuf2.dir/m.obj', f'gcc -o m.obj -c {ROOT}/src/main.c'))
     self.log.write_text('board_facts.c:9:1: error: initializer element is not constant\n')
     with mock.patch.object(cb, 'run', lambda *a, **k: 1):
-      self.assertIn('initializer element is not constant', cb.compile_facts(self.root, self.log, False))
+      self.assertIn('initializer element is not constant', self.facts())
+
+  def test_the_compiler_is_the_main_c_commands_with_the_first_line_of_its_version(self):
+    self.commands(('src/main.c', 'CMakeFiles/tinyuf2.dir/m.obj', f'{sys.executable} -o m.obj -c {ROOT}/src/main.c'))
+    version = subprocess.run([sys.executable, '--version'], capture_output=True, text=True).stdout.splitlines()[0]
+    self.assertEqual(cb.compiler_of(cb.main_command(self.root)), {'path': sys.executable, 'version': version})
+    self.commands(('src/main.c', 'CMakeFiles/tinyuf2.dir/m.obj', f'/nonexistent/gcc -o m.obj -c {ROOT}/src/main.c'))
+    self.assertEqual(cb.compiler_of(cb.main_command(self.root)), {'path': '/nonexistent/gcc', 'version': None})
 
   def test_a_preprocessor_dependency_option_is_refused_rather_than_split(self):
     self.commands(('src/main.c', 'CMakeFiles/tinyuf2.dir/m.obj',
                    f'gcc -Wp,-MD,m.d,-DHIL_VALUE=7 -o m.obj -c {ROOT}/src/main.c'))
     with mock.patch.object(cb, 'run', lambda *a, **k: self.fail('compiled')):
-      self.assertIn("would write the build's own dependency file", cb.compile_facts(self.root, self.log, False))
+      self.assertIn("would write the build's own dependency file", self.facts())
 
 
 class FakeTools:
@@ -1352,13 +1563,14 @@ class HilRecord(FakeTools, unittest.TestCase):
         (root / rel).write_text(rel)
       return True
 
-    def fake_facts(root, log, verbose):
+    def fake_facts(main, root, log, verbose):
       (root / 'board_facts.o').write_text('o')
       return ''
     build_dir = self.tmp / 'cmake-build'   # absent: the first shared build creates it before its lock
     with mock.patch.object(cb, 'BUILD_DIR', build_dir), mock.patch.object(cb, 'check_deps', lambda p: None), \
          mock.patch.object(cb, 'check_tools', lambda *a: None), mock.patch.object(cb, 'build_cmake', fake_cmake), \
          mock.patch.object(cb, 'expected_artifacts', lambda *a: []), mock.patch.object(cb, 'compile_facts', fake_facts), \
+         mock.patch.object(cb, 'main_command', lambda root: {'command': f'{sys.executable} -c 1'}), \
          mock.patch.object(cb, 'ninja_in', lambda backend, mode, image, root, args: self.jlink_tree(root)(root, args)):
       rec = cb.build_board('metro_m7_1011', 'cmake', args, {}, cb.roster_flasher(self.config, 'metro_m7_1011'))
     self.assertEqual(rec['status'], 'ok', rec)
@@ -1367,6 +1579,7 @@ class HilRecord(FakeTools, unittest.TestCase):
     self.assertIn('tinyuf2.jlink', rec['sha256'])
     self.assertLessEqual(set(cb.FACTS_FILES), set(rec['sha256']))   # what the runner reads the board facts from
     self.assertEqual(rec['flash']['defines'], ['JLINK_OPTION=-USB 000801012283 -ExitOnError 1 -NoGui 1'])
+    self.assertEqual(set(rec['compiler']), {'path', 'version'})   # what a hosted record is pinned by
 
   def test_a_hil_record_takes_probe_selection_only_from_the_roster(self):
     for argv in (['--board', 'metro_m7_1011', '--shared', '--hil-config', self.config, '-D', 'JLINK_OPTION=-USB 1'],

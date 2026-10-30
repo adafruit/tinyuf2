@@ -113,8 +113,25 @@ def reap_detached(test):
     test.addCleanup(p.stop)
 
 
+def own_runs():
+  """This process's run dirs at the runner's default run root, named as main() names them."""
+  return set((ht.cb.BUILD_DIR / 'hil').glob(f'run-*-{os.getpid()}'))
+
+
+def setUpModule():
+  """The module's default run root is a tmp dir, removed after tearDownModule has checked it: a test that omits
+  --run-root never writes into the checkout's cmake-build/hil."""
+  t = tempfile.TemporaryDirectory()
+  unittest.addModuleCleanup(t.cleanup)
+  p = mock.patch.object(ht.cb, 'BUILD_DIR', Path(t.name) / 'cmake-build')
+  p.start()
+  unittest.addModuleCleanup(p.stop)
+
+
 def tearDownModule():
-  """No `hil_test.py keep-build` or `keep-held` child of this process outlives the suite."""
+  """No `hil_test.py keep-build` or `keep-held` child of this process outlives the suite, and no test wrote a run dir
+  to the default run root."""
+  leaked = sorted(str(d) for d in own_runs())
   mine = []
   for d in Path('/proc').iterdir():
     try:
@@ -128,6 +145,9 @@ def tearDownModule():
   left = [pid for pid in mine if end_child(pid)]
   if left:
     raise AssertionError(f'keep-build or keep-held children {left} outlived the suite')
+  if leaked:
+    raise AssertionError(f'run dirs {leaked} were written to the default run root: give the test a --run-root under '
+                         'its tmp dir or redirect cb.BUILD_DIR')
 
 
 def no_ci_job(test):
@@ -2907,6 +2927,26 @@ class Locks(Tmp):
     first.close()
     ht.recovery_lock(self.helper, BOARD).close()
 
+  def test_the_recovery_file_is_created_exclusively_and_world_writable_and_reopened_without_o_creat(self):
+    path = self.lock + '.recover'
+    real_open, calls = os.open, []
+    opener = lambda p, flags, *a, **k: (calls.append((p, flags)), real_open(p, flags, *a, **k))[1]
+    old = os.umask(0o077)
+    try:
+      with mock.patch.object(ht.os, 'open', opener):
+        ht.recovery_lock(self.helper, BOARD).close()
+    finally:
+      os.umask(old)
+    self.assertEqual([p for p, _ in calls], [path, path])
+    self.assertFalse(calls[0][1] & os.O_CREAT)
+    self.assertEqual(calls[1][1] & (os.O_CREAT | os.O_EXCL), os.O_CREAT | os.O_EXCL)
+    self.assertEqual(os.stat(path).st_mode & 0o777, 0o666)
+    calls.clear()
+    with mock.patch.object(ht.os, 'open', opener):
+      ht.recovery_lock(self.helper, BOARD).close()
+    self.assertEqual(len(calls), 1)
+    self.assertFalse(calls[0][1] & os.O_CREAT)
+
   def test_survivors_are_identified_against_pid_reuse(self):
     me = {'pid': os.getpid(), 'start': ht.proc_start(os.getpid())}
     self.assertEqual(ht.still_alive([me, dict(me, start=me['start'] + 1), {'pid': 2 ** 22 + 1, 'start': 5}]), [me])
@@ -4845,9 +4885,19 @@ class RecordFacts(Tmp):
     rec = self.record(rels=('_bin/tinyuf2.bin',))
     with contextlib.redirect_stdout(io.StringIO()) as out, \
          mock.patch.object(ht, 'load_helper', side_effect=AssertionError('the lock helper was loaded')):
-      code = ht.main(['run', '-b', BOARD, '--build-record', str(rec), str(roster(self.tmp))])
+      code = ht.main(['run', '-b', BOARD, '--build-record', str(rec), '--run-root', str(self.tmp / 'runs'),
+                      str(roster(self.tmp))])
     self.assertEqual(code, 2)
     self.assertIn('no board facts in the record', out.getvalue())
+
+  def test_a_run_without_a_run_root_is_one_the_module_guard_sees(self):
+    with contextlib.redirect_stdout(io.StringIO()), mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / 'build'), \
+         mock.patch.object(ht, 'load_helper', side_effect=AssertionError('the lock helper was loaded')):
+      self.assertEqual(ht.main(['run', '-b', BOARD, '--build-record', str(self.record(rels=('_bin/tinyuf2.bin',))),
+                                str(roster(self.tmp))]), 2)
+      runs = own_runs()
+    self.assertEqual([d.parent for d in runs], [self.tmp / 'build' / 'hil'])
+    self.assertTrue((runs.pop() / 'hil_report.json').is_file())
 
 
 def bf_read(build):

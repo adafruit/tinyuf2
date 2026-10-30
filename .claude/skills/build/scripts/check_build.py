@@ -39,6 +39,7 @@ except ImportError:   # Windows, where hil_remote.py's wait and collect load thi
 
 ROOT = Path(__file__).resolve().parents[4]
 BUILD_YML = ROOT / '.github' / 'workflows' / 'build.yml'
+SETUP_TOOLCHAIN = ROOT / '.github' / 'actions' / 'setup_toolchain' / 'toolchain.json'
 BUILD_DIR = ROOT / 'cmake-build'
 
 # The ports CI builds (build.yml's jobs; test_build.py holds the two equal) and the boards that stand in for each:
@@ -143,6 +144,20 @@ def ci_idf_version():
   if not m:
     raise Fail(f'no esp-idf toolchain_version in {BUILD_YML.relative_to(ROOT)}')
   return m.group(1)
+
+
+def ci_arm_gcc_release():
+  """The Arm GNU Toolchain release CI's arm-gcc builds install, from setup_toolchain's arm-gcc url: e.g. 14.2.rel1,
+  as Arm names the package (its compiler prints 14.2.Rel1)."""
+  try:
+    url = json.loads(SETUP_TOOLCHAIN.read_text())['arm-gcc']['url']
+  except (OSError, ValueError, KeyError, TypeError) as e:
+    raise Fail(f'no arm-gcc url in {SETUP_TOOLCHAIN}: {e!r}')
+  m = re.fullmatch(r'https://\S+/arm-gnu-toolchain-(\d+\.\d+\.rel\d+)-x86_64-arm-none-eabi\.tar\.xz', url, re.I) \
+    if isinstance(url, str) else None
+  if not m:
+    raise Fail(f'the arm-gcc url in {SETUP_TOOLCHAIN}, {url!r}, is no Arm GNU Toolchain x86_64 arm-none-eabi release')
+  return m[1]
 
 
 @functools.cache
@@ -674,9 +689,8 @@ def build_cmake(port, board, root, defines, log, verbose):
   return not (run(cfg, log, verbose) or run(['cmake', '--build', root], log, verbose))
 
 
-def compile_facts(root, log, verbose):
-  """board_facts.o: FACTS_SOURCE compiled with the exact command of the tinyuf2 target's src/main.c, without LTO,
-  whose objects hold no plain data, and without dependency output; '' or why not."""
+def main_command(root):
+  """The one compile_commands.json entry of the tinyuf2 target's src/main.c under `root`, or why not (a str)."""
   try:
     cmds = json.loads((root / 'compile_commands.json').read_text())
   except (OSError, ValueError) as e:
@@ -685,7 +699,13 @@ def compile_facts(root, log, verbose):
           '/tinyuf2.dir/' in c.get('output', c.get('command', ''))]
   if len(main) != 1 or 'command' not in main[0]:
     return f'{root}/compile_commands.json: expected one command of the tinyuf2 target\'s src/main.c, found {len(main)}'
-  argv, it = [], iter(shlex.split(main[0]['command']))
+  return main[0]
+
+
+def compile_facts(main, root, log, verbose):
+  """board_facts.o: FACTS_SOURCE compiled with the exact command of the tinyuf2 target's src/main.c (`main`, its
+  main_command entry), without LTO, whose objects hold no plain data, and without dependency output; '' or why not."""
+  argv, it = [], iter(shlex.split(main['command']))
   for a in it:
     if a.startswith('-Wp,') and any(o.startswith('-M') for o in a.split(',')[1:]):
       return f'{root}/compile_commands.json: {a} would write the build\'s own dependency file'
@@ -694,15 +714,26 @@ def compile_facts(root, log, verbose):
     elif a == '-o':
       next(it, None)
       argv += ['-o', str(root / 'board_facts.o')]
-    elif Path(main[0]['directory'], a) == ROOT / 'src' / 'main.c':
+    elif Path(main['directory'], a) == ROOT / 'src' / 'main.c':
       argv.append(str(FACTS_SOURCE))
     elif a not in ('-MD', '-MMD') and not a.startswith(('-MF', '-MT', '-MQ')):
       argv.append(a)
   if str(FACTS_SOURCE) not in argv or '-o' not in argv:
     return f'{root}/compile_commands.json: no source or -o in the tinyuf2 src/main.c command'
-  if run(argv + ['-fno-lto'], log, verbose, cwd=main[0]['directory']):
+  if run(argv + ['-fno-lto'], log, verbose, cwd=main['directory']):
     return 'board facts: ' + first_error(log.read_text(errors='replace'))
   return ''
+
+
+def compiler_of(main):
+  """The compiler of the tinyuf2 target's src/main.c (`main`, its main_command entry) and the first line of its
+  --version, None when it cannot be read: what a hosted HIL record is pinned by (hil-contract Build, Hosted)."""
+  cc = shlex.split(main['command'])[0]
+  try:
+    out = subprocess.run([cc, '--version'], capture_output=True, text=True, timeout=30).stdout
+  except (OSError, subprocess.SubprocessError):
+    out = ''
+  return {'path': cc, 'version': next(iter(out.splitlines()), '').strip() or None}
 
 
 def build_idf(board, root, defines, log, verbose, idf_mode, image):
@@ -986,13 +1017,15 @@ def build_root(board, port, backend, root, rec, args, idf, flasher):
     rec['flash']['defines'] = extra
     rec['artifacts'] += [a for a in rec['flash']['inputs'] if a not in rec['artifacts']]
     if backend == 'cmake':
-      problem = compile_facts(root, log, args.verbose)
+      main = main_command(root)
+      problem = main if isinstance(main, str) else compile_facts(main, root, log, args.verbose)
       missing = [a for a in FACTS_FILES if not (root / a).is_file()]
       problem = problem or missing and 'missing board fact artifact(s): ' + ', '.join(missing)
       if problem:
         rec.update(status='failed', firstError=problem, log=str(log.relative_to(ROOT)))
         return rec
       rec['artifacts'] += [a for a in FACTS_FILES if a not in rec['artifacts']]
+      rec['compiler'] = compiler_of(main)
   if args.shared:
     rec['sha256'] = {a: hashlib.sha256((root / a).read_bytes()).hexdigest() for a in rec['artifacts']}
   elif not args.build_dir:

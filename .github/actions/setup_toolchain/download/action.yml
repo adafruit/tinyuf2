@@ -7,41 +7,71 @@ inputs:
   toolchain_url:
     description: 'Toolchain URL'
     required: true
+  toolchain_sha256:
+    description: "The archive's sha256 (toolchain.json), which keys its cache"
+    required: true
 
 runs:
   using: "composite"
   steps:
+    - name: Check the toolchain's sha256
+      env:
+        SHA256: ${{ inputs.toolchain_sha256 }}
+      run: '[ -n "$SHA256" ] || { echo "::error::no toolchain_sha256"; exit 1; }'
+      shell: bash
+
     - name: Cache Toolchain
       if: ${{ !startsWith(inputs.toolchain_url, 'https://github.com') }}
       uses: actions/cache@v4
       id: cache-toolchain-download
       with:
         path: ~/cache/${{ inputs.toolchain }}
-        key: ${{ runner.os }}-${{ inputs.toolchain }}-${{ inputs.toolchain_url }}
+        key: ${{ runner.os }}-${{ inputs.toolchain }}-${{ inputs.toolchain_sha256 }}
 
     - name: Install Toolchain
       if: steps.cache-toolchain-download.outputs.cache-hit != 'true'
+      env:
+        TOOLCHAIN: ${{ inputs.toolchain }}
+        TOOLCHAIN_URL: ${{ inputs.toolchain_url }}
+        FETCH: .github/actions/setup_toolchain/download/fetch.sh
+      # downloads go outside the checkout: an untracked archive there makes check_build's identity dirty
       run: |
-        mkdir -p ~/cache/${{ inputs.toolchain }}
+        mkdir -p ~/cache/${TOOLCHAIN}
+        FILE_EXT="${TOOLCHAIN_URL##*.}"
+        DL="${RUNNER_TEMP:?}/toolchain-${TOOLCHAIN}"
+        mkdir -p "$DL"
 
-        if [[ ${{ inputs.toolchain }} == rx-gcc ]]; then
-          wget --progress=dot:giga ${{ inputs.toolchain_url }} -O toolchain.run
-          chmod +x toolchain.run
-          ./toolchain.run -p ~/cache/${{ inputs.toolchain }}/gnurx -y
-        elif [[ ${{ inputs.toolchain }} == arm-iar ]]; then
-          wget --progress=dot:giga ${{ inputs.toolchain_url }} -O ~/cache/${{ inputs.toolchain }}/cxarm.deb
+        if [[ ${TOOLCHAIN} == rx-gcc ]]; then
+          "$FETCH" "$TOOLCHAIN" "$DL/toolchain.run"
+          chmod +x "$DL/toolchain.run"
+          "$DL/toolchain.run" -p ~/cache/${TOOLCHAIN}/gnurx -y
+        elif [[ ${TOOLCHAIN} == arm-iar ]]; then
+          "$FETCH" "$TOOLCHAIN" ~/cache/${TOOLCHAIN}/cxarm.deb
+        elif [[ ${FILE_EXT} =~ ^(gz|bz2|xz)$ ]]; then
+          "$FETCH" "$TOOLCHAIN" "$DL/toolchain.tar.${FILE_EXT}"
+          tar -C ~/cache/${TOOLCHAIN} -xaf "$DL/toolchain.tar.${FILE_EXT}"
         else
-          wget --progress=dot:giga ${{ inputs.toolchain_url }} -O toolchain.tar.gz
-          tar -C ~/cache/${{ inputs.toolchain }} -xaf toolchain.tar.gz
+          echo "Unsupported toolchain file extension: ${FILE_EXT}"
+          exit 1
         fi
       shell: bash
 
     - name: Setup Toolchain
+      env:
+        TOOLCHAIN: ${{ inputs.toolchain }}
       run: |
-        if [[ ${{ inputs.toolchain }} == arm-iar ]]; then
-          sudo apt-get install -y ~/cache/${{ inputs.toolchain }}/cxarm.deb
-          echo >> $GITHUB_PATH "/opt/iar/cxarm/arm/bin"
+        if [[ ${TOOLCHAIN} == arm-iar ]]; then
+          sudo apt-get install -y ~/cache/${TOOLCHAIN}/cxarm.deb
+          TOOLCHAIN_PATH="/opt/iar/cxarm/arm/bin"
         else
-          echo >> $GITHUB_PATH `echo ~/cache/${{ inputs.toolchain }}/*/bin`
+          # Find the single toolchain bin directory; nullglob makes no match count as zero
+          shopt -s nullglob
+          TOOLCHAIN_BIN_DIRS=(~/cache/${TOOLCHAIN}/*/bin)
+          if [[ ${#TOOLCHAIN_BIN_DIRS[@]} -ne 1 ]]; then
+            echo "Error: Expected exactly one toolchain bin directory, found ${#TOOLCHAIN_BIN_DIRS[@]}"
+            exit 1
+          fi
+          TOOLCHAIN_PATH="${TOOLCHAIN_BIN_DIRS[0]}"
         fi
+        echo "$TOOLCHAIN_PATH" >> $GITHUB_PATH
       shell: bash

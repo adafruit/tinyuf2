@@ -1,23 +1,27 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""An Espressif board's HIL record built on a hosted runner and admitted on the rig (SKILL.md Build, Hosted).
+"""A board's HIL record built off the rig, on a hosted runner or the dev PC, and admitted on the rig (SKILL.md Build,
+Hosted).
 
   hil_hosted.py image
   hil_hosted.py build --board B --roster ROSTER --out DIR
   hil_hosted.py admit --artifact DIR/B --board B --roster ROSTER --out DIR
 
-`build` runs check_build's HIL record in CI's ESP-IDF image and packs it as DIR/B: the record (`B.build.json`), every
-file its row hashes under `build/`, and `provenance.json`, which names the board and the roster's path and sha256 (the
+`build` runs check_build's HIL record -- an Espressif board's in CI's ESP-IDF image, any other's with cmake and
+the arm-none-eabi-gcc on PATH, which must be CI's -- and packs it as DIR/B: the record (`B.build.json`), every file
+its row hashes under `build/`, and `provenance.json`, which names the board and the roster's path and sha256 (the
 record does not say which roster was selected). `admit` refuses (exit 2) unless provenance names this board and this
 checkout's roster, the record passes the runner's own admission here (hil_test.record_row: HEAD, submodules and
-get_deps dependencies, clean, CI's pinned IDF image), and the artifact holds exactly the files that record hashes, with
-the same flash binding; it then places the files as the record's build dir and writes the record and provenance to
---out. The last stdout line is JSON.
+get_deps dependencies, clean, the board's backend, CI's pinned IDF image) and a cmake record names CI's pinned Arm GNU
+Toolchain as its compiler, and the artifact holds exactly the files that record hashes, with the same flash binding;
+it then places the files as the record's build dir and writes the record and provenance to --out. The last stdout
+line is JSON.
 """
 import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -48,7 +52,7 @@ def record_name(board):
 
 
 def build_dir(board):
-  """The build dir a --shared IDF record of `board` names, checkout-relative: the only one admission places."""
+  """The build dir a --shared HIL record of `board` names, checkout-relative: the only one admission places."""
   return f'cmake-build/cmake-build-{board}'
 
 
@@ -56,16 +60,19 @@ def build_root(board):
   return cb.BUILD_DIR / Path(build_dir(board)).name
 
 
-def espressif_board(roster, board):
-  b = ht.load_board(cb.ROOT / roster, board)
-  if b['kind'] != 'esp':
-    raise ht.Refused(f'{board}: a hosted build is for Espressif boards only; {b["port"]} boards build on the rig')
-  return b
+def check_toolchain(what, row):
+  """Refuse a cmake record whose compiler is not the Arm GNU Toolchain release CI's arm-gcc builds install, as
+  record_row refuses an IDF record not built in CI's image."""
+  release = cb.ci_arm_gcc_release()
+  version = (row.get('compiler') or {}).get('version') or ''
+  if not re.search(rf'\(Arm GNU Toolchain {re.escape(release)}\b', version, re.I):
+    raise ht.Refused(f'{what}: compiled by {version or "an unrecorded compiler"}; a hosted record takes CI\'s Arm GNU '
+                     f'Toolchain {release} only (.github/actions/setup_toolchain)')
 
 
 def build(board, roster, out):
-  """check_build's HIL record of `board` (CI's docker image) packed as out/<board>."""
-  espressif_board(roster, board)
+  """check_build's HIL record of `board` (CI's docker image, or cmake with CI's arm-gcc) packed as out/<board>."""
+  ht.load_board(cb.ROOT / roster, board)
   dest = out / board
   if dest.exists():
     raise ht.Refused(f'{dest} exists')
@@ -82,6 +89,8 @@ def build(board, roster, out):
   row = rows[0]
   if row.get('buildDir') != build_dir(board):
     raise ht.Refused(f'the record names build dir {row.get("buildDir")}, not {build_dir(board)}')
+  if row.get('backend') == 'cmake':
+    check_toolchain(f'check_build\'s record of {board}', row)
   record = (json.dumps(rec) + '\n').encode()
   files = {record_name(board): record}
   for rel in row['sha256']:
@@ -119,7 +128,7 @@ def inventory(artifact):
 def admit(artifact, board, roster, out):
   """The hosted artifact of `board` admitted as a record of this checkout: returns its record path in `out`."""
   artifact = Path(artifact)
-  b = espressif_board(roster, board)
+  b = ht.load_board(cb.ROOT / roster, board)
   try:
     prov = json.loads((artifact / PROVENANCE).read_text())
   except (OSError, ValueError, RecursionError) as e:
@@ -140,9 +149,12 @@ def admit(artifact, board, roster, out):
   record, incoming = out / name, out / f'{name}.incoming'   # the bytes checked are the bytes admitted
   incoming.write_bytes(files.pop(name))
   try:
-    _, row, _, _ = ht.record_row(incoming, b)   # the runner's own admission: identity, clean, IDF image, board, backend
-    if row['buildDir'] != build_dir(board):
+    # the runner's own admission: identity, clean, IDF image, board, backend
+    _, row, root, be = ht.record_row(incoming, b)
+    if row['buildDir'] != build_dir(board):   # the root replaced below is the record's: never another dir
       raise ht.Refused(f'{incoming}: build dir {row["buildDir"]}, not {build_dir(board)}')
+    if be == 'cmake':
+      check_toolchain(incoming, row)
     built = {rel[len(BUILD) + 1:]: data for rel, data in files.items() if rel.startswith(f'{BUILD}/')}
     # inventory paths are normalised, so a record hashing a path outside its build dir never matches
     if set(files) != {f'{BUILD}/{rel}' for rel in built} or \
@@ -154,7 +166,6 @@ def admit(artifact, board, roster, out):
     raise ht.Refused(f'{incoming}: its checks stopped on {type(e).__name__}: {e} '
                      '(a record not of check_build\'s shape, or a checkout or tooling fault)')
   else:
-    root = build_root(board)
     with cb.build_lock(root):
       shutil.rmtree(root, ignore_errors=True)
       for rel, data in built.items():   # the bytes hashed above
@@ -170,7 +181,7 @@ def admit(artifact, board, roster, out):
 def main(argv=None):
   ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
   sub = ap.add_subparsers(dest='cmd', required=True)
-  sub.add_parser('image', help="CI's ESP-IDF image, which `build` needs pulled")
+  sub.add_parser('image', help="CI's ESP-IDF image, which an Espressif board's `build` needs pulled")
   for name in ('build', 'admit'):
     p = sub.add_parser(name)
     p.add_argument('--board', required=True)
