@@ -375,7 +375,8 @@ class Selection(unittest.TestCase):
 
   def test_top_level_app_selects_ports_whose_backend_compiles_it(self):
     ports = {cb.port_of(b) for b, _ in classify('apps/blinky/src/blinky.c')[2]}
-    self.assertEqual(ports, {'espressif', 'lpc55', 'maxim', 'mimxrt10xx', 'stm32f3', 'stm32f4', 'stm32h5', 'stm32h7'})
+    self.assertEqual(ports, {'espressif', 'lpc55', 'maxim', 'mimxrt10xx', 'stm32f1', 'stm32f3', 'stm32f4', 'stm32h5',
+                             'stm32h7'})
 
   def test_a_ports_cmake_files_select_its_cmake_build(self):
     for port in ('kinetis_k32l2', 'stm32h7', 'stm32l4'):
