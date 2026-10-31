@@ -49,7 +49,6 @@ function(family_add_board_target BOARD_TARGET)
 
   target_compile_definitions(${BOARD_TARGET} PUBLIC
     BOARD_UF2_FAMILY_ID=${UF2_FAMILY_ID}
-    BOARD_FLASH_SIZE=${LD_FLASH_SIZE}
     )
   set_source_files_properties(${SAM_SDK}/gcc/system_samd51.c ${SAM_SDK}/gcc/gcc/startup_samd51.c PROPERTIES
     COMPILE_OPTIONS -w)

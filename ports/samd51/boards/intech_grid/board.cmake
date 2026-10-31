@@ -1,5 +1,5 @@
 set(LD_FLASH_BOOT_SIZE 16K)
-set(LD_FLASH_SIZE 0x100000)
+set(LD_FLASH_SIZE 1M)
 set(LD_RAM_SIZE 256K)
 
 function(update_board TARGET)

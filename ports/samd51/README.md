@@ -21,8 +21,8 @@ file:
 uf2conv.py -c -b 0x4000 -f 0x55114460 firmware.bin
 ```
 
-Each UF2 block must carry 256 bytes at a 256-byte aligned address, as uf2conv.py writes them. The bootloader skips any
-other block but still counts it as written, so such a file "completes" with parts of the application missing.
+UF2 blocks must carry 256 bytes at a 256-byte aligned address, as uf2conv.py writes them. Other blocks are skipped yet
+counted as written (#629), so such a file "completes" with parts of the application missing.
 
 ## Entering the bootloader
 

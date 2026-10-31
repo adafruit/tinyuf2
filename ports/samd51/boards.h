@@ -35,6 +35,8 @@ extern "C" {
 #include "board.h"
 
 #define BOARD_FLASH_ADDR_ZERO 0x00000000
+// from the device header of the part the board selects
+#define BOARD_FLASH_SIZE      FLASH_SIZE
 
 // Flash Start Address of Application
 #ifndef BOARD_FLASH_APP_START
