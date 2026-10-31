@@ -15,6 +15,7 @@ add_executable(tinyuf2
   )
 target_link_options(tinyuf2 PUBLIC
   "LINKER:--script=${CMAKE_CURRENT_LIST_DIR}/linker/samd51_boot.ld"
+  "LINKER:--script=${CMAKE_CURRENT_LIST_DIR}/linker/samd51_common.ld"
   )
 
 family_configure_tinyuf2(tinyuf2 OPT_MCU_SAMD51)
