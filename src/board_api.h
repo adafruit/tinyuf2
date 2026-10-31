@@ -90,6 +90,11 @@
 #define TINYUF2_DBL_TAP_REG_SIZE  32
 #endif
 
+// Reset this many ms after a UF2 file is complete, so the host can finish the copy; 0 = at once
+#ifndef TINYUF2_DFU_COMPLETE_DELAY
+#define TINYUF2_DFU_COMPLETE_DELAY 1000
+#endif
+
 // Use Display to draw DFU image
 #ifndef TINYUF2_DISPLAY
 #define TINYUF2_DISPLAY 0
@@ -323,6 +328,9 @@ enum {
 };
 
 void indicator_set(uint32_t state);
+
+// Call board_dfu_complete() in TINYUF2_DFU_COMPLETE_DELAY ms
+void dfu_complete_later(void);
 
 static inline void rgb_brightness(uint8_t out[3], uint8_t const in[3], uint8_t brightness) {
   for(uint32_t i=0; i<3; i++ ) {

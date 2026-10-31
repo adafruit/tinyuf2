@@ -53,6 +53,10 @@ uint8_t RGB_OFF[]     = {0x00, 0x00, 0x00};
 
 static volatile uint32_t _timer_count = 0;
 
+// a pending reset into the application, and the ms left before it
+static volatile bool _complete_pending = false;
+static volatile uint32_t _complete_countdown = 0;
+
 //--------------------------------------------------------------------+
 //
 //--------------------------------------------------------------------+
@@ -104,7 +108,22 @@ int main(void) {
 #if CFG_TUSB_OS == OPT_OS_NONE || CFG_TUSB_OS == OPT_OS_PICO
   while (1) {
     tud_task();
+
+    // outside USB callbacks, so no flash write is cut short
+    if (_complete_pending && !_complete_countdown) {
+      board_dfu_complete();
+    }
   }
+#endif
+}
+
+void dfu_complete_later(void) {
+#if (CFG_TUSB_OS == OPT_OS_NONE || CFG_TUSB_OS == OPT_OS_PICO) && TINYUF2_DFU_COMPLETE_DELAY
+  _complete_countdown = TINYUF2_DFU_COMPLETE_DELAY;
+  _complete_pending = true;
+  board_timer_start(1);
+#else
+  board_dfu_complete();
 #endif
 }
 
@@ -202,6 +221,11 @@ static uint32_t indicator_state = STATE_BOOTLOADER_STARTED;
 static uint8_t  indicator_rgb[3];
 
 void indicator_set(uint32_t state) {
+  // a pending reset keeps its 1 ms timer
+  if (_complete_pending) {
+    return;
+  }
+
   indicator_state = state;
   switch (state) {
     case STATE_USB_UNPLUGGED:
@@ -233,6 +257,10 @@ void indicator_set(uint32_t state) {
 
 void board_timer_handler(void) {
   _timer_count++;
+
+  if (_complete_countdown) {
+    _complete_countdown--;
+  }
 
   switch (indicator_state) {
     case STATE_USB_UNPLUGGED:
