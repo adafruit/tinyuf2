@@ -155,11 +155,11 @@ mkdir build
 cd build
 ```
 
-3. Configure cmake with correct BOARD and run make to build:
+3. Configure cmake with correct BOARD and build:
 
 ```bash
 cmake -DBOARD=apard32690 ..
-make
+cmake --build .
 ```
 
 It will build the TinyUF2 bootloader along with all supported application e.g blinky, update-tinyuf2, erase-firmware. Tinyuf2 binaries will appear in `build/` folder while application are created in `build/apps/$(APP)/`.
@@ -194,10 +194,9 @@ The following are some of the valid targets for this Makefile:
 
 ### To Build Individual Targets
 
-To build a specific target, you can specify it directly with `make` or using `cmake --build`:
+To build a specific target, name it with `cmake --build`:
 
 ```bash
-make blinky
 cmake --build . --target blinky
 ```
 
@@ -219,13 +218,13 @@ TinyUF2 supports two main ways to flash firmware:
 To flash using a J-Link debugger:
 
 ```bash
-make tinyuf2-jlink
+cmake --build . --target tinyuf2-jlink
 ```
 
 To erase before flashing:
 
 ```bash
-make tinyuf2-erase-jlink tinyuf2-jlink
+cmake --build . --target tinyuf2-erase-jlink tinyuf2-jlink
 ```
 
 ### 2. OpenOCD from MSDK (optional)
@@ -233,7 +232,7 @@ make tinyuf2-erase-jlink tinyuf2-jlink
 If you prefer OpenOCD and you have it installed through MSDK:
 
 ```bash
-make tinyuf2-openocd
+cmake --build . --target tinyuf2-openocd
 ```
 
 CMake will automatically leverage the MAXIM_PATH system environment variable if
@@ -274,12 +273,11 @@ apps/blinky/blinky.uf2
 
 3. The board will automatically reboot and begin running the new application.
 
-### Flashing using make/cmake
+### Flashing using cmake
 
-To flash an application using the command line, you can use the `make` or `cmake` command:
+To flash an application using the command line, you can use the `cmake` command:
 
 ```bash
-make blinky-uf2
 cmake --build . --target blinky-uf2
 ```
 

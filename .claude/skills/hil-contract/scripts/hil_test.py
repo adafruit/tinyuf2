@@ -313,7 +313,7 @@ def record_facts(record_path, board, workdir):
   rels = (*cb.FACTS_FILES, CMAKE_RECORD_FILES[0], '_bin/tinyuf2.hex')
   if not all(r in row.get('sha256', {}) for r in rels):
     raise Refused(f'{record_path}: no board facts in the record (rebuild it: check_build.py --board {board["name"]} '
-                  f'--backend cmake --shared --hil-config <roster>)')
+                  f'--shared --hil-config <roster>)')
   copied(root, rels, row, workdir / 'facts')
   try:
     return bf.read(workdir / 'facts', FLASH_LIMITS[board['device']])
@@ -1701,8 +1701,21 @@ def recovery_lock(helper, board):
   none releases the holder while another is still between its probe sessions. The lock helper lists `*.lock`
   only, so it never reports this file as a holder."""
   path = helper.lock_path(board) + '.recover'
+  flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
   try:
-    fh = os.fdopen(os.open(path, os.O_RDONLY | os.O_CREAT, 0o666))
+    try:   # existing first: fs.protected_regular refuses O_CREAT on another account's file in the sticky lock dir
+      fd = os.open(path, flags)
+    except FileNotFoundError:
+      try:
+        fd = os.open(path, flags | os.O_CREAT | os.O_EXCL, 0o666)
+        try:
+          os.fchmod(fd, 0o666)   # whatever the umask, so the other account can open it
+        except OSError:
+          os.close(fd)
+          raise
+      except FileExistsError:
+        fd = os.open(path, flags)
+    fh = os.fdopen(fd)
   except OSError as e:
     raise Refused(f'cannot open {path}: {e}')
   try:
@@ -2081,8 +2094,7 @@ def read_record_row(record_path, board):
   want = 'idf' if board.get('kind') == 'esp' else 'cmake'
   if row.get('backend') != want:
     raise Refused(f'{record_path}: a {row.get("backend")} build; the HIL takes {want} builds only for this board '
-                  f'(check_build.py --board {board["name"]}{" --backend cmake" if want == "cmake" else ""} --shared '
-                  f'--hil-config <roster>)')
+                  f'(check_build.py --board {board["name"]} --shared --hil-config <roster>)')
   if want == 'idf':
     try:
       image = f'espressif/idf:{cb.ci_idf_version()}'
@@ -3476,7 +3488,7 @@ def main(argv=None):
   sub = ap.add_subparsers(dest='cmd', required=True)
   r = sub.add_parser('run', help='the battery on one board (self-locking)')
   r.add_argument('-b', '--board', required=True)
-  r.add_argument('--build-record', required=True, help='check_build.py --board B [--backend cmake] --shared --hil-config ROSTER '
+  r.add_argument('--build-record', required=True, help='check_build.py --board B --shared --hil-config ROSTER '
                  'JSON, under cmake-build/')
   r.add_argument('--fail-at', choices=(*STEPS['esp'], *STEPS['update'][2:], 'cleanup'),
                  help='acceptance only: fail this step, or the cleanup, to exercise cleanup and its holder')

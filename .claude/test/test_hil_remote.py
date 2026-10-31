@@ -2,17 +2,19 @@
 # SPDX-License-Identifier: MIT
 # The remote adapter (hil_remote.py) and its rig-side driver (hil_remote_driver.py) over agentrc's remote core, on a
 # local "rig": the core's own fake ssh and rsync (lib/agentrc tests/test_hil_remote_core.py) run every remote command
-# here under a clean environment, so the attempt, the detached launch, the driver's rebuild of the checkout from git
-# bundles, hil_ci.py's build record and battery launch and the copy-back all run for real. The project is a temp
-# superproject in a relocated worktree with real submodules, an unpushed candidate lib/agentrc pin and a shallow
-# get_deps dependency; its check_build.py and hil_test.py are stand-ins, or the real runner with only admission and
-# the probe steps stubbed. Plumbing only: a real ssh session's end and the rig are proved by a run on ci.lan.
+# here under a clean environment, so the dev PC's hosted builds and their staging, the attempt, the detached launch,
+# the driver's checks of the staged files and rebuild of the checkout from git bundles, hil_ci.py's admission and
+# battery launch and the copy-back all run for real. The project is a temp superproject in a relocated worktree with
+# real submodules, an unpushed candidate lib/agentrc pin and a shallow get_deps dependency; its check_build.py,
+# hil_hosted.py and hil_test.py are stand-ins, or the real runner with only admission and the probe steps stubbed.
+# Plumbing only: a real ssh session's end and the rig are proved by a run on ci.lan.
 import contextlib
 import hashlib
 import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import signal
 import socket
@@ -63,25 +65,60 @@ ROSTER = {'boards': [
   {'name': ESP, 'uid': 'MAC', 'flasher': {'name': 'esptool', 'uid': 'X', 'args': '--chip esp32s3'},
    'tinyuf2': {'reentry': 'dfu-detach'}}]}
 
-# the build contract on the rig: run, a record of the board, ok unless FAKE_BUILD=fail, and its build dir's log;
-# loaded, the real check_build's lib/agentrc pin check (FAKE_CHECK_BUILD) over this checkout
+# the build contract's module, loaded: the real check_build's lib/agentrc pin check
+# (FAKE_CHECK_BUILD) over this checkout
 CHECK_BUILD = r'''
-import importlib.util, json, os, sys
+import importlib.util, os
 from pathlib import Path
 spec = importlib.util.spec_from_file_location('real_check_build', os.environ['FAKE_CHECK_BUILD'])
 real = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(real)
 real.ROOT = Path(__file__).resolve().parents[4]
 Fail, check_agentrc_pin = real.Fail, real.check_agentrc_pin
+'''
+
+# hil_hosted.py: run on the dev PC (`build`), it packs a record of the board and a file in DIR/<board>, ok unless
+# FAKE_BUILD=fail (a refusal) or array (a JSON line that is no result); imported on the rig (`admit`), it places the record in out/ and logs each admission to FAKE_ADMITTED,
+# refused when FAKE_ADMIT=refuse
+HIL_HOSTED = r'''
+import json, os, sys, types
+from pathlib import Path
+sys.dont_write_bytecode = True
+
+
+class Refused(Exception):
+  pass
+
+
+ht, cb = types.SimpleNamespace(Refused=Refused), types.SimpleNamespace(Fail=Refused)
+
+
+def admit(artifact, board, roster, out):
+  with open(os.environ['FAKE_ADMITTED'], 'a') as f:
+    f.write(json.dumps([str(artifact), board, roster]) + '\n')
+  if os.environ.get('FAKE_ADMIT', 'ok') != 'ok':
+    raise Refused("built against another checkout")
+  out.mkdir(parents=True, exist_ok=True)
+  (out / f'{board}.build.json').write_bytes((Path(artifact) / f'{board}.build.json').read_bytes())
+  return out / f'{board}.build.json'
+
+
 if __name__ == '__main__':
-  board = sys.argv[sys.argv.index('--board') + 1]
-  ok = os.environ.get('FAKE_BUILD', 'ok') == 'ok'
-  d = Path('cmake-build') / f'cmake-build-{board}'
-  d.mkdir(parents=True, exist_ok=True)
-  (d / 'check_build.log').write_text('the build log\n')
-  print(json.dumps({'pass': ok, 'boards': [{'board': board, 'status': 'ok' if ok else 'failed',
-                                            'firstError': '' if ok else 'boom', 'buildDir': str(d)}]}))
-  sys.exit(0 if ok else 1)
+  argv = sys.argv[1:]
+  board, out = argv[argv.index('--board') + 1], Path(argv[argv.index('--out') + 1])
+  if os.environ.get('FAKE_BUILD') == 'array':
+    print('[]')
+    sys.exit(0)
+  if os.environ.get('FAKE_BUILD', 'ok') != 'ok':
+    print('the build log tail', file=sys.stderr)
+    print(json.dumps({'pass': False, 'error': 'check_build failed (exit 1): boom'}))
+    sys.exit(2)
+  (out / board / 'build').mkdir(parents=True)
+  (out / board / f'{board}.build.json').write_text(json.dumps({'pass': True, 'boards': [
+    {'board': board, 'status': 'ok', 'firstError': '', 'buildDir': f'cmake-build/cmake-build-{board}'}]}))
+  (out / board / 'build' / 'tinyuf2.hex').write_text(board)
+  (out / board / 'provenance.json').write_text('{}')
+  print(json.dumps({'pass': True, 'artifact': str(out / board)}))
 '''
 
 # `hil_test.py run` on the rig. It appends its argv and HIL_* environment to FAKE_ARGV, then either runs the real runner (from
@@ -236,7 +273,7 @@ class Project(unittest.TestCase):
     env = {k: v for k, v in os.environ.items() if not k.startswith(('HIL_', 'FAKE_', 'GIT_'))}
     env.update(PATH=f'{bindir}{os.pathsep}{os.environ["PATH"]}', GIT_CONFIG_GLOBAL=str(gitconfig), GIT_CONFIG_NOSYSTEM='1',
                FAKE_LOG=str(self.tmp / 'log.jsonl'), FAKE_HOME=str(self.home), FAKE_ARGV=str(self.tmp / 'argv.json'),
-               FAKE_PID=str(self.tmp / 'battery.pid'),
+               FAKE_PID=str(self.tmp / 'battery.pid'), FAKE_ADMITTED=str(self.tmp / 'admitted.jsonl'),
                FAKE_CHECK_BUILD=str(ROOT / '.claude' / 'skills' / 'build' / 'scripts' / 'check_build.py'))
     mock.patch.dict(os.environ, env, clear=True).start()
     self.addCleanup(mock.patch.stopall)
@@ -265,7 +302,8 @@ class Project(unittest.TestCase):
     git(primary, 'init', '-q')
     scripts = '.claude/skills/hil-contract/scripts'
     files = {'.gitignore': 'lib/mcu/\ncmake-build/\n__pycache__/\n.hil-remote/\n',
-             f'{scripts}/hil_test.py': HIL_TEST, '.claude/skills/build/scripts/check_build.py': CHECK_BUILD,
+             f'{scripts}/hil_test.py': HIL_TEST, f'{scripts}/hil_hosted.py': HIL_HOSTED,
+             '.claude/skills/build/scripts/check_build.py': CHECK_BUILD,
              'test/hil/ci.json': json.dumps(ROSTER), f'ports/lpc55/boards/{LPC}/board.h': 'lpc\n', f'ports/lpc55/boards/{OTHER}/board.h': 'lpc\n',
              'tools/get_deps.py': GET_DEPS % self.dep}
     files.update({f'{scripts}/{n}': (SCRIPTS / n).read_text() for n in ('hil_ci.py', 'hil_run_report.py', 'hil_remote_driver.py')})
@@ -305,6 +343,10 @@ class Project(unittest.TestCase):
   def batteries(self):
     argv = self.tmp / 'argv.json'
     return [json.loads(ln) for ln in argv.read_text().splitlines()] if argv.exists() else []
+
+  def admissions(self):
+    log = self.tmp / 'admitted.jsonl'
+    return [json.loads(ln) for ln in log.read_text().splitlines()] if log.exists() else []
 
 
 class Refusals(Project):
@@ -375,6 +417,12 @@ class Refusals(Project):
       self.refused('collect', 'r1', text='locally changed')
     load.assert_not_called()
 
+  def test_a_record_that_does_not_build_here_is_refused_before_the_rig(self):
+    os.environ['FAKE_BUILD'] = 'fail'
+    self.refused(text=f'the HIL record of {LPC} did not build here (exit 2): check_build failed (exit 1): boom')
+    os.environ['FAKE_BUILD'] = 'array'   # its raw output stands in for a result that is not one
+    self.refused(text=f'the HIL record of {LPC} did not build here (exit 0): []')
+
   def test_inputs_that_are_not_heads_committed_identity(self):
     roster = self.wt / 'test/hil/ci.json'
     cases = {
@@ -433,6 +481,16 @@ class Attempt(Project):
       self.assertTrue((local / rel).is_file(), rel)
     self.assertEqual(json.loads((self.wt / hr.RUNS / 'r1.outcome.json').read_text()), out)
     self.assertFalse((self.wt / hr.RUNS / '.r1.stage').exists())
+    # the record built here, frozen with the run and admitted on the rig: the rig built nothing
+    staged = {p.relative_to(self.attempt()).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+              for p in (self.attempt() / 'hosted').rglob('*') if p.is_file()}
+    self.assertEqual(set(staged), {f'hosted/{LPC}/{LPC}.build.json', f'hosted/{LPC}/build/tinyuf2.hex',
+                                   f'hosted/{LPC}/provenance.json'})
+    self.assertEqual(json.loads((local / 'manifest.json').read_text())['hosted'], staged)
+    self.assertEqual(self.admissions(), [[str(self.attempt() / 'hosted' / LPC), LPC, 'test/hil/ci.json']])
+    self.assertEqual((local / f'out/{LPC}.build.json').read_bytes(),
+                     (self.attempt() / 'hosted' / LPC / f'{LPC}.build.json').read_bytes())
+    self.assertFalse((src / 'cmake-build').exists())
     # reconnecting answers from the complete collection, and nothing launches the attempt again
     launch = (self.attempt() / '.attempt/launch.json').read_text()
     self.assertEqual(run_main('wait', 'r1', '--timeout', '1'), (0, out))
@@ -656,16 +714,30 @@ class Attempt(Project):
       time.sleep(0.05)
     self.assertTrue(done.exists())
 
-  def test_a_build_refusal_brings_its_diagnostics_and_no_battery(self):
-    os.environ['FAKE_BUILD'] = 'fail'
+  def test_a_refused_admission_is_not_run_and_runs_no_battery(self):
+    os.environ['FAKE_ADMIT'] = 'refuse'
     code, out = self.run_()
     row, = out['boards']
-    self.assertEqual((code, row['verdict'], row['phase'], row['detail']), (1, 'not-run', 'build', 'build failed: boom'))
-    local = self.wt / hr.RUNS / 'r1'
-    self.assertFalse((local / 'out' / LPC).exists())
-    self.assertTrue((local / f'out/{LPC}.build.json').is_file())
-    self.assertTrue((local / f'src/cmake-build/cmake-build-{LPC}/check_build.log').is_file())
+    self.assertEqual((code, out['collection'], row['verdict'], row['phase'], row['detail']),
+                     (1, 'complete', 'not-run', 'build', 'hosted build refused: built against another checkout'))
+    self.assertNotIn('copyBack', row, 'a refused admission leaves no record to bring home')
+    self.assertFalse((self.wt / hr.RUNS / 'r1' / 'out' / LPC).exists())
     self.assertFalse((self.tmp / 'argv.json').exists(), 'no battery ran')
+
+  def test_a_staged_build_the_manifest_did_not_freeze_is_refused_on_the_rig(self):
+    stage = hr.core.stage_tree
+    for run_id, change in (('r1', lambda d: (d / 'hosted' / LPC / 'build' / 'extra.bin').write_bytes(b'x')),
+                           ('r2', lambda d: (d / 'hosted' / LPC / 'build' / 'tinyuf2.hex').write_text('other'))):
+      def tampered(tree, src, dest='.'):
+        stage(tree, src, dest)
+        change(Path(tree.dir))
+      with self.subTest(run_id), mock.patch.object(hr.core, 'stage_tree', tampered), \
+           mock.patch.object(hr.core, 'verify_remote', return_value=[]):   # past the transfer check: the driver's own
+        code, out = self.run_(run_id=run_id)
+        self.assertEqual((code, out['outcome']), (hr.REFUSED, 'refused'))
+        self.assertIn('staged hosted builds are not the ones the manifest froze', out['detail'])
+        self.assertFalse((self.attempt(run_id) / 'src').exists(), 'refused before the checkout')
+    self.assertEqual(self.admissions(), [])
 
   def test_a_battery_without_a_report_is_a_blocker(self):
     os.environ['FAKE_BATTERY'] = 'die'
@@ -846,6 +918,23 @@ class RealRunner(Project):
     self.assertEqual((rec['reason'], rec['protected']), ('hil_test.py', True))
 
 
+class Hosts(unittest.TestCase):
+  def test_ci_lans_state_root_is_where_the_farm_runners_ci_job_keeps_its_runs(self):
+    """hil.yml's run directory, for the farm runner's work dir /opt/actions-runner/tinyuf2/_work (GitHub's
+    <work>/<repo>/<repo> workspace), lies right under the CI state root a remote run checks."""
+    line = re.search(r'- name: Set the run directory\n\s+run: (.+)\n',
+                     (ROOT / '.github' / 'workflows' / 'hil.yml').read_text()).group(1)
+    with tempfile.TemporaryDirectory() as d:
+      env = Path(d) / 'github-env'
+      env.write_text('')
+      subprocess.run(['bash', '-c', line], check=True, env=dict(
+        os.environ, GITHUB_WORKSPACE='/opt/actions-runner/tinyuf2/_work/tinyuf2/tinyuf2', GITHUB_ENV=str(env),
+        GITHUB_RUN_ID='7', GITHUB_RUN_ATTEMPT='1'))
+      out = env.read_text().strip().split('=', 1)
+    self.assertEqual(out[0], 'HIL_OUT')
+    self.assertEqual(Path(out[1]), Path(hr.HOSTS['ci.lan']['ciStateRoot']) / '7-1')
+
+
 class Driver(unittest.TestCase):
   def test_the_rigs_hil_environment_never_reaches_a_runner(self):
     env = {k: v for k, v in os.environ.items() if not k.startswith(('HIL_', 'GIT_'))}
@@ -853,7 +942,7 @@ class Driver(unittest.TestCase):
     with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, env, clear=True):
       m = {'schema': drv.SCHEMA, 'version': drv.VERSION, 'runId': 'r', 'head': '0' * 40, 'hostname': 'not-this-host',
            'repos': [], 'submodules': {}, 'roster': {'path': 'r.json'}, 'driver': {'path': 'd.py'}, 'boards': [],
-           'lockWait': 0, 'failAt': None, 'ciStateRoot': d}
+           'lockWait': 0, 'failAt': None, 'ciStateRoot': d, 'hosted': {}}
       (Path(d) / 'manifest.json').write_text(json.dumps(m))
       with mock.patch.object(drv.Path, 'cwd', return_value=Path(d)):
         self.assertEqual(drv.main(['manifest.json']), drv.REFUSED)
@@ -878,7 +967,7 @@ class Driver(unittest.TestCase):
            'repos': [{'path': '.', 'commit': head, 'bundle': 'bundles/0.bundle', 'shallow': [],
                       'sha256': hashlib.sha256((attempt / 'bundles/0.bundle').read_bytes()).hexdigest()}],
            'submodules': {}, 'roster': {'path': 'r.json', 'sha256': ''}, 'driver': {'path': 'd.py', 'sha256': ''},
-           'boards': [], 'lockWait': 0, 'failAt': None, 'ciStateRoot': str(d)}
+           'boards': [], 'lockWait': 0, 'failAt': None, 'ciStateRoot': str(d), 'hosted': {}}
       (attempt / 'manifest.json').write_text(json.dumps(m))
       with mock.patch.dict(os.environ, dict(env, GIT_DIR=str(d / 'victim/.git'), GIT_WORK_TREE=str(d / 'victim')), clear=True), \
            mock.patch.object(drv.Path, 'cwd', return_value=attempt):
@@ -890,10 +979,57 @@ class Driver(unittest.TestCase):
   def test_a_malformed_manifest_is_refused(self):
     with tempfile.TemporaryDirectory() as d:
       bad = {'schema': drv.SCHEMA, 'version': drv.VERSION}
-      for m in (bad, dict(bad, version=2), {**bad, **{k: [] for k in drv.FIELDS}, 'repos': [{'path': '../x', 'commit': '0' * 40, 'shallow': []}]}):
+      fields = {**bad, **{k: [] for k in drv.FIELDS}, 'hosted': {}}
+      for m in (bad, dict(bad, version=1), {**fields, 'repos': [{'path': '../x', 'commit': '0' * 40, 'shallow': []}]},
+                *({**fields, 'hosted': h} for h in ([], {'hosted/b/../x': '0' * 64}, {'out/b/x': '0' * 64},
+                                                    {'hosted/x': '0' * 64}, {'hosted/b/x': 'f00'}))):
         (Path(d) / 'manifest.json').write_text(json.dumps(m))
         with self.assertRaises(drv.Refused):
           drv.load_manifest(Path(d) / 'manifest.json')
+
+  def test_the_staged_hosted_builds_must_be_exactly_the_manifests(self):
+    with tempfile.TemporaryDirectory() as d:
+      attempt = Path(d)
+      files = {'hosted/b/b.build.json': b'{}', 'hosted/b/build/tinyuf2.hex': b'hex', 'hosted/b/provenance.json': b'{}'}
+      m = {'hosted': {rel: hashlib.sha256(data).hexdigest() for rel, data in files.items()}}
+
+      def stage():
+        for p in (attempt / 'hosted', attempt / 'elsewhere'):
+          if p.is_symlink() or p.is_file():
+            p.unlink()
+          shutil.rmtree(p, ignore_errors=True)
+        for rel, data in files.items():
+          (attempt / rel).parent.mkdir(parents=True, exist_ok=True)
+          (attempt / rel).write_bytes(data)
+      stage()
+      drv.check_hosted(attempt, m)
+
+      def blocked(*_):   # not an OSError, which sha256() would swallow as a mismatch
+        self.fail('check_hosted blocked reading a staged entry')
+      self.addCleanup(signal.signal, signal.SIGALRM, signal.signal(signal.SIGALRM, blocked))
+      for what, change in (
+          ('an extra file', lambda: (attempt / 'hosted/b/build/extra.bin').write_bytes(b'x')),
+          ('another board', lambda: (attempt / 'hosted/c').mkdir() or (attempt / 'hosted/c/x').write_bytes(b'x')),
+          ('a changed file', lambda: (attempt / 'hosted/b/build/tinyuf2.hex').write_bytes(b'other')),
+          ('a missing file', lambda: (attempt / 'hosted/b/provenance.json').unlink()),
+          ('a link in place of a file', lambda: (attempt / 'hosted/b/build/tinyuf2.hex').unlink() or
+           (attempt / 'hosted/b/build/tinyuf2.hex').symlink_to(attempt / 'hosted/b/b.build.json')),
+          ('a FIFO in place of a file', lambda: (attempt / 'hosted/b/provenance.json').unlink() or
+           os.mkfifo(attempt / 'hosted/b/provenance.json')),
+          ('a linked dir', lambda: (attempt / 'hosted/b/sub').symlink_to(attempt / 'hosted/b/build')),
+          ('a linked root', lambda: [(attempt / 'hosted').rename(attempt / 'elsewhere'),   # the same files, elsewhere
+                                     (attempt / 'hosted').symlink_to(attempt / 'elsewhere')]),
+          ('a file root', lambda: shutil.rmtree(attempt / 'hosted') or (attempt / 'hosted').write_bytes(b'x')),
+          ('nothing staged', lambda: shutil.rmtree(attempt / 'hosted'))):
+        with self.subTest(what):
+          stage()
+          change()
+          signal.alarm(5)   # a staged entry that blocks its read fails here rather than hanging the suite
+          try:
+            with self.assertRaisesRegex(drv.Refused, 'not the ones the manifest froze'):
+              drv.check_hosted(attempt, m)
+          finally:
+            signal.alarm(0)
 
   def test_inventory_entries_outside_the_boards_artifacts_are_an_incomplete_copy_back(self):
     with tempfile.TemporaryDirectory() as d:

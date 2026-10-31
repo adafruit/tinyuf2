@@ -2,11 +2,11 @@
 """Build TinyUF2 for the boards a change affects, or for named boards: the project's build contract.
 
   check_build.py (--scope PATH... | --base REF [--worktree] | --board B...) [-D VAR=VAL]... [--shared] [--idf docker|local] [-v]
-  check_build.py --board B --shared --hil-config ROSTER [--backend cmake]   (a HIL record: binds the flash target)
-  check_build.py --board B --shared --hil-config ROSTER [--backend cmake] --variant NAME -D ...   (a second record beside it)
+  check_build.py --board B --shared --hil-config ROSTER   (a HIL record: binds the flash target)
+  check_build.py --board B --shared --hil-config ROSTER --variant NAME -D ...   (a second record beside it)
   check_build.py --select-only (--scope PATH... | --base REF [--worktree] | --diff-file FILE) [--hil-config ROSTER]
 
-Each board builds the way .github/workflows/build.yml builds its port (make, cmake or ESP-IDF)
+Each board builds the way .github/workflows/build.yml builds its port (cmake or ESP-IDF)
 into its own build root, cmake-build/cmake-build-agent-<pid>-<board> (--shared:
 cmake-build/cmake-build-<board>), and must produce its expected artifacts. A ghostfat input
 also builds and runs the native ghostfat self-test of every ports/test_ghostfat config.
@@ -25,10 +25,10 @@ import re
 import runpy
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import time
-import typing
 import uuid
 from pathlib import Path
 
@@ -39,38 +39,11 @@ except ImportError:   # Windows, where hil_remote.py's wait and collect load thi
 
 ROOT = Path(__file__).resolve().parents[4]
 BUILD_YML = ROOT / '.github' / 'workflows' / 'build.yml'
+SETUP_TOOLCHAIN = ROOT / '.github' / 'actions' / 'setup_toolchain' / 'toolchain.json'
 BUILD_DIR = ROOT / 'cmake-build'
 
-# Backend of every port CI builds, as build.yml's jobs build it; test_build.py holds the two equal.
-BACKENDS = {
-  'espressif': 'idf',
-  'kinetis_k32l2': 'make',
-  'lpc55': 'cmake',
-  'maxim': 'cmake',
-  'mimxrt10xx': 'cmake',
-  'samd51': 'cmake',
-  'stm32f3': 'cmake',
-  'stm32f4': 'cmake',
-  'stm32h5': 'cmake',
-  'stm32h7': 'make',
-  'stm32l4': 'make',
-}
-
-
-class Builds(typing.NamedTuple):
-  """The builds a selection is for: who runs them, each port's backend, and whether CodeQL's make build counts."""
-  by: str
-  backends: dict
-  codeql: bool
-
-
-CI = Builds('CI', BACKENDS, True)
-# The HIL's records (hil-contract Build): ESP-IDF on Espressif boards, cmake (--backend cmake) on every other port
-# whatever CI uses; test_build.py holds every such port to a CMakeLists.txt.
-HIL = Builds('the HIL', {p: 'idf' if be == 'idf' else 'cmake' for p, be in BACKENDS.items()}, False)
-
-# Boards that stand in for their port: rig boards first; espressif covers every IDF target,
-# mimxrt10xx both the RT10xx and RT1170 boot layouts.
+# The ports CI builds (build.yml's jobs; test_build.py holds the two equal) and the boards that stand in for each:
+# rig boards first; espressif covers every IDF target, mimxrt10xx both the RT10xx and RT1170 boot layouts.
 REPRESENTATIVES = {
   'espressif': ['espressif_esp32s3_devkitm_1', 'espressif_esp32s2_devkitc_1', 'espressif_p4_function_ev',
                 'espressif_esp32s31_func_core'],
@@ -82,25 +55,21 @@ REPRESENTATIVES = {
   'stm32f3': ['stm32f303disco'],
   'stm32f4': ['stm32f411ve_discovery', 'feather_stm32f405_express'],
   'stm32h5': ['stm32h563_nucleo'],
-  'stm32h7': ['daisy_seed'],
+  'stm32h7': ['stm32h743nucleo', 'daisy_seed'],
   'stm32l4': ['swan_r5'],
 }
 # Ports no CI job builds: a change there is uncovered; --board may still build one explicitly.
 UNBUILT = {
-  'ch32v20x': ('make', 'its riscv job is disabled in build.yml'),
-  'template_port': (None, 'a template no build compiles'),
+  'ch32v20x': 'its riscv job is disabled in build.yml',
+  'template_port': 'a template no build compiles',
 }
-# compiler a port's make/cmake build needs, when not arm-none-eabi-gcc
+# compiler a port's cmake build needs, when not arm-none-eabi-gcc
 COMPILER = {'ch32v20x': 'riscv-none-elf-gcc'}
-# ports whose make self-update target only echoes "not implemented yet"
-NO_SELF_UPDATE = {'ch32v20x', 'kinetis_k32l2', 'stm32h7', 'stm32l4'}
 GHOSTFAT = 'test_ghostfat'
 GHOSTFAT_INPUTS = ('src/ghostfat.c', 'src/favicon/', 'src/board_api.h', 'src/compile_date.h', 'src/uf2.h',
                    'lib/uf2', 'ports/family_support.cmake', 'ports/test_ghostfat/',
                    '.github/workflows/build_ghostfat.yml')
 CORE = ('src/', 'lib/', 'ports/family_support.cmake', 'CMakeLists.txt', 'cmake/', 'tools/get_deps.py')
-# make files every Makefile port includes: read by the make ports' builds and CodeQL's
-MAKE_SHARED = ('ports/make.mk', 'ports/rules.mk')
 CONTRACT_TESTS = ('.claude/test/test_build', '.claude/test/test_hil', '.claude/test/test_code_size')
 # the code-size launcher and profile beside this script: no build or HIL run imports them
 CODE_SIZE = '.claude/skills/build/scripts/code_size'
@@ -111,11 +80,11 @@ HIL_IMPORTS = '.claude/skills/build/scripts/'
 BUILD_CONTROL = (HIL_IMPORTS, '.github/workflows/build.yml',
                  '.github/workflows/build_util.yml', '.github/workflows/ci_set_matrix.py', '.github/actions/')
 NOTHING = ('.claude/', '.github/', '.idea/', 'tools/codespell/', 'tools/gen_boards.py', 'tools/touch1200.py',
-           'ports/build_all.py', 'CLAUDE.md', 'AGENTS.md', '.agents', 'LICENSE', '.gitignore', '.gitmodules',
+           'CLAUDE.md', 'AGENTS.md', '.agents', 'LICENSE', '.gitignore', '.gitmodules',
            '.pre-commit-config.yaml', '.codespellrc', '.clang-format')
 CODEQL = '.github/workflows/codeql-buildscript.sh'
 # one board per backend for a change to how boards build
-SMOKE = {'make': 'frdm_k32l2b', 'cmake': 'feather_stm32f405_express', 'idf': 'espressif_esp32s3_devkitm_1'}
+SMOKE = {'cmake': 'feather_stm32f405_express', 'idf': 'espressif_esp32s3_devkitm_1'}
 
 
 # What a roster flasher runs to install TinyUF2: the build's own flash target, and the build-tree files that
@@ -178,43 +147,38 @@ def ci_idf_version():
   return m.group(1)
 
 
-def app_boards(app_dir):
-  """Boards an app's Makefile builds for: None for every board, [] for a stub that builds
-  nothing (no make.mk or app.mk include, only an echo)."""
-  mk = app_dir / 'Makefile'
-  if not mk.is_file():
-    return None
-  text = mk.read_text()
-  if not re.search(r'^\s*include\s+\S*(make|app)\.mk', text, re.M):
-    return []
-  return re.findall(r'ifeq\s*\(\$\(BOARD\),\s*(\w+)\)', text) or None
+def ci_arm_gcc_release():
+  """The Arm GNU Toolchain release CI's arm-gcc builds install, from setup_toolchain's arm-gcc url: e.g. 14.2.rel1,
+  as Arm names the package (its compiler prints 14.2.Rel1)."""
+  try:
+    url = json.loads(SETUP_TOOLCHAIN.read_text())['arm-gcc']['url']
+  except (OSError, ValueError, KeyError, TypeError) as e:
+    raise Fail(f'no arm-gcc url in {SETUP_TOOLCHAIN}: {e!r}')
+  m = re.fullmatch(r'https://\S+/arm-gnu-toolchain-(\d+\.\d+\.rel\d+)-x86_64-arm-none-eabi\.tar\.xz', url, re.I) \
+    if isinstance(url, str) else None
+  if not m:
+    raise Fail(f'the arm-gcc url in {SETUP_TOOLCHAIN}, {url!r}, is no Arm GNU Toolchain x86_64 arm-none-eabi release')
+  return m[1]
 
 
 @functools.cache
 def codeql_build():
-  """(port, board) codeql-buildscript.sh builds with make `all` on every pull request."""
-  text = (ROOT / CODEQL).read_text()
-  ports = set(re.findall(r'(?:cd|-C)\s+ports/(\w+)', text))
-  boards = set(re.findall(r'^\s*make\b[^\n]*\bBOARD=(\w+)[^\n]*\ball\b', text, re.M))
-  if len(ports) != 1 or len(boards) != 1:
-    raise Fail(f'cannot read one port and one `make ... all` board from {CODEQL}: update codeql_build()')
-  return ports.pop(), boards.pop()
+  """(port, board) codeql-buildscript.sh builds with cmake on every pull request, a port CI builds with cmake."""
+  assigned = re.findall(r'^(PORT|BOARD)=(.*?)\s*$', (ROOT / CODEQL).read_text(), re.M)
+  if sorted(k for k, _ in assigned) != ['BOARD', 'PORT'] or not all(re.fullmatch(r'\w+', v) for _, v in assigned):
+    raise Fail(f'cannot read one PORT and one BOARD from {CODEQL}: update codeql_build()')
+  found = dict(assigned)
+  if found['PORT'] not in REPRESENTATIVES or backend_of(found['PORT']) != 'cmake':
+    raise Fail(f'{CODEQL} builds ports/{found["PORT"]}, which CI does not build with cmake')
+  return found['PORT'], found['BOARD']
 
 
-def build_file_kind(name):
-  """'make' for a Makefile or *.mk, 'cmake' for a CMakeLists.txt or *.cmake, else None."""
-  if name == 'Makefile' or name.endswith('.mk'):
-    return 'make'
-  if name == 'CMakeLists.txt' or name.endswith('.cmake'):
-    return 'cmake'
-  return None
+def cmake_file(name):
+  return name == 'CMakeLists.txt' or name.endswith('.cmake')
 
 
-def read_by_backend(path, backend):
-  """Whether CI's backend for the port reads this build file: a make port never reads CMake
-  files, a cmake or idf port never reads Makefiles. Sources and headers are read by both."""
-  kind = build_file_kind(path.rsplit('/', 1)[-1])
-  return kind is None or (kind == 'make') == (backend == 'make')
+def make_file(name):
+  return name == 'Makefile' or name.endswith('.mk')
 
 
 def code_lines(f):
@@ -242,51 +206,32 @@ def cmake_apps(port, board):
   return [name for name, _, boards in cmake_app_calls(port) if boards is None or board in boards]
 
 
-def port_app_selection(port, path, backends=BACKENDS):
-  """Boards that compile a change under ports/<port>/apps/: the app's own enabled boards, or for
-  a file shared by the port's apps (app.mk) those of every app that includes it; and CI's scope."""
+def port_app_selection(port, path):
+  """Boards that compile a change under ports/<port>/apps/: the boards each app reading it is enabled
+  for; and CI's scope."""
   parts = path.split('/')
-  apps_dir = ports_dir(port) / 'apps'
-  if backends[port] == 'idf':
+  if backend_of(port) == 'idf':
     if len(parts) >= 4 and parts[3] not in espressif_apps():
       return None, f'ports/espressif/CMakeLists.txt builds no ExternalProject for apps/{parts[3]}', {}
-    return (rep_selection([port], f'builds {"/".join(parts[2:4])}', backends), f'{port} {"/".join(parts[2:4])}',
+    return (rep_selection([port], f'builds {"/".join(parts[2:4])}'), f'{port} {"/".join(parts[2:4])}',
             whole_ports([port]))
-  if backends[port] == 'cmake':
-    calls = [c for c in cmake_app_calls(port) if c[1].endswith(f'/apps/{parts[3]}')] if len(parts) >= 5 else []
-    if not calls:
-      return None, f'ports/{port}/CMakeLists.txt adds no app that reads {path}', {}
-    boards, ci = {}, {}
-    for name, _, enabled in calls:
-      boards.update(rep_selection([port], f'builds {name}', backends) if enabled is None else
-                    {(b, 'cmake'): f'enables {name}' for b in enabled})
-      ci = merge_ci(ci, whole_ports([port]) if enabled is None else {port: enabled})
-    return boards, f'{port} apps: {", ".join(sorted(c[0] for c in calls))}', ci
-  if len(parts) >= 5 and (apps_dir / parts[3]).is_dir():
-    apps = [apps_dir / parts[3]]
-  else:
-    apps = [m.parent for m in apps_dir.glob('*/Makefile') if re.search(rf'^\s*include\s+\S*\b{re.escape(parts[-1])}\b',
-                                                                     m.read_text(), re.M)]
+  calls = [c for c in cmake_app_calls(port) if c[1].endswith(f'/apps/{parts[3]}')] if len(parts) >= 5 else []
+  if not calls:
+    return None, f'ports/{port}/CMakeLists.txt adds no app that reads {path}', {}
   boards, ci = {}, {}
-  for app in apps:
-    enabled = app_boards(app)
-    if enabled is None:
-      boards.update(rep_selection([port], f'builds apps/{app.name}', backends))
-    for b in enabled or []:
-      boards[(b, backends[port])] = f'enables apps/{app.name}'
+  for name, _, enabled in calls:
+    boards.update(rep_selection([port], f'builds {name}') if enabled is None else
+                  {(b, 'cmake'): f'enables {name}' for b in enabled})
     ci = merge_ci(ci, whole_ports([port]) if enabled is None else {port: enabled})
-  if not boards:
-    return None, f'no {port} board builds an app that reads {path}', {}
-  return boards, f'{port} apps: {", ".join(sorted(a.name for a in apps))}', ci
+  return boards, f'{port} apps: {", ".join(sorted(c[0] for c in calls))}', ci
 
 
-def ports_using_app(app, backends=BACKENDS):
-  """Ports whose build, in the backend `backends` gives it, compiles sources of the top-level apps/<app>."""
+def ports_using_app(app):
+  """Ports whose build compiles sources of the top-level apps/<app>."""
   hits = []
-  for port, backend in sorted(backends.items()):
-    kind = 'make' if backend == 'make' else 'cmake'
-    ref = re.compile(rf'(?<![\w/])apps/{app}/\S+\.c\b' if kind == 'make' else rf'\$\{{TOP\}}/apps/{app}\b')
-    files = [f for f in ports_dir(port).rglob('*') if f.is_file() and build_file_kind(f.name) == kind]
+  ref = re.compile(rf'\$\{{TOP\}}/apps/{app}\b')
+  for port in sorted(REPRESENTATIVES):
+    files = [f for f in ports_dir(port).rglob('*') if f.is_file() and cmake_file(f.name)]
     for f in files:
       if ref.search(code_lines(f)):
         hits.append(port)
@@ -314,16 +259,16 @@ def deps_pins():
   return {dep: pin for dep, (pin, _) in get_deps_table().items()}
 
 
-def deps_families(path, backends=BACKENDS):
-  """Ports of `backends` whose dependency rows in tools/get_deps.py cover the dependency directory `path`."""
+def deps_families(path):
+  """Ports CI builds whose dependency rows in tools/get_deps.py cover the dependency directory `path`."""
   for dep, families in deps_rows().items():
     if path == dep or path.startswith(dep + '/'):
-      return [p for p in families if p in backends]
+      return [p for p in families if p in REPRESENTATIVES]
   return None
 
 
-def rep_selection(ports, why, backends=BACKENDS):
-  return {(b, backends[p]): why for p in ports for b in REPRESENTATIVES[p]}
+def rep_selection(ports, why):
+  return {(b, backend_of(p)): why for p in ports for b in REPRESENTATIVES[p]}
 
 
 # CI's scope of a path: FULL, or {port: None for every board | [boards]}. CI builds every board a
@@ -344,8 +289,8 @@ def merge_ci(a, b):
   return out
 
 
-def classify(path, builds=CI):
-  """One path's rule under `builds`: effect none (nothing to build), gap (uncovered), select or core, the
+def classify(path):
+  """One path's rule: effect none (nothing to build), gap (uncovered), select or core, the
   boards it selects as {(board, backend): reason}, and whether it adds the ghostfat self-test or the
   contract's own tests."""
   def out(rule, effect, reason, boards=None, ghostfat=False, tests=False, hil=False, ci=None):
@@ -354,6 +299,11 @@ def classify(path, builds=CI):
 
   ghostfat = path.startswith(GHOSTFAT_INPUTS)
   parts = path.split('/')
+  if make_file(parts[-1]) and parts[0] != 'lib':
+    if not os.path.lexists(ROOT / path):
+      return out('make-removed', 'none', 'a deleted make file, which no build reads')
+    raise Fail(f'{path}: a Makefile or .mk, which no TinyUF2 build reads (cmake and ESP-IDF only): '
+               'build it with CMake or delete it')
   if path.startswith(CONTRACT_TESTS):
     return out('contract-tests', 'select', "the contract's own tests; a test edit changes no board build", tests=True)
   if path.startswith(HIL_CONTROL):
@@ -371,54 +321,39 @@ def classify(path, builds=CI):
                boards, tests=True, hil=runner, ci=FULL)
   if path.endswith('.md'):
     return out('docs', 'none', 'documentation')
-  backends = builds.backends
-  codeql_port, codeql_board = codeql_build() if builds.codeql else (None, None)
-  if path == CODEQL and builds.codeql:
-    return out('codeql', 'select', f'codeql-buildscript.sh builds {codeql_board} with make',
-               {(codeql_board, 'make'): 'codeql build'})
+  if path == CODEQL:
+    _, codeql_board = codeql_build()
+    return out('codeql', 'select', f'codeql-buildscript.sh builds {codeql_board} with cmake',
+               {(codeql_board, 'cmake'): 'codeql build'})
   if path.startswith(f'ports/{GHOSTFAT}/') or path == '.github/workflows/build_ghostfat.yml':
     return out('ghostfat', 'select', 'ghostfat self-test input', ghostfat=True)
   if len(parts) >= 2 and parts[0] == 'ports' and parts[1] in UNBUILT:
-    return out('unbuilt-port', 'gap', f'ports/{parts[1]}: {UNBUILT[parts[1]][1]}')
-  if len(parts) >= 3 and parts[0] == 'ports' and parts[1] in backends:
+    return out('unbuilt-port', 'gap', f'ports/{parts[1]}: {UNBUILT[parts[1]]}')
+  if len(parts) >= 3 and parts[0] == 'ports' and parts[1] in REPRESENTATIVES:
     port = parts[1]
-    if not read_by_backend(path, backends[port]):
-      if port == codeql_port and parts[2] != 'apps' and (parts[2] != 'boards' or parts[3:4] == [codeql_board]):
-        return out('codeql', 'select', f'CodeQL builds {codeql_board} with make on every pull request',
-                   {(codeql_board, 'make'): f'reads {path}'})
-      return out('other-backend', 'gap', f'{builds.by} builds with {backends[port]}, which never reads {path}')
     if parts[2] == 'boards' and len(parts) >= 4 and (ports_dir(port) / 'boards' / parts[3]).is_dir():
       return out('board', 'select', f'board {parts[3]} changed',
-                 {(parts[3], backends[port]): f'{path} is its own'}, ghostfat, ci={port: [parts[3]]})
+                 {(parts[3], backend_of(port)): f'{path} is its own'}, ghostfat, ci={port: [parts[3]]})
     if parts[2] == 'apps':
-      boards, reason, ci = port_app_selection(port, path, backends)
+      boards, reason, ci = port_app_selection(port, path)
       return out('port-app', 'select' if boards else 'gap', reason, boards, ci=ci)
-    return out('port', 'select', f'{port} port file', rep_selection([port], f'{port} representative', backends),
+    return out('port', 'select', f'{port} port file', rep_selection([port], f'{port} representative'),
                ghostfat, ci=whole_ports([port]))
   if len(parts) >= 2 and parts[0] == 'ports' and len(parts) >= 3 and (ROOT / 'ports' / parts[1]).is_dir():
-    raise Fail(f'ports/{parts[1]} has no backend in check_build.py: add it to BACKENDS or UNBUILT')
+    raise Fail(f'ports/{parts[1]} is unknown to check_build.py: add it to REPRESENTATIVES or UNBUILT')
   if parts[0] == 'apps' and len(parts) >= 2:
-    users = ports_using_app(parts[1], backends)
+    users = ports_using_app(parts[1])
     if not users:
-      return out('app', 'gap', f'no port {builds.by} builds compiles apps/{parts[1]}')
+      return out('app', 'gap', f'no build compiles apps/{parts[1]}')
     return out('app', 'select', f'apps/{parts[1]} is built by {", ".join(users)}',
-               rep_selection(users, f'builds apps/{parts[1]}', backends), ci=whole_ports(users))
+               rep_selection(users, f'builds apps/{parts[1]}'), ci=whole_ports(users))
   if path.startswith(('lib/mcu/', 'lib/sct_neopixel')):
-    families = deps_families(path, backends)
+    families = deps_families(path)
     if families is not None:
       if not families:
-        return out('dep', 'gap', f'{path}: no port {builds.by} builds uses this dependency')
+        return out('dep', 'gap', f'{path}: no build uses this dependency')
       return out('dep', 'select', f'dependency of {", ".join(families)}',
-                 rep_selection(families, f'uses {path}', backends), ci=whole_ports(families))
-  if path in MAKE_SHARED:
-    make_ports = [p for p, be in backends.items() if be == 'make']
-    boards = rep_selection(make_ports, f'make reads {path}', backends)
-    if builds.codeql:
-      boards[(codeql_board, 'make')] = f'codeql build reads {path}'
-    if not boards:
-      return out('make-shared', 'gap', f'{builds.by} builds no port with make, which alone reads {path}')
-    why = 'every make port and the CodeQL build read it' if builds.codeql else 'every make port reads it'
-    return out('make-shared', 'select', why, boards, ci=whole_ports(make_ports))
+                 rep_selection(families, f'uses {path}'), ci=whole_ports(families))
   if path.startswith(NOTHING):
     return out('nothing', 'none', 'no firmware build reads this path')
   if path.startswith(CORE):
@@ -541,10 +476,10 @@ def moved_inputs(before, after):
   return moved | (set(before['missingInputs']) ^ set(after['missingInputs']))
 
 
-def select(paths, builds=CI):
-  records = [classify(p, builds) for p in paths]
+def select(paths):
+  records = [classify(p) for p in paths]
   full = any(r['effect'] == 'core' for r in records)
-  boards = rep_selection(sorted(REPRESENTATIVES), 'core: shared by every port', builds.backends) if full else {}
+  boards = rep_selection(sorted(REPRESENTATIVES), 'core: shared by every port') if full else {}
   for r in records:
     for k, why in r['boards'].items():
       boards.setdefault(k, why)
@@ -576,10 +511,10 @@ HIL_APP = 'dfu_runtime'   # the app hil_test.py's Espressif battery copies throu
 
 
 def hil_selection(sel, config):
-  """Roster boards the selection's paths put under the HIL battery, selected again with the HIL's own builds
-  (HIL), then held to the battery's policy and the roster. A board's own change reaches that board, an app
-  change none but dfu_runtime's on Espressif boards, any other change every roster board of the ports it
-  selects, a core or HIL-control change the whole roster; what no roster board on this host can run is
+  """Roster boards the selection's paths put under the HIL battery: its records but CodeQL's build, held to the
+  battery's policy and the roster. A board's own change reaches
+  that board, an app change none but dfu_runtime's on Espressif boards, any other change every roster board of the
+  ports it selects, a core or HIL-control change the whole roster; what no roster board on this host can run is
   uncovered, whatever else was selected."""
   try:
     entries = json.loads((ROOT / config).read_text())['boards']
@@ -590,19 +525,20 @@ def hil_selection(sel, config):
   by_port = {}
   for name in roster:
     by_port.setdefault(port_of(name), []).append(name)
-  hil = select([r['path'] for r in sel['records']], HIL)
+  records = [r for r in sel['records'] if r['rule'] != 'codeql']   # CodeQL's build is CI's, no HIL record
   boards, uncovered = set(), {}
 
   def missing(r, target, why):   # a build file is named by its own path, any other by the board or port it reaches
-    if build_file_kind(r['path'].rsplit('/', 1)[-1]):
+    if cmake_file(r['path'].rsplit('/', 1)[-1]):
       target, why = r['path'], f'no {config} board builds {r["path"]}'
     uncovered[target] = why
 
-  if hil['full']:
+  full = any(r['effect'] == 'core' for r in records)
+  if full:
     boards.update(roster)
-    for p in sorted(set(HIL.backends) - set(by_port)):
+    for p in sorted(set(REPRESENTATIVES) - set(by_port)):
       uncovered[p] = f'core change: no {config} board for {p}'
-  for r in hil['records']:
+  for r in records:
     parts = r['path'].split('/')
     if r['hil']:
       boards.update(roster)
@@ -633,7 +569,7 @@ def hil_selection(sel, config):
           boards.update(by_port[p])
         else:
           missing(r, p, f'{r["path"]}: no {config} board for {p}')
-  return {'config': config, 'full': hil['full'] or any(r['hil'] for r in hil['records']), 'boards': sorted(boards),
+  return {'config': config, 'full': full or any(r['hil'] for r in records), 'boards': sorted(boards),
           'uncovered': [{'target': t, 'reason': why} for t, why in sorted(uncovered.items())]}
 
 
@@ -687,11 +623,18 @@ def run(cmd, log, verbose, cwd=ROOT):
     f.flush()
     p = subprocess.Popen([str(c) for c in cmd], cwd=cwd, stdout=subprocess.PIPE,
                          stderr=subprocess.STDOUT, text=True, errors='replace')
-    for line in p.stdout:
-      f.write(line)
-      if verbose:
-        sys.stderr.write(line)
-    return p.wait()
+    try:
+      for line in p.stdout:
+        f.write(line)
+        if verbose:
+          sys.stderr.write(line)
+      return p.wait()
+    except BaseException:   # reaped before re-raising, so a docker client cannot create its container after cleanup
+      p.kill()
+      p.wait()
+      raise
+    finally:
+      p.stdout.close()
 
 
 SUBMODULES = ('lib/tinyusb', 'lib/uf2', 'lib/agentrc')
@@ -713,8 +656,7 @@ def check_deps(port):
 
 def check_tools(port, backend, idf_mode):
   cc = COMPILER.get(port, 'arm-none-eabi-gcc')
-  need = {'make': ['make', cc], 'cmake': ['cmake', 'ninja', cc],
-          'idf': ['docker'] if idf_mode == 'docker' else ['idf.py']}[backend]
+  need = {'cmake': ['cmake', 'ninja', cc], 'idf': ['docker'] if idf_mode == 'docker' else ['idf.py']}[backend]
   missing = [t for t in need if not shutil.which(t)]
   if missing:
     return f'{", ".join(missing)} not on PATH' + (' (export ESP-IDF first)' if 'idf.py' in missing else '')
@@ -723,11 +665,6 @@ def check_tools(port, backend, idf_mode):
 
 def expected_artifacts(port, board, backend, root):
   bin_dir = root / '_bin'
-  if backend == 'make':
-    exp = [bin_dir / f'tinyuf2-{board}.bin', bin_dir / f'tinyuf2-{board}.hex']
-    if port not in NO_SELF_UPDATE:
-      exp.append(bin_dir / 'apps' / f'update-tinyuf2-{board}.uf2')
-    return exp
   if backend == 'cmake':
     exp = [bin_dir / 'tinyuf2.bin', bin_dir / 'tinyuf2.hex']
     cml = (ports_dir(port) / 'CMakeLists.txt').read_text()
@@ -746,36 +683,15 @@ FACTS_SOURCE = ROOT / '.claude/skills/hil-contract/scripts/board_facts.c'
 FACTS_FILES = ('tinyuf2.elf', 'board_facts.o', 'apps/blinky/blinky.elf', 'apps/blinky/blinky.elf.map')
 
 
-def build_make(port, board, root, defines, log, verbose, rec):
-  base = ['make', '-C', ports_dir(port), f'BOARD={board}', f'BUILD_ROOT={root}', *defines]
-  # copy-artifact runs after self-update, never beside it under -j
-  if run(base + [f'-j{os.cpu_count()}', 'all', 'self-update'], log, verbose) or run(base + ['copy-artifact'], log, verbose):
-    return False, []
-  apps = []
-  for app in sorted((ports_dir(port) / 'apps').glob('*/Makefile')):
-    if app.parent.name == 'self_update':
-      continue
-    enabled = app_boards(app.parent)
-    if run(['make', '-C', app.parent, f'BOARD={board}', f'BUILD_ROOT={root}', f'-j{os.cpu_count()}', *defines,
-            'all'], log, verbose):
-      return False, apps
-    if enabled is None or board in enabled:
-      apps.append(root / 'ports' / port / 'apps' / app.parent.name)
-    elif enabled == []:
-      rec.setdefault('notImplemented', []).append(f'apps/{app.parent.name}')
-  return True, apps
-
-
 def build_cmake(port, board, root, defines, log, verbose):
   cfg = ['cmake', '-B', root, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=MinSizeRel', '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON',
          f'-DBOARD={board}',
          f'-DARTIFACT_PATH={root / "_bin"}', *[f'-D{d}' for d in defines], ports_dir(port)]
-  return not (run(cfg, log, verbose) or run(['cmake', '--build', root], log, verbose)), []
+  return not (run(cfg, log, verbose) or run(['cmake', '--build', root], log, verbose))
 
 
-def compile_facts(root, log, verbose):
-  """board_facts.o: FACTS_SOURCE compiled with the exact command of the tinyuf2 target's src/main.c, without LTO,
-  whose objects hold no plain data, and without dependency output; '' or why not."""
+def main_command(root):
+  """The one compile_commands.json entry of the tinyuf2 target's src/main.c under `root`, or why not (a str)."""
   try:
     cmds = json.loads((root / 'compile_commands.json').read_text())
   except (OSError, ValueError) as e:
@@ -784,7 +700,13 @@ def compile_facts(root, log, verbose):
           '/tinyuf2.dir/' in c.get('output', c.get('command', ''))]
   if len(main) != 1 or 'command' not in main[0]:
     return f'{root}/compile_commands.json: expected one command of the tinyuf2 target\'s src/main.c, found {len(main)}'
-  argv, it = [], iter(shlex.split(main[0]['command']))
+  return main[0]
+
+
+def compile_facts(main, root, log, verbose):
+  """board_facts.o: FACTS_SOURCE compiled with the exact command of the tinyuf2 target's src/main.c (`main`, its
+  main_command entry), without LTO, whose objects hold no plain data, and without dependency output; '' or why not."""
+  argv, it = [], iter(shlex.split(main['command']))
   for a in it:
     if a.startswith('-Wp,') and any(o.startswith('-M') for o in a.split(',')[1:]):
       return f'{root}/compile_commands.json: {a} would write the build\'s own dependency file'
@@ -793,24 +715,57 @@ def compile_facts(root, log, verbose):
     elif a == '-o':
       next(it, None)
       argv += ['-o', str(root / 'board_facts.o')]
-    elif Path(main[0]['directory'], a) == ROOT / 'src' / 'main.c':
+    elif Path(main['directory'], a) == ROOT / 'src' / 'main.c':
       argv.append(str(FACTS_SOURCE))
     elif a not in ('-MD', '-MMD') and not a.startswith(('-MF', '-MT', '-MQ')):
       argv.append(a)
   if str(FACTS_SOURCE) not in argv or '-o' not in argv:
     return f'{root}/compile_commands.json: no source or -o in the tinyuf2 src/main.c command'
-  if run(argv + ['-fno-lto'], log, verbose, cwd=main[0]['directory']):
+  if run(argv + ['-fno-lto'], log, verbose, cwd=main['directory']):
     return 'board facts: ' + first_error(log.read_text(errors='replace'))
   return ''
+
+
+def compiler_of(main):
+  """The compiler of the tinyuf2 target's src/main.c (`main`, its main_command entry) and the first line of its
+  --version, None when it cannot be read: what a hosted HIL record is pinned by (hil-contract Build, Hosted)."""
+  cc = shlex.split(main['command'])[0]
+  try:
+    out = subprocess.run([cc, '--version'], capture_output=True, text=True, timeout=30).stdout
+  except (OSError, subprocess.SubprocessError):
+    out = ''
+  return {'path': cc, 'version': next(iter(out.splitlines()), '').strip() or None}
 
 
 def build_idf(board, root, defines, log, verbose, idf_mode, image):
   idf = ['idf.py', '-C', 'ports/espressif', '-B', str(root), f'-DBOARD={board}',
          f'-DARTIFACT_PATH={root / "_bin"}', *[f'-D{d}' for d in defines], 'build']
   if idf_mode == 'local':
-    return not run(idf, log, verbose), []
+    return not run(idf, log, verbose)
   inner = "git config --global --add safe.directory '*' && " + shlex.join(idf)
-  return not run(idf_docker(root) + [image, 'bash', '-c', inner], log, verbose), []
+  container, code = f'tinyuf2-build-{os.getpid()}-{uuid.uuid4().hex}', None
+  cmd = idf_docker(root, name=container) + [image, 'bash', '-c', inner]
+  try:
+    code = run(cmd, log, verbose)
+  finally:
+    # a stopped or killed client leaves its container building: PID 1 there ignores the SIGTERM docker forwards; a
+    # failing client may return before --rm's removal (docker/cli v26.1.5 run.go returns on an attach error)
+    if code != 0:
+      left, again = '', None
+      try:
+        left = container_left(container)
+      except BaseException as e:   # a second interrupt: still name the container, and keep the first one
+        again, left = e, f'; cleanup interrupted, so container {container} may be left: docker rm -f {container}'
+      if left:
+        msg = f'{root.name}: ' + ('interrupted docker build' if code is None else f'docker run exited {code}') + left
+        with contextlib.suppress(OSError), open(log, 'a') as f:
+          f.write(msg + '\n')
+        if code is None or again:
+          with contextlib.suppress(OSError):
+            print(msg, file=sys.stderr)
+      if again and code is not None:
+        raise again
+  return code == 0
 
 
 def idf_docker(root, name=None):
@@ -873,10 +828,10 @@ def container_left(name):
 
 
 def backend_of(port):
-  """The backend CI builds a port with, or an unbuilt port's on-request backend (None for none)."""
-  if port not in BACKENDS and port not in UNBUILT:
-    raise Fail(f'ports/{port} has no backend in check_build.py: add it to BACKENDS or UNBUILT')
-  return BACKENDS.get(port) or UNBUILT[port][0]
+  """A port's backend, CI's or an unbuilt port's on request: ESP-IDF for espressif, else cmake."""
+  if port not in REPRESENTATIVES and port not in UNBUILT:
+    raise Fail(f'ports/{port} is unknown to check_build.py: add it to REPRESENTATIVES or UNBUILT')
+  return 'idf' if port == 'espressif' else 'cmake'
 
 
 def roster_flasher(config, board):
@@ -1003,19 +958,15 @@ def build_lock(root, wait=True):
 
 def build_board(board, backend, args, idf, flasher=None):
   port = port_of(board)
-  # a board built with another backend than its port's (codeql's make) gets its own root, and so does a variant
-  name = board if backend == backend_of(port) else f'{board}-{backend}'
-  if args.variant:
-    name += f'-variant-{args.variant}'
+  name = f'{board}-variant-{args.variant}' if args.variant else board
   root = args.build_dir or BUILD_DIR / (f'cmake-build-{name}' if args.shared else f'cmake-build-agent-{os.getpid()}-{name}')
   rec = {'board': board, 'port': port, 'backend': backend, 'buildDir': shown(root),
          'status': 'ok', 'firstError': '', 'artifacts': []}
   if port in UNBUILT:
-    rec['note'] = f'ports/{port}: {UNBUILT[port][1]}'
+    rec['note'] = f'ports/{port}: {UNBUILT[port]}'
   if args.variant:
     rec['variant'] = args.variant
-  if backend == 'make' and port in NO_SELF_UPDATE or backend == 'cmake' and \
-     'update-tinyuf2.uf2' not in {p.name for p in expected_artifacts(port, board, backend, root)}:
+  if backend == 'cmake' and 'update-tinyuf2.uf2' not in {p.name for p in expected_artifacts(port, board, backend, root)}:
     rec['notImplemented'] = ['self-update']
   problem = check_tools(port, backend, args.idf) or check_deps(port)
   if backend == 'idf' and args.idf == 'docker' and not problem:
@@ -1033,17 +984,15 @@ def build_root(board, port, backend, root, rec, args, idf, flasher):
   if flasher:
     flasher, extra = flasher
     defines = defines + extra
-  # always from clean: make cannot see a changed define or flag, so a reused root could pass stale firmware
+  # always from clean, so a reused root cannot pass stale firmware
   shutil.rmtree(root, ignore_errors=True)
   root.mkdir(parents=True)
   log = root / 'check_build.log'
   try:
-    if backend == 'make':
-      ok, apps = build_make(port, board, root, defines, log, args.verbose, rec)
-    elif backend == 'cmake':
-      ok, apps = build_cmake(port, board, root, defines, log, args.verbose)
+    if backend == 'cmake':
+      ok = build_cmake(port, board, root, defines, log, args.verbose)
     else:
-      ok, apps = build_idf(board, root, defines, log, args.verbose, args.idf, idf['image'])
+      ok = build_idf(board, root, defines, log, args.verbose, args.idf, idf['image'])
   except OSError as e:
     rec.update(status='error', firstError=f'{type(e).__name__}: {e}', log=shown(log))
     return rec
@@ -1053,13 +1002,11 @@ def build_root(board, port, backend, root, rec, args, idf, flasher):
   missing = [p for p in expected_artifacts(port, board, backend, root) if not p.is_file()]
   if backend == 'idf':
     missing += [root / c for c in IDF_CONFIG if not (root / c).is_file()]
-  missing += [a for a in apps if not list(a.glob('*.elf'))]
   if missing:
     rec.update(status='failed', log=shown(log), firstError='missing expected artifact(s): ' +
                ', '.join(str(p.relative_to(root)) for p in missing))
     return rec
   rec['artifacts'] = sorted(str(p.relative_to(root)) for p in (root / '_bin').rglob('*') if p.is_file())
-  rec['artifacts'] += sorted(str(e.relative_to(root)) for a in apps for e in a.glob('*.elf'))
   if backend == 'idf':
     rec['artifacts'] += list(IDF_CONFIG)
   if flasher:
@@ -1071,13 +1018,15 @@ def build_root(board, port, backend, root, rec, args, idf, flasher):
     rec['flash']['defines'] = extra
     rec['artifacts'] += [a for a in rec['flash']['inputs'] if a not in rec['artifacts']]
     if backend == 'cmake':
-      problem = compile_facts(root, log, args.verbose)
+      main = main_command(root)
+      problem = main if isinstance(main, str) else compile_facts(main, root, log, args.verbose)
       missing = [a for a in FACTS_FILES if not (root / a).is_file()]
       problem = problem or missing and 'missing board fact artifact(s): ' + ', '.join(missing)
       if problem:
         rec.update(status='failed', firstError=problem, log=str(log.relative_to(ROOT)))
         return rec
       rec['artifacts'] += [a for a in FACTS_FILES if a not in rec['artifacts']]
+      rec['compiler'] = compiler_of(main)
   if args.shared:
     rec['sha256'] = {a: hashlib.sha256((root / a).read_bytes()).hexdigest() for a in rec['artifacts']}
   elif not args.build_dir:
@@ -1167,12 +1116,10 @@ def main(argv=None):
   ap.add_argument('--select-only', action='store_true', help='print the selection manifest and stop')
   ap.add_argument('--hil-config', metavar='ROSTER', help="the host's HIL roster: with --select-only adds `hil`; with --board --shared binds the flash target (a HIL record)")
   ap.add_argument('-D', '--define', action='append', default=[], metavar='VAR=VAL',
-                  help="passed to the board's backend: make VAR=VAL, cmake/idf -DVAR=VAL")
+                  help="passed to the board's backend as -DVAR=VAL")
   ap.add_argument('--shared', action='store_true', help='build into cmake-build/cmake-build-<board> and keep it')
-  ap.add_argument('--backend', choices=('cmake',),
-                  help="with --board and --shared: build with cmake whatever CI uses (the HIL's receipt)")
   ap.add_argument('--variant', metavar='NAME', help='with --board and --shared: build into '
-                  'cmake-build/cmake-build-<board>[-<backend>]-variant-NAME, beside the plain record (the HIL update '
+                  'cmake-build/cmake-build-<board>-variant-NAME, beside the plain record (the HIL update '
                   "battery's distinguishable bootloader, made with -D)")
   ap.add_argument('--build-dir', type=Path, metavar='DIR',
                   help='with one --board: build into DIR, absent or empty, and keep it (code size)')
@@ -1188,8 +1135,6 @@ def main(argv=None):
     ap.error('--hil-config is for --select-only, or a HIL record with --board and --shared')
   if args.hil_config and args.board and any(d.split('=', 1)[0].split(':', 1)[0] in SELECTION for d in args.define):
     ap.error(f'a HIL record takes {", ".join(SELECTION)} from the roster, not -D')
-  if args.backend and not (args.board and args.shared):
-    ap.error('--backend needs --board and --shared')
   if args.select_only and args.board:
     ap.error('--select-only takes --scope, --base or --diff-file')
   if args.variant is not None and not (args.board and args.shared and re.fullmatch(r'[a-z0-9_]+', args.variant)):
@@ -1210,12 +1155,9 @@ def main(argv=None):
       boards = {}
       for b in args.board:
         port = port_of(b)
-        backend = args.backend or backend_of(port)
-        if not backend:
-          raise Fail(f'ports/{port}: {UNBUILT[port][1]}')
-        if backend == 'cmake' and (backend_of(port) == 'idf' or not (ports_dir(port) / 'CMakeLists.txt').is_file()):
-          raise Fail(f'ports/{port} has no cmake build')
-        boards[(b, backend)] = 'named'
+        if port == 'template_port':
+          raise Fail(f'ports/{port}: {UNBUILT[port]}')
+        boards[(b, backend_of(port))] = 'named'
       sel = {'full': False, 'boards': boards, 'ghostfat': False, 'tests': False, 'records': []}
       info = {'mode': 'boards'}
     else:
@@ -1281,5 +1223,11 @@ def main(argv=None):
     return 2
 
 
+def exit_on_sigterm():
+  """Exit on a SIGTERM as on Ctrl-C, through build_idf()'s container removal; installed only when run as a script."""
+  signal.signal(signal.SIGTERM, lambda sig, frame: sys.exit(128 + sig))
+
+
 if __name__ == '__main__':
+  exit_on_sigterm()
   sys.exit(main())

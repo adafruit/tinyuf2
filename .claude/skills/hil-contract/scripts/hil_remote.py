@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Run TinyUF2's HIL battery on the ci.lan rig from a dev PC, built there from this checkout's committed identity
-(SKILL.md Execution, Remote).
+"""Run TinyUF2's HIL battery on the ci.lan rig from a dev PC, its records built here from this checkout's committed
+identity and admitted there (SKILL.md Execution, Remote).
 
   hil_remote.py run -b BOARD [-b BOARD ...] [--run-id ID] [--host HOST] [--lock-wait S] [--fail-at STEP]
   hil_remote.py wait RUN_ID [--timeout S]
   hil_remote.py collect RUN_ID
 
 `run` freezes HEAD and every repository it pins -- the submodules and the get_deps dependencies of the boards' ports,
-unpushed commits and a candidate lib/agentrc pin included -- as self-contained git bundles bound by a manifest
-(commits, roster digest, boards, bundle digests), refusing a dirty, off-pin or missing input or one that moved while
-frozen. It then creates the create-only attempt <base>/<run id> on the rig, stages and verifies the bundles there,
-launches hil_remote_driver.py detached in it (the rig rebuilds and checks the checkout, builds each board's record
-with check_build.py --hil-config and runs `hil_test.py run` per board, one after another), waits for the attempt's
-completion record and collects it into .hil-remote/<run id>/. `wait` reconnects and does the same within --timeout;
-`collect` fetches the attempt whatever its state. Neither ever launches it: an attempt runs once. Ending this process
-ends nothing on the rig.
+unpushed commits and a candidate lib/agentrc pin included -- as self-contained git bundles, builds each board's HIL
+record here from that checkout (hil_hosted.py build, as CI's hosted runner does: this PC's arm-gcc, cmake and ninja,
+which must be CI's arm-gcc, or docker with CI's ESP-IDF image), and binds both by a manifest (commits, roster digest,
+boards, bundle digests and every hosted build file's), refusing a dirty, off-pin or missing input, one that moved while
+frozen, or a failed build. It then creates the create-only attempt <base>/<run id> on the rig, stages and verifies
+them there, launches hil_remote_driver.py detached in it (the rig checks the staged files against the manifest,
+rebuilds and checks the checkout, admits each board's record with hil_hosted.py admit and runs `hil_test.py run` per
+board, one after another), waits for the attempt's completion record and collects it into .hil-remote/<run id>/.
+`wait` reconnects and does the same within --timeout; `collect` fetches the attempt whatever its state. Neither ever
+launches it: an attempt runs once. Ending this process ends nothing on the rig.
 
 The transport is agentrc's hil_remote_core, loaded from this checkout's lib/agentrc at its pin. stdout is one JSON
 line; progress goes to stderr.
@@ -41,18 +43,20 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.dont_write_bytecode = True
 import hil_ci  # noqa: E402   STEPS, the battery's --fail-at steps
-import hil_remote_driver as driver  # noqa: E402   the rig side's names: manifest schema, result, checkout, out
+import hil_remote_driver as driver  # noqa: E402   the rig side's names: manifest schema, result, checkout, out, hosted
 import hil_run_report as run_report  # noqa: E402   the loader, the verdict fold
 
 ROOT = HERE.parents[3]
 AGENTRC = 'lib/agentrc'
 CHECK_BUILD = HERE.parents[1] / 'build' / 'scripts' / 'check_build.py'
 DRIVER = Path(driver.__file__).resolve().relative_to(ROOT).as_posix()
+HOSTED_BUILD = Path(DRIVER).with_name('hil_hosted.py')   # the frozen checkout's, run there
 RUNS = '.hil-remote'
 # the rigs a remote run may use: the roster that host's battery takes, the attempts' base dir, and CI's state root
-# for the runner's transition check (hil.yml: $(dirname $GITHUB_WORKSPACE)/hil-state, the runner's account on ci.lan)
+# for the runner's transition check (hil.yml: $(dirname $GITHUB_WORKSPACE)/hil-state, under the runner user's work dir
+# on ci.lan, which the ssh user reads through its group)
 HOSTS = {'ci.lan': {'hostname': 'ci', 'roster': 'test/hil/ci.json', 'base': '~/hil-remote/tinyuf2',
-                    'ciStateRoot': '~/actions-runner-tinyuf2/_work/tinyuf2/hil-state'}}
+                    'ciStateRoot': '/opt/actions-runner/tinyuf2/_work/tinyuf2/hil-state'}}
 LOCK_WAIT_MAX = 3600
 INCOMPLETE, REFUSED = 6, 7
 MANUAL = ('install', 'restore', 'clear-pending', 'fat-read', 'keep-held', 'keep-build')
@@ -152,9 +156,29 @@ def shallow_marks(where, commit):
   return sorted(set(path.read_text().split()) & set(git(where, 'rev-list', commit).split()))
 
 
+def build_hosted(stage, boards, roster):
+  """Each board's HIL record built here from the frozen checkout and packed under stage/hosted (hil_hosted.py build,
+  CI's hosted build); refused at the first that fails. Returns {stage-relative path: sha256} of every file packed."""
+  out = stage / driver.HOSTED
+  for b in boards:
+    print(f'==> Building the HIL record of {b} here', file=sys.stderr)
+    # its stderr, a failed build's log tail included, passes through
+    r = subprocess.run([sys.executable, str(ROOT / HOSTED_BUILD), 'build', '--board', b, '--roster', roster, '--out',
+                        str(out)], cwd=ROOT, stdout=subprocess.PIPE, text=True)
+    try:
+      res = json.loads(r.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+      res = None
+    res = res if isinstance(res, dict) else {}
+    if r.returncode or res.get('pass') is not True:
+      fail(f'the HIL record of {b} did not build here (exit {r.returncode}): '
+           f'{res.get("error") or r.stdout.strip()[-300:]}')
+  return core.file_digests(stage, [p for p in out.rglob('*') if p.is_file()])
+
+
 def freeze(stage, run_id, host, cfg, boards, args):
-  """Bundle every repository into stage with the driver and a manifest binding them; refused when an input moved
-  meanwhile. Returns the manifest."""
+  """Bundle every repository into stage with the driver, build each board's record beside them (build_hosted()) and
+  write a manifest binding them; refused when an input moved meanwhile. Returns the manifest."""
   info = identity(boards)
   (stage / 'bundles').mkdir(parents=True)
   repos = []
@@ -166,6 +190,7 @@ def freeze(stage, run_id, host, cfg, boards, args):
       fail(f'the bundle of {path} is not {commit} alone: it moved while it was frozen')
     repos.append({'path': path, 'commit': commit, 'bundle': bundle, 'sha256': core.digest(stage / bundle),
                   'shallow': shallow_marks(where, commit)})
+  hosted = build_hosted(stage, boards, cfg['roster'])
   (stage / 'driver').mkdir()
   (stage / 'driver' / Path(DRIVER).name).write_bytes(git(ROOT, 'cat-file', 'blob', f'HEAD:{DRIVER}', binary=True))
   roster = git(ROOT, 'cat-file', 'blob', f'HEAD:{cfg["roster"]}', binary=True)
@@ -174,7 +199,7 @@ def freeze(stage, run_id, host, cfg, boards, args):
               'deps': info['deps'], 'roster': {'path': cfg['roster'], 'sha256': hashlib.sha256(roster).hexdigest()},
               'boards': boards, 'lockWait': args.lock_wait, 'failAt': args.fail_at, 'ciStateRoot': cfg['ciStateRoot'],
               'driver': {'path': DRIVER, 'sha256': core.digest(stage / 'driver' / Path(DRIVER).name)},
-              'createdAt': time.time()}
+              'hosted': hosted, 'createdAt': time.time()}
   core.write_json(stage / 'manifest.json', manifest)
   if identity(boards) != info:
     fail('the checkout moved while it was frozen; nothing was sent: run again')
@@ -184,10 +209,8 @@ def freeze(stage, run_id, host, cfg, boards, args):
 # --- the attempt ---------------------------------------------------------------------------------------------------
 def members(manifest):
   """The copy-back: one group (the manifest, the driver's result and every board's records, run dirs, reports, logs
-  and output under out/), and optional evidence: the driver's progress and a failed build's log, at the build dir
-  check_build.py names for either backend."""
-  logs = [f'{driver.CHECKOUT}/cmake-build/cmake-build-{b}{s}/check_build.log' for b in manifest['boards'] for s in ('', '-cmake')]
-  return [['manifest.json', driver.RESULT, f'{driver.OUT}/']], [driver.PROGRESS, *logs]
+  and output under out/), and optional evidence: the driver's progress. A build's log stays here, where it ran."""
+  return [['manifest.json', driver.RESULT, f'{driver.OUT}/']], [driver.PROGRESS]
 
 
 def local_manifest(run_id):
@@ -248,8 +271,8 @@ def artifacts_missing(row, board, dest):
   """What the board's phase requires, and the rig's inventory of what it left, that did not come home. An inventory
   path is checked to lie under the board's own out/ entries, never followed elsewhere; an unsafe view is not
   required (withhold_unchecked() removes it)."""
-  need = {'build': [f'{driver.OUT}/{board}.build.json'],
-          'battery': [f'{driver.OUT}/{board}.build.json', f'{driver.OUT}/{board}/stdout.txt',
+  # a refused admission leaves no record on the rig; its detail says why
+  need = {'battery': [f'{driver.OUT}/{board}.build.json', f'{driver.OUT}/{board}/stdout.txt',
                       f'{driver.OUT}/{board}/stderr.txt']}.get(row.get('phase'), [])
   listed = row.get('artifacts')
   if not isinstance(listed, list):

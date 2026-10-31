@@ -60,12 +60,10 @@ class Profile(unittest.TestCase):
 
   def test_the_sized_elf_is_the_bootloaders(self):
     with tempfile.TemporaryDirectory() as tmp:
-      for rel in ('tinyuf2.elf', 'ports/stm32h7/tinyuf2-daisy_seed.elf',
-                  'ports/stm32h7/apps/erase_firmware/erase_firmware-daisy_seed.elf', 'apps/blinky/blinky.elf'):
+      for rel in ('tinyuf2.elf', 'apps/blinky/blinky.elf', 'apps/erase_firmware/erase_firmware.elf'):
         (Path(tmp) / rel).parent.mkdir(parents=True, exist_ok=True)
         (Path(tmp) / rel).write_text('')
-      self.assertEqual(sorted(os.path.relpath(e, tmp) for e in prof.elfs(tmp, None)),
-                       ['ports/stm32h7/tinyuf2-daisy_seed.elf', 'tinyuf2.elf'])
+      self.assertEqual([os.path.relpath(e, tmp) for e in prof.elfs(tmp, None)], ['tinyuf2.elf'])
 
   def test_the_filters_are_the_checkouts_src_and_ports(self):
     with mock.patch.object(prof, 'engine', mock.Mock(filter_arg=lambda p: p)):
@@ -109,6 +107,37 @@ class Build(unittest.TestCase):
       self.assertEqual(cmd[-1], '--shared')
       self.assertTrue((Path(build) / 'ports' / 'stm32l4' / 'tinyuf2-swan_r5.elf').is_file())
       self.assertFalse(shared.exists())
+      self.assertEqual([os.path.relpath(e, build) for e in prof.elfs(build, None)], ['tinyuf2.elf'])
+
+  def test_a_make_bases_bootloader_has_the_elf_id_of_the_candidates_cmake_one(self):
+    """The engine pairs a diff's elfs by their path relative to the build dir (its profile contract): a base built
+    with make, before its port moved to cmake, sizes as tinyuf2.elf too, its make elf linked there."""
+    with tempfile.TemporaryDirectory() as tmp:
+      ids = {}
+      for side, files in (('base', {'ports/stm32l4/tinyuf2-swan_r5.elf': 'make elf',
+                                     'ports/stm32l4/tinyuf2-swan_r5.elf.map': 'make map',
+                                     'ports/stm32l4/apps/x/tinyuf2-swan_r5.elf': 'not the bootloader'}),
+                          ('new', {'tinyuf2.elf': 'cmake elf', 'apps/blinky/blinky.elf': 'an app'})):
+        src, build = self._tree(Path(tmp) / side, True)
+        for rel, text in files.items():
+          (Path(build) / rel).parent.mkdir(parents=True, exist_ok=True)
+          (Path(build) / rel).write_text(text)
+        self.assertIsNone(self._build(src, build, {'pass': True})[0])
+        ids[side] = {os.path.relpath(e, build): Path(e).read_text() for e in prof.elfs(build, None)}
+        if side == 'base':   # the engine reads the map as <elf>.map
+          self.assertEqual((Path(build) / 'tinyuf2.elf.map').read_text(), 'make map')
+    self.assertEqual(ids, {'base': {'tinyuf2.elf': 'make elf'}, 'new': {'tinyuf2.elf': 'cmake elf'}})
+
+  def test_a_build_with_its_own_tinyuf2_elf_or_none_of_makes_gets_no_link(self):
+    with tempfile.TemporaryDirectory() as tmp:
+      src, build = self._tree(tmp, True)
+      self._build(src, build, {'pass': True})
+      self.assertEqual(os.listdir(build), [])   # a failed or empty build stays as it is: nothing to size
+      (Path(build) / 'tinyuf2.elf').write_text('cmake elf')
+      (Path(build) / 'ports' / 'stm32l4').mkdir(parents=True)
+      (Path(build) / 'ports' / 'stm32l4' / 'tinyuf2-swan_r5.elf').write_text('make elf')
+      self._build(src, build, {'pass': True})
+      self.assertFalse((Path(build) / 'tinyuf2.elf').is_symlink())
 
   def test_a_failure_leads_with_the_contracts_first_error_and_names_its_log(self):
     with tempfile.TemporaryDirectory() as tmp:

@@ -1,6 +1,7 @@
 set(MCU_VARIANT MIMXRT1062)
 
 set(PYOCD_TARGET mimxrt1060)
+set(TEENSY_MCU TEENSY40)
 
 function(update_board TARGET)
 

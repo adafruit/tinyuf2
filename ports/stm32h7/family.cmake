@@ -8,10 +8,11 @@ set(UF2_FAMILY_ID 0x6db66082)
 set(ST_HAL_DRIVER ${TOP}/lib/mcu/st/stm32h7xx_hal_driver)
 set(ST_CMSIS ${TOP}/lib/mcu/st/cmsis_device_h7)
 set(CMSIS_5 ${TOP}/lib/CMSIS_5)
+set(GIT_SUBMODULES tinyusb uf2)
 
 include(${CMAKE_CURRENT_LIST_DIR}/boards/${BOARD}/board.cmake)
 
-# LTO is off unless -DLTO_ON=1, as in make
+# LTO is off unless -DLTO_ON=1
 if (LTO_ON)
   set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
 else ()
@@ -95,7 +96,7 @@ function(family_add_board_target BOARD_TARGET)
     )
 endfunction()
 
-# memory.ld, common.ld then the MCU's layout, the order make links them in
+# memory.ld, common.ld then the MCU's layout: keep the order the bootloader has always been linked in
 function(family_add_linker_scripts TARGET)
   target_link_options(${TARGET} PUBLIC
     "LINKER:--script=${CMAKE_CURRENT_FUNCTION_LIST_DIR}/linker/memory.ld"

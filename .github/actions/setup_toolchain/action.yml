@@ -16,12 +16,6 @@ outputs:
 runs:
   using: "composite"
   steps:
-    - name: Install ARM GCC
-      if: inputs.toolchain == 'arm-gcc'
-      uses: carlosperate/arm-none-eabi-gcc-action@v1
-      with:
-        release: '13.3.Rel1'
-
     - name: Pull ESP-IDF docker
       if: inputs.toolchain == 'esp-idf'
       uses: ./.github/actions/setup_toolchain/espressif
@@ -30,24 +24,25 @@ runs:
         toolchain_version: ${{ inputs.toolchain_version }}
 
     - name: Get Toolchain URL
-      if: >-
-        inputs.toolchain != 'arm-gcc' &&
-        inputs.toolchain != 'esp-idf'
+      if: inputs.toolchain != 'esp-idf'
       id: set-toolchain-url
+      env:
+        TOOLCHAIN: ${{ inputs.toolchain }}
       run: |
-        TOOLCHAIN_URL=$(jq -r '."${{ inputs.toolchain }}"' .github/actions/setup_toolchain/toolchain.json)
+        TOOLCHAIN_URL=$(jq -er --arg tc "$TOOLCHAIN" '.[$tc].url' .github/actions/setup_toolchain/toolchain.json)
+        TOOLCHAIN_SHA256=$(jq -er --arg tc "$TOOLCHAIN" '.[$tc].sha256' .github/actions/setup_toolchain/toolchain.json)
         echo "toolchain_url=$TOOLCHAIN_URL"
         echo "toolchain_url=$TOOLCHAIN_URL" >> $GITHUB_OUTPUT
+        echo "toolchain_sha256=$TOOLCHAIN_SHA256" >> $GITHUB_OUTPUT
       shell: bash
 
     - name: Download Toolchain
-      if: >-
-        inputs.toolchain != 'arm-gcc' &&
-        inputs.toolchain != 'esp-idf'
+      if: inputs.toolchain != 'esp-idf'
       uses: ./.github/actions/setup_toolchain/download
       with:
         toolchain: ${{ inputs.toolchain }}
         toolchain_url: ${{ steps.set-toolchain-url.outputs.toolchain_url }}
+        toolchain_sha256: ${{ steps.set-toolchain-url.outputs.toolchain_sha256 }}
 
     - name: Set toolchain option
       id: set-toolchain-option

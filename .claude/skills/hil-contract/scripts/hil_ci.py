@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""The CI job's HIL run on this host's roster: one battery per named board from a record built here, or with
-`--hosted` for an Espressif board admitted from a hosted runner's build (hil_hosted.py), every run kept, a `hil` verdict
-per board and one exit for the job.
+"""The CI job's HIL run on this host's roster: one battery per named board from a record built off the rig and admitted
+here from `--hosted` (hil_hosted.py; the rig builds nothing), every run kept, a `hil` verdict per board and one exit for
+the job.
 
-  hil_ci.py --board B [B ...] --roster test/hil/ci.json --out DIR [--hosted DIR] [--lock-wait S] [--fail-at STEP]
+  hil_ci.py --board B [B ...] --roster test/hil/ci.json --out DIR --hosted DIR [--lock-wait S]
+            [--fail-at STEP]
 
 `--out` is this run's directory under a state directory kept across runs (`<state>/<run id>`): the build
 record, each board's run directory (`hil_test.py run --run-root`: its report, hil.log and output) and the
@@ -16,12 +17,13 @@ blocker here until recovery removes the marker. Runs older than PRUNE_DAYS with 
 one with a marker left is kept, whatever its age. Each battery's report pair is prepared for the upload (prepare()), and
 summary.json carries the shared run rules' `sharedVerdict` beside each native `verdict`, which alone decides the exit,
 each battery's `steps`, `cleanupPass` (null when the board was untouched) and whether it is the Espressif one
-(`espressif`), the seconds its build (`buildS`) and battery (`runS`) took, and the board loop's `elapsedS`.
+(`espressif`), the seconds its record's admission (`buildS`, a name kept from when the rig built it) and battery
+(`runS`) took, and the board loop's `elapsedS`.
 `upload-views`, written last, is the upload's decision on the report views (UPLOAD_VIEWS).
 
-Exit 0: every board passed. 1: a board failed or was not run (held past `--lock-wait`, its build or admission
-refused). 2: a blocker (a run without a report, a failed cleanup, a cleanup holder, a dead battery's record or a
-takeover journal, or a stale probe session on the board).
+Exit 0: every board passed. 1: a board failed or was not run (held past `--lock-wait`, its hosted build missing or its
+admission refused). 2: a blocker (a run without a report, a failed cleanup, a cleanup holder, a dead battery's record or
+a takeover journal, or a stale probe session on the board).
 """
 import argparse
 import json
@@ -50,10 +52,6 @@ LOCK_WAIT = 600
 PRUNE_DAYS = 30
 
 
-def run(cmd):
-  return subprocess.run([str(c) for c in cmd], cwd=ROOT, capture_output=True, text=True)
-
-
 def roster_entries(roster):
   try:
     return {b['name']: b for b in json.loads((ROOT / roster).read_text())['boards']}
@@ -67,19 +65,23 @@ def espressif(board):
   return (ROOT / 'ports' / 'espressif' / 'boards' / board).is_dir()
 
 
+def backend(board):
+  """The backend the HIL builds `board` with: ESP-IDF for an Espressif board, else cmake (check_build's backend_of)."""
+  return 'idf' if espressif(board) else 'cmake'
+
+
 def roster_boards(roster):
   return sorted(roster_entries(roster))
 
 
 def split(roster, boards, build_pending=False):
   """The workflow's plan for `boards`: (rig, hosted, pending). The rig runs the commissioned ones (`tinyuf2.reentry`
-  set, SKILL.md Hosts/rosters); a hosted runner builds the rig's Espressif ones, and with `build_pending` (a dispatch)
-  also those pending commissioning, whose artifact commissioning admits by hand; the rest are pending."""
+  set, SKILL.md Hosts/rosters), each from a hosted runner's build, and with `build_pending` (a dispatch) that runner
+  also builds those pending commissioning, whose artifact commissioning admits by hand; the rest are pending."""
   entries = roster_entries(roster)
   rig = [b for b in boards if ((entries[b].get('tinyuf2') or {}).get('reentry'))]
   pending = [b for b in boards if b not in rig]
-  hosted = [b for b in (boards if build_pending else rig) if espressif(b)]
-  return rig, hosted, pending
+  return rig, list(boards if build_pending else rig), pending
 
 
 def unfinished(state, board):
@@ -109,28 +111,15 @@ def prune(state, keep, days=PRUNE_DAYS):
 
 
 def hosted_record(board, roster, out, hosted):
-  """An Espressif board's record, admitted from the hosted build under `hosted` (hil_hosted.py admit)."""
+  """The board's record, admitted from its hosted build under `hosted` (hil_hosted.py admit): (record, ok, why)."""
   import hil_hosted   # here only: it loads the runner, which hil_remote.py's clients never import
+  record = out / f'{board}.build.json'
+  if not (hosted / board).is_dir():
+    return record, False, f'no hosted build of {board} under {hosted}: its build failed or never reached the rig'
   try:
     return hil_hosted.admit(hosted / board, board, roster, out), True, ''
   except (hil_hosted.ht.Refused, hil_hosted.cb.Fail, OSError) as e:
-    return out / f'{board}.build.json', False, f'hosted build refused: {e}'[:400]
-
-
-def build_record(board, roster, out):
-  record = out / f'{board}.build.json'
-  # an Espressif board builds with ESP-IDF in CI's docker image (check_build's default for it), the rest with cmake
-  backend = [] if espressif(board) else ['--backend', 'cmake']
-  r = run([sys.executable, CHECK_BUILD, '--board', board, *backend, '--shared', '--hil-config', roster])
-  record.write_text(r.stdout)
-  try:
-    rec = json.loads(r.stdout)
-    row = next(b for b in rec['boards'] if b['board'] == board)
-    ok = rec['pass'] and row['status'] == 'ok'
-    why = '' if ok else f'build {row["status"]}: {row.get("firstError", "")}'[:400]
-  except (ValueError, KeyError, StopIteration):
-    ok, why = False, f'build record unreadable (exit {r.returncode}): {(r.stderr or r.stdout).strip()[-300:]}'
-  return record, ok, why
+    return record, False, f'hosted build refused: {e}'[:400]
 
 
 def launch(cmd, where, board):
@@ -235,12 +224,12 @@ def withhold(where, why, pinned):
   return unsafe
 
 
-def run_board(board, roster, out, state, lock_wait, fail_at=None, markers=True, hosted=None):
-  """One board's row: CI's markers under `state`, the record, the battery, its verdict and its prepared report pair.
-  `markers` false is a remote driver's: `state` is CI's state directory, read, never written, and checked again by
-  the runner under its lock (--ci-state-root). `lock_wait` is seconds, or a function giving them as the battery
-  starts. Its `buildS` and `runS` are the seconds the build and the battery took, lock wait included. `hosted` is the
-  directory of hosted builds an Espressif board's record is admitted from; without it the rig builds that record."""
+def run_board(board, roster, out, state, lock_wait, hosted, fail_at=None, markers=True):
+  """One board's row: CI's markers under `state`, the record admitted from `hosted` (the directory of hosted builds,
+  one <board> each), the battery, its verdict and its prepared report pair. `markers` false is a remote driver's:
+  `state` is CI's state directory, read, never written, and checked again by the runner under its lock
+  (--ci-state-root). `lock_wait` is seconds, or a function giving them as the battery starts. Its `buildS` and `runS`
+  are the seconds the admission and the battery took, lock wait included."""
   try:
     earlier = unfinished(state, board)
   except OSError as e:
@@ -251,8 +240,7 @@ def run_board(board, roster, out, state, lock_wait, fail_at=None, markers=True, 
             'detail': f'run {", ".join(earlier)} under {state} started a battery on {board} and never finished: '
                       'recover the board, then remove its marker'}
   t0 = time.monotonic()
-  hosted_build = hosted is not None and espressif(board)
-  record, ok, why = hosted_record(board, roster, out, hosted) if hosted_build else build_record(board, roster, out)
+  record, ok, why = hosted_record(board, roster, out, hosted)
   build_s = round(time.monotonic() - t0)
   if not ok:
     return {'board': board, 'phase': 'build', 'verdict': 'not-run', 'detail': why, 'buildS': build_s}
@@ -308,7 +296,8 @@ def main(argv=None):
   ap.add_argument('--out', required=True, type=Path, help="this run's directory under the state directory")
   ap.add_argument('--lock-wait', type=int, default=LOCK_WAIT, help='seconds each battery keeps trying a held board')
   ap.add_argument('--fail-at', choices=STEPS, help='acceptance only (SKILL.md Execution): passed to every battery')
-  ap.add_argument('--hosted', type=Path, help="the hosted builds' directory (hil_hosted.py build), one <board> each")
+  ap.add_argument('--hosted', type=Path, required=True,
+                  help="the hosted builds' directory (hil_hosted.py build), one <board> each")
   args = ap.parse_args(argv)
   boards = sorted(set(args.board))
   unknown = sorted(set(boards) - set(roster_boards(args.roster)))
@@ -319,7 +308,7 @@ def main(argv=None):
   state = args.out.parent
   prune(state, keep=args.out)
   t0 = time.monotonic()
-  rows = [run_board(b, args.roster, args.out, state, args.lock_wait, args.fail_at, hosted=args.hosted) for b in boards]
+  rows = [run_board(b, args.roster, args.out, state, args.lock_wait, args.hosted, args.fail_at) for b in boards]
   elapsed = round(time.monotonic() - t0)
   text = summary(rows, args.roster)
   sys.stdout.write(text)

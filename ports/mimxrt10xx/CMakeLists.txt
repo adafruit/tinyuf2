@@ -24,6 +24,14 @@ family_configure_tinyuf2(tinyuf2 OPT_MCU_MIMXRT1XXX)
 
 family_flash_sdp(tinyuf2)
 family_flash_jlink(tinyuf2 hex)
+family_flash_pyocd(tinyuf2)
+
+if (DEFINED TEENSY_MCU)
+  add_custom_target(tinyuf2-teensy
+    DEPENDS tinyuf2
+    COMMAND teensy_loader_cli -w --mcu ${TEENSY_MCU} $<TARGET_FILE_DIR:tinyuf2>/tinyuf2.hex
+    )
+endif ()
 
 # erase first 64KB to ensure clean state for UF2 update
 math(EXPR ERASE_END_ADDR "( ${FLASH_BASE} + 0x10000 )" OUTPUT_FORMAT HEXADECIMAL)

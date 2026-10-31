@@ -45,8 +45,8 @@
 //--------------------------------------------------------------------+
 
 // TinyUF2 runs on OTG HS (USB 2.0 Type-C port J15)
-#define USB_VID           0x239A
-#define USB_PID           0x00A5    // TODO temporarily shared with S2 saola wrover
+#define USB_VID           0x303A
+#define USB_PID           0x7012
 #define USB_MANUFACTURER  "Espressif"
 #define USB_PRODUCT       "ESP32P4 Function EV"
 
