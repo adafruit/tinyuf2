@@ -172,8 +172,8 @@
 
 | Board | Name | VID PID | URL |
 | --- | --- | --- | --- |
-| intech_grid | Intech Studio Bootloader 2026-10 | 0x03EB:0x2402 | https://github.com/intechstudio/grid-fw/ |
-| intech_wrid | Intech Studio Bootloader 2026-10 | 0x03EB:0x2402 | https://github.com/intechstudio/grid-fw/ |
+| intech_grid | Intech Studio Grid | 0x03EB:0x2402 | https://github.com/intechstudio/grid-fw/ |
+| intech_wrid | Intech Studio Wrid | 0x03EB:0x2402 | https://github.com/intechstudio/grid-fw/ |
 
 ## stm32f3
 

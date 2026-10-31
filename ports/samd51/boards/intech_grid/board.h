@@ -57,9 +57,9 @@
 #define USB_VID          0x03EB
 #define USB_PID          0x2402
 #define USB_MANUFACTURER "Intech Studio"
-#define USB_PRODUCT      "Bootloader 2026-10"
+#define USB_PRODUCT      "Grid"
 
-#define UF2_PRODUCT_NAME USB_PRODUCT
+#define UF2_PRODUCT_NAME USB_MANUFACTURER " " USB_PRODUCT
 #define UF2_BOARD_ID     "SAMD51N20A-GRID-v0"
 #define UF2_VOLUME_LABEL "GRID26"
 #define UF2_INDEX_URL    "https://github.com/intechstudio/grid-fw/"
