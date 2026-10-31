@@ -168,6 +168,13 @@
 | teensy40 | PJRC Teensy 4.0 | 0x239A:0x0085 | https://www.pjrc.com/store/teensy40.html |
 | teensy41 | PJRC Teensy 4.1 | 0x239A:0x00AD | https://www.pjrc.com/store/teensy41.html |
 
+## samd51
+
+| Board | Name | VID PID | URL |
+| --- | --- | --- | --- |
+| intech_grid | Intech Studio Bootloader 2026-10 | 0x03EB:0x2402 | https://github.com/intechstudio/grid-fw/ |
+| intech_wrid | Intech Studio Bootloader 2026-10 | 0x03EB:0x2402 | https://github.com/intechstudio/grid-fw/ |
+
 ## stm32f3
 
 | Board | Name | VID PID | URL |
