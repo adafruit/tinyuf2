@@ -13,7 +13,8 @@ PT_LOAD = 1
 EM_ARM, EM_RISCV = 40, 243
 ABS32 = {(EM_ARM, SHT_REL): 2, (EM_RISCV, SHT_RELA): 1}   # R_ARM_ABS32, R_RISCV_32
 STACK = 0x1000   # the fixture's initial SP is ram + STACK (hil_test.fixture)
-VECTOR_NAMES = ('__isr_vector', '__Vectors', 'g_pfnVectors')   # the CMSIS startups' vector table, aliases included
+# the CMSIS startups' vector table, aliases included, and the Microchip DFP startups' exception_table
+VECTOR_NAMES = ('__isr_vector', '__Vectors', 'g_pfnVectors', 'exception_table')
 MALFORMED = (struct.error, IndexError, ValueError, UnicodeDecodeError, KeyError)
 STRINGS = {'hil_board_id', 'hil_flash_size_expr'}   # board_facts.c's char arrays, bytes whatever their size
 

@@ -273,6 +273,10 @@ class Read(unittest.TestCase):
     self.b.boot_syms[3] = ('__isr_vector', BOOT + 4, 0, '.isr_vector')   # unsized, and no .isr_vector there
     self.refused('no vector count in the device header and no sized vector table')
 
+  def test_the_microchip_dfp_vector_table_is_found(self):
+    self.b.boot_syms[3] = ('exception_table', BOOT, len(self.b.vectors), '.isr_vector')
+    self.assertEqual(self.read()['vectors'], 98)
+
   def test_blinkys_vector_table_must_sit_at_the_app_start(self):
     self.b.app_base = APP + 0x1000
     self.refused('blinky.elf starts at 0x8011000')
