@@ -62,7 +62,7 @@ SECTIONS
   . = ALIGN(4);
   _etext = .;
 
-  .relocate :
+  .data :
   {
     . = ALIGN(4);
     _srelocate = .;
