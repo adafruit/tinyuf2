@@ -178,10 +178,15 @@ jobs:
       - name: Set the run directory
         run: echo "HIL_OUT=$(dirname "$GITHUB_WORKSPACE")/hil-state/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
 
+      # a file the ssh user (in this runner's group) leaves under its own group, such as a __pycache__, cannot be removed
+      # here: move the tree aside so the job still checks out clean, and name what stays for the rig's owner
       - name: Clean workspace
         run: |
-          rm -rf "${{ github.workspace }}"
-          mkdir -p "${{ github.workspace }}"
+          ws="${{ github.workspace }}"
+          rm -rf "$ws" 2>/dev/null || mv "$ws" "$ws.stale-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          rm -rf "$ws".stale-* 2>/dev/null ||
+            echo "::warning::$(find "$ws".stale-* ! -user "$(id -un)" -print -quit) is another user's; remove $ws.stale-* on the rig"
+          mkdir -p "$ws"
 
       # the rig keeps state between jobs: no token stays in its checkout
       - uses: actions/checkout@v4
