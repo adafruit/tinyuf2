@@ -45,7 +45,8 @@
     {
       "name": "metro_m4_express",
       "uid": "48AD95993243375320202031340A10FF",
-      "flasher": {"name": "jlink", "uid": "000063728691", "args": "-device ATSAMD51J19"}
+      "flasher": {"name": "jlink", "uid": "000063728691", "args": "-device ATSAMD51J19"},
+      "tinyuf2": {"reentry": "retained-register"}
     }
   ]
 }
