@@ -63,10 +63,16 @@ static void dwt_enable(void) {
   DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
 }
 
+// A debugger detaching may disable DWT (ARMv7-M ARM, DEMCR, p. C1-838), so a wait re-enables it on every read
+static uint32_t cycle_count(void) {
+  dwt_enable();
+  return DWT->CYCCNT;
+}
+
 static void delay_ms(uint32_t ms) {
-  const uint32_t start  = DWT->CYCCNT;
+  const uint32_t start  = cycle_count();
   const uint32_t cycles = (SystemCoreClock / 1000) * ms;
-  while ((DWT->CYCCNT - start) < cycles) {}
+  while ((cycle_count() - start) < cycles) {}
 }
 
 // The default 1.7V level is too low: flash writes intermittently store zeros
@@ -280,7 +286,7 @@ void board_rgb_write(const uint8_t rgb[]) {
   const uint8_t grb[3] = {apply_percentage(rgb[1]), apply_percentage(rgb[0]), apply_percentage(rgb[2])};
 
   // the previous frame is latched once the line has been low for the reset time
-  while ((DWT->CYCCNT - last_end) < ns_to_cycles(NEOPIXEL_RESET_NS)) {}
+  while ((cycle_count() - last_end) < ns_to_cycles(NEOPIXEL_RESET_NS)) {}
 
   const uint32_t primask = __get_PRIMASK();
   __disable_irq();
