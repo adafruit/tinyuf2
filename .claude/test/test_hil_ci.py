@@ -626,7 +626,7 @@ class Stubbed(unittest.TestCase):
     got = dict(ln.split('=', 1) for ln in output.read_text().splitlines())
     with mock.patch.object(hil_ci, 'ROOT', work):
       rig, hosted, pending = hil_ci.split('test/hil/ci.json', sorted(roster), build_pending=True)
-    self.assertEqual(pending, sorted(b['name'] for b in entries if 'reentry' not in b.get('tinyuf2', {})))
+    self.assertEqual(pending, sorted(set(roster) - set(got['boards'].split())))
     self.assertIn(esp['name'], pending)
     self.assertEqual(hosted, sorted(roster), 'a dispatch builds every named board, the pending one too')
     self.assertEqual(set(got), {'boards', 'matrix'})

@@ -183,7 +183,7 @@ jobs:
       - name: Clean workspace
         run: |
           ws="${{ github.workspace }}"
-          rm -rf "$ws" 2>/dev/null || mv "$ws" "$ws.stale-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          if [ -e "$ws" ]; then mv "$ws" "$ws.stale-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"; fi
           rm -rf "$ws".stale-* 2>/dev/null ||
             echo "::warning::$(find "$ws".stale-* ! -user "$(id -un)" -print -quit) is another user's; remove $ws.stale-* on the rig"
           mkdir -p "$ws"
