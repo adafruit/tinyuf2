@@ -1,4 +1,4 @@
-/* Sections shared by the bootloader and application linker scripts for SAMD51x20, after their MEMORY */
+/* Sections shared by the bootloader and application linker scripts for SAMD51, after their MEMORY */
 
 /* BOOTPROT protects (15 - BOOTPROT) * 8 KB */
 ASSERT(__flash_boot_size % 8K == 0 && __flash_boot_size <= 120K, "boot size must be a multiple of 8 KB, at most 120 KB")
@@ -7,8 +7,10 @@ OUTPUT_FORMAT("elf32-littlearm", "elf32-littlearm", "elf32-littlearm")
 OUTPUT_ARCH(arm)
 ENTRY(Reset_Handler)
 
-/* Highest address of the stack */
-_estack = ORIGIN(RAM) + LENGTH(RAM);
+/* The last RAM word is the double tap register, where uf2-samdx1 keeps it, so its applications' reboot to bootloader
+   works; the stack stays 8-byte aligned below it */
+_board_dfu_dbl_tap = ORIGIN(RAM) + LENGTH(RAM) - 4;
+_estack = ORIGIN(RAM) + LENGTH(RAM) - 8;
 
 _Min_Stack_Size = 0x800;
 

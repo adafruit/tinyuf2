@@ -141,12 +141,16 @@ void board_init(void) {
   dwt_enable();
   bod33_init();
 
+#ifdef NEOPIXEL_POWER_PIN
   pin_output(NEOPIXEL_POWER_PORT, NEOPIXEL_POWER_PIN, NEOPIXEL_POWER_STATE);
+#endif
   pin_output(NEOPIXEL_PORT, NEOPIXEL_PIN, false);
 
+#ifdef BUTTON_PIN
   PORT->Group[BUTTON_PORT].PINCFG[BUTTON_PIN].reg = PORT_PINCFG_INEN | PORT_PINCFG_PULLEN;
   PORT->Group[BUTTON_PORT].DIRCLR.reg             = 1u << BUTTON_PIN;
   PORT->Group[BUTTON_PORT].OUTSET.reg             = 1u << BUTTON_PIN;
+#endif
 }
 
 void board_dfu_init(void) {
@@ -169,12 +173,14 @@ void board_dfu_complete(void) {
   NVIC_SystemReset();
 }
 
+#ifdef BUTTON_PIN
 // Holding the button at reset forces the bootloader. The line rises slowly after power-up
 bool board_app_valid2(void) {
   delay_ms(20);
   const bool pressed = ((PORT->Group[BUTTON_PORT].IN.reg >> BUTTON_PIN) & 1u) == BUTTON_STATE_ACTIVE;
   return !pressed;
 }
+#endif
 
 bool board_app_valid(void) {
   const volatile uint32_t *app_vector = (const volatile uint32_t *)BOARD_FLASH_APP_START;
@@ -188,8 +194,10 @@ bool board_app_valid(void) {
 }
 
 void board_teardown(void) {
+#ifdef BUTTON_PIN
   PORT->Group[BUTTON_PORT].PINCFG[BUTTON_PIN].reg = 0;
   PORT->Group[BUTTON_PORT].OUTCLR.reg             = 1u << BUTTON_PIN;
+#endif
 
   SysTick->CTRL = 0;
   SysTick->LOAD = 0;

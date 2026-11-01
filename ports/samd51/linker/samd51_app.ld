@@ -1,4 +1,4 @@
-/* Application linker script for SAMD51x20 (1 MB flash, 256 KB HSRAM), runs behind the bootloader */
+/* Application linker script for SAMD51, runs behind the bootloader; sizes from the board */
 
 MEMORY
 {

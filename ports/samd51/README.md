@@ -1,11 +1,12 @@
 # TinyUF2 for SAMD51
 
-Port for SAMD51 with the 1 MB / 256 KB parts (SAMD51N20A). Boards:
+Port for SAMD51. Boards:
 
 | Board | Notes |
 | --- | --- |
-| `intech_grid` | Intech Studio Grid modules, volume `GRID26` |
+| `intech_grid` | Intech Studio Grid modules (SAMD51N20A), volume `GRID26` |
 | `intech_wrid` | Same hardware and USB IDs as `intech_grid`, volume `WRID26`, to tell the two bootloaders apart |
+| `metro_m4_express` | Adafruit Metro M4 Express (SAMD51J19A), volume `METROM4BOOT` |
 
 ## Flash layout
 
@@ -26,9 +27,10 @@ counted as written (#629), so such a file "completes" with parts of the applicat
 
 ## Entering the bootloader
 
-- Hold the button (`PC11`, active low) while the board resets or is plugged in.
+- Grid and Wrid: hold the button (`PC11`, active low) while the board resets or is plugged in.
+- Metro M4 Express: double tap reset. An application enters it by writing `0xf01669ef` to the last RAM word and
+  resetting, as with uf2-samdx1.
 - The bootloader also stays when the application is missing or invalid.
-- Double tap and reboot from application are not implemented.
 
 ## Self-update
 

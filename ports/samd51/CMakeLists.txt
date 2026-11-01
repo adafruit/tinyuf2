@@ -20,6 +20,7 @@ target_link_options(tinyuf2 PUBLIC
 
 family_configure_tinyuf2(tinyuf2 OPT_MCU_SAMD51)
 family_flash_openocd(tinyuf2)
+family_flash_jlink(tinyuf2 hex)
 
 #------------------------------------
 # Application

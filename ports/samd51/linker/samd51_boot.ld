@@ -1,4 +1,4 @@
-/* Bootloader linker script for SAMD51x20 (1 MB flash, 256 KB HSRAM) */
+/* Bootloader linker script for SAMD51, sizes from the board (__flash_boot_size, __ram_size) */
 
 MEMORY
 {
