@@ -174,6 +174,7 @@
 | --- | --- | --- | --- |
 | intech_grid | Intech Studio Grid | 0x03EB:0x2402 | https://github.com/intechstudio/grid-fw/ |
 | intech_wrid | Intech Studio Wrid | 0x03EB:0x2402 | https://github.com/intechstudio/grid-fw/ |
+| metro_m4_express | Adafruit Metro M4 Express | 0x239A:0x0021 | https://www.adafruit.com/product/3382 |
 
 ## stm32f3
 
