@@ -1254,14 +1254,19 @@ class HilRecord(FakeTools, unittest.TestCase):
     tmp = build_tmpdir()
     self.addCleanup(tmp.cleanup)
     self.tmp = Path(tmp.name)
+    p = mock.patch.object(cb, 'check_agentrc_pin')   # the pin's own tests check it, outside a commit's git env
+    p.start()
+    self.addCleanup(p.stop)
     self.roster = self.tmp / 'local.json'
+    # bench boards keep their own flasher; max32666fthr's comes from agentrc's board registry
     self.roster.write_text(json.dumps({'boards': [
       {'name': 'metro_m7_1011', 'uid': 'U', 'flasher': {'name': 'jlink', 'uid': '000801012283', 'args': '-device MIMXRT1011DAE5A'}},
-      {'name': 'espressif_esp32s3_devkitc_1', 'uid': 'M', 'flasher': {'name': 'esptool', 'uid': 'b1', 'args': '--chip esp32s3'}},
-      {'name': 'stm32h563_nucleo', 'uid': 'S', 'flasher': {'name': 'stlink', 'uid': '0023ab', 'args': '-device stm32h563zi'}},
+      {'name': 'espressif_esp32s3_devkitc_1', 'uid': 'M', 'flasher': {'name': 'esptool', 'uid': 'b1'},
+       'tinyuf2': {'device': 'esp32s3'}},
+      {'name': 'stm32h563_nucleo', 'uid': 'S', 'flasher': {'name': 'stlink', 'uid': '0023ab'},
+       'tinyuf2': {'device': 'stm32h563zi'}},
       {'name': 'lpcxpresso55s69', 'uid': 'L', 'flasher': {'name': 'openocd', 'uid': 'x', 'args': '-f a.cfg'}},
-      {'name': 'max32666fthr', 'uid': 'X', 'flasher': {'name': 'openocd', 'uid': 'E6614C311B597D32', 'vid_pid': '0x2e8a 0x000c',
-                                                       'args': '-f interface/cmsis-dap.cfg -f target/max32665.cfg'}},
+      {'name': 'max32666fthr', 'uid': '0C81464124010B20FF0A08CC2C000000'},
       {'name': 'frdm_k32l2b', 'uid': 'K', 'flasher': {'name': 'pyocd', 'uid': 'p', 'args': '-t k32l2b3'}}]}))
     self.config = str(self.roster.relative_to(ROOT))
 
@@ -1315,25 +1320,27 @@ class HilRecord(FakeTools, unittest.TestCase):
                        ('imxrt1060_evk', 'not on')):
       with self.subTest(board), self.assertRaisesRegex(cb.Fail, err):
         cb.roster_flasher(self.config, board)
-    entry = json.loads(self.roster.read_text())['boards'][4]
+    fl = {'name': 'openocd', 'uid': 'BENCH1', 'args': '-f interface/cmsis-dap.cfg -f target/max32665.cfg'}
     for vid_pid in (None, '0x2e8a', '0x2e8a 0x000c 0x1366 0x0101', '2e8a 000c', '0x2e8a\t0x000c', '0x2e8a 0x000c;x'):
-      fl = {k: v for k, v in entry['flasher'].items() if k != 'vid_pid'}
-      self.roster.write_text(json.dumps({'boards': [dict(entry, flasher=dict(fl, **({'vid_pid': vid_pid} if vid_pid else {})))]}))
-      with self.subTest(vid_pid=vid_pid), self.assertRaisesRegex(cb.Fail, 'needs its probe'):
+      self.roster.write_text(json.dumps({'boards': [{'name': 'max32666fthr', 'uid': 'X',
+                                                     'flasher': dict(fl, **({'vid_pid': vid_pid} if vid_pid else {}))}]}))
+      # the registry refuses a pin outside its own grammar first
+      with self.subTest(vid_pid=vid_pid), self.assertRaisesRegex(cb.Fail, 'needs its probe|vid_pid must be'):
         cb.roster_flasher(self.config, 'max32666fthr')
 
   def test_an_esptool_flasher_may_name_the_chips_usj_by_its_mac_form_serial(self):
     usj = '30:ED:A0:F4:0A:94'
     self.roster.write_text(json.dumps({'boards': [{'name': 'espressif_esp32s31_func_core', 'uid': '30EDA0F40A94',
-                                                   'flasher': {'name': 'esptool', 'uid': usj, 'args': '--chip esp32s31'}}]}))
+                                                   'flasher': {'name': 'esptool', 'uid': usj},
+                                                   'tinyuf2': {'device': 'esp32s31'}}]}))
     self.assertEqual(cb.roster_flasher(self.config, 'espressif_esp32s31_func_core'),
                      ({'name': 'esptool', 'uid': usj, 'device': 'esp32s31'}, []))
     with tempfile.TemporaryDirectory() as d:
       cfg = Path(d) / 'r.json'
-      for flasher in ({'name': 'esptool', 'uid': usj.lower(), 'args': '--chip esp32s3'},
-                      {'name': 'esptool', 'uid': usj + ':00', 'args': '--chip esp32s3'},
-                      {'name': 'jlink', 'uid': usj, 'args': '-device MIMXRT1011DAE5A'}):
-        cfg.write_text(json.dumps({'boards': [{'name': 'b', 'flasher': flasher}]}))
+      for flasher, t in (({'name': 'esptool', 'uid': usj.lower()}, {'device': 'esp32s3'}),
+                         ({'name': 'esptool', 'uid': usj + ':00'}, {'device': 'esp32s3'}),
+                         ({'name': 'jlink', 'uid': usj, 'args': '-device MIMXRT1011DAE5A'}, {})):
+        cfg.write_text(json.dumps({'boards': [{'name': 'b', 'uid': 'B', 'flasher': flasher, 'tinyuf2': t}]}))
         with self.subTest(flasher), self.assertRaisesRegex(cb.Fail, 'not the roster form'):
           cb.roster_flasher(str(cfg), 'b')
 

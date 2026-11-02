@@ -19,6 +19,7 @@ import argparse
 import contextlib
 import functools
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -92,9 +93,11 @@ FLASH = {'jlink': ('tinyuf2-jlink', ('tinyuf2.jlink', 'tinyuf2.hex')), 'stlink':
          'openocd': ('tinyuf2-openocd', ('tinyuf2.hex',)),
          'esptool': ('flash', ('flash_args', 'bootloader/bootloader.bin', 'partition_table/partition-table.bin',
                                'ota_data_initial.bin', 'tinyuf2.bin'))}
-# a roster flasher's args, whose one group is the device or chip its flash target must name
-FLASHER_ARGS = {'jlink': r'-device (\S+)', 'stlink': r'-device (\S+)', 'esptool': r'--chip (\w+)',
+# a resolved flasher's args (agentrc's board registry): jlink's and openocd's one group is the device their flash
+# target must name; stlink's and esptool's name none (an esptool baud at most), their device is tinyuf2.device
+FLASHER_ARGS = {'jlink': r'-device (\S+)', 'stlink': r'', 'esptool': r'(?:-b \d+)?',
                 'openocd': r'-f interface/cmsis-dap\.cfg -f target/(\w+)\.cfg'}
+DEVICE = re.compile(r'[\w.-]+')   # a tinyuf2.device: the ST-LINK device or the Espressif chip
 VID_PID = r'0x[0-9a-fA-F]{4} 0x[0-9a-fA-F]{4}'   # an openocd flasher's one `adapter usb vid_pid` pair, its probe's
 # a further install route of an Espressif board (tinyuf2.routes): the chip's built-in USB-Serial/JTAG through agentrc's
 # openocd_esp, which programs the esptool binding's segments; uid is the USJ serial
@@ -833,31 +836,63 @@ def backend_of(port):
   return 'idf' if port == 'espressif' else 'cmake'
 
 
+@functools.cache
+def hil_boards():
+  """agentrc's board registry (hil_boards) from lib/agentrc at its pin: each roster board's flasher by its uid."""
+  check_agentrc_pin()
+  spec = importlib.util.spec_from_file_location(
+    'tinyuf2_hil_run_report', ROOT / '.claude/skills/hil-contract/scripts/hil_run_report.py')
+  run_report = importlib.util.module_from_spec(spec)
+  spec.loader.exec_module(run_report)
+  try:
+    return run_report.load_agentrc(ROOT / AGENTRC / 'skills/hil/scripts/hil_boards.py', 'agentrc_hil_boards')
+  except ImportError as e:
+    raise Fail(f'agentrc\'s board registry: {e}')
+
+
+def board_flasher(board, entry, registry):
+  """(flasher, device) of a roster entry: its flasher from agentrc's board `registry` (hil_boards), resolved by the
+  entry's uid (an unregistered bench board's own), in the roster form a HIL flash target binds, and the device or
+  chip that target names, from jlink's or openocd's args, else tinyuf2.device. The one check of a roster flasher."""
+  try:
+    fl = registry.resolve(entry)['flasher']
+  except ValueError as e:   # its message names the board
+    raise Fail(str(e))
+  name, uid, device = fl['name'], fl['uid'], (entry.get('tinyuf2') or {}).get('device')
+  form = FLASHER_ARGS.get(name)
+  if form is None:
+    raise Fail(f'{board}: flasher {name!r} has no HIL flash target (jlink, stlink, openocd or esptool)')
+  m = re.fullmatch(form, fl.get('args', ''))
+  if not m or not (ROSTER_UID.fullmatch(uid) or name == 'esptool' and USJ_SERIAL.fullmatch(uid)):
+    raise Fail(f'{board}: flasher args {fl.get("args")!r} or uid {uid!r} is not the roster form')
+  if m.lastindex:
+    if device is not None:
+      raise Fail(f'{board}: tinyuf2.device is for stlink and esptool boards; its {name} args name {m[1]}')
+    device = m[1]
+  elif not (isinstance(device, str) and DEVICE.fullmatch(device)):
+    raise Fail(f'{board}: its {name} flasher names no device: the board needs tinyuf2.device, the device or chip its '
+               'flash target names')
+  if name == 'openocd' and not (isinstance(fl.get('vid_pid'), str) and re.fullmatch(VID_PID, fl['vid_pid'])):
+    # unpinned, CMSIS-DAP discovery opens every USB device on the host
+    raise Fail(f'{board}: an openocd flasher needs its probe\'s "vid_pid": "0xVVVV 0xPPPP", not {fl.get("vid_pid")!r}')
+  return fl, device
+
+
 def roster_flasher(config, board):
   """The board's roster flasher, and the configure defines that bind the build's flash target to its probe.
   ESP-IDF takes the tty at flash time (ESPPORT), which the runner resolves from the bridge's or the USJ's serial."""
   try:
     entry = next((b for b in json.loads((ROOT / config).read_text())['boards'] if b['name'] == board), None)
-    if entry is None:
-      raise Fail(f'{board} is not on {config}')
-    name, uid, fargs = (entry['flasher'][k] for k in ('name', 'uid', 'args'))
-    vid_pid = entry['flasher'].get('vid_pid')
   except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
     raise Fail(f'cannot read {board} from {config}: {e}')
-  form = FLASHER_ARGS.get(name)
-  if form is None:
-    raise Fail(f'{board}: flasher {name!r} has no HIL flash target (jlink, stlink, openocd or esptool)')
-  m = re.fullmatch(form, fargs)
-  if not m or not (ROSTER_UID.fullmatch(uid) or name == 'esptool' and USJ_SERIAL.fullmatch(uid)):
-    raise Fail(f'{board}: flasher args {fargs!r} or uid {uid!r} is not the roster form')
-  flasher = {'name': name, 'uid': uid, 'device': m[1]}
-  if name == 'openocd':   # unpinned, CMSIS-DAP discovery opens every USB device on the host
-    if not isinstance(vid_pid, str) or not re.fullmatch(VID_PID, vid_pid):
-      raise Fail(f'{board}: an openocd flasher needs its probe\'s "vid_pid": "0xVVVV 0xPPPP", not {vid_pid!r}')
-    flasher['vid_pid'] = vid_pid
+  if entry is None:
+    raise Fail(f'{board} is not on {config}')
+  fl, device = board_flasher(board, entry, hil_boards())
+  name, uid = fl['name'], fl['uid']
+  flasher = {'name': name, 'uid': uid, 'device': device, **({'vid_pid': fl['vid_pid']} if name == 'openocd' else {})}
   # openocd: the one on PATH, which the runner's flash provider runs too
   defines = {'jlink': [f'JLINK_OPTION=-USB {uid} -ExitOnError 1 -NoGui 1'], 'stlink': [f'STLINK_SERIAL={uid}'],
-             'openocd': ['OPENOCD=openocd', f'OPENOCD_SERIAL={uid}', f'OPENOCD_VID_PID={vid_pid}']}
+             'openocd': ['OPENOCD=openocd', f'OPENOCD_SERIAL={uid}', f'OPENOCD_VID_PID={fl.get("vid_pid")}']}
   return flasher, defines.get(name, [])
 
 
