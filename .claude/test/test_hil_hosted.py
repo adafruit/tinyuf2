@@ -39,7 +39,7 @@ with mock.patch.object(ht, 'check_lock_pin'), contextlib.suppress(ht.Refused):  
 
 
 def entry(name, **tinyuf2):   # its flasher is the registry's, bridge BRIDGE
-  return {'name': name, 'uid': '84F703C084E4', 'tinyuf2': dict(tinyuf2, device='esp32s3')}
+  return {'name': name, 'uid': '84F703C084E4', 'probe': '3ea619acd1cdeb11a0a0b806e93fd3f1', 'tinyuf2': dict(tinyuf2, device='esp32s3')}
 
 
 class Hosted(unittest.TestCase):
@@ -62,7 +62,7 @@ class Hosted(unittest.TestCase):
     self.out = self.tmp / 'out'
 
   def write_roster(self, lock='espressif_s3_devkitm'):
-    cmake = [{'name': b, 'uid': uid, 'tinyuf2': {'device': fl['device']} if fl['name'] == 'stlink' else {}}
+    cmake = [{'name': b, 'uid': uid, 'probe': fl['uid'], 'tinyuf2': {'device': fl['device']} if fl['name'] == 'stlink' else {}}
              for b, (uid, fl) in CMAKE_BOARDS.items()]
     self.roster.write_text(json.dumps({'boards': [entry(BOARD, lock=lock), entry(OTHER), *cmake]}))
 

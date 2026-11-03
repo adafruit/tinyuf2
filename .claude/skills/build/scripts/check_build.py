@@ -838,7 +838,7 @@ def backend_of(port):
 
 @functools.cache
 def hil_boards():
-  """agentrc's board registry (hil_boards) from lib/agentrc at its pin: each roster board's flasher by its uid."""
+  """agentrc's board registry (hil_boards) from lib/agentrc at its pin: each roster board's flasher by its probe."""
   check_agentrc_pin()
   spec = importlib.util.spec_from_file_location(
     'tinyuf2_hil_run_report', ROOT / '.claude/skills/hil-contract/scripts/hil_run_report.py')
@@ -852,7 +852,7 @@ def hil_boards():
 
 def board_flasher(board, entry, registry):
   """(flasher, device) of a roster entry: its flasher from agentrc's board `registry` (hil_boards), resolved by the
-  entry's uid (an unregistered bench board's own), in the roster form a HIL flash target binds, and the device or
+  entry's probe (an unregistered bench board's own), in the roster form a HIL flash target binds, and the device or
   chip that target names, from jlink's or openocd's args, else tinyuf2.device. The one check of a roster flasher."""
   try:
     fl = registry.resolve(entry)['flasher']

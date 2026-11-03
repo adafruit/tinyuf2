@@ -341,9 +341,10 @@ class Roster(Tmp):
 
   def test_a_registered_board_naming_a_flasher_or_a_bench_board_on_a_registered_probe_is_refused(self):
     fl = {k: v for k, v in MAX_FLASHER.items() if k != 'verify'}
+    bench = {k: v for k, v in MAX_ENTRY.items() if k != 'probe'}
     for what, entry, err in (('registered', dict(MAX_ENTRY, flasher=fl), "come from agentrc's board registry"),
-                             ('bench', dict(MAX_ENTRY, uid='MAXBENCH', flasher=fl),
-                              'probe E6614C311B597D32 is registered board')):
+                             ('bench', dict(bench, uid='MAXBENCH', flasher=fl),
+                              'probe E6614C311B597D32 is registered')):
       cfg = self.tmp / 'max.json'
       cfg.write_text(json.dumps({'boards': [entry]}))
       with self.subTest(what), self.assertRaisesRegex(ht.Refused, err):
@@ -354,7 +355,7 @@ class Roster(Tmp):
     for e in json.loads(ci.read_text())['boards']:
       with self.subTest(e['name']):
         b = ht.load_board(ci, e['name'])
-        fl = ht.board_registry().lookup(e['uid'])[1]['flasher']
+        fl = ht.board_registry().resolve(e)['flasher']
         self.assertEqual((b['entry'], b['flasher'], b['probe']), (fl, fl['name'], fl['uid']))
         if fl['name'] in ('stlink', 'esptool'):
           self.assertEqual(b['device'], e['tinyuf2']['device'])
@@ -5682,6 +5683,7 @@ class StlinkRoster(Tmp):
   def test_stm32h743nucleo_loads_as_an_stlink_board_and_its_chip_is_identified(self):
     cfg = self.tmp / 'local.json'
     cfg.write_text(json.dumps({'boards': [{'name': 'stm32h743nucleo', 'uid': '110018000951383432343236',
+                                           'probe': '004C00343137510F39383538',
                                            'tinyuf2': {'device': 'stm32h743zi'}}]}))
     b = self.load(cfg, 'stm32h743nucleo')   # its ST-LINK from agentrc's board registry
     self.assertEqual((b['probe'], b['device']), ('004C00343137510F39383538', 'stm32h743zi'))
@@ -5694,7 +5696,7 @@ class StlinkRoster(Tmp):
         self.assertEqual(ht.chip_reported(CUBE_CONNECT.format(dev=dev, nvm=nvm), b), ok)
 
 
-MAX_ENTRY = {'name': 'max32666fthr', 'uid': '0C81464124010B20FF0A08CC2C000000',
+MAX_ENTRY = {'name': 'max32666fthr', 'uid': '0C81464124010B20FF0A08CC2C000000', 'probe': 'E6614C311B597D32',
              'tinyuf2': {'reentry': 'retained-register'}}
 # its flasher in agentrc's board registry
 MAX_FLASHER = {'name': 'openocd', 'uid': 'E6614C311B597D32', 'vid_pid': '0x2e8a 0x000c',
@@ -5706,6 +5708,7 @@ def max_roster(tmp, **flasher):
   b = dict(MAX_ENTRY)
   if flasher:
     fl = dict(MAX_FLASHER, uid='BENCH1', **flasher)
+    del b['probe']
     b.update(uid='MAXBENCH', flasher={k: v for k, v in fl.items() if v is not None and k != 'verify'})
   cfg = tmp / 'max.json'
   cfg.write_text(json.dumps({'boards': [b]}))

@@ -1266,7 +1266,7 @@ class HilRecord(FakeTools, unittest.TestCase):
       {'name': 'stm32h563_nucleo', 'uid': 'S', 'flasher': {'name': 'stlink', 'uid': '0023ab'},
        'tinyuf2': {'device': 'stm32h563zi'}},
       {'name': 'lpcxpresso55s69', 'uid': 'L', 'flasher': {'name': 'openocd', 'uid': 'x', 'args': '-f a.cfg'}},
-      {'name': 'max32666fthr', 'uid': '0C81464124010B20FF0A08CC2C000000'},
+      {'name': 'max32666fthr', 'uid': '0C81464124010B20FF0A08CC2C000000', 'probe': 'E6614C311B597D32'},
       {'name': 'frdm_k32l2b', 'uid': 'K', 'flasher': {'name': 'pyocd', 'uid': 'p', 'args': '-t k32l2b3'}}]}))
     self.config = str(self.roster.relative_to(ROOT))
 

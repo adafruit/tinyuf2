@@ -83,7 +83,7 @@ LOCK_HELPER = ROOT / AGENTRC / 'skills' / 'hil' / 'scripts' / 'hil_lock.py'
 # the flash provider beside it (agentrc `hil` Flashers): every install, probe session and reset runs through it
 FLASH_PROVIDER = LOCK_HELPER.with_name('hil_flash.py')
 OPENOCD_ESP = LOCK_HELPER.with_name('hil_openocd_esp.py')   # an Espressif board's JTAG route (tinyuf2.routes)
-BOARD_REGISTRY = LOCK_HELPER.with_name('hil_boards.py')   # each roster board's flasher, by its uid
+BOARD_REGISTRY = LOCK_HELPER.with_name('hil_boards.py')   # each roster board's flasher, by its probe
 OPENOCD_TIMEOUT = 300   # s for one openocd_esp flash: every segment programmed, verified and read back
 CMSIS_DAP_TIMEOUT = 300   # s for one CMSIS-DAP program at the max32665 cfg's 100 kHz (untimed on the rig)
 HOLDER_ROLE = 'cleanup-holder'
@@ -172,7 +172,7 @@ def load_board(config, name):
   b = boards[0]
   if not isinstance(b.get('uid'), str) or not b['uid']:
     raise Refused(f'{name}: uid (the bootloader USB serial) is required')
-  try:   # its flasher is agentrc's board registry's, by uid; jlink's and openocd's args name the device
+  try:   # its flasher is agentrc's board registry's, by probe; jlink's and openocd's args name the device
     fl, device = cb.board_flasher(name, b, board_registry())
   except cb.Fail as e:
     raise Refused(str(e))
