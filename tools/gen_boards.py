@@ -9,6 +9,10 @@ from pathlib import Path
 BOARD_H_GLOB = "ports/*/boards/*/board.h"
 SKIP_FAMILIES = {"test_ghostfat", "template_port"}
 SKIP_BOARDS = {"ch32v203_r0_1v0"}
+# listing fixes for boards whose board.h strings are shared with another board and stay as the device reports them
+BOARD_OVERRIDES = {
+    "m5stack_dial": {"name": "M5Stack Dial", "url": "https://docs.m5stack.com/en/core/M5Dial"},
+}
 
 
 def _first_match(pattern: str, text: str) -> str | None:
@@ -73,6 +77,7 @@ def _load_board(board_h: Path, repo_root: Path) -> dict[str, str]:
         "name": name or "N/A",
         "vid_pid": _fmt_vid_pid(vid, pid),
         "url": url or "N/A",
+        **BOARD_OVERRIDES.get(board, {}),
     }
 
 

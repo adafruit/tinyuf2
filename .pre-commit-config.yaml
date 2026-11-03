@@ -32,9 +32,15 @@ repos:
 
 - repo: local
   hooks:
+  - id: gen-boards
+    name: supported_boards.md matches the board headers
+    entry: python3 tools/gen_boards.py
+    language: system
+    pass_filenames: false
+    files: ^(ports/[^/]+/boards/[^/]+/board\.h|tools/gen_boards\.py|supported_boards\.md)$
   - id: claude-tests
     name: agent skill script tests
     entry: python3 -m unittest discover -s .claude/test -p 'test_*.py'
     language: system
     pass_filenames: false
-    files: ^(\.claude/|\.github/workflows/|\.github/actions/|ports/|test/hil/|tools/get_deps\.py$)
+    files: ^(\.claude/|\.github/workflows/|\.github/actions/|ports/|test/hil/|tools/(get_deps|gen_boards)\.py$)
