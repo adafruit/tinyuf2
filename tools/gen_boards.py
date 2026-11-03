@@ -47,8 +47,9 @@ def _escape_md(value: str) -> str:
     return value.replace("|", "\\|")
 
 
-def _load_board(board_h: Path, repo_root: Path) -> dict[str, str]:
-    text = board_h.read_text(errors="ignore")
+def _load_board(board_h: Path, repo_root: Path, text: str | None = None) -> dict[str, str]:
+    if text is None:
+        text = board_h.read_text(errors="ignore")
     rel = board_h.relative_to(repo_root)
     parts = rel.parts
     family = parts[1] if len(parts) >= 4 else "unknown"
@@ -83,19 +84,32 @@ def _load_board(board_h: Path, repo_root: Path) -> dict[str, str]:
     }
 
 
-def indexed_board_headers(repo_root: Path) -> list[Path]:
-    out = subprocess.run(["git", "ls-files", "-z", "--", f":(glob){BOARD_H_GLOB}"], cwd=repo_root,
+def indexed_board_headers(repo_root: Path) -> dict[Path, str | None]:
+    """Each indexed board.h with its index content where the worktree cannot give it, else None."""
+    out = subprocess.run(["git", "ls-files", "-t", "-z", "--", f":(glob){BOARD_H_GLOB}"], cwd=repo_root,
                          capture_output=True, check=True).stdout
-    # run --all-files does not stash, so an unstaged deletion leaves an indexed header missing from the worktree
-    return [path for name in out.decode().split("\0") if name and (path := repo_root / name).is_file()]
+    headers: dict[Path, str | None] = {}
+    for tag_name in out.decode().split("\0"):
+        if not tag_name:
+            continue
+        tag, name = tag_name.split(" ", 1)
+        path = repo_root / name
+        # a sparse checkout's skip-worktree entry is absent from the worktree but still a board
+        if tag == "S":
+            headers[path] = subprocess.run(["git", "show", f":{name}"], cwd=repo_root, capture_output=True,
+                                           check=True).stdout.decode(errors="ignore")
+        # run --all-files does not stash, so an unstaged deletion leaves an indexed header missing from the worktree
+        elif path.is_file():
+            headers[path] = None
+    return headers
 
 
-def generate(repo_root: Path, output: Path, board_headers: list[Path] | None = None) -> None:
+def generate(repo_root: Path, output: Path, board_headers: dict[Path, str | None] | None = None) -> None:
     boards: dict[str, list[dict[str, str]]] = {}
     if board_headers is None:
-        board_headers = list(repo_root.glob(BOARD_H_GLOB))
+        board_headers = dict.fromkeys(repo_root.glob(BOARD_H_GLOB))
     for board_h in sorted(board_headers):
-        entry = _load_board(board_h, repo_root)
+        entry = _load_board(board_h, repo_root, board_headers[board_h])
         if not entry:
             continue
         boards.setdefault(entry["family"], []).append(entry)

@@ -122,6 +122,17 @@ class Hook(ScratchRepo):
     self.assertNotIn('Traceback', result.stdout)
     self.assertNotIn('m5stack_stamps3', (self.repo / 'supported_boards.md').read_text())
 
+  def test_sparse_excluded_board_stays_listed(self):
+    write_board(self.repo, 'stm32f4', 'sparse_board', BOARD_H.replace('Stamp S3', 'Sparse'))
+    gb.generate(self.repo, self.repo / 'supported_boards.md')
+    self.git('add', '.')
+    self.git('commit', '-q', '-m', 'base')
+    self.git('sparse-checkout', 'set', '--no-cone', '/*', '!/ports/stm32f4/')
+    self.assertFalse((self.repo / 'ports/stm32f4').exists())
+    result = self.run_hook('--hook-stage', 'pre-commit')
+    self.assertEqual(result.returncode, 0, result.stdout)
+    self.assertIn('| sparse_board | M5Stack Sparse |', (self.repo / 'supported_boards.md').read_text())
+
 
 if __name__ == '__main__':
   unittest.main()
