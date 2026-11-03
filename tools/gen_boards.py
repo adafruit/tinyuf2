@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -117,6 +118,11 @@ def main() -> None:
         default="supported_boards.md",
         help="Output markdown file (default: supported_boards.md)",
     )
+    parser.add_argument(
+        "--require-indexed",
+        action="store_true",
+        help="Fail unless the output is in git's index (for the pre-commit hook)",
+    )
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parents[1]
@@ -124,11 +130,12 @@ def main() -> None:
     if not output.is_absolute():
         output = repo_root / output
 
-    existed = output.exists()
     generate(repo_root, output)
     # pre-commit's diff check ignores untracked files, so a recreated list would otherwise pass
-    if not existed:
-        sys.exit(f"created {output}; add it")
+    if args.require_indexed and subprocess.run(
+        ["git", "ls-files", "--error-unmatch", "--", str(output)], cwd=repo_root, capture_output=True
+    ).returncode:
+        sys.exit(f"{output} is not in git's index; add it")
 
 
 if __name__ == "__main__":

@@ -34,7 +34,7 @@ repos:
   hooks:
   - id: gen-boards
     name: supported_boards.md matches the board headers
-    entry: python3 tools/gen_boards.py
+    entry: python3 tools/gen_boards.py --require-indexed
     language: system
     pass_filenames: false
     # a staged deletion is not in pre-commit's file list, so files: would skip a commit that only removes a board

@@ -6,6 +6,7 @@ import importlib.util
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -39,6 +40,16 @@ class Override(unittest.TestCase):
     self.assertEqual(entry['name'], 'M5Stack Dial')
     self.assertEqual(entry['url'], 'https://docs.m5stack.com/en/core/M5Dial')
     self.assertEqual(entry['vid_pid'], '0x303A:0x811A')
+
+
+class Cli(unittest.TestCase):
+  def test_first_time_output_exits_zero(self):
+    with tempfile.TemporaryDirectory() as tmp:
+      output = Path(tmp) / 'boards.md'
+      result = subprocess.run([sys.executable, ROOT / 'tools' / 'gen_boards.py', '--output', output],
+                              capture_output=True, text=True)
+      self.assertEqual(result.returncode, 0, result.stderr)
+      self.assertIn('# Supported Boards', output.read_text())
 
 
 def gen_boards_hook():
@@ -85,11 +96,14 @@ class Hook(ScratchRepo):
     self.assertNotEqual(result.returncode, 0, result.stdout)
     self.assertNotIn('m5stack_stamps3', (self.repo / 'supported_boards.md').read_text())
 
-  def test_list_deleted_fails(self):
+  def test_list_deleted_fails_on_every_run(self):
     self.git('commit', '-q', '-m', 'base')
     self.git('rm', '-q', 'supported_boards.md')
-    result = self.run_hook()
-    self.assertNotEqual(result.returncode, 0, result.stdout)
+    for _ in range(2):
+      result = self.run_hook('--hook-stage', 'pre-commit')
+      self.assertNotEqual(result.returncode, 0, result.stdout)
+    self.git('add', 'supported_boards.md')
+    self.assertEqual(self.run_hook('--hook-stage', 'pre-commit').returncode, 0)
 
 
 if __name__ == '__main__':
