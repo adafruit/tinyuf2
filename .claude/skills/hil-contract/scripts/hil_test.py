@@ -177,8 +177,12 @@ def load_board(config, name):
   except cb.Fail as e:
     raise Refused(str(e))
   t = b.get('tinyuf2') or {}
-  lock = t.get('lock', name)   # tinyusb's name for the board when it differs: both runners take one lock
-  if not (isinstance(lock, str) and re.fullmatch(r'[\w.-]+', lock)):
+  registry = board_registry()
+  try:   # a registered board's lock is agentrc's registry name for it, whatever this roster calls it
+    lock = registry.lock_name(b, t.get('lock'))
+  except ValueError as e:
+    raise Refused(str(e))
+  if not (isinstance(lock, str) and registry.LOCK_NAME_RE.match(lock)):
     raise Refused(f'{name}: tinyuf2.lock must be the board lock name')
   try:
     port = cb.port_of(name)
@@ -756,7 +760,7 @@ def usb_observe():
 def board_registry():
   """hil_boards.py, once per process."""
   if not REGISTRY:
-    REGISTRY.append(load_pinned(BOARD_REGISTRY, 'agentrc_hil_boards', ('resolve',), 'board registry'))
+    REGISTRY.append(load_pinned(BOARD_REGISTRY, 'agentrc_hil_boards', ('resolve', 'lock_name', 'LOCK_NAME_RE'), 'board registry'))
   return REGISTRY[0]
 
 

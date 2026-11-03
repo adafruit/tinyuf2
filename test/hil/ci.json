@@ -4,7 +4,7 @@
       "name": "imxrt1064_evk",
       "uid": "BAE96FB95AFA6DBB8F00005002001200",
       "probe": "000725299165",
-      "tinyuf2": {"lock": "mimxrt1064_evk", "reentry": "retained-register"}
+      "tinyuf2": {"reentry": "retained-register"}
     },
     {
       "name": "lpcxpresso55s69",
@@ -22,7 +22,7 @@
       "name": "espressif_esp32s3_devkitm_1",
       "uid": "84F703C084E4",
       "probe": "3ea619acd1cdeb11a0a0b806e93fd3f1",
-      "tinyuf2": {"lock": "espressif_s3_devkitm", "device": "esp32s3", "reentry": "dfu-detach"}
+      "tinyuf2": {"device": "esp32s3", "reentry": "dfu-detach"}
     },
     {
       "name": "espressif_p4_function_ev",

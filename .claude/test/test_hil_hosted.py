@@ -61,10 +61,10 @@ class Hosted(unittest.TestCase):
     self.hosted = self.tmp / 'hosted'
     self.out = self.tmp / 'out'
 
-  def write_roster(self, lock='espressif_s3_devkitm'):
+  def write_roster(self):
     cmake = [{'name': b, 'uid': uid, 'probe': fl['uid'], 'tinyuf2': {'device': fl['device']} if fl['name'] == 'stlink' else {}}
              for b, (uid, fl) in CMAKE_BOARDS.items()]
-    self.roster.write_text(json.dumps({'boards': [entry(BOARD, lock=lock), entry(OTHER), *cmake]}))
+    self.roster.write_text(json.dumps({'boards': [entry(BOARD), entry(OTHER), *cmake]}))
 
   def idf_tree(self, board=BOARD):
     """A --shared IDF build dir of `board` and its passing record."""
@@ -219,7 +219,10 @@ class Hosted(unittest.TestCase):
 
   def test_a_roster_or_board_other_than_the_artifacts_refuses(self):
     artifact = self.build()
-    self.write_roster(lock='espressif_s3_devkitm_1')   # the roster changed after the build
+    self.write_roster()   # the roster changed after the build
+    doc = json.loads(self.roster.read_text())
+    doc['boards'][0]['tinyuf2']['reentry'] = 'changed'
+    self.roster.write_text(json.dumps(doc))
     self.refused('roster')
     self.write_roster()
     self.refused('built for espressif_esp32s3_devkitm_1, not espressif_esp32s3_devkitc_1', board=OTHER)

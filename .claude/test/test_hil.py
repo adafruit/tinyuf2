@@ -350,6 +350,18 @@ class Roster(Tmp):
       with self.subTest(what), self.assertRaisesRegex(ht.Refused, err):
         ht.load_board(cfg, 'max32666fthr')
 
+  def test_a_registered_board_locks_as_the_registrys_name_and_refuses_another(self):
+    cfg = self.tmp / 'max.json'
+    for lock, err in ((None, None), ('max32666fthr', None), ('other', "lock 'other' is not its registered board's")):
+      with self.subTest(lock):
+        cfg.write_text(json.dumps({'boards': [dict(MAX_ENTRY, tinyuf2={'reentry': 'retained-register',
+                                                                       **({'lock': lock} if lock else {})})]}))
+        if err:
+          with self.assertRaisesRegex(ht.Refused, err):
+            ht.load_board(cfg, 'max32666fthr')
+        else:
+          self.assertEqual(ht.load_board(cfg, 'max32666fthr')['lock'], 'max32666fthr')
+
   def test_every_ci_board_loads_with_its_registered_flasher(self):
     ci = ROOT / 'test' / 'hil' / 'ci.json'
     for e in json.loads(ci.read_text())['boards']:
@@ -357,6 +369,7 @@ class Roster(Tmp):
         b = ht.load_board(ci, e['name'])
         fl = ht.board_registry().resolve(e)['flasher']
         self.assertEqual((b['entry'], b['flasher'], b['probe']), (fl, fl['name'], fl['uid']))
+        self.assertEqual(b['lock'], ht.board_registry().registry()[e['probe']]['name'])
         if fl['name'] in ('stlink', 'esptool'):
           self.assertEqual(b['device'], e['tinyuf2']['device'])
         else:
