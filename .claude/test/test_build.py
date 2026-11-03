@@ -1366,6 +1366,15 @@ class HilRecord(FakeTools, unittest.TestCase):
         with self.subTest(args), self.assertRaisesRegex(cb.Fail, 'not the roster form'):
           cb.roster_routes(str(cfg), p4)
 
+  def test_a_roster_naming_a_board_twice_is_refused_as_the_runner_refuses_it(self):
+    entry = {'name': 'metro_m7_1011', 'uid': 'U', 'flasher': {'name': 'jlink', 'uid': '1', 'args': '-device MIMXRT1011DAE5A'}}
+    self.roster.write_text(json.dumps({'boards': [entry, dict(entry, uid='V')]}))
+    for resolve in (cb.roster_flasher, cb.roster_routes):
+      with self.subTest(resolve.__name__), self.assertRaisesRegex(cb.Fail, "has 2 entries named 'metro_m7_1011'"):
+        resolve(self.config, 'metro_m7_1011')
+    with self.assertRaisesRegex(cb.Fail, 'not on'):
+      cb.roster_routes(self.config, 'imxrt1060_evk')
+
   def test_an_unbound_query_returns_ninja_stdout_alone_and_a_timeout_kills_it(self):
     root = self.tmp / 'b'
     with self.fake_tools():

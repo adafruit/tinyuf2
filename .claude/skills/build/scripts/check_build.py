@@ -878,16 +878,23 @@ def board_flasher(board, entry, registry):
   return fl, device
 
 
+def roster_entry(config, board):
+  """The board's one roster entry; none or several is refused, as the HIL runner's load_board refuses them."""
+  try:
+    entries = [b for b in json.loads((ROOT / config).read_text())['boards'] if b['name'] == board]
+  except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+    raise Fail(f'cannot read {board} from {config}: {e}')
+  if not entries:
+    raise Fail(f'{board} is not on {config}')
+  if len(entries) > 1:
+    raise Fail(f'{config} has {len(entries)} entries named {board!r}')
+  return entries[0]
+
+
 def roster_flasher(config, board):
   """The board's roster flasher, and the configure defines that bind the build's flash target to its probe.
   ESP-IDF takes the tty at flash time (ESPPORT), which the runner resolves from the bridge's or the USJ's serial."""
-  try:
-    entry = next((b for b in json.loads((ROOT / config).read_text())['boards'] if b['name'] == board), None)
-  except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
-    raise Fail(f'cannot read {board} from {config}: {e}')
-  if entry is None:
-    raise Fail(f'{board} is not on {config}')
-  fl, device = board_flasher(board, entry, hil_boards())
+  fl, device = board_flasher(board, roster_entry(config, board), hil_boards())
   name, uid = fl['name'], fl['uid']
   flasher = {'name': name, 'uid': uid, 'device': device, **({'vid_pid': fl['vid_pid']} if name == 'openocd' else {})}
   # openocd: the one on PATH, which the runner's flash provider runs too
@@ -898,11 +905,11 @@ def roster_flasher(config, board):
 
 def roster_routes(config, board):
   """The board's further install routes (tinyuf2.routes), each {name, uid, device} as a record binds it."""
+  entry = roster_entry(config, board)
   try:
-    entry = next(b for b in json.loads((ROOT / config).read_text())['boards'] if b['name'] == board)
     routes = [(r['flasher']['name'], r['flasher']['uid'], r['flasher']['args'])
               for r in (entry.get('tinyuf2') or {}).get('routes', [])]
-  except (OSError, ValueError, KeyError, TypeError, StopIteration, AttributeError) as e:
+  except (KeyError, TypeError, AttributeError) as e:
     raise Fail(f'cannot read {board}\'s routes from {config}: {e}')
   out = []
   for name, uid, fargs in routes:
