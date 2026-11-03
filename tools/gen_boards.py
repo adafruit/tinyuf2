@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -86,8 +87,9 @@ def _load_board(board_h: Path, repo_root: Path, text: str | None = None) -> dict
 
 def indexed_board_headers(repo_root: Path) -> dict[Path, str | None]:
     """Each indexed board.h with its index content where the worktree cannot give it, else None."""
+    # a hook under `git --literal-pathspecs commit` inherits GIT_LITERAL_PATHSPECS=1, which would match no glob
     out = subprocess.run(["git", "ls-files", "-t", "-z", "--", f":(glob){BOARD_H_GLOB}"], cwd=repo_root,
-                         capture_output=True, check=True).stdout
+                         env={**os.environ, "GIT_LITERAL_PATHSPECS": "0"}, capture_output=True, check=True).stdout
     headers: dict[Path, str | None] = {}
     for tag_name in out.decode().split("\0"):
         if not tag_name:

@@ -133,6 +133,14 @@ class Hook(ScratchRepo):
     self.assertEqual(result.returncode, 0, result.stdout)
     self.assertIn('| sparse_board | M5Stack Sparse |', (self.repo / 'supported_boards.md').read_text())
 
+  def test_literal_pathspecs_keep_every_board(self):
+    # `git --literal-pathspecs commit` exports this to its hooks
+    self.git('commit', '-q', '-m', 'base')
+    self.env['GIT_LITERAL_PATHSPECS'] = '1'
+    result = self.run_hook('--hook-stage', 'pre-commit')
+    self.assertEqual(result.returncode, 0, result.stdout)
+    self.assertIn('| m5stack_stamps3 |', (self.repo / 'supported_boards.md').read_text())
+
 
 if __name__ == '__main__':
   unittest.main()
