@@ -83,9 +83,18 @@ def _load_board(board_h: Path, repo_root: Path) -> dict[str, str]:
     }
 
 
-def generate(repo_root: Path, output: Path) -> None:
+def indexed_board_headers(repo_root: Path) -> list[Path]:
+    out = subprocess.run(["git", "ls-files", "-z", "--", f":(glob){BOARD_H_GLOB}"], cwd=repo_root,
+                         capture_output=True, check=True).stdout
+    # run --all-files does not stash, so an unstaged deletion leaves an indexed header missing from the worktree
+    return [path for name in out.decode().split("\0") if name and (path := repo_root / name).is_file()]
+
+
+def generate(repo_root: Path, output: Path, board_headers: list[Path] | None = None) -> None:
     boards: dict[str, list[dict[str, str]]] = {}
-    for board_h in sorted(repo_root.glob(BOARD_H_GLOB)):
+    if board_headers is None:
+        board_headers = list(repo_root.glob(BOARD_H_GLOB))
+    for board_h in sorted(board_headers):
         entry = _load_board(board_h, repo_root)
         if not entry:
             continue
@@ -130,7 +139,8 @@ def main() -> None:
     if not output.is_absolute():
         output = repo_root / output
 
-    generate(repo_root, output)
+    # the hook lists the index, so an untracked board.h neither fails an unrelated commit nor enters the list
+    generate(repo_root, output, indexed_board_headers(repo_root) if args.require_indexed else None)
     # pre-commit's diff check ignores untracked files, so a recreated list would otherwise pass
     if args.require_indexed and subprocess.run(
         ["git", "ls-files", "--error-unmatch", "--", str(output)], cwd=repo_root, capture_output=True

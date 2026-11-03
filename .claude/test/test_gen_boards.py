@@ -105,6 +105,23 @@ class Hook(ScratchRepo):
     self.git('add', 'supported_boards.md')
     self.assertEqual(self.run_hook('--hook-stage', 'pre-commit').returncode, 0)
 
+  def test_untracked_board_is_left_out(self):
+    self.git('commit', '-q', '-m', 'base')
+    write_board(self.repo, 'espressif', 'untracked_board', BOARD_H.replace('Stamp S3', 'Untracked'))
+    (self.repo / 'other.txt').write_text('x\n')
+    self.git('add', 'other.txt')
+    result = self.run_hook('--hook-stage', 'pre-commit')
+    self.assertEqual(result.returncode, 0, result.stdout)
+    self.assertNotIn('untracked_board', (self.repo / 'supported_boards.md').read_text())
+
+  def test_unstaged_board_deletion_fails_without_a_traceback(self):
+    self.git('commit', '-q', '-m', 'base')
+    (self.repo / 'ports/espressif/boards/m5stack_stamps3/board.h').unlink()
+    result = self.run_hook()
+    self.assertNotEqual(result.returncode, 0, result.stdout)
+    self.assertNotIn('Traceback', result.stdout)
+    self.assertNotIn('m5stack_stamps3', (self.repo / 'supported_boards.md').read_text())
+
 
 if __name__ == '__main__':
   unittest.main()
