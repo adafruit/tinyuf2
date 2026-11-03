@@ -37,7 +37,8 @@ repos:
     entry: python3 tools/gen_boards.py
     language: system
     pass_filenames: false
-    files: ^(ports/[^/]+/boards/[^/]+/board\.h|tools/gen_boards\.py|supported_boards\.md)$
+    # a staged deletion is not in pre-commit's file list, so files: would skip a commit that only removes a board
+    always_run: true
   - id: claude-tests
     name: agent skill script tests
     entry: python3 -m unittest discover -s .claude/test -p 'test_*.py'

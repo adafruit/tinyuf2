@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import sys
 from pathlib import Path
 
 
@@ -123,7 +124,11 @@ def main() -> None:
     if not output.is_absolute():
         output = repo_root / output
 
+    existed = output.exists()
     generate(repo_root, output)
+    # pre-commit's diff check ignores untracked files, so a recreated list would otherwise pass
+    if not existed:
+        sys.exit(f"created {output}; add it")
 
 
 if __name__ == "__main__":
