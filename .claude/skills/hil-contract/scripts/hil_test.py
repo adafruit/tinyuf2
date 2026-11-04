@@ -83,6 +83,7 @@ LOCK_HELPER = ROOT / AGENTRC / 'skills' / 'hil' / 'scripts' / 'hil_lock.py'
 # the flash provider beside it (agentrc `hil` Flashers): every install, probe session and reset runs through it
 FLASH_PROVIDER = LOCK_HELPER.with_name('hil_flash.py')
 OPENOCD_ESP = LOCK_HELPER.with_name('hil_openocd_esp.py')   # an Espressif board's JTAG route (tinyuf2.routes)
+BOARD_REGISTRY = LOCK_HELPER.with_name('hil_boards.py')   # each roster board's flasher, by its probe
 OPENOCD_TIMEOUT = 300   # s for one openocd_esp flash: every segment programmed, verified and read back
 CMSIS_DAP_TIMEOUT = 300   # s for one CMSIS-DAP program at the max32665 cfg's 100 kHz (untimed on the rig)
 HOLDER_ROLE = 'cleanup-holder'
@@ -169,34 +170,31 @@ def load_board(config, name):
   if len(boards) != 1:
     raise Refused(f'{config} has {len(boards)} entries named {name!r}')
   b = boards[0]
-  fl, t = b.get('flasher') or {}, b.get('tinyuf2') or {}
-  m = re.fullmatch(cb.FLASHER_ARGS.get(fl.get('name'), r'(?!)'), fl.get('args') or '')
-  if not isinstance(fl.get('uid'), str) or not m:
-    raise Refused(f'{name}: flasher must be jlink or stlink with args exactly "-device NAME", openocd with args exactly '
-                  f'"-f interface/cmsis-dap.cfg -f target/TARGET.cfg", or esptool with args exactly "--chip CHIP", with a '
-                  f'string uid')
-  if not (cb.ROSTER_UID.fullmatch(fl['uid']) or fl['name'] == 'esptool' and cb.USJ_SERIAL.fullmatch(fl['uid'])):
-    raise Refused(f'{name}: flasher uid {fl["uid"]!r} is neither a probe or bridge serial (letters, digits, _ and -) '
-                  f'nor, for esptool, a USJ serial in its MAC form (AA:BB:CC:DD:EE:FF, upper case)')
-  if fl['name'] == 'openocd' and not (isinstance(fl.get('vid_pid'), str) and re.fullmatch(cb.VID_PID, fl['vid_pid'])):
-    raise Refused(f'{name}: an openocd flasher needs its probe\'s "vid_pid": "0xVVVV 0xPPPP"; unpinned, CMSIS-DAP '
-                  f'discovery opens every USB device on the host')
   if not isinstance(b.get('uid'), str) or not b['uid']:
     raise Refused(f'{name}: uid (the bootloader USB serial) is required')
-  lock = t.get('lock', name)   # tinyusb's name for the board when it differs: both runners take one lock
-  if not (isinstance(lock, str) and re.fullmatch(r'[\w.-]+', lock)):
+  try:   # its flasher is agentrc's board registry's, by probe; jlink's and openocd's args name the device
+    fl, device = cb.board_flasher(name, b, board_registry())
+  except cb.Fail as e:
+    raise Refused(str(e))
+  t = b.get('tinyuf2') or {}
+  registry = board_registry()
+  try:   # a registered board's lock is agentrc's registry name for it, whatever this roster calls it
+    lock = registry.lock_name(b, t.get('lock'))
+  except ValueError as e:
+    raise Refused(str(e))
+  if not (isinstance(lock, str) and registry.LOCK_NAME_RE.match(lock)):
     raise Refused(f'{name}: tinyuf2.lock must be the board lock name')
   try:
     port = cb.port_of(name)
   except cb.Fail as e:
     raise Refused(f'{name}: the roster names a board by its TinyUF2 name: {e}')
   if fl['name'] == 'esptool':
-    if m.group(1) not in esp.BOOTLOADER_OFFSET or port != 'espressif':
+    if device not in esp.BOOTLOADER_OFFSET or port != 'espressif':
       raise Refused(f'{name}: esptool is supported for espressif chips {sorted(esp.BOOTLOADER_OFFSET)} only')
-  elif m.group(1) not in FLASH_LIMITS:
-    raise Refused(f'{name}: no programming limits known for {fl["name"]} device {m.group(1)}')
-  elif fl['name'] == 'stlink' and m.group(1) not in STLINK_CHIPS:
-    raise Refused(f'{name}: no chip identity known for ST-LINK device {m.group(1)}')
+  elif device not in FLASH_LIMITS:
+    raise Refused(f'{name}: no programming limits known for {fl["name"]} device {device}')
+  elif fl['name'] == 'stlink' and device not in STLINK_CHIPS:
+    raise Refused(f'{name}: no chip identity known for ST-LINK device {device}')
   power = t.get('usbPower')
   if power is not None:
     if not (isinstance(power, dict) and set(power) == {'hub', 'port'} and isinstance(power['hub'], str) and
@@ -204,10 +202,10 @@ def load_board(config, name):
       raise Refused(f'{name}: tinyuf2.usbPower must be {{"hub": "<hub serial>", "port": <1-15>}}')
     if fl['name'] != 'jlink':
       raise Refused(f'{name}: tinyuf2.usbPower is for J-Link boards only')
-  return {'name': name, 'lock': lock, 'uid': b['uid'], 'flasher': fl['name'], 'probe': fl['uid'], 'device': m.group(1),
-          'kind': 'esp' if port == 'espressif' else fl['name'], 'if': JLINK_IF, 'speed': JLINK_SPEED, 'port': port,
-          'reentry': t.get('reentry'), 'usbPower': power, 'routes': board_routes(name, port, m.group(1), t), 'route': None,
-          **({'args': fl['args'], 'vid_pid': fl['vid_pid']} if fl['name'] == 'openocd' else {})}
+  return {'name': name, 'lock': lock, 'uid': b['uid'], 'flasher': fl['name'], 'probe': fl['uid'], 'device': device,
+          'entry': fl, 'kind': 'esp' if port == 'espressif' else fl['name'], 'if': JLINK_IF, 'speed': JLINK_SPEED,
+          'port': port, 'reentry': t.get('reentry'), 'usbPower': power, 'routes': board_routes(name, port, device, t),
+          'route': None}
 
 
 def board_routes(name, port, chip, t):
@@ -707,12 +705,13 @@ def refuse_pending(workdir, mark=None):
 
 PROVIDER = []   # the one hil_flash module this process loads (provider())
 PROVIDER_API = ('flash_jlink', 'flash_stlink', 'flash_openocd', 'run_jlink_commands', 'run_stlink_commands',
-                'run_openocd_commands', 'sysresetreq_jlink', 'sysresetreq_stlink', 'sysresetreq_openocd', 'Operation',
-                'Attempt')
+                'run_openocd_commands', 'sysresetreq_jlink', 'sysresetreq_stlink', 'sysresetreq_openocd', 'esptool_problem',
+                'Operation', 'Attempt')
 OPENOCD = []    # and its openocd_esp module (openocd_esp())
 OPENOCD_API = ('admit', 'find_openocd', 'usj_tty', 'usj_node', 'session_state', 'security_evidence', 'admit_security',
                'SECURITY_CHIPS', 'flash_openocd_esp', 'refusal')
 OBSERVE = []    # and its bounded USB observation (usb_observe())
+REGISTRY = []   # and agentrc's board registry (board_registry())
 OBSERVE_API = ('usb_devices', 'usb_node_serial', 'udev_serial', 'read_sysfs', 'enumeration_id')
 USB_OBSERVE = LOCK_HELPER.with_name('usb_observe.py')
 CORE = []       # and the report core (report_core())
@@ -756,6 +755,13 @@ def usb_observe():
   if not OBSERVE:
     OBSERVE.append(load_pinned(USB_OBSERVE, 'agentrc_usb_observe', OBSERVE_API, 'USB observation'))
   return OBSERVE[0]
+
+
+def board_registry():
+  """hil_boards.py, once per process."""
+  if not REGISTRY:
+    REGISTRY.append(load_pinned(BOARD_REGISTRY, 'agentrc_hil_boards', ('resolve', 'lock_name', 'LOCK_NAME_RE'), 'board registry'))
+  return REGISTRY[0]
 
 
 def report_core():
@@ -966,13 +972,13 @@ def judge_jlink_target(op, board, hex_path):
   return {'flashDownload': m[1]}
 
 
-def judge_esp_target(code, out, segments):
-  """The provider's esptool flash, judged by its esptool_flash_judgment over every segment's offset."""
-  judged = provider().esptool_flash_judgment(out, [off for off, _ in segments])
-  if code or not judged['ok']:
+def judge_esp_target(op, code, out, segments):
+  """The provider's esptool flash, judged by its esptool_problem; every segment it was asked to write is read back
+  after it (esp_verify)."""
+  if problem := provider().esptool_problem(op):
     raise StepFail(f'the esptool flash failed (exit {code})', {'tail': ANSI.sub('', out).strip().splitlines()[-5:],
-                                                              'problem': judged['problem']})
-  return {'wrote': [hex(a) for a in sorted(judged['wrote'])]}
+                                                              'problem': problem})
+  return {'wrote': [hex(off) for off, _ in sorted(segments)]}
 
 
 class Probe:
@@ -981,7 +987,7 @@ class Probe:
   def __init__(self, board, workdir, log):
     self.b, self.dir, self.log = board, workdir, log
     self.retried = []
-    self.flasher = {'name': 'jlink', 'uid': board['probe'], 'args': f'-device {board["device"]}'}
+    self.flasher = board['entry']
     # SWD at 4000 kHz, autoconnect, and the core for a device whose own connect resets the chip (JLINK_CONNECT_UNLOCKS)
     unlocks = JLINK_CONNECT_UNLOCKS.get(board['device'])
     self.profile = {'interface': board['if'], 'speed': board['speed'], 'autoconnect': True,
@@ -1084,7 +1090,7 @@ class StlinkProbe:
   def __init__(self, board, workdir, log):
     self.b, self.dir, self.log = board, workdir, log
     self.retried = []   # the report's jlinkRetried: a CLI session is never retried
-    self.flasher = {'name': 'stlink', 'uid': board['probe'], 'args': f'-device {board["device"]}'}
+    self.flasher = board['entry']
     self.profile = {'connect_mode': 'HOTPLUG', 'timeout': PROBE_TIMEOUT, 'workdir': workdir}
 
   def run(self, ops):
@@ -1885,7 +1891,7 @@ def probe_node(board):
 
 def probe_scan(board):
   """One walk of probe_node: (the node, the devices whose enumeration changed across their serial's lookup)."""
-  obs, (vid, pid) = usb_observe(), (x.removeprefix('0x').lower() for x in board['vid_pid'].split())
+  obs, (vid, pid) = usb_observe(), (x.removeprefix('0x').lower() for x in board['entry']['vid_pid'].split())
   mine, silent, moved = [], [], []
   for dev in obs.usb_devices(vid_pid=(vid, pid)):
     bus, num = dev['busnum'], dev['devnum']
@@ -2123,7 +2129,7 @@ def admit_flash(record_path, row, root, board):
   the build), with every file the install reads hash-checked; the install reads them under the build dir's lock,
   through the provider, never the target."""
   want = {'name': board['flasher'], 'uid': board['probe'], 'device': board['device'],
-          **({'vid_pid': board['vid_pid']} if board['flasher'] == 'openocd' else {})}
+          **({'vid_pid': board['entry']['vid_pid']} if board['flasher'] == 'openocd' else {})}
   if board['flasher'] in cb.ROUTE_ARGS:   # a further route: the esptool binding's segments, bound to this route
     fl, (target, inputs) = (row.get('flashRoutes') or {}).get(board['flasher']) or {}, cb.FLASH['esptool']
     bound = (fl.get('flasher'), fl.get('inputs')) == (want, list(inputs))
@@ -2750,8 +2756,9 @@ class StlinkBattery(Battery):
     """The record's HEX through the provider's ST-LINK flash (the command the record's tinyuf2-stlink target runs,
     without the CLI's verify), then what it programs read back (verify_images) in a session of the runner's, which
     ends in a system reset (bench: the core runs after `-rst`)."""
-    ev = self.flash_target(files['flash'], lambda run: provider().flash_stlink(self.probe.flasher, str(files['hex']),
-                                                                              timeout=PROBE_TIMEOUT, run=run),
+    ev = self.flash_target(files['flash'], lambda run: provider().flash_stlink(dict(self.probe.flasher, verify=False),
+                                                                              str(files['hex']), timeout=PROBE_TIMEOUT,
+                                                                              run=run),
                            lambda code, out: judge_stlink_target(code, out, self.b),
                            lambda code, out: stlink_failure(ANSI.sub('', out))['beforeTarget'], 'STM32_Programmer_CLI',
                            PROBE_TIMEOUT)
@@ -2817,7 +2824,7 @@ class OpenocdProbe:
   def __init__(self, board, workdir, log):
     self.b, self.dir, self.log = board, workdir, log
     self.retried = []   # the report's jlinkRetried: an openocd session is never retried
-    self.flasher = {'name': 'openocd', 'uid': board['probe'], 'args': board['args'], 'vid_pid': board['vid_pid']}
+    self.flasher = board['entry']
 
   def run(self, commands):
     return self.judge(provider().run_openocd_commands(self.flasher, list(commands), timeout=PROBE_TIMEOUT,
@@ -2990,20 +2997,21 @@ class EspBattery(Battery):
     if self.preserved is None:
       keep = self.b['regions']['preserved']
       self.preserved = preserved_md5(keep, self.tool.run(preserved_ops(keep), 'no-reset')['results'])
-    fl = files['flash']
+    fl, ops = files['flash'], []
 
     def flash(run):   # under the build dir's lock, its inputs checked: flash_args from bytes that hash as recorded
       raw = (fl['root'] / 'flash_args').read_bytes()
       if hashlib.sha256(raw).hexdigest() != fl['sha256']['flash_args']:
         raise StepFail('flash_args changed after the inputs were checked; nothing was flashed')
       # the settings line, then one "OFFSET FILE" per segment, relative to the build dir
-      args = '--no-stub' if files.get('noStub') else ''   # as the record's flash target runs it
-      return provider().flash_esptool({'name': 'esptool', 'uid': self.b['probe'], 'args': args}, chip=self.b['device'],
-                                      port=tty, flash_args=' '.join(raw.decode().split()), cwd=str(fl['root']),
-                                      timeout=ESP_TIMEOUT, run=run, esptool=esptool_runtime()['exe'])
-    ev = self.flash_target(fl, flash,
-                           lambda code, out: judge_esp_target(code, out, files['segments']), lambda code, out: False,
-                           'esptool', ESP_TIMEOUT)
+      entry = self.b['entry']   # --no-stub as the record's flash target runs it
+      flasher = dict(entry, args=' '.join(filter(None, (entry.get('args'), '--no-stub' if files.get('noStub') else ''))))
+      ops.append(provider().flash_esptool(flasher, chip=self.b['device'], port=tty,
+                                          flash_args=' '.join(raw.decode().split()), cwd=str(fl['root']),
+                                          timeout=ESP_TIMEOUT, run=run, esptool=esptool_runtime()['exe']))
+      return ops[-1]
+    ev = self.flash_target(fl, flash, lambda code, out: judge_esp_target(ops[-1], code, out, files['segments']),
+                           lambda code, out: False, 'esptool', ESP_TIMEOUT)
     ev.update(esp_verify(self.tool, self.b, files['segments'], self.dir, self.preserved))
     return {'wrote': ev['wrote'], 'writes': ev['writes'], 'readBack': True, **esptool_evidence(),
             'operation': ev['operation']}

@@ -3,6 +3,7 @@
 # A record built off the rig (a hosted runner, or the dev PC of a remote run) and admitted on the rig (hil_hosted.py):
 # the pack, and admission's refusal of a board, roster, record, compiler or file that differs. check_build is stubbed;
 # the build is a synthetic IDF or cmake tree.
+import contextlib
 import io
 import json
 import os
@@ -25,16 +26,20 @@ BRIDGE = '3ea619acd1cdeb11a0a0b806e93fd3f1'
 NOW = {'head': 'h' * 40, 'submodules': {'lib/tinyusb': 't' * 40}, 'deps': {}, 'dirty': False}
 IDF = {'mode': 'docker', 'ciVersion': 'v6.1', 'image': 'espressif/idf:v6.1'}
 ARM_GCC = 'arm-none-eabi-gcc (Arm GNU Toolchain 14.2.Rel1 (Build arm-14.52)) 14.2.1 20241119'   # 14.2.rel1's, measured
-# roster flashers of cmake boards: a J-Link board and an ST-LINK one (test/hil/ci.json)
+# cmake boards' uids and the flashers agentrc's board registry gives them: a J-Link board and an ST-LINK one
+# (test/hil/ci.json)
 CMAKE_BOARDS = {
-  'imxrt1064_evk': {'name': 'jlink', 'uid': '000725299165', 'args': '-device MIMXRT1064xxx6A'},
-  'stm32h743nucleo': {'name': 'stlink', 'uid': '004C00343137510F39383538', 'args': '-device stm32h743zi'},
+  'imxrt1064_evk': ('BAE96FB95AFA6DBB8F00005002001200',
+                    {'name': 'jlink', 'uid': '000725299165', 'device': 'MIMXRT1064xxx6A'}),
+  'stm32h743nucleo': ('110018000951383432343236',
+                      {'name': 'stlink', 'uid': '004C00343137510F39383538', 'device': 'stm32h743zi'}),
 }
+with mock.patch.object(ht, 'check_lock_pin'), contextlib.suppress(ht.Refused):   # before setUp moves cb.ROOT
+  ht.board_registry()
 
 
-def entry(name, uid=BRIDGE, **tinyuf2):
-  return {'name': name, 'uid': '84F703C084E4', 'flasher': {'name': 'esptool', 'uid': uid, 'args': '--chip esp32s3'},
-          'tinyuf2': tinyuf2}
+def entry(name, **tinyuf2):   # its flasher is the registry's, bridge BRIDGE
+  return {'name': name, 'uid': '84F703C084E4', 'probe': '3ea619acd1cdeb11a0a0b806e93fd3f1', 'tinyuf2': dict(tinyuf2, device='esp32s3')}
 
 
 class Hosted(unittest.TestCase):
@@ -56,10 +61,10 @@ class Hosted(unittest.TestCase):
     self.hosted = self.tmp / 'hosted'
     self.out = self.tmp / 'out'
 
-  def write_roster(self, uid=BRIDGE):
-    cmake = [{'name': b, 'uid': 'U', 'flasher': fl} for b, fl in CMAKE_BOARDS.items()]
-    self.roster.write_text(json.dumps({'boards': [entry(BOARD, uid, lock='espressif_s3_devkitm'), entry(OTHER, 'x'),
-                                                  *cmake]}))
+  def write_roster(self):
+    cmake = [{'name': b, 'uid': uid, 'probe': fl['uid'], 'tinyuf2': {'device': fl['device']} if fl['name'] == 'stlink' else {}}
+             for b, (uid, fl) in CMAKE_BOARDS.items()]
+    self.roster.write_text(json.dumps({'boards': [entry(BOARD), entry(OTHER), *cmake]}))
 
   def idf_tree(self, board=BOARD):
     """A --shared IDF build dir of `board` and its passing record."""
@@ -78,7 +83,7 @@ class Hosted(unittest.TestCase):
 
   def cmake_tree(self, board, compiler=ARM_GCC):
     """A --shared cmake build dir of `board` (CMAKE_BOARDS) and its passing record."""
-    fl = CMAKE_BOARDS[board]
+    fl = CMAKE_BOARDS[board][1]
     root = cb.BUILD_DIR / f'cmake-build-{board}'
     target, inputs = cb.FLASH[fl['name']]
     files = {rel: rel.encode() * 3 for rel in (*inputs, *cb.FACTS_FILES, '_bin/tinyuf2.bin', '_bin/tinyuf2.hex',
@@ -89,7 +94,7 @@ class Hosted(unittest.TestCase):
     (root / 'CMakeCache.txt').write_text('not hashed, not packed\n')
     row = {'board': board, 'port': cb.port_of(board), 'backend': 'cmake', 'buildDir': f'cmake-build/cmake-build-{board}',
            'status': 'ok', 'firstError': '', 'artifacts': sorted(files), 'sha256': {r: hh.sha256(d) for r, d in files.items()},
-           'flash': {'target': target, 'flasher': {'name': fl['name'], 'uid': fl['uid'], 'device': fl['args'].split()[-1]},
+           'flash': {'target': target, 'flasher': dict(fl),
                      'command': 'cd /home/runner/work/x && JLinkExe ...', 'inputs': list(inputs), 'defines': []},
            'compiler': {'path': '/opt/arm/bin/arm-none-eabi-gcc', 'version': compiler}}
     return {'pass': True, 'input': dict(NOW, missingInputs=[], depsOffPin=[], dirtyInputs=[], inputsDirtiedByBuild=[]),
@@ -214,7 +219,10 @@ class Hosted(unittest.TestCase):
 
   def test_a_roster_or_board_other_than_the_artifacts_refuses(self):
     artifact = self.build()
-    self.write_roster(uid='replugged')   # the roster changed after the build
+    self.write_roster()   # the roster changed after the build
+    doc = json.loads(self.roster.read_text())
+    doc['boards'][0]['tinyuf2']['reentry'] = 'changed'
+    self.roster.write_text(json.dumps(doc))
     self.refused('roster')
     self.write_roster()
     self.refused('built for espressif_esp32s3_devkitm_1, not espressif_esp32s3_devkitc_1', board=OTHER)

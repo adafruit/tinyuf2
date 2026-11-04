@@ -39,6 +39,7 @@ with mock.patch.object(ht, 'check_lock_pin'), contextlib.suppress(ht.Refused):
   ht.provider()
   ht.openocd_esp()
   ht.usb_observe()
+  ht.board_registry()
 BOARD = 'lpcxpresso55s69'
 # a closed openocd_esp receipt's identity, which the provider's session_state requires well-formed (pid 1 never ends)
 CLOSED = {'pid': 1, 'startTime': '1', 'closed': True}
@@ -167,6 +168,12 @@ def roster(tmp, **over):
   return cfg
 
 
+def jlink_board(probe, device):
+  """A hand-built J-Link board as load_board gives it, its resolved flasher the `entry`."""
+  return {'probe': probe, 'device': device, 'if': 'SWD', 'speed': '4000',
+          'entry': {'name': 'jlink', 'uid': probe, 'args': f'-device {device}'}}
+
+
 # htpc's bench roster as last tracked (test/hil/local.json is host-local and untracked now)
 BENCH = {
   "boards": [
@@ -185,14 +192,14 @@ BENCH = {
     {
       "name": "espressif_esp32s3_devkitc_1",
       "uid": "7CDFA1E06FD0",
-      "flasher": {"name": "esptool", "uid": "8ecc58dfb1cdeb1185e7b806e93fd3f1", "args": "--chip esp32s3"},
-      "tinyuf2": {"reentry": "dfu-detach"}
+      "flasher": {"name": "esptool", "uid": "8ecc58dfb1cdeb1185e7b806e93fd3f1"},
+      "tinyuf2": {"device": "esp32s3", "reentry": "dfu-detach"}
     },
     {
       "name": "espressif_p4_function_ev",
       "uid": "30EDA0E0C902",
-      "flasher": {"name": "esptool", "uid": "1ec47e6369c3ee119baac50f9e1b1c54", "args": "--chip esp32p4"},
-      "tinyuf2": {"reentry": "dfu-detach",
+      "flasher": {"name": "esptool", "uid": "1ec47e6369c3ee119baac50f9e1b1c54"},
+      "tinyuf2": {"device": "esp32p4", "reentry": "dfu-detach",
                   "routes": [{"flasher": {"name": "openocd_esp", "uid": "30:ED:A0:E0:C9:02", "args": "-f board/esp32p4-builtin.cfg"}}]}
     },
     {
@@ -210,14 +217,14 @@ BENCH = {
     {
       "name": "stm32h563_nucleo",
       "uid": "620041000751323237363130",
-      "flasher": {"name": "stlink", "uid": "002300273232510239353236", "args": "-device stm32h563zi"},
-      "tinyuf2": {"lock": "stm32h563nucleo", "reentry": "retained-register"}
+      "flasher": {"name": "stlink", "uid": "002300273232510239353236"},
+      "tinyuf2": {"lock": "stm32h563nucleo", "device": "stm32h563zi", "reentry": "retained-register"}
     },
     {
       "name": "espressif_esp32s31_func_core",
       "uid": "30EDA0F40A94",
-      "flasher": {"name": "esptool", "uid": "30:ED:A0:F4:0A:94", "args": "--chip esp32s31"},
-      "tinyuf2": {"reentry": "dfu-detach"}
+      "flasher": {"name": "esptool", "uid": "30:ED:A0:F4:0A:94"},
+      "tinyuf2": {"device": "esp32s31", "reentry": "dfu-detach"}
     }
   ]
 }
@@ -317,6 +324,57 @@ class Roster(Tmp):
   def test_usb_power_is_for_jlink_boards_only(self):
     with self.assertRaisesRegex(ht.Refused, 'usbPower is for J-Link boards only'):
       ht.load_board(s3_roster(self.tmp, tinyuf2={'reentry': 'dfu-detach', 'usbPower': {'hub': 'PA40004', 'port': 3}}), S3)
+
+  def test_tinyuf2_device_is_an_stlink_or_esptool_boards_device_and_no_other_boards(self):
+    stlink = self.tmp / 'stlink.json'
+    stlink.write_text(json.dumps({'boards': [{'name': 'stm32h563_nucleo', 'uid': 'U',
+                                              'flasher': {'name': 'stlink', 'uid': '0023'}}]}))
+    openocd = self.tmp / 'openocd.json'
+    openocd.write_text(json.dumps({'boards': [dict(MAX_ENTRY, tinyuf2={'device': 'max32665'})]}))
+    for what, cfg, name, err in (
+        ('stlink without', stlink, 'stm32h563_nucleo', 'board needs tinyuf2.device'),
+        ('esptool without', s3_roster(self.tmp, tinyuf2={'device': None}), S3, 'board needs tinyuf2.device'),
+        ('jlink with', roster(self.tmp, tinyuf2={'device': 'LPC55S69_M33_0'}), BOARD, 'tinyuf2.device is for stlink'),
+        ('openocd with', openocd, 'max32666fthr', 'tinyuf2.device is for stlink')):
+      with self.subTest(what), self.assertRaisesRegex(ht.Refused, err):
+        ht.load_board(cfg, name)
+
+  def test_a_registered_board_naming_a_flasher_or_a_bench_board_on_a_registered_probe_is_refused(self):
+    fl = {k: v for k, v in MAX_FLASHER.items() if k != 'verify'}
+    bench = {k: v for k, v in MAX_ENTRY.items() if k != 'probe'}
+    for what, entry, err in (('registered', dict(MAX_ENTRY, flasher=fl), "come from agentrc's board registry"),
+                             ('bench', dict(bench, uid='MAXBENCH', flasher=fl),
+                              'probe E6614C311B597D32 is registered')):
+      cfg = self.tmp / 'max.json'
+      cfg.write_text(json.dumps({'boards': [entry]}))
+      with self.subTest(what), self.assertRaisesRegex(ht.Refused, err):
+        ht.load_board(cfg, 'max32666fthr')
+
+  def test_a_registered_board_locks_as_the_registrys_name_and_refuses_another(self):
+    cfg = self.tmp / 'max.json'
+    for lock, err in ((None, None), ('max32666fthr', None), ('other', "lock 'other' is not its registered board's")):
+      with self.subTest(lock):
+        cfg.write_text(json.dumps({'boards': [dict(MAX_ENTRY, tinyuf2={'reentry': 'retained-register',
+                                                                       **({'lock': lock} if lock else {})})]}))
+        if err:
+          with self.assertRaisesRegex(ht.Refused, err):
+            ht.load_board(cfg, 'max32666fthr')
+        else:
+          self.assertEqual(ht.load_board(cfg, 'max32666fthr')['lock'], 'max32666fthr')
+
+  def test_every_ci_board_loads_with_its_registered_flasher(self):
+    ci = ROOT / 'test' / 'hil' / 'ci.json'
+    for e in json.loads(ci.read_text())['boards']:
+      with self.subTest(e['name']):
+        b = ht.load_board(ci, e['name'])
+        fl = ht.board_registry().resolve(e)['flasher']
+        self.assertEqual((b['entry'], b['flasher'], b['probe']), (fl, fl['name'], fl['uid']))
+        self.assertEqual(b['lock'], ht.board_registry().registry()[e['probe']]['name'])
+        if fl['name'] in ('stlink', 'esptool'):
+          self.assertEqual(b['device'], e['tinyuf2']['device'])
+        else:
+          self.assertNotIn('device', e.get('tinyuf2', {}))
+          self.assertRegex(fl['args'], rf'(-device |target/){re.escape(b["device"])}\b')
 
   def test_a_missing_lock_helper_submodule_is_refused(self):
     for what, file, checkout in (('no file', False, True), ('not a checkout', True, False)):
@@ -721,10 +779,11 @@ S3_PARTS = [('nvs', 1, 0x02, 0x9000, 0x5000), ('otadata', 1, 0x00, 0xe000, 0x200
             ('ota_1', 0, 0x11, 0x210000, 0x200000), ('uf2', 0, 0x00, 0x410000, 0x40000), ('ffat', 1, 0x81, 0x450000, 0x3b0000)]
 
 
-def s3_roster(tmp, **over):
-  b = {'name': S3, 'uid': '84F703C084E4', 'flasher': {'name': 'esptool', 'uid': 'cp2102n', 'args': '--chip esp32s3'},
+def s3_roster(tmp, **over):   # a bench board (unregistered uid): its own flasher, its chip tinyuf2.device
+  b = {'name': S3, 'uid': '7CDFA1E06FD0', 'flasher': {'name': 'esptool', 'uid': 'cp2102n'},
        'tinyuf2': {'reentry': 'dfu-detach'}}
   b.update(over)
+  b['tinyuf2'] = {'device': 'esp32s3', **b['tinyuf2']}
   cfg = tmp / 'esp.json'
   cfg.write_text(json.dumps({'boards': [b]}))
   return cfg
@@ -828,7 +887,7 @@ class Esp(EspCase):
 
   def test_roster_refusals(self):
     cases = {'not espressif': {'name': 'imxrt1060_evk'},
-             'unknown chip': {'flasher': {'name': 'esptool', 'uid': 'x', 'args': '--chip esp32s2'}},
+             'unknown chip': {'tinyuf2': {'device': 'esp32s2', 'reentry': 'dfu-detach'}},
              'args': {'flasher': {'name': 'esptool', 'uid': 'x', 'args': '--chip esp32s3 -b 921600'}}}
     for what, over in cases.items():
       with self.subTest(what), self.assertRaises(ht.Refused):
@@ -946,7 +1005,7 @@ P4_SDK = ('CONFIG_IDF_TARGET="esp32p4"\nCONFIG_ESPTOOLPY_FLASHMODE="dio"\nCONFIG
 class EspP4(EspCase):
   """The P4 Function EV entry: its 2nd-stage bootloader sits at 0x2000, below the partition table."""
   name = P4
-  roster = {'name': P4, 'uid': '30EDA0E0C902', 'flasher': {'name': 'esptool', 'uid': 'cp2102n', 'args': '--chip esp32p4'}}
+  roster = {'name': P4, 'uid': '30EDA0E0C902', 'tinyuf2': {'device': 'esp32p4', 'reentry': 'dfu-detach'}}
 
   def build(self, root, flash_args=P4_FLASH_ARGS):
     return idf_build(root, P4_PARTS, flash_args, P4_SDK, board=P4, device='esp32p4', board_id='ESP32P4-FunctionEV-v1.4',
@@ -1170,23 +1229,26 @@ class EspFlash(EspFake):
     with self.assertRaisesRegex(ht.StepFail, 'preserved region changed by the end of the install'):
       ht.esp_verify(tool, self.board, self.segments, self.work, snapshot=dict(snap, nvs='x'))
 
-  def test_the_flash_transcript_must_show_every_segment_written_and_verified(self):
+  def test_the_flash_is_judged_by_the_providers_esptool_problem_and_wrote_every_segment_it_names(self):
+    def judge(code, out):
+      return ht.judge_esp_target(one_attempt(subprocess.CompletedProcess(['esptool'], code, out, '')), code, out,
+                                 self.segments)
     for form, cmd, env in (('compressed', ['esptool'], {}), ('without the stub', ['esptool', '--no-stub'], {}),
                            ('a stub run writing uncompressed', ['esptool'], {'FAKE_ESP_UNCOMPRESSED': '1'})):
       with mock.patch.dict(os.environ, env):
         out = self.target(cmd)[1]
       self.assertEqual('(9 compressed)' in out, form == 'compressed')
       self.assertIn('\x1b[1A', out)
-      self.assertEqual(ht.judge_esp_target(0, out, self.segments)['wrote'], ['0x0', '0x8000', '0xe000', '0x410000'])
-      # a CSI code at a line's start would hide a write from a judge that strips only colour codes
-      csi = out.replace('Wrote', '\x1b[2K\x1b[1AWrote')
-      self.assertEqual(ht.judge_esp_target(0, csi, self.segments)['wrote'], ['0x0', '0x8000', '0xe000', '0x410000'])
-      cases = (('a nonzero exit', 1, out), ('a segment missing', 0, out.replace('at 0x00008000 in', 'at 0x00009000 in')),
-               ('a hash not verified', 0, out.replace('Hash of data verified.\n', '', 1)),
-               ('no reset', 0, out.replace('Hard resetting via RTS pin...', '')), ('nothing', 0, ''))
-      for what, code, text in cases:
-        with self.subTest(form=form, case=what), self.assertRaisesRegex(ht.StepFail, 'the esptool flash failed'):
-          ht.judge_esp_target(code, text, self.segments)
+      # every requested segment, each read back after the flash (esp_verify)
+      self.assertEqual(judge(0, out)['wrote'], ['0x0', '0x8000', '0xe000', '0x410000'])
+      cases = (('a nonzero exit', 1, out, 'esptool exit 1'),
+               ('no reset', 0, out.replace('Hard resetting via RTS pin...', 'Chip was NOT reset.'), 'Chip was NOT reset'),
+               ('an empty image', 0, out + "Warning: 'tinyuf2.bin' is empty.\n", 'is empty'))
+      for what, code, text, problem in cases:
+        with self.subTest(form=form, case=what), self.assertRaisesRegex(ht.StepFail, 'the esptool flash failed') as cm:
+          judge(code, text)
+        self.assertIn(problem, cm.exception.evidence['problem'])
+        self.assertFalse(any('\x1b' in line for line in cm.exception.evidence['tail']))   # CSI codes stripped
 
   def admitted(self):
     now = {'head': 'h', 'submodules': {}, 'deps': {}, 'dirty': False}
@@ -1211,15 +1273,18 @@ class EspFlash(EspFake):
   def test_a_build_that_disables_the_stub_is_flashed_without_it(self):
     sdk = self.tmp / 'b' / 'sdkconfig'
     base = sdk.read_text()
-    for what, extra, args in (('stub disabled', 'CONFIG_ESPTOOLPY_NO_STUB=y\n', ['--no-stub']),
-                              ('stub enabled', '# CONFIG_ESPTOOLPY_NO_STUB is not set\n', [])):
+    for what, extra, baud, args in (('stub disabled', 'CONFIG_ESPTOOLPY_NO_STUB=y\n', '', ['--no-stub']),
+                                    ('stub enabled', '# CONFIG_ESPTOOLPY_NO_STUB is not set\n', '', []),
+                                    ('the flasher\'s baud', 'CONFIG_ESPTOOLPY_NO_STUB=y\n', '-b 1500000',
+                                     ['-b', '1500000', '--no-stub'])):
       sdk.write_text(base + extra)
       self.row['sha256']['sdkconfig'] = ht.sha256(sdk)
       self.targets.clear()
       with self.subTest(what):
         files = self.admitted()
-        self.assertEqual(files['noStub'], bool(args))
-        ev = ht.EspBattery(self.board, self.facts, self.work).install(files)   # written uncompressed without the stub
+        self.assertEqual(files['noStub'], '--no-stub' in args)
+        board = dict(self.board, entry=dict(self.board['entry'], args=baud))
+        ev = ht.EspBattery(board, self.facts, self.work).install(files)   # written uncompressed without the stub
         (argv, _, _), = self.targets
         self.assertEqual(argv[5:5 + len(args) + 1], [*args, '--before=default_reset'])   # as the record's target runs
         self.assertEqual(ev['wrote'], ['0x0', '0x8000', '0xe000', '0x410000'])
@@ -1416,7 +1481,7 @@ class UsjAddressing(Tmp):
     (self.dev / name).symlink_to(os.devnull)   # a character device
 
   def test_a_usj_serial_loads_as_the_esptool_flashers_probe(self):
-    b = self.load(s3_roster(self.tmp, flasher={'name': 'esptool', 'uid': USJ, 'args': '--chip esp32s3'}), S3)
+    b = self.load(s3_roster(self.tmp, flasher={'name': 'esptool', 'uid': USJ}), S3)
     self.assertEqual((b['flasher'], b['probe'], b['device'], b['routes']), ('esptool', USJ, 'esp32s3', {}))
 
   def test_the_one_usj_with_that_serial_gives_its_tty(self):
@@ -1442,16 +1507,15 @@ class UsjAddressing(Tmp):
 
   def test_a_malformed_serial_is_refused_at_load(self):
     for uid in (USJ.lower(), 'AA:BB:CC:DD:EE', 'AA:BB:CC:DD:EE:FF:00', 'AA:BB:CC:DD:EE:FG', 'a b', ''):
-      with self.subTest(uid), self.assertRaisesRegex(ht.Refused, 'neither a probe or bridge serial|string uid'):
-        ht.load_board(s3_roster(self.tmp, flasher={'name': 'esptool', 'uid': uid, 'args': '--chip esp32s3'}), S3)
-    with self.assertRaisesRegex(ht.Refused, 'neither a probe or bridge serial'):   # a USJ serial is esptool's only
+      with self.subTest(uid), self.assertRaisesRegex(ht.Refused, 'not the roster form|uid must be a non-empty string'):
+        ht.load_board(s3_roster(self.tmp, flasher={'name': 'esptool', 'uid': uid}), S3)
+    with self.assertRaisesRegex(ht.Refused, 'not the roster form'):   # a USJ serial is esptool's only
       ht.load_board(roster(self.tmp, flasher={'name': 'jlink', 'uid': USJ, 'args': '-device LPC55S69_M33_0'}), BOARD)
 
   def test_the_probe_check_sees_the_usj_tty_and_usbfs_node_users_of_either_flasher_form(self):
     no_ci_job(self)
     self.bus().add('5-2.6', USJ, bus=5, dev=14)
-    for what, b in (('esptool', self.load(s3_roster(self.tmp, flasher={'name': 'esptool', 'uid': USJ,
-                                                                         'args': '--chip esp32s3'}), S3)),
+    for what, b in (('esptool', self.load(s3_roster(self.tmp, flasher={'name': 'esptool', 'uid': USJ}), S3)),
                     ('openocd_esp route', ht.select_route(self.load(route_roster(self.tmp), S3), 'openocd_esp'))):
       seen = []
       with self.subTest(what), mock.patch.object(ht, 'esp_port', lambda uid: f'/dev/tty-{uid}'), \
@@ -2559,7 +2623,7 @@ class FlashProvider(Tmp):
     def spawn(cmd, log, timeout, cwd=None, **k):
       seen.append((list(cmd), Path(cmd[-1]).read_text(), timeout))
       return 0, f'J-Link>w4 E000ED0C 05FA0004\n{JLINK_CONNECT}Writing 05FA0004 -> E000ED0C\n'
-    probe = ht.Probe({'probe': '7', 'device': 'stm32f411ve', 'if': 'SWD', 'speed': '4000'}, self.tmp, self.tmp / 'log')
+    probe = ht.Probe(jlink_board('7', 'stm32f411ve'), self.tmp, self.tmp / 'log')
     with mock.patch.object(ht, 'spawn', spawn):
       probe.sysreset()
     self.assertEqual(seen[0][0][:-1], ['JLinkExe', '-USB', '7', '-device', 'Cortex-M4', '-if', 'SWD', '-speed', '4000',
@@ -2568,13 +2632,14 @@ class FlashProvider(Tmp):
     self.assertEqual(Path(seen[0][0][-1]).parent, self.tmp)
     cube, scripts = FakeCube(), []
     cube.on_reset = lambda: None
-    stlink = ht.StlinkProbe({'probe': '0023', 'device': 'stm32h563zi'}, self.tmp, self.tmp / 'log')
+    stlink = ht.StlinkProbe({'probe': '0023', 'device': 'stm32h563zi', 'entry': {'name': 'stlink', 'uid': '0023'}},
+                            self.tmp, self.tmp / 'log')
     with mock.patch.object(ht, 'spawn', lambda cmd, *a, **k: scripts.append(Path(cmd[2]).read_text()) or cube.run(cmd[2])):
       stlink.sysreset()
     self.assertEqual(scripts, ['-c port=SWD sn=0023 mode=HOTPLUG\n-w32 0xE000ED0C 0x05FA0004 -nv\n'])
 
   def test_before_target_holds_only_when_every_attempt_ended_before_the_target(self):
-    probe = ht.Probe({'probe': '000726129165', 'device': 'd', 'if': 'SWD', 'speed': '4000'}, self.tmp, self.tmp / 'hil.log')
+    probe = ht.Probe(jlink_board('000726129165', 'd'), self.tmp, self.tmp / 'hil.log')
     crash = (-11, 'Connecting to J-Link ...O.K.\nS/N: 726129165\n')
     for what, second, before in (('no probe on the rerun', (1, JLINK_NO_PROBE), True),
                                  ('the rerun reached the target', (1, 'Connecting to target via SWD\nCannot connect to target.\n'),
@@ -2587,7 +2652,7 @@ class FlashProvider(Tmp):
     self.assertEqual(probe.retried[-1], {'exit': -11, 'commands': ['h']})
 
   def test_a_crash_whose_session_was_not_proven_ended_is_never_rerun(self):
-    probe = ht.Probe({'probe': '000726129165', 'device': 'd', 'if': 'SWD', 'speed': '4000'}, self.tmp, self.tmp / 'hil.log')
+    probe = ht.Probe(jlink_board('000726129165', 'd'), self.tmp, self.tmp / 'hil.log')
     calls = []
 
     def spawn(*a, **k):
@@ -3837,7 +3902,7 @@ class BatteryRun(Tmp):
     board = self.load(roster(self.tmp, tinyuf2={'reentry': reentry}))
     facts = board_facts(board)
     if device:
-      board['device'] = device
+      board.update(device=device, entry=dict(board['entry'], args=f'-device {device}'))
     bat = ht.Battery(board, facts, self.tmp, commissioning=commissioning)
     bootloader_bin(self.tmp / 'c.bin')
     rig = FakeRig(bat)
@@ -4161,7 +4226,7 @@ class BatteryRun(Tmp):
 
   def test_the_rt_reset_note_passes_on_any_device_once_its_reset_completed(self):
     session = jlink_session(('h', JLINK_CONNECT + JLINK_HALTED), ('r', 'Reset delay: 0 ms\n' + RT_RESET), ('g', ''))
-    probe = ht.Probe({'probe': '1', 'device': 'LPC55S69_M33_0', 'if': 'SWD', 'speed': '4000'}, self.tmp, None)   # not an RT
+    probe = ht.Probe(jlink_board('1', 'LPC55S69_M33_0'), self.tmp, None)   # not an RT
     with mock.patch.object(ht, 'spawn', lambda *a, **k: (0, session)):
       probe.run(['h', 'r', 'g'])
 
@@ -4202,7 +4267,7 @@ class BatteryRun(Tmp):
         self.assertFalse(jlink_ok(out, commands))
 
   def test_only_the_probe_connect_crash_is_retried_once_and_any_crash_fails(self):
-    probe = ht.Probe({'probe': '000726129165', 'device': 'd', 'if': 'SWD', 'speed': '4000'}, self.tmp, self.tmp / 'hil.log')
+    probe = ht.Probe(jlink_board('000726129165', 'd'), self.tmp, self.tmp / 'hil.log')
     banner = 'Connecting to J-Link ...O.K.\nFirmware: J-Link LPCXpresso V2\nS/N: 726129165\n'
     segv, abort = (-11, banner), (-6, banner + 'double free or corruption (top)\n')
     ok = (0, jlink_session(('h', JLINK_CONNECT + JLINK_HALTED)))
@@ -4228,7 +4293,7 @@ class BatteryRun(Tmp):
   def test_a_reset_session_passes_only_once_its_write_was_issued_on_a_connected_target(self):
     aircr = [f'w4 {ht.SCB_AIRCR:08X} {ht.AIRCR_SYSRESETREQ:08X}']
     issued = f'J-Link>{aircr[0]}\nCortex-M4 identified.\nWriting 05FA0004 -> E000ED0C\n'
-    f3 = ht.Probe({'probe': '1', 'device': 'stm32f303vc', 'if': 'SWD', 'speed': '4000'}, self.tmp, None)
+    f3 = ht.Probe(jlink_board('1', 'stm32f303vc'), self.tmp, None)
     for what, code, out in (('dropped after the write', 1, issued + 'Cannot read register 15 (R15)\n'),
                             ('after the F3 unprotect note', 0, issued.replace('Cortex-M4', F3_UNPROTECT + 'Cortex-M4'))):
       with self.subTest(what), mock.patch.object(ht, 'spawn', lambda *a, c=code, o=out, **k: (c, o)):
@@ -4244,7 +4309,7 @@ class BatteryRun(Tmp):
 
   def test_an_f4_session_connects_as_its_core_and_others_as_the_roster_device(self):
     for device, want in (('stm32f411ve', 'Cortex-M4'), ('stm32f407vg', 'Cortex-M4'), ('stm32f303vc', 'stm32f303vc')):
-      probe = ht.Probe({'probe': '1', 'device': device, 'if': 'SWD', 'speed': '4000'}, self.tmp, None)
+      probe = ht.Probe(jlink_board('1', device), self.tmp, None)
       seen = []
       with self.subTest(device), mock.patch.object(ht, 'spawn', lambda cmd, *a, **k: seen.append(cmd) or
                                                    (0, jlink_session(('h', JLINK_CONNECT + JLINK_HALTED)))):
@@ -4280,7 +4345,7 @@ class BatteryRun(Tmp):
     # the reset's lines as the bench recorded them on lpcxpresso55s69; the script went on past it
     out = jlink_session(('r', 'Reset delay: 0 ms\nResetTarget() start\nResetTarget failed (-1).\nFailed to halt CPU.\n'),
                         ('g', ''))
-    probe = ht.Probe({'probe': '1', 'device': 'd', 'if': 'SWD', 'speed': '4000'}, self.tmp, None)
+    probe = ht.Probe(jlink_board('1', 'd'), self.tmp, None)
     with mock.patch.object(ht, 'spawn', lambda *a, **k: (0, out)), self.assertRaisesRegex(ht.StepFail, 'JLinkExe failed'):
       probe.run(['r', 'g'])
 
@@ -5426,7 +5491,8 @@ class Stlink(Tmp):
   def setUp(self):
     super().setUp()
     self.cube = FakeCube()
-    self.board = {'name': 'stm32h563_nucleo', 'probe': '0023', 'device': 'stm32h563zi', 'flasher': 'stlink'}
+    self.board = {'name': 'stm32h563_nucleo', 'probe': '0023', 'device': 'stm32h563zi', 'flasher': 'stlink',
+                  'entry': {'name': 'stlink', 'uid': '0023'}}
     self.probe = ht.StlinkProbe(self.board, self.tmp, self.tmp / 'log')
     self.answer = None
     p = mock.patch.object(ht, 'spawn', lambda cmd, log, timeout, **k: self.answer(cmd) if self.answer else
@@ -5519,7 +5585,7 @@ class StlinkBatteryRun(Tmp):
     super().setUp()
     cfg = self.tmp / 'local.json'
     cfg.write_text(json.dumps({'boards': [{'name': 'stm32h563_nucleo', 'uid': 'UID', 'flasher': {
-      'name': 'stlink', 'uid': '0023', 'args': '-device stm32h563zi'}, 'tinyuf2': {'reentry': 'retained-register'}}]}))
+      'name': 'stlink', 'uid': '0023'}, 'tinyuf2': {'device': 'stm32h563zi', 'reentry': 'retained-register'}}]}))
     board = self.load(cfg, 'stm32h563_nucleo')
     self.bat = bat = ht.StlinkBattery(board, board_facts(board), self.tmp)
     cube, f = FakeCube(), bat.f
@@ -5618,7 +5684,7 @@ class StlinkRoster(Tmp):
     def entry(device):
       cfg = self.tmp / 'local.json'
       cfg.write_text(json.dumps({'boards': [{'name': 'stm32h563_nucleo', 'uid': 'U', 'flasher': {
-        'name': 'stlink', 'uid': '0023', 'args': f'-device {device}'}}]}))
+        'name': 'stlink', 'uid': '0023'}, 'tinyuf2': {'device': device}}]}))
       return cfg
     b = self.load(entry('stm32h563zi'), 'stm32h563_nucleo')
     self.assertEqual((b['flasher'], b['install'], b['app']), ('stlink', (0x08000000, 0x08008000), (0x08008000, 0x08200000)))
@@ -5629,9 +5695,11 @@ class StlinkRoster(Tmp):
 
   def test_stm32h743nucleo_loads_as_an_stlink_board_and_its_chip_is_identified(self):
     cfg = self.tmp / 'local.json'
-    cfg.write_text(json.dumps({'boards': [{'name': 'stm32h743nucleo', 'uid': 'U', 'flasher': {
-      'name': 'stlink', 'uid': '004C00343137510F39383538', 'args': '-device stm32h743zi'}, 'tinyuf2': {}}]}))
-    b = self.load(cfg, 'stm32h743nucleo')
+    cfg.write_text(json.dumps({'boards': [{'name': 'stm32h743nucleo', 'uid': '110018000951383432343236',
+                                           'probe': '004C00343137510F39383538',
+                                           'tinyuf2': {'device': 'stm32h743zi'}}]}))
+    b = self.load(cfg, 'stm32h743nucleo')   # its ST-LINK from agentrc's board registry
+    self.assertEqual((b['probe'], b['device']), ('004C00343137510F39383538', 'stm32h743zi'))
     self.assertEqual((b['kind'], b['port'], b['install'], b['app']),
                      ('stlink', 'stm32h7', (0x08000000, 0x08020000), (0x08020000, 0x08200000)))
     # bench: STM32_Programmer_CLI on the rig's NUCLEO-H743ZI, "Device ID : 0x450", "NVM size : 2 MBytes"
@@ -5641,16 +5709,22 @@ class StlinkRoster(Tmp):
         self.assertEqual(ht.chip_reported(CUBE_CONNECT.format(dev=dev, nvm=nvm), b), ok)
 
 
-MAX_ENTRY = {'name': 'max32666fthr', 'uid': '0C81464124010B20FF0A08CC2C000000',
-             'flasher': {'name': 'openocd', 'uid': 'E6614C311B597D32', 'vid_pid': '0x2e8a 0x000c',
-                         'args': '-f interface/cmsis-dap.cfg -f target/max32665.cfg'},
+MAX_ENTRY = {'name': 'max32666fthr', 'uid': '0C81464124010B20FF0A08CC2C000000', 'probe': 'E6614C311B597D32',
              'tinyuf2': {'reentry': 'retained-register'}}
+# its flasher in agentrc's board registry
+MAX_FLASHER = {'name': 'openocd', 'uid': 'E6614C311B597D32', 'vid_pid': '0x2e8a 0x000c',
+               'args': '-f interface/cmsis-dap.cfg -f target/max32665.cfg', 'verify': True}
 
 
 def max_roster(tmp, **flasher):
+  """The rig's max32666fthr, its flasher the registry's; with `flasher` overrides, a bench board of its own probe."""
+  b = dict(MAX_ENTRY)
+  if flasher:
+    fl = dict(MAX_FLASHER, uid='BENCH1', **flasher)
+    del b['probe']
+    b.update(uid='MAXBENCH', flasher={k: v for k, v in fl.items() if v is not None and k != 'verify'})
   cfg = tmp / 'max.json'
-  cfg.write_text(json.dumps({'boards': [dict(MAX_ENTRY, flasher={k: v for k, v in dict(MAX_ENTRY['flasher'], **flasher).items()
-                                                                 if v is not None})]}))
+  cfg.write_text(json.dumps({'boards': [b]}))
   return cfg
 
 
@@ -5727,18 +5801,19 @@ class FakeOpenocd:
 class OpenocdRoster(Tmp):
   def test_an_openocd_entry_loads_as_its_target_cfgs_device_with_its_probe_pin(self):
     b = self.load(max_roster(self.tmp), 'max32666fthr')
-    self.assertEqual((b['kind'], b['flasher'], b['device'], b['probe'], b['args'], b['vid_pid'], b['install'], b['app']),
-                     ('openocd', 'openocd', 'max32665', 'E6614C311B597D32', MAX_ENTRY['flasher']['args'], '0x2e8a 0x000c',
+    self.assertEqual((b['kind'], b['flasher'], b['device'], b['probe'], b['entry'], b['install'], b['app']),
+                     ('openocd', 'openocd', 'max32665', 'E6614C311B597D32', MAX_FLASHER,
                       (0x10000000, 0x10008000), (0x10008000, 0x10100000)))
     self.assertEqual((ht.STEPS['openocd'], ht.REENTRY['openocd']), (ht.STEPS['jlink'], ('retained-register',)))
 
   def test_refusals(self):
     for what, over, err in (('no USB ID pin', {'vid_pid': None}, 'needs its probe'),
-                            ('a malformed pin', {'vid_pid': '2e8a:000c'}, 'needs its probe'),
+                            ('a malformed pin', {'vid_pid': '2e8a:000c'}, 'vid_pid must be'),   # the registry's check
                             ('two pins', {'vid_pid': '0x2e8a 0x000c 0x1366 0x0101'}, 'needs its probe'),
-                            ('another interface', {'args': '-f interface/jlink.cfg -f target/max32665.cfg'}, 'flasher must be'),
-                            ('a further option', {'args': MAX_ENTRY['flasher']['args'] + ' -c "adapter speed 4000"'},
-                             'flasher must be'),
+                            ('another interface', {'args': '-f interface/jlink.cfg -f target/max32665.cfg'},
+                             'not the roster form'),
+                            ('a further option', {'args': MAX_FLASHER['args'] + ' -c "adapter speed 4000"'},
+                             'not the roster form'),
                             ('no limits', {'args': '-f interface/cmsis-dap.cfg -f target/max32690.cfg'},
                              'no programming limits known for openocd device max32690')):
       with self.subTest(what), self.assertRaisesRegex(ht.Refused, err):
@@ -5896,7 +5971,7 @@ class Openocd(Tmp):
     super().setUp()
     self.oocd = FakeOpenocd()
     self.board = {'name': 'max32666fthr', 'probe': 'E6614C311B597D32', 'device': 'max32665', 'flasher': 'openocd',
-                  'args': MAX_ENTRY['flasher']['args'], 'vid_pid': '0x2e8a 0x000c'}
+                  'entry': dict(MAX_FLASHER)}
     self.probe = ht.OpenocdProbe(self.board, self.tmp, self.tmp / 'log')
     self.answer, self.argv = None, []
     p = mock.patch.object(ht, 'spawn', lambda cmd, log, timeout, **k: self.argv.append(list(cmd)) or (
