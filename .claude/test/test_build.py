@@ -434,9 +434,16 @@ class Selection(unittest.TestCase):
     for path in ('README.md', '.claude/skills/build/SKILL.md', 'tools/gen_boards.py', '.github/workflows/codeql.yml'):
       self.assertEqual(classify(path)[1], 'none', path)
 
+  def test_agentrc_is_no_submodule_and_no_firmware_input(self):
+    paths = subprocess.run(['git', 'config', '-f', str(ROOT / '.gitmodules'), '--get-regexp', 'path'],
+                           capture_output=True, text=True).stdout.split()
+    self.assertNotIn('lib/agentrc', paths)
+    self.assertNotIn('lib/agentrc', cb.SUBMODULES)
+    self.assertFalse([p for p in cb.HIL_CONTROL if 'lib/agentrc'.startswith(p) or p.startswith('lib/')])
+
   def test_hil_runner_and_roster_select_tests_and_every_roster_board(self):
-    for path in ('.claude/skills/hil-contract/scripts/hil_test.py', 'test/hil/local.json', 'test/hil/ci.json', 'lib/agentrc',
-                 '.github/workflows/hil.yml'):
+    for path in ('.claude/skills/hil-contract/scripts/hil_test.py', 'test/hil/local.json', 'test/hil/ci.json',
+                 '.claude/skills/hil-contract/scripts/agentrc.py', 'test/hil/agentrc.json', '.github/workflows/hil.yml'):
       r = cb.classify(path)
       self.assertEqual((r['rule'], r['tests'], r['hil'], r['boards']), ('hil-control', True, True, {}), path)
     self.assertEqual(cb.classify('.claude/skills/hil-contract/SKILL.md')['effect'], 'none')   # wording costs no hardware
@@ -497,7 +504,7 @@ class CiSelection(unittest.TestCase):
 
   def test_paths_no_build_job_compiles_select_nothing(self):
     for path in ('README.md', '.claude/test/test_build.py', 'test/hil/local.json', '.github/workflows/codeql.yml',
-                 '.github/workflows/codeql-buildscript.sh', 'ports/ch32v20x/boards.c', 'lib/agentrc'):
+                 '.github/workflows/codeql-buildscript.sh', 'ports/ch32v20x/boards.c', 'test/hil/agentrc.json'):
       self.assertEqual(ci(path), {'full': False, 'ports': {}, 'ghostfat': False}, path)
 
   def test_selections_union_and_a_whole_port_absorbs_its_boards(self):
@@ -1254,9 +1261,6 @@ class HilRecord(FakeTools, unittest.TestCase):
     tmp = build_tmpdir()
     self.addCleanup(tmp.cleanup)
     self.tmp = Path(tmp.name)
-    p = mock.patch.object(cb, 'check_agentrc_pin')   # the pin's own tests check it, outside a commit's git env
-    p.start()
-    self.addCleanup(p.stop)
     self.roster = self.tmp / 'local.json'
     # bench boards keep their own flasher; max32666fthr's comes from agentrc's board registry
     self.roster.write_text(json.dumps({'boards': [
@@ -1596,6 +1600,19 @@ class HilRecord(FakeTools, unittest.TestCase):
     self.assertLessEqual(set(cb.FACTS_FILES), set(rec['sha256']))   # what the runner reads the board facts from
     self.assertEqual(rec['flash']['defines'], ['JLINK_OPTION=-USB 000801012283 -ExitOnError 1 -NoGui 1'])
     self.assertEqual(set(rec['compiler']), {'path', 'version'})   # what a hosted record is pinned by
+
+  def test_a_hil_record_binds_the_agentrc_it_loaded_beside_its_input(self):
+    argv = ['--board', 'metro_m7_1011', '--shared', '--hil-config', self.config]
+    boot = cb.agentrc()
+    code, r = run_main(argv)
+    self.assertEqual((code, r['agentrc']), (0, boot.helper().portable(boot.identity())))
+    self.assertNotIn('agentrc', r['input'])
+    self.assertNotIn('agentrc', run_main(['--board', 'metro_m7_1011'])[1])   # no HIL record, no binding
+    changed = 'skills/hil/scripts/hil_boards.py'
+    with mock.patch.object(boot.helper(), 'drift', return_value=[changed]):
+      code, r = run_main(argv)
+    self.assertEqual((code, r['pass'], 'agentrc' in r), (2, False, False))
+    self.assertIn(f'agentrc {changed} changed since this process loaded it: rebuild', r['error'])
 
   def test_a_hil_record_takes_probe_selection_only_from_the_roster(self):
     for argv in (['--board', 'metro_m7_1011', '--shared', '--hil-config', self.config, '-D', 'JLINK_OPTION=-USB 1'],

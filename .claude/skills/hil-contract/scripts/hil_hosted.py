@@ -12,10 +12,10 @@ the arm-none-eabi-gcc on PATH, which must be CI's -- and packs it as DIR/B: the 
 its row hashes under `build/`, and `provenance.json`, which names the board and the roster's path and sha256 (the
 record does not say which roster was selected). `admit` refuses (exit 2) unless provenance names this board and this
 checkout's roster, the record passes the runner's own admission here (hil_test.record_row: HEAD, submodules and
-get_deps dependencies, clean, the board's backend, CI's pinned IDF image) and a cmake record names CI's pinned Arm GNU
-Toolchain as its compiler, and the artifact holds exactly the files that record hashes, with the same flash binding;
-it then places the files as the record's build dir and writes the record and provenance to --out. The last stdout
-line is JSON.
+get_deps dependencies, clean, the board's backend, CI's pinned IDF image, the agentrc this process loads) and a cmake
+record names CI's pinned Arm GNU Toolchain as its compiler, and the artifact holds exactly the files that record
+hashes, with the same flash binding; it then places the files as the record's build dir and writes the record and
+provenance to --out. The last stdout line is JSON.
 """
 import argparse
 import hashlib
@@ -149,7 +149,7 @@ def admit(artifact, board, roster, out):
   record, incoming = out / name, out / f'{name}.incoming'   # the bytes checked are the bytes admitted
   incoming.write_bytes(files.pop(name))
   try:
-    # the runner's own admission: identity, clean, IDF image, board, backend
+    # the runner's own admission: identity, clean, IDF image, board, backend, agentrc
     _, row, root, be = ht.record_row(incoming, b)
     if row['buildDir'] != build_dir(board):   # the root replaced below is the record's: never another dir
       raise ht.Refused(f'{incoming}: build dir {row["buildDir"]}, not {build_dir(board)}')

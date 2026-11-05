@@ -19,7 +19,6 @@ import argparse
 import contextlib
 import functools
 import hashlib
-import importlib.util
 import json
 import os
 import re
@@ -35,7 +34,7 @@ from pathlib import Path
 
 try:
   import fcntl
-except ImportError:   # Windows, where hil_remote.py's wait and collect load this module for its pin check only
+except ImportError:   # Windows, where hil_remote.py's wait and collect load this module for the checkout identity only
   fcntl = None
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -73,8 +72,9 @@ CORE = ('src/', 'lib/', 'ports/family_support.cmake', 'CMakeLists.txt', 'cmake/'
 CONTRACT_TESTS = ('.claude/test/test_build', '.claude/test/test_hil', '.claude/test/test_code_size')
 # the code-size launcher and profile beside this script: no build or HIL run imports them
 CODE_SIZE = '.claude/skills/build/scripts/code_size'
-# the HIL contract's runner, its lock helper's pin and rosters: a change there re-runs the battery on every roster board
-HIL_CONTROL = ('.claude/skills/hil-contract/scripts/', 'test/hil/', 'lib/agentrc', '.github/workflows/hil.yml')
+# the HIL contract's runner, its agentrc bootstrap, agentrc pin and rosters: a change there re-runs the battery on every
+# roster board
+HIL_CONTROL = ('.claude/skills/hil-contract/scripts/', 'test/hil/', '.github/workflows/hil.yml')
 # hil_test.py imports these: the identity, artifacts and build dirs the battery trusts
 HIL_IMPORTS = '.claude/skills/build/scripts/'
 BUILD_CONTROL = (HIL_IMPORTS, '.github/workflows/build.yml',
@@ -422,26 +422,30 @@ def dirty_inputs(paths):
   return [p for p in paths if git_in(p, 'status', '--porcelain', '--untracked-files=all').strip()]
 
 
-AGENTRC = 'lib/agentrc'
+BOOTSTRAP_DIR = Path(__file__).resolve().parents[2] / 'hil-contract' / 'scripts'
 
 
-def check_agentrc_pin():
-  """Raise Fail unless lib/agentrc is a checkout of its own, clean (untracked files included) at the commit HEAD
-  pins: the one check before any tinyuf2 script runs agentrc code from it."""
-  init = f'git submodule update --init {AGENTRC}'
-  if not own_checkout(AGENTRC):
-    raise Fail(f'{AGENTRC} is not checked out: {init}')
-  want = git('rev-parse', f'HEAD:{AGENTRC}').strip()
-  have = git_in(AGENTRC, 'rev-parse', 'HEAD').strip()
-  if have != want:
-    # submodule update checks out the index's gitlink, so a staged pin change would defeat the hint
-    staged = git('rev-parse', f':{AGENTRC}').strip()
-    if staged != want:
-      raise Fail(f'{AGENTRC} is at {have}; HEAD pins {want} but {staged} is staged: commit or unstage that '
-                 f'{AGENTRC} pin change')
-    raise Fail(f'{AGENTRC} is at {have}; HEAD pins {want}: {init}')
-  if dirty_inputs([AGENTRC]):
-    raise Fail(f'{AGENTRC} checkout is dirty at the pinned {want}: discard its local changes')
+def agentrc():
+  """The agentrc bootstrap (hil-contract's scripts/agentrc.py), imported as `agentrc` as the scripts beside it import
+  it, one module per process: where every TinyUF2 script loads agentrc code from."""
+  if str(BOOTSTRAP_DIR) not in sys.path:
+    sys.path.insert(0, str(BOOTSTRAP_DIR))
+  import agentrc as boot
+  return boot
+
+
+def agentrc_binding():
+  """What a HIL record binds of the agentrc this process loaded (agentrc_source.binding: its portable identity),
+  refused when a closure file changed since the load."""
+  boot = agentrc()
+  try:
+    ident, helper = boot.identity(), boot.helper()
+  except ImportError as e:
+    raise Fail(f'agentrc: {e}')
+  try:
+    return helper.binding(ident)
+  except helper.SourceError as e:
+    raise Fail(f'{e}: rebuild')
 
 
 def identity(ports=()):
@@ -639,7 +643,7 @@ def run(cmd, log, verbose, cwd=ROOT):
       p.stdout.close()
 
 
-SUBMODULES = ('lib/tinyusb', 'lib/uf2', 'lib/agentrc')
+SUBMODULES = ('lib/tinyusb', 'lib/uf2')
 
 
 def check_deps(port):
@@ -838,14 +842,10 @@ def backend_of(port):
 
 @functools.cache
 def hil_boards():
-  """agentrc's board registry (hil_boards) from lib/agentrc at its pin: each roster board's flasher by its probe."""
-  check_agentrc_pin()
-  spec = importlib.util.spec_from_file_location(
-    'tinyuf2_hil_run_report', ROOT / '.claude/skills/hil-contract/scripts/hil_run_report.py')
-  run_report = importlib.util.module_from_spec(spec)
-  spec.loader.exec_module(run_report)
+  """agentrc's board registry (hil_boards) from the agentrc the bootstrap selects: each roster board's flasher by its
+  probe."""
   try:
-    return run_report.load_agentrc(ROOT / AGENTRC / 'skills/hil/scripts/hil_boards.py', 'agentrc_hil_boards')
+    return agentrc().load_file('skills/hil/scripts/hil_boards.py')
   except ImportError as e:
     raise Fail(f'agentrc\'s board registry: {e}')
 
@@ -1230,6 +1230,8 @@ def main(argv=None):
     # the record cannot vouch for; hil_test.py refuses any entry here
     now = identity(ports)
     info['inputsDirtiedByBuild'] = sorted((set(now['dirtyInputs']) - set(info['dirtyInputs'])) | moved_inputs(info, now))
+    if args.hil_config:   # beside `input`: agentrc runs the HIL and builds no firmware
+      result['agentrc'] = agentrc_binding()
     ghostfat = run_ghostfat(args.verbose) if sel['ghostfat'] else []
     tests = run_tests() if sel['tests'] else None
     nothing = path_view(sel['records'], 'none', ('path', 'reason'))

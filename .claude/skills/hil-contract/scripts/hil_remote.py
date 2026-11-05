@@ -8,19 +8,21 @@ identity and admitted there (SKILL.md Execution, Remote).
   hil_remote.py collect RUN_ID
 
 `run` freezes HEAD and every repository it pins -- the submodules and the get_deps dependencies of the boards' ports,
-unpushed commits and a candidate lib/agentrc pin included -- as self-contained git bundles, builds each board's HIL
-record here from that checkout (hil_hosted.py build, as CI's hosted runner does: this PC's arm-gcc, cmake and ninja,
-which must be CI's arm-gcc, or docker with CI's ESP-IDF image), and binds both by a manifest (commits, roster digest,
-boards, bundle digests and every hosted build file's), refusing a dirty, off-pin or missing input, one that moved while
-frozen, or a failed build. It then creates the create-only attempt <base>/<run id> on the rig, stages and verifies
-them there, launches hil_remote_driver.py detached in it (the rig checks the staged files against the manifest,
-rebuilds and checks the checkout, admits each board's record with hil_hosted.py admit and runs `hil_test.py run` per
-board, one after another), waits for the attempt's completion record and collects it into .hil-remote/<run id>/.
+unpushed commits included -- as self-contained git bundles, builds each board's HIL record here from that checkout
+(hil_hosted.py build, as CI's hosted runner does: this PC's arm-gcc, cmake and ninja, which must be CI's arm-gcc, or
+docker with CI's ESP-IDF image), stages the agentrc this process loaded (agentrc.py: the closure its records bind, as
+.agentrc/ with its manifest) and binds them all by a manifest (commits, roster digest, boards, bundle digests and every
+hosted build and staged agentrc file's), refusing a dirty, off-pin or missing input, one that moved while frozen, a
+failed build or a record that binds another agentrc. It then creates the create-only attempt <base>/<run id> on the
+rig, stages and verifies them there, launches hil_remote_driver.py detached in it (the rig checks the staged files
+against the manifest, rebuilds and checks the checkout, places the staged agentrc in it, admits each board's record
+with hil_hosted.py admit and runs `hil_test.py run` per board, one after another), waits for the attempt's completion
+record and collects it into .hil-remote/<run id>/.
 `wait` reconnects and does the same within --timeout; `collect` fetches the attempt whatever its state. Neither ever
 launches it: an attempt runs once. Ending this process ends nothing on the rig.
 
-The transport is agentrc's hil_remote_core, loaded from this checkout's lib/agentrc at its pin. stdout is one JSON
-line; progress goes to stderr.
+The transport is agentrc's hil_remote_core, loaded from the agentrc the bootstrap selects (agentrc.py). stdout is one
+JSON line; progress goes to stderr.
 
 Exit 0 every board passed and came home whole; 1 a board failed or was not run; 2 a blocker; 3 still running at the
 timeout; 4 the attempt ended without completing, or was never launched; 5 inconclusive (the rig unreachable or its
@@ -42,12 +44,13 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.dont_write_bytecode = True
+import agentrc  # noqa: E402   where the remote core loads from, and what a run stages
 import hil_ci  # noqa: E402   STEPS, the battery's --fail-at steps
 import hil_remote_driver as driver  # noqa: E402   the rig side's names: manifest schema, result, checkout, out, hosted
 import hil_run_report as run_report  # noqa: E402   the loader, the verdict fold
 
 ROOT = HERE.parents[3]
-AGENTRC = 'lib/agentrc'
+REMOTE_CORE = 'skills/hil/scripts/hil_remote_core.py'
 CHECK_BUILD = HERE.parents[1] / 'build' / 'scripts' / 'check_build.py'
 DRIVER = Path(driver.__file__).resolve().relative_to(ROOT).as_posix()
 HOSTED_BUILD = Path(DRIVER).with_name('hil_hosted.py')   # the frozen checkout's, run there
@@ -65,7 +68,7 @@ REFUSED_FLAGS = ('--under-hold', '--recover-holder', '--recover-takeover', '--re
                  '--build-record', '--run-root', '--ci-state-root', '--done-marker', '--started-marker',
                  '--after-reviewed-recovery', '--update-record')
 
-core = None   # the provider, loaded by provider() only once check_pin() passed
+core = None   # the provider, loaded by provider()
 
 
 def fail(why):
@@ -82,28 +85,18 @@ def git(where, *argv, binary=False):
 
 
 def load_core():
-  """hil_remote_core from this checkout's lib/agentrc, never an installed agentrc; main() checks the pin first."""
-  path = HERE.parents[3] / AGENTRC / 'skills' / 'hil' / 'scripts' / 'hil_remote_core.py'
-  if not path.is_file():
-    fail(f'{path} is missing: git submodule update --init {AGENTRC}')
-  return run_report.load_agentrc(path, 'tinyuf2_hil_remote_core')
-
-
-def check_pin():
-  """Refuse unless lib/agentrc is its own checkout, clean at the commit HEAD pins (check_build's check): never
-  another provider."""
-  cb = check_build()
+  """hil_remote_core from the agentrc the bootstrap selects; refused (fail()) when none is usable."""
   try:
-    cb.check_agentrc_pin()
-  except cb.Fail as e:
-    fail(str(e))
+    return agentrc.load(REMOTE_CORE, 'tinyuf2_hil_remote_core')
+  except ImportError as e:
+    fail(f'agentrc: {e}')
 
 
 POLL = None   # seconds between status polls, the core's own when None
 
 
 def provider():
-  """The remote core, loaded once: no provider code runs before main() has checked its pin."""
+  """The remote core, loaded once, from the agentrc whose identity a run stages."""
   global core
   if core is None:
     core = load_core()
@@ -173,7 +166,30 @@ def build_hosted(stage, boards, roster):
     if r.returncode or res.get('pass') is not True:
       fail(f'the HIL record of {b} did not build here (exit {r.returncode}): '
            f'{res.get("error") or r.stdout.strip()[-300:]}')
+    check_record_agentrc(b, out / b / f'{b}.build.json')
   return core.file_digests(stage, [p for p in out.rglob('*') if p.is_file()])
+
+
+def check_record_agentrc(board, record):
+  """Refuse a hosted record that binds another agentrc than the one this run stages, which the rig's admission
+  refuses (hil_test.record_row)."""
+  try:
+    rec = json.loads(record.read_text())
+  except (OSError, ValueError) as e:
+    fail(f'the HIL record of {board} is unreadable: {e}')
+  why = agentrc.helper().mismatch(rec.get('agentrc') if isinstance(rec, dict) else None, agentrc.identity())
+  if why:
+    fail(f'the HIL record of {board} does not bind the agentrc this run stages ({why}): run again')
+
+
+def stage_agentrc(stage):
+  """The agentrc this process loaded staged as stage/.agentrc (agentrc_source.stage: its closure as regular files, each
+  checked against the digest taken at load, and its manifest): {stage-relative path: sha256}."""
+  helper = agentrc.helper()
+  try:
+    return helper.stage(agentrc.identity(), stage)
+  except (helper.SourceError, OSError) as e:
+    fail(f'cannot stage agentrc: {e}')
 
 
 def freeze(stage, run_id, host, cfg, boards, args):
@@ -191,6 +207,7 @@ def freeze(stage, run_id, host, cfg, boards, args):
     repos.append({'path': path, 'commit': commit, 'bundle': bundle, 'sha256': core.digest(stage / bundle),
                   'shallow': shallow_marks(where, commit)})
   hosted = build_hosted(stage, boards, cfg['roster'])
+  staged = stage_agentrc(stage)
   (stage / 'driver').mkdir()
   (stage / 'driver' / Path(DRIVER).name).write_bytes(git(ROOT, 'cat-file', 'blob', f'HEAD:{DRIVER}', binary=True))
   roster = git(ROOT, 'cat-file', 'blob', f'HEAD:{cfg["roster"]}', binary=True)
@@ -199,7 +216,7 @@ def freeze(stage, run_id, host, cfg, boards, args):
               'deps': info['deps'], 'roster': {'path': cfg['roster'], 'sha256': hashlib.sha256(roster).hexdigest()},
               'boards': boards, 'lockWait': args.lock_wait, 'failAt': args.fail_at, 'ciStateRoot': cfg['ciStateRoot'],
               'driver': {'path': DRIVER, 'sha256': core.digest(stage / 'driver' / Path(DRIVER).name)},
-              'hosted': hosted, 'createdAt': time.time()}
+              'hosted': hosted, 'agentrc': staged, 'createdAt': time.time()}
   core.write_json(stage / 'manifest.json', manifest)
   if identity(boards) != info:
     fail('the checkout moved while it was frozen; nothing was sent: run again')
@@ -488,11 +505,10 @@ def without_git_overrides():
 def main(argv=None):
   argv = sys.argv[1:] if argv is None else argv
   try:
-    check_pin()
+    provider()
   except SystemExit as e:   # raised by fail() before the provider is loaded
     print(e.code, file=sys.stderr)
     return REFUSED
-  provider()
   ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
   sub = ap.add_subparsers(dest='cmd', required=True)
   r = sub.add_parser('run', help='freeze, stage, launch, wait and collect one attempt')

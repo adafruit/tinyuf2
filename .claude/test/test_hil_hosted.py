@@ -34,8 +34,9 @@ CMAKE_BOARDS = {
   'stm32h743nucleo': ('110018000951383432343236',
                       {'name': 'stlink', 'uid': '004C00343137510F39383538', 'device': 'stm32h743zi'}),
 }
-with mock.patch.object(ht, 'check_lock_pin'), contextlib.suppress(ht.Refused):   # before setUp moves cb.ROOT
+with contextlib.suppress(ht.Refused):   # before setUp moves cb.ROOT
   ht.board_registry()
+AGENTRC = ht.agentrc.helper().portable(ht.agentrc.identity())   # what check_build's record binds
 
 
 def entry(name, **tinyuf2):   # its flasher is the registry's, bridge BRIDGE
@@ -79,7 +80,7 @@ class Hosted(unittest.TestCase):
            'flash': {'target': 'flash', 'flasher': {'name': 'esptool', 'uid': BRIDGE, 'device': 'esp32s3'},
                      'command': 'cd /home/runner/work/x && cmake ...', 'inputs': list(cb.FLASH['esptool'][1]), 'defines': []}}
     return {'pass': True, 'input': dict(NOW, missingInputs=[], depsOffPin=[], dirtyInputs=[], inputsDirtiedByBuild=[]),
-            'boards': [row], 'idf': dict(IDF), 'built': []}
+            'agentrc': AGENTRC, 'boards': [row], 'idf': dict(IDF), 'built': []}
 
   def cmake_tree(self, board, compiler=ARM_GCC):
     """A --shared cmake build dir of `board` (CMAKE_BOARDS) and its passing record."""
@@ -98,7 +99,7 @@ class Hosted(unittest.TestCase):
                      'command': 'cd /home/runner/work/x && JLinkExe ...', 'inputs': list(inputs), 'defines': []},
            'compiler': {'path': '/opt/arm/bin/arm-none-eabi-gcc', 'version': compiler}}
     return {'pass': True, 'input': dict(NOW, missingInputs=[], depsOffPin=[], dirtyInputs=[], inputsDirtiedByBuild=[]),
-            'boards': [row], 'built': []}
+            'agentrc': AGENTRC, 'boards': [row], 'built': []}
 
   def build(self, board=BOARD, rec=None):
     rec = rec or (self.idf_tree(board) if board in (BOARD, OTHER) else self.cmake_tree(board))
@@ -162,6 +163,9 @@ class Hosted(unittest.TestCase):
       'a recorded hash': (None, lambda rec: rec['boards'][0]['sha256'].update({'sdkconfig': '0' * 64}), 'exactly'),
       'a file the record does not hash': (None, lambda rec: rec['boards'][0]['sha256'].pop('sdkconfig'), 'exactly'),
       'another flasher': (None, lambda rec: rec['boards'][0]['flash']['flasher'].update(uid='other'), 'not bound'),
+      'no agentrc (record_row)': (None, lambda rec: rec.pop('agentrc'), 'binds no agentrc identity'),
+      'another agentrc (record_row)': (None, lambda rec: rec['agentrc'].update(commit='0' * 40),
+                                       'built with agentrc 000000000000'),
     }
     for what, (here, record, err) in cases.items():
       with self.subTest(what):
@@ -193,24 +197,29 @@ class Hosted(unittest.TestCase):
     root = cb.BUILD_DIR / f'cmake-build-{BOARD}'
     kept = {p: p.read_bytes() for p in [*self.out.iterdir(), *root.rglob('*')] if p.is_file()}
     rec = json.loads(good[name])
+    stopped = 'its checks stopped on'
+    # the RecursionError a nested record raises where the C stack is small, raised whatever the stack
+    recursion = mock.patch.object(ht, 'record_row', side_effect=RecursionError('maximum recursion depth exceeded'))
     cases = {
-      'a record that is an array': (name, b'[]\n'),
-      'boards not a list': (name, b'{"boards": 5}'),
-      'a board row not an object': (name, b'{"boards": [1]}'),
-      'idf not an object': (name, json.dumps(dict(rec, idf='docker')).encode()),
+      'a record that is an array': (name, b'[]\n', stopped),
+      'boards not a list': (name, b'{"boards": 5}', stopped),
+      'a board row not an object': (name, b'{"boards": [1]}', stopped),
+      'idf not an object': (name, json.dumps(dict(rec, idf='docker')).encode(), stopped),
       'a row without its build dir': (name, json.dumps(dict(rec, boards=[{k: v for k, v in rec['boards'][0].items()
-                                                                          if k != 'buildDir'}])).encode()),
-      'a record nested too deep': (name, b'[' * 100000),
-      'a provenance nested too deep': (hh.PROVENANCE, b'[' * 100000),
+                                                                          if k != 'buildDir'}])).encode(), stopped),
+      # RecursionError, or on Python 3.14 with a large C stack, JSONDecodeError
+      'a record nested too deep': (name, b'[' * 100000, f'({stopped}|cannot read build record)'),
+      'a provenance nested too deep': (hh.PROVENANCE, b'[' * 100000, 'no readable provenance.json'),
+      'a check that recurses': (name, good[name], f'{stopped} RecursionError', recursion),
     }
-    for what, (rel, data) in cases.items():
-      with self.subTest(what):
+    for what, (rel, data, err, *patch) in cases.items():
+      with self.subTest(what), (patch[0] if patch else contextlib.nullcontext()):
         for p, d in good.items():
           (artifact / p).write_bytes(d)
         (artifact / rel).write_bytes(data)
         record, ok, why = hil_ci.hosted_record(BOARD, str(self.roster), self.out, self.hosted)
         self.assertEqual((record, ok), (self.out / name, False))
-        self.assertRegex(why, '^hosted build refused: .*(its checks stopped on|no readable provenance.json)')
+        self.assertRegex(why, f'^hosted build refused: .*{err}')
         with mock.patch.object(sys, 'stdout', new_callable=io.StringIO) as out:
           self.assertEqual(hh.main(['admit', '--artifact', str(artifact), '--board', BOARD, '--roster',
                                     str(self.roster), '--out', str(self.out)]), 2)

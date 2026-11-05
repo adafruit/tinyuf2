@@ -1,6 +1,6 @@
 """The code-size launcher and TinyUF2's profile for agentrc's engine (the engine's own tests are
-agentrc's): the pin check, what is sized, how each tree builds through its own check_build.py, and
-the base worktree's submodules. Builds and git are stubbed; a size is evidence only from a run of
+agentrc's): the engine's loading, what is sized, how each tree builds through
+its own check_build.py, and the base worktree's submodules. Builds and git are stubbed; a size is evidence only from a run of
 the launcher itself."""
 import contextlib
 import io
@@ -28,21 +28,21 @@ def done(rc=0, stdout='', stderr=''):
 
 
 class Launcher(unittest.TestCase):
-  def test_an_agentrc_off_its_pin_refuses_before_anything_runs(self):
-    with mock.patch.object(check_build, 'check_agentrc_pin', side_effect=check_build.Fail('lib/agentrc is at x')), \
-         mock.patch.object(code_size.hil_run_report, 'load_agentrc') as load, \
-         contextlib.redirect_stderr(io.StringIO()) as err:
+  def test_no_usable_agentrc_refuses_before_anything_runs(self):
+    with mock.patch.object(code_size.agentrc, 'identity', side_effect=ImportError('no usable agentrc at x')), \
+         mock.patch.object(code_size.agentrc, '_hil_load') as load, contextlib.redirect_stderr(io.StringIO()) as err:
       self.assertEqual(code_size.main(['report', '-b', 'swan_r5']), 2)
     load.assert_not_called()
-    self.assertIn('refused: lib/agentrc is at x', err.getvalue())
+    self.assertIn('refused: no usable agentrc at x', err.getvalue())
 
-  def test_the_engine_is_lib_agentrcs(self):
+  def test_the_engine_is_the_selected_agentrcs_at_the_profiles_api(self):
+    boot = code_size.agentrc
+    self.assertEqual(boot.helper().literal(boot.identity()['root'], code_size.ENGINE, 'PROFILE_API'), prof.PROFILE_API)
+    self.assertIn(code_size.ENGINE, boot.identity()['files'])
     engine = mock.Mock()
-    with mock.patch.object(check_build, 'check_agentrc_pin'), \
-         mock.patch.object(code_size.hil_run_report, 'load_agentrc', return_value=engine) as load:
+    with mock.patch.object(boot, 'load_file', return_value=engine) as load:
       code_size.main(['report', '-b', 'swan_r5'])
-    load.assert_called_once_with(ROOT / 'lib' / 'agentrc' / 'skills' / 'code-size' / 'scripts' / 'code_size.py',
-                                 'agentrc_code_size')
+    load.assert_called_once_with('skills/code-size/scripts/code_size.py')
     engine.main.assert_called_once_with(prof, ['report', '-b', 'swan_r5'])
 
 
@@ -240,22 +240,40 @@ class DockerContainment(unittest.TestCase):
 
 @NO_SIZED_BOARDS
 class PrepareBase(unittest.TestCase):
-  def test_each_submodule_is_checked_out_at_the_bases_pin_borrowing_its_objects_and_its_get_deps_rows_are_linked(self):
+  def prepare(self, pins):
+    """prepare_base() with git stubbed, the base pinning `pins` ({rel: commit}); the borrow calls' args."""
     with tempfile.TemporaryDirectory() as main, tempfile.TemporaryDirectory() as wt:
       (Path(wt) / 'tools').mkdir()
       (Path(wt) / 'tools' / 'get_deps.py').write_text("deps_all = {'lib/mcu/st': ['u', 'p', 'f'], 'lib/absent': ['u', 'p', 'f']}\n")
-      pins = {f'HEAD:{rel}': f'{n}' * 40 for n, rel in enumerate(check_build.SUBMODULES, 1)}
       engine = mock.Mock()
-      with mock.patch.object(prof.subprocess, 'run',
-                             side_effect=lambda cmd, **_k: done(0, pins[cmd[-1]] + '\n')), \
+      with mock.patch.object(prof.subprocess, 'run', side_effect=lambda cmd, **_k:
+                             done(0, pins[cmd[-1][5:]] + '\n') if cmd[-1][5:] in pins else done(128)), \
            mock.patch.object(prof, '_dep_checkout', side_effect=lambda src: (src + '/.git', 'f' * 40)), \
+           mock.patch.object(prof, '_agentrc_checkout', return_value='/agentrc'), \
            mock.patch.object(prof, '_checkout_borrowing') as borrow, \
+           mock.patch.object(prof, '_own_objects') as own, \
            mock.patch.object(prof, 'engine', engine):
         prof.prepare_base(main, wt)
-    engine.link_deps.assert_called_once_with(main, wt, ['lib/mcu/st', 'lib/absent'])
-    self.assertEqual([c.args for c in borrow.call_args_list],
-                     [(os.path.join(main, rel) + '/.git', os.path.join(wt, rel), f'{n}' * 40, rel, os.path.join(main, rel))
-                      for n, rel in enumerate(check_build.SUBMODULES, 1)])
+      engine.link_deps.assert_called_once_with(main, wt, ['lib/mcu/st', 'lib/absent'])
+      self.owned = [c.args for c in own.call_args_list]
+      return main, wt, [c.args for c in borrow.call_args_list]
+
+  def test_each_submodule_is_checked_out_at_the_bases_pin_borrowing_its_objects_and_its_get_deps_rows_are_linked(self):
+    pins = {rel: f'{n}' * 40 for n, rel in enumerate(check_build.SUBMODULES, 1)}
+    main, wt, borrowed = self.prepare(pins)
+    self.assertEqual(borrowed, [(os.path.join(main, rel) + '/.git', os.path.join(wt, rel), pins[rel], rel,
+                                 os.path.join(main, rel), None) for rel in check_build.SUBMODULES])
+
+  def test_a_base_pinning_the_agentrc_submodule_borrows_the_loaded_agentrcs_checkout_and_a_later_one_needs_none(self):
+    self.assertNotIn(prof.LEGACY_AGENTRC, check_build.SUBMODULES)
+    pins = {rel: f'{n}' * 40 for n, rel in enumerate(check_build.SUBMODULES, 1)}
+    _, wt, borrowed = self.prepare({**pins, prof.LEGACY_AGENTRC: 'a' * 40})
+    self.assertEqual(borrowed[-1], ('/agentrc/.git', os.path.join(wt, 'lib/agentrc'), 'a' * 40, 'lib/agentrc',
+                                    '/agentrc', '/agentrc'))
+    self.assertEqual(len(borrowed), len(pins) + 1)
+    self.assertEqual(self.owned, [(os.path.join(wt, 'lib/agentrc'), '/agentrc')])   # the submodules' own git dir is mounted
+    self.assertEqual(len(self.prepare(pins)[2]), len(pins))   # migrated: lib/agentrc is no submodule of the base
+    self.assertEqual(self.owned, [])
 
   def test_a_base_needing_shared_is_refused_without_posix_locks(self):
     for text, refused in (('an older contract', True), ('--build-dir', False)):
@@ -445,10 +463,37 @@ class PrepareBaseSubmodules(unittest.TestCase):
     self.wt = self.tmp / 'wt'
     git('-C', str(self.main), 'worktree', 'add', '-q', '--detach', str(self.wt), 'HEAD')
 
-  def prepare(self):
+  def prepare(self, wt=None):
     engine = mock.Mock(run=lambda cmd, timeout=None: subprocess.run(cmd, capture_output=True, text=True))
     with mock.patch.object(prof, 'engine', engine):
-      prof.prepare_base(str(self.main), str(self.wt))
+      prof.prepare_base(str(self.main), str(wt or self.wt))
+
+  def test_a_base_pinning_the_agentrc_submodule_gets_its_pin_from_the_loaded_agentrcs_checkout(self):
+    agentrc = self.tmp / 'agentrc'
+    git('init', '-q', str(agentrc))
+    for n in ('old', 'new'):
+      (agentrc / 'README').write_text(n)
+      git('-C', str(agentrc), 'add', 'README')
+      git('-C', str(agentrc), 'commit', '-q', '-m', n)
+    old = git('-C', str(agentrc), 'rev-parse', 'HEAD~1')
+    git('-C', str(self.main), 'update-index', '--add', '--cacheinfo', f'160000,{old},lib/agentrc')
+    git('-C', str(self.main), 'commit', '-q', '-m', 'legacy base')
+    legacy = self.tmp / 'legacy'
+    git('-C', str(self.main), 'worktree', 'add', '-q', '--detach', str(legacy), 'HEAD')
+    git('-C', str(self.sub), 'fetch', '-q', '--depth', '1', 'origin', self.old)
+    with mock.patch.object(prof, '_agentrc_checkout', return_value=str(agentrc)):
+      self.prepare(legacy)
+    self.assertEqual((git('-C', str(legacy / 'lib/agentrc'), 'rev-parse', 'HEAD'),
+                      (legacy / 'lib/agentrc/README').read_text()), (old, 'old'))
+    self.assertEqual(git('-C', str(agentrc), 'status', '--porcelain'), '')
+    # the base's docker build does not mount the loaded agentrc: its describe --dirty needs none of its objects
+    self.assertFalse((legacy / 'lib/agentrc/.git/objects/info/alternates').exists())
+    agentrc.rename(self.tmp / 'agentrc-away')
+    self.assertEqual(git('-C', str(legacy / 'lib/agentrc'), 'rev-parse', 'HEAD'), old)
+    self.assertEqual(git('-C', str(legacy / 'lib/agentrc'), 'status', '--porcelain'), '')
+    git('-C', str(legacy), 'describe', '--dirty', '--always', '--tags')
+    self.prepare()   # the base before it pins no lib/agentrc: nothing gives it one
+    self.assertFalse((self.wt / 'lib/agentrc').exists())
 
   def test_a_shallow_submodule_gives_the_bases_pin_it_fetched_by_sha(self):
     git('-C', str(self.sub), 'fetch', '-q', '--depth', '1', 'origin', self.old)

@@ -2,7 +2,7 @@
 
 ## Working Rules
 
-- Worktrees — `git submodule update --init lib/tinyusb lib/uf2 lib/agentrc`, then symlink the `deps_all` paths from `tools/get_deps.py` (`lib/mcu/...`, `lib/sct_neopixel`) to the primary checkout when it holds the pinned revisions. `get_deps.py` refuses to update through a symlink; fetch the pinned revision in the primary checkout before linking it. Where the primary's copy has local changes or another revision, use a detached `git worktree` of that dependency at its pin instead, outside the checkout and symlinked in.
+- Worktrees — `git submodule update --init lib/tinyusb lib/uf2`, then symlink the `deps_all` paths from `tools/get_deps.py` (`lib/mcu/...`, `lib/sct_neopixel`) to the primary checkout when it holds the pinned revisions. `get_deps.py` refuses to update through a symlink; fetch the pinned revision in the primary checkout before linking it. Where the primary's copy has local changes or another revision, use a detached `git worktree` of that dependency at its pin instead, outside the checkout and symlinked in.
 - Code references — ports and boards: `ports/<port>/` (`boards/<board>/`, `board_flash.c`, `boards.c`), `supported_boards.md`; bootloader: `src/` (`main.c`, `ghostfat.c`, `msc.c`, `board_api.h`, the contract every port implements); apps: `apps/`, `ports/<port>/apps/`; build: `ports/family_support.cmake`, `ports/<port>/family.cmake`, `.github/workflows/build.yml` (which backend builds each port); deps: `tools/get_deps.py`.
 
 ## Code Rules
@@ -14,7 +14,7 @@
 
 ## Skills
 
-- Agents, skills and workflows beyond this repo's `.claude/` come from [agentrc](https://github.com/hathach/agentrc); install it before agent work on TinyUF2.
+- Agents, skills and workflows beyond this repo's `.claude/` come from [agentrc](https://github.com/hathach/agentrc); install it before agent work on TinyUF2. The scripts here load agentrc's shared scripts through `.claude/skills/hil-contract/scripts/agentrc.py`: the installed agentrc (`${AGENTRC_DIR:-$HOME/.claude}`), the commit `test/hil/agentrc.json` pins in CI (`agentrc.py fetch`), a remote rig attempt's staged copy.
 - Skill script tests live in `.claude/test/test_*.py`; pre-commit runs them.
 - Hardware diagnosis and repair use agentrc's `hw-debugger`; independent hardware claims and committed-fix validation use `hw-validator`; routine HIL runs use `hil-operator` — all orchestrated by `chief`.
 - Bootloader audit: the `code-audit` workflow with `dirs` (e.g. `src`, `ports/<port>`) and `dimensions`: `UF2 and MSC input: block validation, bounds and arithmetic, completion and error paths`; `flash and app boundaries: erase/write range and alignment, write protection, update integrity and recovery`; `boot decisions and app handoff: app validity, double-tap and reset reasons, jump, vector table, peripheral teardown`; `ISR and shared state, and register use vs reference manual and errata: cross-check the reference manual AND errata sheets via the read-doc skill; a lookup that cannot run is pending and its conclusion unverified (never a web/filesystem substitute); a missing erratum workaround is a finding`; `build and configuration: the backend CI uses per port, board and config selection, code only some configurations compile`; `style: repo conventions and line endings`.

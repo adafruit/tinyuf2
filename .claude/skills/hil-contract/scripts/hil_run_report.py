@@ -1,13 +1,9 @@
 # SPDX-License-Identifier: MIT
 """tinyuf2's run report as agentrc's report core (`hil` Reporting) reads and writes it: the body schema, its Markdown
 view of the steps, the native `hil` verdict of a board's row (SKILL.md Results, Verdicts) and its rows normalised for
-the core's shared run rules. The core module is passed in: hil_test.py loads it through its pin check, hil_ci.py by
-load_agentrc() after the same check (check_build.check_agentrc_pin); verdict() needs no core. Stdlib and portable:
-hil_remote.py imports it on any client."""
-import ast
+the core's shared run rules. The core module is passed in, loaded by hil_test.py or hil_ci.py through the agentrc
+bootstrap (agentrc.py); verdict() needs no core. Stdlib and portable: hil_remote.py imports it on any client."""
 import importlib.util
-import sys
-from pathlib import Path
 
 NAME, VERSION, STEM = 'tinyuf2-hil-run', 1, 'hil_report'
 STEP_MARK = {True: '✅', False: '❌'}
@@ -99,39 +95,6 @@ def verdict(code, report, board):
   if cleanup.get('state') == 'untouched':
     return 'not-run', f'{failed["step"]}: {failed.get("detail")} (nothing written)'
   return 'fail', f'{failed["step"]}: {failed.get("detail")}'
-
-
-AGENTRC = Path(__file__).resolve().parents[4] / 'lib' / 'agentrc'
-HIL_LOAD = 'skills/hil/scripts/hil_load.py'
-
-
-def files_of(path):
-  """The FILES literal an agentrc script exports, the agentrc-relative files it loads or launches by path
-  (transitively), read without running it; () when it exports none."""
-  for node in ast.parse(Path(path).read_text()).body:
-    if isinstance(node, ast.Assign) and [ast.unparse(t) for t in node.targets] == ['FILES']:
-      return tuple(ast.literal_eval(node.value))
-  return ()
-
-
-def load_agentrc(path, name='agentrc_hil_report_core'):
-  """The lib/agentrc script at `path` as `name`, through agentrc's hil_load: the module already loaded from that file
-  under any name, else a new one, never an installed agentrc's. ImportError naming what is missing unless hil_load,
-  the script and every file of its FILES are there. Every tinyuf2 script's loader of lib/agentrc code, after its pin
-  check (check_build.check_agentrc_pin)."""
-  try:
-    needs = files_of(path)
-  except (OSError, SyntaxError, ValueError) as e:
-    raise ImportError(f'{path}: {e}') from None
-  missing = [rel for rel in (HIL_LOAD, *needs) if not (AGENTRC / rel).is_file()]
-  if missing:
-    raise ImportError(f'{path} needs {", ".join(missing)}, missing under {AGENTRC}')
-  spec = importlib.util.spec_from_file_location('agentrc_hil_load', AGENTRC / HIL_LOAD)
-  if spec.name not in sys.modules:   # bootstrapped as agentrc's own scripts bootstrap it
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    sys.modules.setdefault(spec.name, mod)
-  return sys.modules[spec.name].load(spec.name, spec.origin).load(name, path)
 
 
 def load(path, name):

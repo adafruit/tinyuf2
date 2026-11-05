@@ -17,6 +17,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import check_build  # noqa: E402
 
+PROFILE_API = 1   # the code-size engine's PROFILE_API this profile follows; the engine's main() checks it
 ROOT = str(check_build.ROOT)
 NAME = 'TinyUF2'
 OUT_DIR = os.path.join(ROOT, 'cmake-build', 'code-size')
@@ -24,6 +25,8 @@ BASE_BRANCH = 'origin/master'
 DEFAULT_ENGINE = 'sections'
 CHECK_BUILD = os.path.relpath(HERE / 'check_build.py', ROOT)
 BUILD_TIMEOUT = 1800  # s: an ESP-IDF board in docker takes 10+ min
+# a base from before the agentrc bootstrap pins agentrc as this submodule, which its check_build requires
+LEGACY_AGENTRC = 'lib/agentrc'
 engine = None  # the code-size engine; its main() sets it before any hook runs
 _boards = None  # the boards check() last passed; None: every dependency counts
 
@@ -70,11 +73,12 @@ def _dep_clean(src):
   return status.returncode == 0 and not status.stdout
 
 
-def _checkout_borrowing(common, dst, pin, rel, src):
+def _checkout_borrowing(common, dst, pin, rel, src, fetch_in=None):
   """`dst` a checkout of `pin` borrowing the objects, shallow boundary included, of the repository at `common`:
   get_deps.py and a --depth 1 submodule fetch shallow, and git ignores clone --shared from a shallow repository,
   cloning only what its refs reach, so a pin fetched by SHA is missing. Its refs are copied too: the build embeds
-  the submodule's `git describe`, which a tagless copy would shorten."""
+  the submodule's `git describe`, which a tagless copy would shorten. A missing pin names its fetch in `fetch_in`
+  (default `rel`)."""
   shallow = os.path.isfile(os.path.join(common, 'shallow'))
   if os.path.islink(dst):  # a reused base's link: git init would reach the checkout it points at
     os.remove(dst)
@@ -93,12 +97,15 @@ def _checkout_borrowing(common, dst, pin, rel, src):
   if ret.returncode != 0:
     depth = '--depth 1 ' if shallow else ''  # --depth would make a full clone shallow, cutting its describe's tags
     sys.exit(f'Error: the base pins {rel} at {pin[:10]}, which {src} cannot give ({ret.stderr.strip()}): '
-             f'fetch it there (git -C {rel} fetch {depth}origin {pin})')
+             f'fetch it there (git -C {fetch_in or rel} fetch {depth}origin {pin})')
 
 
 def prepare_base(main_root, worktree):
   """Give the base worktree its submodules at the base's pins, each a checkout borrowing this checkout's objects
-  (git refuses a symlinked submodule path), so a submodule bump's own size change is in the diff; and
+  (git refuses a symlinked submodule path), so a submodule bump's own size change is in the diff; a base that still
+  pins lib/agentrc as a submodule (its .gitmodules lists it) gets it the same way from the git checkout of the
+  agentrc this process loaded, then copies the borrowed objects in (that checkout is outside the base's docker
+  mounts), while a later base pins none and its build loads no agentrc; and
   the dependency dirs its own get_deps.py lists: linked from this checkout's where that is a clean checkout
   of the base's pin, else a checkout of the base's pin borrowing its objects; one that is no git checkout is refused.
   A dependency neither mandatory nor of a port the base keeps a sized board in is linked as it is: no sized build
@@ -106,16 +113,20 @@ def prepare_base(main_root, worktree):
   if check_build.fcntl is None and not _has_build_dir(worktree):
     sys.exit('Error: the base\'s check_build.py predates --build-dir, and its --shared build needs a POSIX lock: '
              'diff against a base with --build-dir')
-  for rel in check_build.SUBMODULES:
+  for rel in (*check_build.SUBMODULES, LEGACY_AGENTRC):
     r = subprocess.run(['git', '-C', worktree, 'rev-parse', f'HEAD:{rel}'], capture_output=True, text=True)
     if r.returncode != 0:
       continue
-    pin, src, dst = r.stdout.strip(), os.path.join(main_root, rel), os.path.join(worktree, rel)
+    pin, dst = r.stdout.strip(), os.path.join(worktree, rel)
+    src = _agentrc_checkout() if rel == LEGACY_AGENTRC else os.path.join(main_root, rel)
     dep = _dep_checkout(src)
     if dep is None:
       sys.exit(f'Error: the base pins {rel} at {pin[:10]}, and {src} is no git checkout to give it: '
-               f'git submodule update --init {rel}')
-    _checkout_borrowing(dep[0], dst, pin, rel, src)
+               + (f'load agentrc from a git checkout ({check_build.agentrc().INSTALL})' if rel == LEGACY_AGENTRC
+                  else f'git submodule update --init {rel}'))
+    _checkout_borrowing(dep[0], dst, pin, rel, src, src if rel == LEGACY_AGENTRC else None)
+    if rel == LEGACY_AGENTRC:
+      _own_objects(dst, src)
   linked = []
   ports = None if _boards is None else {p.parent.parent.name for b in _boards
                                          for p in Path(worktree, 'ports').glob(f'*/boards/{b}')}
@@ -135,6 +146,26 @@ def prepare_base(main_root, worktree):
     else:
       _checkout_borrowing(dep[0], os.path.join(worktree, rel), pin, rel, src)
   engine.link_deps(main_root, worktree, linked)
+
+
+def _own_objects(dst, src):
+  """`dst` holding the objects it borrows from `src`, its alternates removed: the base's docker build mounts only the
+  checkout, its git dir and the build dir, and its `git describe --dirty` fails on a submodule whose borrowed objects
+  are not there. The shallow boundary and refs stay, so the submodule's describe is unchanged."""
+  ret = engine.run(['git', '-C', dst, 'repack', '-a', '-d', '-q'])
+  if ret.returncode != 0:
+    sys.exit(f'Error: {dst} cannot copy the objects it borrows from {src} ({ret.stderr.strip()}), '
+             'which the base\'s docker build does not mount')
+  os.remove(os.path.join(dst, '.git', 'objects', 'info', 'alternates'))
+
+
+def _agentrc_checkout():
+  """The directory the agentrc this process loaded comes from (the bootstrap's identity root): the installed one's
+  git checkout, CI's pin, or a staged copy, which is none."""
+  try:
+    return check_build.agentrc().identity()['root']
+  except ImportError as e:
+    sys.exit(f'Error: the base pins {LEGACY_AGENTRC}, and no agentrc is loaded to give it: {e}')
 
 
 def _remove_containers(mount):

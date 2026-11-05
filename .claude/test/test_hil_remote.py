@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 # The remote adapter (hil_remote.py) and its rig-side driver (hil_remote_driver.py) over agentrc's remote core, on a
-# local "rig": the core's own fake ssh and rsync (lib/agentrc tests/test_hil_remote_core.py) run every remote command
-# here under a clean environment, so the dev PC's hosted builds and their staging, the attempt, the detached launch,
-# the driver's checks of the staged files and rebuild of the checkout from git bundles, hil_ci.py's admission and
-# battery launch and the copy-back all run for real. The project is a temp superproject in a relocated worktree with
-# real submodules, an unpushed candidate lib/agentrc pin and a shallow get_deps dependency; its check_build.py,
-# hil_hosted.py and hil_test.py are stand-ins, or the real runner with only admission and the probe steps stubbed.
+# local "rig": the core's own fake ssh and rsync (agentrc's tests/test_hil_remote_core.py) run every remote command
+# here under a clean environment, so the dev PC's hosted builds and their staging, the staged agentrc, the attempt,
+# the detached launch, the driver's checks of the staged files, rebuild of the checkout from git bundles and placing
+# of the staged agentrc in it, hil_ci.py's admission and battery launch, its report pair prepared through the staged
+# agentrc, and the copy-back all run for real. The project is a temp superproject in a relocated worktree with real
+# submodules, an unpushed commit and a shallow get_deps dependency; its hil_hosted.py and hil_test.py are stand-ins,
+# or the real runner with only admission and the probe steps stubbed.
 # Plumbing only: a real ssh session's end and the rig are proved by a run on ci.lan.
 import contextlib
 import hashlib
@@ -34,13 +35,13 @@ import hil_remote as hr  # noqa: E402
 import hil_remote_driver as drv  # noqa: E402
 import hil_test as ht  # noqa: E402
 
-CHECK_PIN = hr.check_pin   # before Project patches it
-hr.provider()   # the tests' own core: main() checks the pin before it loads one
+hr.provider()   # the tests' own core, from the agentrc this process selects (agentrc.py)
+AGENTRC = hr.agentrc.helper().portable(hr.agentrc.identity())   # what a record built here binds
 
 
 def load_core_tests():
   spec = importlib.util.spec_from_file_location('agentrc_test_hil_remote_core',
-                                                ROOT / 'lib' / 'agentrc' / 'tests' / 'test_hil_remote_core.py')
+                                                Path(hr.agentrc.identity()['root']) / 'tests' / 'test_hil_remote_core.py')
   mod = importlib.util.module_from_spec(spec)
   spec.loader.exec_module(mod)
   return mod
@@ -65,21 +66,9 @@ ROSTER = {'boards': [
   {'name': ESP, 'uid': 'MAC', 'flasher': {'name': 'esptool', 'uid': 'X', 'args': '--chip esp32s3'},
    'tinyuf2': {'reentry': 'dfu-detach'}}]}
 
-# the build contract's module, loaded: the real check_build's lib/agentrc pin check
-# (FAKE_CHECK_BUILD) over this checkout
-CHECK_BUILD = r'''
-import importlib.util, os
-from pathlib import Path
-spec = importlib.util.spec_from_file_location('real_check_build', os.environ['FAKE_CHECK_BUILD'])
-real = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(real)
-real.ROOT = Path(__file__).resolve().parents[4]
-Fail, check_agentrc_pin = real.Fail, real.check_agentrc_pin
-'''
-
-# hil_hosted.py: run on the dev PC (`build`), it packs a record of the board and a file in DIR/<board>, ok unless
-# FAKE_BUILD=fail (a refusal) or array (a JSON line that is no result); imported on the rig (`admit`), it places the record in out/ and logs each admission to FAKE_ADMITTED,
-# refused when FAKE_ADMIT=refuse
+# hil_hosted.py: run on the dev PC (`build`), it packs a record of the board, binding the agentrc FAKE_AGENTRC, and a
+# file in DIR/<board>, ok unless FAKE_BUILD=fail (a refusal) or array (a JSON line that is no result); imported on the
+# rig (`admit`), it places the record in out/ and logs each admission to FAKE_ADMITTED, refused when FAKE_ADMIT=refuse
 HIL_HOSTED = r'''
 import json, os, sys, types
 from pathlib import Path
@@ -114,7 +103,7 @@ if __name__ == '__main__':
     print(json.dumps({'pass': False, 'error': 'check_build failed (exit 1): boom'}))
     sys.exit(2)
   (out / board / 'build').mkdir(parents=True)
-  (out / board / f'{board}.build.json').write_text(json.dumps({'pass': True, 'boards': [
+  (out / board / f'{board}.build.json').write_text(json.dumps({'pass': True, 'agentrc': json.loads(os.environ['FAKE_AGENTRC']), 'boards': [
     {'board': board, 'status': 'ok', 'firstError': '', 'buildDir': f'cmake-build/cmake-build-{board}'}]}))
   (out / board / 'build' / 'tinyuf2.hex').write_text(board)
   (out / board / 'provenance.json').write_text('{}')
@@ -122,7 +111,7 @@ if __name__ == '__main__':
 '''
 
 # `hil_test.py run` on the rig. It appends its argv and HIL_* environment to FAKE_ARGV, then either runs the real runner (from
-# FAKE_REAL_RUNNER, its lock in FAKE_LOCKS, admission and the probe steps stubbed; FAKE_BATTERY=die leaves the battery
+# FAKE_REAL_RUNNER over the checkout's staged agentrc, its lock in FAKE_LOCKS, admission and the probe steps stubbed; FAKE_BATTERY=die leaves the battery
 # to be killed, FAKE_CI_RACE starts a CI battery's marker just before the lock is taken) or prints a canned report:
 # FAKE_BATTERY pass, fail (after a write), die (no report), holder (stays the in-process cleanup holder) or unpublished
 # (a pass whose report the core could not publish: reportPath null, reportError). Before its report it sleeps
@@ -142,7 +131,7 @@ if os.environ.get('FAKE_REAL_RUNNER'):
   spec = importlib.util.spec_from_file_location('hil_test', os.environ['FAKE_REAL_RUNNER'])
   ht = importlib.util.module_from_spec(spec)
   spec.loader.exec_module(ht)
-  ht.check_lock_pin = lambda: None
+  ht.agentrc.ROOT = Path(__file__).resolve().parents[4]   # the checkout's staged agentrc, as its own runner selects it
   load = ht.load_helper
 
   def load_helper():
@@ -274,7 +263,7 @@ class Project(unittest.TestCase):
     env.update(PATH=f'{bindir}{os.pathsep}{os.environ["PATH"]}', GIT_CONFIG_GLOBAL=str(gitconfig), GIT_CONFIG_NOSYSTEM='1',
                FAKE_LOG=str(self.tmp / 'log.jsonl'), FAKE_HOME=str(self.home), FAKE_ARGV=str(self.tmp / 'argv.json'),
                FAKE_PID=str(self.tmp / 'battery.pid'), FAKE_ADMITTED=str(self.tmp / 'admitted.jsonl'),
-               FAKE_CHECK_BUILD=str(ROOT / '.claude' / 'skills' / 'build' / 'scripts' / 'check_build.py'))
+               FAKE_AGENTRC=json.dumps(AGENTRC))
     mock.patch.dict(os.environ, env, clear=True).start()
     self.addCleanup(mock.patch.stopall)
     self.make_project()
@@ -284,7 +273,6 @@ class Project(unittest.TestCase):
     mock.patch.object(hr, 'ROOT', self.wt).start()
     mock.patch.object(cb, 'ROOT', self.wt).start()
     mock.patch.object(hr, 'POLL', 0.05).start()
-    mock.patch.object(hr, 'check_pin').start()   # the real checkout's pin; check_pin is tested on the project's
     mock.patch.dict(hr.HOSTS, {'rig': {'hostname': socket.gethostname(), 'roster': 'test/hil/ci.json',
                                        'base': str(self.tmp / 'attempts'), 'ciStateRoot': str(self.state)}}).start()
     self.addCleanup(self.kill_left_sessions)
@@ -292,23 +280,20 @@ class Project(unittest.TestCase):
   def make_project(self):
     o = self.tmp / 'origins'
     self.dep = origin(o / 'dep', 'dep 1', 'dep 2')
-    for name in ('agentrc', 'tinyusb', 'uf2'):
-      origin(o / name, name)
-    core = 'skills/hil/scripts/hil_report_core.py'   # the driver prepares each report pair through it, as CI does
-    staged = (core, hr.run_report.HIL_LOAD, *hr.run_report.files_of(ROOT / 'lib' / 'agentrc' / core))
-    commit(o / 'agentrc', {rel: (ROOT / 'lib' / 'agentrc' / rel).read_text() for rel in staged}, 'report core')
+    origin(o / 'tinyusb', 'tinyusb 1', 'tinyusb')
+    origin(o / 'uf2', 'uf2')
     primary = self.tmp / 'primary'
     primary.mkdir()
     git(primary, 'init', '-q')
     scripts = '.claude/skills/hil-contract/scripts'
-    files = {'.gitignore': 'lib/mcu/\ncmake-build/\n__pycache__/\n.hil-remote/\n',
+    files = {'.gitignore': 'lib/mcu/\ncmake-build/\n__pycache__/\n.hil-remote/\nlib/agentrc\n/.agentrc/\n',
              f'{scripts}/hil_test.py': HIL_TEST, f'{scripts}/hil_hosted.py': HIL_HOSTED,
-             '.claude/skills/build/scripts/check_build.py': CHECK_BUILD,
-             'test/hil/ci.json': json.dumps(ROSTER), f'ports/lpc55/boards/{LPC}/board.h': 'lpc\n', f'ports/lpc55/boards/{OTHER}/board.h': 'lpc\n',
+             'test/hil/ci.json': json.dumps(ROSTER), 'test/hil/agentrc.json': (ROOT / 'test/hil/agentrc.json').read_text(), f'ports/lpc55/boards/{LPC}/board.h': 'lpc\n', f'ports/lpc55/boards/{OTHER}/board.h': 'lpc\n',
              'tools/get_deps.py': GET_DEPS % self.dep}
-    files.update({f'{scripts}/{n}': (SCRIPTS / n).read_text() for n in ('hil_ci.py', 'hil_run_report.py', 'hil_remote_driver.py')})
+    files.update({f'{scripts}/{n}': (SCRIPTS / n).read_text()
+                  for n in ('agentrc.py', 'hil_ci.py', 'hil_run_report.py', 'hil_remote_driver.py')})
     commit(primary, files, 'project')
-    for name in ('agentrc', 'tinyusb', 'uf2'):
+    for name in ('tinyusb', 'uf2'):
       git(primary, 'submodule', 'add', '-q', str(o / name), f'lib/{name}')
     git(primary, 'commit', '-q', '-m', 'submodules')
     self.wt = self.tmp / 'wt'
@@ -316,9 +301,7 @@ class Project(unittest.TestCase):
     git(self.wt, 'submodule', 'update', '--init', '-q')
     subprocess.run(['git', 'clone', '-q', '--depth', '1', f'file://{o / "dep"}', str(self.wt / 'lib/mcu/vendor/dep')],
                    check=True, capture_output=True, env=fixture_env())
-    self.pin = commit(self.wt / 'lib/agentrc', {'NEW': 'unpushed'}, 'candidate')
-    git(self.wt, 'add', 'lib/agentrc')
-    git(self.wt, 'commit', '-q', '-m', 'pin the candidate')
+    commit(self.wt, {'NEW': 'unpushed'}, 'unpushed')
     self.head = git(self.wt, 'rev-parse', 'HEAD')
 
   def kill_left_sessions(self):
@@ -381,41 +364,34 @@ class Refusals(Project):
     with mock.patch.object(hr.os, 'name', 'nt'):
       self.refused(text='Windows client is pending')
 
-  def test_lib_agentrc_off_its_pin_or_changed_is_refused(self):
-    check = CHECK_PIN   # check_build's check, on the project (cb.ROOT)
-    check()
-    for what, change, undo in (
-        ('a changed file', lambda: (self.wt / 'lib/agentrc/NEW').write_text('changed'),
-         lambda: git(self.wt / 'lib/agentrc', 'checkout', '-q', '--', 'NEW')),
-        ('an untracked file', lambda: (self.wt / 'lib/agentrc/stray').write_text('x'),
-         lambda: (self.wt / 'lib/agentrc/stray').unlink())):
-      with self.subTest(what):
-        change()
-        with self.assertRaisesRegex(hr.core.RemoteError, 'dirty at the pinned'):
-          check()
-        undo()
-    git(self.wt / 'lib/agentrc', 'checkout', '-q', 'HEAD~1')
-    with self.assertRaises(hr.core.RemoteError) as e:
-      check()
-    self.assertIn(f'HEAD pins {self.pin}: git submodule update --init lib/agentrc', e.exception.code)
-    git(self.wt, 'add', 'lib/agentrc')   # the pin change staged: submodule update would check that out
-    with self.assertRaisesRegex(hr.core.RemoteError, 'is staged: commit or unstage'):
-      check()
-
   def test_wait_and_collect_load_nothing_that_needs_fcntl(self):
-    # Windows has no fcntl: the pin check's check_build and every module the client imports must load without it
+    # Windows has no fcntl: the bootstrap, the core, check_build and every module the client imports load without it
     r = subprocess.run([sys.executable, '-c', "import sys; sys.modules['fcntl'] = None; import hil_remote; "
-                        "hil_remote.check_build(); print('ok')"], cwd=SCRIPTS, capture_output=True, text=True)
+                        "hil_remote.check_build(); hil_remote.agentrc.identity(); print('ok')"], cwd=SCRIPTS,
+                       capture_output=True, text=True)
     self.assertEqual(r.stdout.strip(), 'ok', r.stderr)
 
-  def test_no_provider_code_runs_before_its_pin_is_checked(self):
+  def test_no_provider_code_runs_without_a_usable_agentrc(self):
     r = subprocess.run([sys.executable, '-c', 'import hil_remote; print(hil_remote.core)'], cwd=SCRIPTS,
                        capture_output=True, text=True)
     self.assertEqual(r.stdout.strip(), 'None', r.stderr)
-    with mock.patch.object(hr, 'core', None), mock.patch.object(hr, 'load_core') as load, \
-         mock.patch.object(hr, 'check_pin', side_effect=lambda: hr.fail('lib/agentrc is at 0 or locally changed')):
-      self.refused('collect', 'r1', text='locally changed')
-    load.assert_not_called()
+    with mock.patch.object(hr, 'core', None), \
+         mock.patch.object(hr.agentrc, 'identity', side_effect=ImportError('no usable agentrc at /x')):
+      self.refused('collect', 'r1', text='error: agentrc: no usable agentrc at /x')
+
+  def test_a_record_binding_another_agentrc_is_refused_before_the_rig(self):
+    os.environ['FAKE_AGENTRC'] = json.dumps(dict(AGENTRC, commit='0' * 40))
+    self.refused(text=f'the HIL record of {LPC} does not bind the agentrc this run stages (it was built with agentrc '
+                      '000000000000')
+    os.environ['FAKE_AGENTRC'] = 'null'
+    self.refused(text='(it binds no agentrc identity): run again')
+
+  def test_an_agentrc_changed_since_load_is_never_staged(self):
+    first = hr.agentrc.identity()['files'][0]
+    with mock.patch.dict(hr.agentrc.identity()['sha256'], {first: '0' * 64}):
+      os.environ['FAKE_AGENTRC'] = json.dumps(hr.agentrc.helper().portable(hr.agentrc.identity()))   # built after it
+      self.refused(text=f'does not bind the agentrc this run stages '
+                        f'(agentrc {first} changed since this process loaded it)')
 
   def test_a_record_that_does_not_build_here_is_refused_before_the_rig(self):
     os.environ['FAKE_BUILD'] = 'fail'
@@ -429,7 +405,7 @@ class Refusals(Project):
       'a changed roster': lambda: roster.write_text(roster.read_text() + ' '),
       'an untracked file': lambda: (self.wt / 'stray').write_text('x'),
       'a dirty submodule': lambda: (self.wt / 'lib/uf2/README').write_text('changed'),
-      'a submodule off its pin': lambda: git(self.wt / 'lib/agentrc', 'checkout', '-q', 'HEAD~1'),
+      'a submodule off its pin': lambda: git(self.wt / 'lib/tinyusb', 'checkout', '-q', 'HEAD~1'),
       'a missing dependency': lambda: shutil.rmtree(self.wt / 'lib/mcu'),
       'a dependency off its pin': lambda: commit(self.wt, {'tools/get_deps.py': GET_DEPS % ('0' * 40)}, 'off pin'),
     }
@@ -453,11 +429,19 @@ class Attempt(Project):
     self.assertEqual((code, out['outcome'], out['pass'], out['collection']), (0, 'pass', True, 'complete'))
     src = self.attempt() / 'src'
     self.assertEqual(git(src, 'rev-parse', 'HEAD'), self.head)
-    self.assertEqual(git(src / 'lib/agentrc', 'rev-parse', 'HEAD'), self.pin, 'the unpushed candidate pin')
+    self.assertEqual(git(src, 'show', 'HEAD:NEW'), 'unpushed')
+    # the agentrc this process loaded, staged and moved into the checkout, where its bootstrap selects it
+    self.assertFalse((self.attempt() / '.agentrc').exists())
+    staged = hr.agentrc.helper().read_staged(src / '.agentrc', hr.agentrc.SCRIPTS)
+    self.assertEqual(hr.agentrc.helper().portable(staged), AGENTRC)
+    self.assertEqual(json.loads((self.wt / hr.RUNS / 'r1' / 'manifest.json').read_text())['agentrc'],
+                     {f'.agentrc/{rel}': hashlib.sha256((src / '.agentrc' / rel).read_bytes()).hexdigest()
+                      for rel in ('manifest.json', *staged['files'])})
+    self.assertEqual(git(src, 'status', '--porcelain'), '', 'ignored: the committed identity stays clean')
     dep = src / 'lib/mcu/vendor/dep'
     self.assertEqual((git(dep, 'rev-parse', 'HEAD'), git(dep, 'rev-parse', '--is-shallow-repository')), (self.dep, 'true'))
     git(dep, 'fsck', '--no-dangling')
-    for repo in (src, *(src / f'lib/{n}' for n in ('agentrc', 'tinyusb', 'uf2')), dep):
+    for repo in (src, *(src / f'lib/{n}' for n in ('tinyusb', 'uf2')), dep):
       self.assertTrue((repo / '.git').is_dir(), f'{repo}: a checkout of its own, no pointer file')
       self.assertEqual(subprocess.run(['git', '-C', str(repo), 'config', '--local', '--get-regexp', 'remote'],
                                       capture_output=True, env=fixture_env()).stdout, b'')
@@ -739,6 +723,23 @@ class Attempt(Project):
         self.assertFalse((self.attempt(run_id) / 'src').exists(), 'refused before the checkout')
     self.assertEqual(self.admissions(), [])
 
+  def test_a_staged_agentrc_the_manifest_did_not_freeze_is_refused_before_hil_ci_loads(self):
+    stage = hr.core.stage_tree
+    rel = f'.agentrc/{hr.agentrc.identity()["files"][0]}'
+    for run_id, change in (('r1', lambda d: (d / '.agentrc' / 'extra.py').write_bytes(b'x')),
+                           ('r2', lambda d: (d / rel).write_bytes(b'other'))):
+      def tampered(tree, src, dest='.'):
+        stage(tree, src, dest)
+        change(Path(tree.dir))
+      with self.subTest(run_id), mock.patch.object(hr.core, 'stage_tree', tampered), \
+           mock.patch.object(hr.core, 'verify_remote', return_value=[]):   # past the transfer check: the driver's own
+        code, out = self.run_(run_id=run_id)
+        self.assertEqual((code, out['outcome']), (hr.REFUSED, 'refused'))
+        self.assertIn('the staged agentrc is not the one the manifest froze', out['detail'])
+        self.assertTrue((self.attempt(run_id) / 'src' / '.agentrc').is_dir(), 'moved in after the checkout')
+    self.assertEqual(self.admissions(), [])
+    self.assertEqual(self.batteries(), [])
+
   def test_a_battery_without_a_report_is_a_blocker(self):
     os.environ['FAKE_BATTERY'] = 'die'
     code, out = self.run_()
@@ -862,15 +863,14 @@ class Attempt(Project):
 
 @needs_rig
 class RealRunner(Project):
-  """The driver over the real `hil_test.py run` and the pinned lock helper: the protected battery lock as every project
+  """The driver over the real `hil_test.py run` and agentrc's lock helper: the protected battery lock as every project
   sees it."""
 
   def setUp(self):
     super().setUp()
     os.environ.update(FAKE_REAL_RUNNER=str(SCRIPTS / 'hil_test.py'), FAKE_LOCKS=str(self.locks),
                       FAKE_FACTS=json.dumps(LPC_FACTS))
-    with mock.patch.object(ht, 'check_lock_pin'):
-      self.helper = ht.load_helper()
+    self.helper = ht.load_helper()
     mock.patch.object(self.helper, 'BOARD_LOCK_DIR', str(self.locks)).start()
 
   def test_a_clean_battery_releases_the_board(self):
@@ -935,6 +935,9 @@ class Hosts(unittest.TestCase):
     self.assertEqual(Path(out[1]), Path(hr.HOSTS['ci.lan']['ciStateRoot']) / '7-1')
 
 
+STAGED = {'.agentrc/manifest.json': '0' * 64}   # a well-formed manifest's `agentrc`
+
+
 class Driver(unittest.TestCase):
   def test_the_rigs_hil_environment_never_reaches_a_runner(self):
     env = {k: v for k, v in os.environ.items() if not k.startswith(('HIL_', 'GIT_'))}
@@ -942,7 +945,7 @@ class Driver(unittest.TestCase):
     with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, env, clear=True):
       m = {'schema': drv.SCHEMA, 'version': drv.VERSION, 'runId': 'r', 'head': '0' * 40, 'hostname': 'not-this-host',
            'repos': [], 'submodules': {}, 'roster': {'path': 'r.json'}, 'driver': {'path': 'd.py'}, 'boards': [],
-           'lockWait': 0, 'failAt': None, 'ciStateRoot': d, 'hosted': {}}
+           'lockWait': 0, 'failAt': None, 'ciStateRoot': d, 'hosted': {}, 'agentrc': STAGED}
       (Path(d) / 'manifest.json').write_text(json.dumps(m))
       with mock.patch.object(drv.Path, 'cwd', return_value=Path(d)):
         self.assertEqual(drv.main(['manifest.json']), drv.REFUSED)
@@ -967,7 +970,7 @@ class Driver(unittest.TestCase):
            'repos': [{'path': '.', 'commit': head, 'bundle': 'bundles/0.bundle', 'shallow': [],
                       'sha256': hashlib.sha256((attempt / 'bundles/0.bundle').read_bytes()).hexdigest()}],
            'submodules': {}, 'roster': {'path': 'r.json', 'sha256': ''}, 'driver': {'path': 'd.py', 'sha256': ''},
-           'boards': [], 'lockWait': 0, 'failAt': None, 'ciStateRoot': str(d), 'hosted': {}}
+           'boards': [], 'lockWait': 0, 'failAt': None, 'ciStateRoot': str(d), 'hosted': {}, 'agentrc': STAGED}
       (attempt / 'manifest.json').write_text(json.dumps(m))
       with mock.patch.dict(os.environ, dict(env, GIT_DIR=str(d / 'victim/.git'), GIT_WORK_TREE=str(d / 'victim')), clear=True), \
            mock.patch.object(drv.Path, 'cwd', return_value=attempt):
@@ -979,13 +982,53 @@ class Driver(unittest.TestCase):
   def test_a_malformed_manifest_is_refused(self):
     with tempfile.TemporaryDirectory() as d:
       bad = {'schema': drv.SCHEMA, 'version': drv.VERSION}
-      fields = {**bad, **{k: [] for k in drv.FIELDS}, 'hosted': {}}
-      for m in (bad, dict(bad, version=1), {**fields, 'repos': [{'path': '../x', 'commit': '0' * 40, 'shallow': []}]},
+      fields = {**bad, **{k: [] for k in drv.FIELDS}, 'hosted': {}, 'agentrc': STAGED}
+      (Path(d) / 'manifest.json').write_text(json.dumps(fields))
+      drv.load_manifest(Path(d) / 'manifest.json')
+      for m in (bad, dict(bad, version=2), {**fields, 'repos': [{'path': '../x', 'commit': '0' * 40, 'shallow': []}]},
                 *({**fields, 'hosted': h} for h in ([], {'hosted/b/../x': '0' * 64}, {'out/b/x': '0' * 64},
-                                                    {'hosted/x': '0' * 64}, {'hosted/b/x': 'f00'}))):
-        (Path(d) / 'manifest.json').write_text(json.dumps(m))
-        with self.assertRaises(drv.Refused):
-          drv.load_manifest(Path(d) / 'manifest.json')
+                                                    {'hosted/x': '0' * 64}, {'hosted/b/x': 'f00'})),
+                *({**fields, 'agentrc': a} for a in ([], {}, {'.agentrc/x.py': '0' * 64},
+                                                     {**STAGED, '.agentrc/../x': '0' * 64},
+                                                     {**STAGED, '.agentrc/./x': '0' * 64},
+                                                     {**STAGED, 'hosted/b/x': '0' * 64}, {**STAGED, '.agentrc': '0' * 64},
+                                                     {'.agentrc/manifest.json': 'f00'}))):
+        with self.subTest(m):
+          (Path(d) / 'manifest.json').write_text(json.dumps(m))
+          with self.assertRaises(drv.Refused):
+            drv.load_manifest(Path(d) / 'manifest.json')
+
+  def test_the_staged_agentrc_moves_into_the_checkout_and_must_be_exactly_the_manifests(self):
+    files = {'.agentrc/manifest.json': b'{}', '.agentrc/skills/hil/scripts/hil_load.py': b'x'}
+    m = {'agentrc': {rel: hashlib.sha256(data).hexdigest() for rel, data in files.items()}}
+
+    def stage(attempt):
+      for rel, data in files.items():
+        (attempt / rel).parent.mkdir(parents=True, exist_ok=True)
+        (attempt / rel).write_bytes(data)
+    for what, change, refusal in (
+        ('as staged', lambda a, s: None, None),
+        ('nothing staged', lambda a, s: shutil.rmtree(a / '.agentrc'), 'no staged .agentrc directory'),
+        ('a linked stage', lambda a, s: [(a / '.agentrc').rename(a / 'elsewhere'), (a / '.agentrc').symlink_to('elsewhere')],
+         'no staged .agentrc directory'),
+        ('one in the checkout', lambda a, s: (s / '.agentrc').mkdir(), 'a checkout never holds a staged agentrc'),
+        ('an extra file', lambda a, s: (a / '.agentrc/extra.py').write_bytes(b'x'), 'extra.py'),
+        ('a changed file', lambda a, s: (a / '.agentrc/manifest.json').write_bytes(b'[]'), 'manifest.json'),
+        ('a missing file', lambda a, s: (a / '.agentrc/skills/hil/scripts/hil_load.py').unlink(), 'hil_load.py'),
+        ('a link in place of a file', lambda a, s: (a / '.agentrc/manifest.json').unlink() or
+         (a / '.agentrc/manifest.json').symlink_to(a / '.agentrc/skills/hil/scripts/hil_load.py'), 'manifest.json')):
+      with self.subTest(what), tempfile.TemporaryDirectory() as d:
+        attempt, src = Path(d), Path(d) / 'src'
+        src.mkdir()
+        stage(attempt)
+        change(attempt, src)
+        if refusal:
+          with self.assertRaisesRegex(drv.Refused, refusal):
+            drv.place_agentrc(attempt, src, m)
+        else:
+          drv.place_agentrc(attempt, src, m)
+          self.assertFalse((attempt / '.agentrc').exists())
+          self.assertEqual({rel: (src / rel).read_bytes() for rel in files}, files)
 
   def test_the_staged_hosted_builds_must_be_exactly_the_manifests(self):
     with tempfile.TemporaryDirectory() as d:

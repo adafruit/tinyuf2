@@ -15,3 +15,5 @@ __pycache__/
 *.pyc
 .hil-remote/
 /test/hil/local.json
+lib/agentrc
+/.agentrc/

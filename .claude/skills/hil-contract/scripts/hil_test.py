@@ -39,6 +39,7 @@ ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT / '.claude' / 'skills' / 'build' / 'scripts'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True   # nothing the runner imports may write into a checkout it binds
+import agentrc  # noqa: E402   where every agentrc script below loads from
 import board_facts as bf  # noqa: E402
 import check_build as cb  # noqa: E402
 import hil_ci  # noqa: E402   CI's state directory: unfinished()
@@ -77,13 +78,12 @@ REENTRY = {'jlink': ('retained-register',), 'stlink': ('retained-register',), 'o
            'esp': ('dfu-detach',)}
 REENTRY_METHODS = sorted({m for v in REENTRY.values() for m in v})
 PROTECTED = {'hil_test.py', 'farm_check'}   # hil_lock.PROTECTED_REASONS, checked at load
-# the board-lock helper is the submodule's at its pinned commit, never an operator's installed agentrc
-AGENTRC = 'lib/agentrc'
-LOCK_HELPER = ROOT / AGENTRC / 'skills' / 'hil' / 'scripts' / 'hil_lock.py'
+# agentrc-relative: the board-lock helper, from the agentrc the bootstrap selects (agentrc.py)
+LOCK_HELPER = 'skills/hil/scripts/hil_lock.py'
 # the flash provider beside it (agentrc `hil` Flashers): every install, probe session and reset runs through it
-FLASH_PROVIDER = LOCK_HELPER.with_name('hil_flash.py')
-OPENOCD_ESP = LOCK_HELPER.with_name('hil_openocd_esp.py')   # an Espressif board's JTAG route (tinyuf2.routes)
-BOARD_REGISTRY = LOCK_HELPER.with_name('hil_boards.py')   # each roster board's flasher, by its probe
+FLASH_PROVIDER = 'skills/hil/scripts/hil_flash.py'
+OPENOCD_ESP = 'skills/hil/scripts/hil_openocd_esp.py'   # an Espressif board's JTAG route (tinyuf2.routes)
+BOARD_REGISTRY = 'skills/hil/scripts/hil_boards.py'   # each roster board's flasher, by its probe
 OPENOCD_TIMEOUT = 300   # s for one openocd_esp flash: every segment programmed, verified and read back
 CMSIS_DAP_TIMEOUT = 300   # s for one CMSIS-DAP program at the max32665 cfg's 100 kHz (untimed on the rig)
 HOLDER_ROLE = 'cleanup-holder'
@@ -96,10 +96,10 @@ PROBE_TIMEOUT, USB_TIMEOUT, QUIET_TIME, KILL_WAIT, UDEV_TIMEOUT = 120, 20, 3, 5,
 JLINK_RETRY_DELAY = 2
 FLUSH_GONE = 3   # `flush`'s exit when its open found the device gone
 ESP_BAUD, ESP_TIMEOUT = 921600, 300
-# the provider's children an Espressif battery spawns, at the pin (agentrc `hil`); admission refuses without them
-ESP_SESSION = LOCK_HELPER.with_name('esptool_session.py')
-USB_DFU = LOCK_HELPER.with_name('usb_dfu.py')
-REPORT_CORE = LOCK_HELPER.with_name('hil_report_core.py')   # the report document (agentrc `hil` Reporting)
+# the provider's children an Espressif battery spawns (agentrc `hil`, in agentrc.SCRIPTS): admission requires them
+ESP_SESSION = 'skills/hil/scripts/esptool_session.py'
+USB_DFU = 'skills/hil/scripts/usb_dfu.py'
+REPORT_CORE = 'skills/hil/scripts/hil_report_core.py'   # the report document (agentrc `hil` Reporting)
 NONCE_MAGIC, NONCE_BLOCK = b'TUF2NONC', 256   # apps/dfu_runtime/src/dfu_runtime.h
 JLINK_IF, JLINK_SPEED = 'SWD', '4000'
 STM32_PROGRAMMER_CLI = 'STM32_Programmer_CLI'
@@ -713,30 +713,29 @@ OPENOCD_API = ('admit', 'find_openocd', 'usj_tty', 'usj_node', 'session_state', 
 OBSERVE = []    # and its bounded USB observation (usb_observe())
 REGISTRY = []   # and agentrc's board registry (board_registry())
 OBSERVE_API = ('usb_devices', 'usb_node_serial', 'udev_serial', 'read_sysfs', 'enumeration_id')
-USB_OBSERVE = LOCK_HELPER.with_name('usb_observe.py')
+USB_OBSERVE = 'skills/hil/scripts/usb_observe.py'
 CORE = []       # and the report core (report_core())
 CORE_API = ('BodySchema', 'READABLE', 'ReportError', 'read_document', 'start_attempt', 'make_meta', 'publish', 'table',
             'roster_identity')
 
 
-def load_pinned(path, name, api, what='flash provider'):
-  """A lib/agentrc module at the commit HEAD pins, loaded by path, never an installed agentrc's; Refused when the
-  submodule is off its pin or the module lacks what the runner calls."""
-  check_lock_pin()
+def load_agentrc(rel, name, api, what='flash provider'):
+  """The agentrc module `rel` (agentrc-relative) as `name`, from the agentrc the bootstrap selects; Refused when none
+  is usable or the module lacks what the runner calls."""
   try:
-    mod = run_report.load_agentrc(path, name)
+    mod = agentrc.load(rel, name)
   except Exception as e:
-    raise Refused(f'{what} {path} failed to load: {e}')
+    raise Refused(f'{what} {rel} failed to load: {e}')
   missing = [n for n in api if not hasattr(mod, n)]
   if missing:
-    raise Refused(f'{what} {path}: lacks {missing}; recheck this contract')
+    raise Refused(f'{what} {rel}: lacks {missing}; recheck this contract')
   return mod
 
 
 def provider():
   """hil_flash.py, once per process."""
   if not PROVIDER:
-    mod = load_pinned(FLASH_PROVIDER, 'agentrc_hil_flash', PROVIDER_API)
+    mod = load_agentrc(FLASH_PROVIDER, 'agentrc_hil_flash', PROVIDER_API)
     if (getattr(mod, 'SCB_AIRCR', None), getattr(mod, 'AIRCR_SYSRESETREQ', None)) != (SCB_AIRCR, AIRCR_SYSRESETREQ):
       raise Refused(f'flash provider {FLASH_PROVIDER} writes another SYSRESETREQ; recheck this contract')
     PROVIDER.append(mod)
@@ -746,28 +745,28 @@ def provider():
 def openocd_esp():
   """hil_openocd_esp.py, once per process, only for a board with a route through it."""
   if not OPENOCD:
-    OPENOCD.append(load_pinned(OPENOCD_ESP, 'agentrc_hil_openocd_esp', OPENOCD_API))
+    OPENOCD.append(load_agentrc(OPENOCD_ESP, 'agentrc_hil_openocd_esp', OPENOCD_API))
   return OPENOCD[0]
 
 
 def usb_observe():
   """usb_observe.py, once per process: a probe found by serial without a read that can hang on a wedged peer."""
   if not OBSERVE:
-    OBSERVE.append(load_pinned(USB_OBSERVE, 'agentrc_usb_observe', OBSERVE_API, 'USB observation'))
+    OBSERVE.append(load_agentrc(USB_OBSERVE, 'agentrc_usb_observe', OBSERVE_API, 'USB observation'))
   return OBSERVE[0]
 
 
 def board_registry():
   """hil_boards.py, once per process."""
   if not REGISTRY:
-    REGISTRY.append(load_pinned(BOARD_REGISTRY, 'agentrc_hil_boards', ('resolve', 'lock_name', 'LOCK_NAME_RE'), 'board registry'))
+    REGISTRY.append(load_agentrc(BOARD_REGISTRY, 'agentrc_hil_boards', ('resolve', 'lock_name', 'LOCK_NAME_RE'), 'board registry'))
   return REGISTRY[0]
 
 
 def report_core():
   """hil_report_core.py, once per process: every report this runner writes or a recovery reads goes through it."""
   if not CORE:
-    CORE.append(load_pinned(REPORT_CORE, 'agentrc_hil_report_core', CORE_API, 'report core'))
+    CORE.append(load_agentrc(REPORT_CORE, 'agentrc_hil_report_core', CORE_API, 'report core'))
   return CORE[0]
 
 
@@ -1156,6 +1155,15 @@ def esp_port(uid):
     raise StepFail(str(e))
 
 
+def child_path(rel):
+  """A helper child's path mid-run: an agentrc closure changed since the preflight fails the step, not the run."""
+  try:
+    return agentrc.path_of(rel)
+  except (ImportError, OSError) as e:   # OSError: a closure file unreadable or unlinked while drift hashes it
+    raise StepFail(f'{Path(rel).name} unavailable: the agentrc closure changed mid-run, rerun once the agentrc '
+                   f'checkout is stable: {e}')
+
+
 def child_json(cmd, log, timeout, what):
   """The JSON last line of a helper child (esptool_session.py, usb_dfu.py, fat-read); a missing line, a non-zero
   exit or an `ok` other than true fails the step with the helper's `reason` (else `error`) and the output tail."""
@@ -1177,9 +1185,9 @@ class Esptool:
     refuse_pending(self.dir, self.b.get('pendingMark'))
     spec = self.dir / f'esp-{time.monotonic_ns()}.json'
     spec.write_text(json.dumps(ops))
-    return child_json([esptool_runtime()['python'], '-B', ESP_SESSION, '--port', esp_port(self.b['probe']), '--chip',
-                       self.b['device'], '--baud', str(ESP_BAUD), '--after', after, spec], self.log, ESP_TIMEOUT,
-                      'esptool session')
+    return child_json([esptool_runtime()['python'], '-B', child_path(ESP_SESSION), '--port',
+                       esp_port(self.b['probe']), '--chip', self.b['device'], '--baud', str(ESP_BAUD), '--after', after,
+                       spec], self.log, ESP_TIMEOUT, 'esptool session')
 
 
 def preserved_ops(regions):
@@ -1623,18 +1631,24 @@ def fat_read_main(args):
 
 # ------------------------------------------------------------------ locks
 
-def check_lock_pin():
-  """Refuse unless lib/agentrc is checked out, clean, at the commit HEAD pins (check_build's check)."""
-  if not LOCK_HELPER.is_file():
-    raise Refused(f'lock helper {LOCK_HELPER} is not checked out: git submodule update --init {AGENTRC}')
+def check_agentrc():
+  """Refuse unless the agentrc the bootstrap selects (agentrc.py: the rig's staged copy, CI's pin, else the installed
+  one) is usable: its identity taken, every closure file present."""
   try:
-    cb.check_agentrc_pin()
-  except cb.Fail as e:
-    raise Refused(str(e))
+    agentrc.identity()
+  except ImportError as e:
+    raise Refused(f'agentrc: {e}')
+
+
+def agentrc_mismatch(recorded):
+  """Why a record's agentrc (check_build's `agentrc`, its portable identity) is not the one this process loads, ''
+  when it is (a closure file changed since the load included); Refused when none is usable."""
+  check_agentrc()
+  return agentrc.helper().mismatch(recorded, agentrc.identity())
 
 
 def load_helper():
-  mod = load_pinned(LOCK_HELPER, 'hil_lock', (), 'lock helper')
+  mod = load_agentrc(LOCK_HELPER, 'hil_lock', (), 'lock helper')
   errors = [getattr(mod, e, None) for e in ('LockUnavailable', 'RecoveryBlocked', 'ReleaseRefused')]
   if getattr(mod, 'PROTECTED_REASONS', None) != PROTECTED or getattr(mod, 'CI_REASON', None) != 'hil_test.py' or \
      getattr(mod, 'CLEANUP_ROLE', None) != HOLDER_ROLE or not isinstance(getattr(mod, 'HOLD_KIND', None), str) or \
@@ -2121,6 +2135,10 @@ def read_record_row(record_path, board):
           or state.get('inputsDirtiedByBuild')
     if bad:
       raise Refused(f'build inputs are not clean: {bad} (commit, or rebuild from a clean checkout)')
+  why = agentrc_mismatch(rec.get('agentrc'))
+  if why:
+    raise Refused(f'{record_path}: {why}: rebuild it with the agentrc this run loads '
+                  f'(check_build.py --board {board["name"]} --shared --hil-config <roster>)')
   return rec, row, cb.ROOT / row['buildDir'], want
 
 
@@ -2993,6 +3011,7 @@ class EspBattery(Battery):
     if self.b['flasher'] == 'openocd_esp':
       return self.jtag(files)
     tty = esp_port(self.b['probe'])   # no tty fails here, untouched; any session may leave the chip in its ROM loader
+    child_path(ESP_SESSION)   # so does a changed agentrc closure, before any session
     self.touched = True
     if self.preserved is None:
       keep = self.b['regions']['preserved']
@@ -3024,6 +3043,7 @@ class EspBattery(Battery):
     left running is cleanup pending, and nothing follows it."""
     refuse_openocd(self.b['flasher'])   # before the security and snapshot session, as the provider before its own
     tty = esp_port(self.b['probe'])
+    child_path(ESP_SESSION)   # a changed agentrc closure fails here, untouched
     self.touched = True
     keep = self.b['regions']['preserved']
     # hard-reset: a chip left in the ROM loader faults openocd's flash stub after its reset init (PMP Load access fault);
@@ -3074,8 +3094,9 @@ class EspBattery(Battery):
 
   def usb_dfu(self, op):
     f = self.f
-    return child_json([sys.executable, '-B', USB_DFU, '--vid', hex(f['appVid']), '--pid', hex(f['appPid']),
-                       '--serial', self.b['uid'], '--path', self.usb_path, op], self.log, USB_TIMEOUT, f'usb_dfu.py {op}')
+    return child_json([sys.executable, '-B', child_path(USB_DFU), '--vid', hex(f['appVid']), '--pid',
+                       hex(f['appPid']), '--serial', self.b['uid'], '--path', self.usb_path, op], self.log, USB_TIMEOUT,
+                      f'usb_dfu.py {op}')
 
   def app(self):
     return usb_device(self.f['appVid'], self.f['appPid'], self.b['uid'])
@@ -3214,10 +3235,11 @@ def check_pyusb():
 
 
 def check_children():
-  missing = [p.name for p in (ESP_SESSION, USB_DFU) if not p.is_file()]
-  if missing:
-    raise Refused(f'{AGENTRC} at its pin has no {", ".join(missing)} in {LOCK_HELPER.parent}: an Espressif battery '
-                  "needs the `hil` provider's children")
+  try:
+    for rel in (ESP_SESSION, USB_DFU):
+      agentrc.path_of(rel)
+  except ImportError as e:
+    raise Refused(f"an Espressif battery needs the `hil` provider's children: {e}")
 
 
 def check_flasher(board):
@@ -3579,9 +3601,9 @@ def main(argv=None):
     os.close(args.ack)
     keep_held(fh)
   if args.cmd == 'keep-build':
-    if any('receipt' in x for x in args.survivors):   # its runner checked the pin and loaded it before this exec
+    if any('receipt' in x for x in args.survivors):   # its runner loaded it through the bootstrap before this exec
       with contextlib.suppress(Exception):   # else session_state loads it, or reads every session unreadable
-        OPENOCD.append(run_report.load_agentrc(OPENOCD_ESP, 'agentrc_hil_openocd_esp'))
+        OPENOCD.append(agentrc.load(OPENOCD_ESP, 'agentrc_hil_openocd_esp'))
     os.write(args.ack, b'ok')
     os.close(args.ack)
     keep_build(args.survivors)
