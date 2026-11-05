@@ -36,14 +36,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True   # as hil_test.py: nothing CI imports writes into the checkout it builds
+import agentrc  # noqa: E402   where the report core loads from
 import hil_run_report as run_report  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[4]
-CHECK_BUILD = ROOT / '.claude' / 'skills' / 'build' / 'scripts' / 'check_build.py'
 HIL_TEST = Path(__file__).resolve().with_name('hil_test.py')
-# the pinned report core, loaded only once check_pin() passed
-REPORT_CORE = ROOT / 'lib' / 'agentrc' / 'skills' / 'hil' / 'scripts' / 'hil_report_core.py'
-REPORT_NOTICE = REPORT_CORE.with_name('hil_report_notice.py')   # the unavailable notice, loadable when the core is not
+# agentrc-relative: the report core, loaded only once the bootstrap took agentrc's identity
+REPORT_CORE = 'skills/hil/scripts/hil_report_core.py'
+REPORT_NOTICE = 'skills/hil/scripts/hil_report_notice.py'   # the unavailable notice, loadable when the core is not
 UNPREPARED = 'report not prepared'
 # `upload` when no view is unsafe; anything else, or no file, and the workflow uploads no hil_report.md at all
 UPLOAD_VIEWS = 'upload-views'
@@ -164,12 +164,6 @@ def battery(board, roster, record, where, lock_wait, fail_at=None, ci_state_root
   return launch(cmd + [roster], where, board)
 
 
-def check_pin():
-  """check_build's lib/agentrc pin check, raising its Fail: a battery that ran never proved the pin (its own check
-  may have refused it)."""
-  run_report.load(CHECK_BUILD, 'tinyuf2_check_build').check_agentrc_pin()
-
-
 def run_dirs(where):
   """The `run-*` entries under `where`, sorted; OSError when it cannot be listed, which pathlib's glob would hide."""
   with os.scandir(where) as entries:
@@ -180,11 +174,11 @@ def prepare(code, where, board):
   """Each run dir's report pair under `where` made consistent before the artifact exposes it (the core's
   prepare_pair: the Markdown regenerated from the JSON, else an explicit unavailable notice, never a stale view), and
   the shared run rules' verdict of its JSON (run_report.shared_run), kept beside the native one."""
-  pinned = False
+  usable = False
   try:
-    check_pin()   # before any provider code runs
-    pinned = True
-    core = run_report.load_agentrc(REPORT_CORE)
+    agentrc.identity()   # before any provider code runs: a battery that ran never proved it usable
+    usable = True
+    core = agentrc.load(REPORT_CORE, 'agentrc_hil_report_core')
     schema = run_report.schema(core)
     readings = [core.prepare_pair(d, schema) for d in run_dirs(where) if d.is_dir()]
     reading = readings[-1] if readings else core.Reading('missing', None, None, f'no run directory under {where}')
@@ -192,26 +186,26 @@ def prepare(code, where, board):
     return {'sharedVerdict': shared['verdict'], 'sharedDetail': shared['detail']}
   except Exception as e:   # the battery's exit, markers and any holder stand: only this board's shared view is lost
     why = f'{UNPREPARED}: {type(e).__name__}: {e}'
-    unsafe = withhold(where, why, pinned)
+    unsafe = withhold(where, why, usable)
     return {'sharedVerdict': 'blocker', 'sharedDetail': why, **({'unsafeArtifacts': unsafe} if unsafe else {})}
 
 
-def withhold(where, why, pinned):
+def withhold(where, why, usable):
   """Each run dir's Markdown under `where` made agentrc's unavailable notice (hil_report_notice.write_unavailable, under
-  the core's writer lock, the view the run left kept below it only as labelled legacy text) once lib/agentrc was
-  proven at its pin (`pinned`): no provider code runs before. Returns the views left as they were, which no upload or
-  copy-back may expose (summary.json `unsafeArtifacts`): every view when the notice cannot be written (no proven pin,
-  the writer fails to load, another writer holds the view, an unwritable dir), `where` itself when it cannot be
-  listed."""
+  the core's writer lock, the view the run left kept below it only as labelled legacy text) once the selected agentrc
+  was proven usable (`usable`): no provider code runs before. Returns the views left as they were, which no upload or
+  copy-back may expose (summary.json `unsafeArtifacts`): every view when the notice cannot be written (no usable
+  agentrc, the writer fails to load, another writer holds the view, an unwritable dir), `where` itself when it cannot
+  be listed."""
   try:
     runs = run_dirs(where)
   except OSError:
     return [str(where)]
   views = [str(d / f'{run_report.STEM}.md') for d in runs]
   try:
-    if not pinned:
+    if not usable:
       return views
-    notice = run_report.load_agentrc(REPORT_NOTICE, 'tinyuf2_hil_report_notice')
+    notice = agentrc.load(REPORT_NOTICE, 'tinyuf2_hil_report_notice')
   except Exception:
     return views
   unsafe = []

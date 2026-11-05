@@ -34,8 +34,9 @@ CMAKE_BOARDS = {
   'stm32h743nucleo': ('110018000951383432343236',
                       {'name': 'stlink', 'uid': '004C00343137510F39383538', 'device': 'stm32h743zi'}),
 }
-with mock.patch.object(ht, 'check_lock_pin'), contextlib.suppress(ht.Refused):   # before setUp moves cb.ROOT
+with contextlib.suppress(ht.Refused):   # before setUp moves cb.ROOT
   ht.board_registry()
+AGENTRC = ht.agentrc.helper().portable(ht.agentrc.identity())   # what check_build's record binds
 
 
 def entry(name, **tinyuf2):   # its flasher is the registry's, bridge BRIDGE
@@ -79,7 +80,7 @@ class Hosted(unittest.TestCase):
            'flash': {'target': 'flash', 'flasher': {'name': 'esptool', 'uid': BRIDGE, 'device': 'esp32s3'},
                      'command': 'cd /home/runner/work/x && cmake ...', 'inputs': list(cb.FLASH['esptool'][1]), 'defines': []}}
     return {'pass': True, 'input': dict(NOW, missingInputs=[], depsOffPin=[], dirtyInputs=[], inputsDirtiedByBuild=[]),
-            'boards': [row], 'idf': dict(IDF), 'built': []}
+            'agentrc': AGENTRC, 'boards': [row], 'idf': dict(IDF), 'built': []}
 
   def cmake_tree(self, board, compiler=ARM_GCC):
     """A --shared cmake build dir of `board` (CMAKE_BOARDS) and its passing record."""
@@ -98,7 +99,7 @@ class Hosted(unittest.TestCase):
                      'command': 'cd /home/runner/work/x && JLinkExe ...', 'inputs': list(inputs), 'defines': []},
            'compiler': {'path': '/opt/arm/bin/arm-none-eabi-gcc', 'version': compiler}}
     return {'pass': True, 'input': dict(NOW, missingInputs=[], depsOffPin=[], dirtyInputs=[], inputsDirtiedByBuild=[]),
-            'boards': [row], 'built': []}
+            'agentrc': AGENTRC, 'boards': [row], 'built': []}
 
   def build(self, board=BOARD, rec=None):
     rec = rec or (self.idf_tree(board) if board in (BOARD, OTHER) else self.cmake_tree(board))
@@ -162,6 +163,9 @@ class Hosted(unittest.TestCase):
       'a recorded hash': (None, lambda rec: rec['boards'][0]['sha256'].update({'sdkconfig': '0' * 64}), 'exactly'),
       'a file the record does not hash': (None, lambda rec: rec['boards'][0]['sha256'].pop('sdkconfig'), 'exactly'),
       'another flasher': (None, lambda rec: rec['boards'][0]['flash']['flasher'].update(uid='other'), 'not bound'),
+      'no agentrc (record_row)': (None, lambda rec: rec.pop('agentrc'), 'binds no agentrc identity'),
+      'another agentrc (record_row)': (None, lambda rec: rec['agentrc'].update(commit='0' * 40),
+                                       'built with agentrc 000000000000'),
     }
     for what, (here, record, err) in cases.items():
       with self.subTest(what):

@@ -118,9 +118,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # agentrc at its pin: the HIL record binds its identity
       - name: Fetch the build inputs
         run: |
-          git submodule update --init --depth 1 lib/tinyusb lib/uf2 lib/agentrc
+          git submodule update --init --depth 1 lib/tinyusb lib/uf2
+          python3 .claude/skills/hil-contract/scripts/agentrc.py fetch
           python3 tools/get_deps.py -b "$BOARD"
 
       # hil_hosted.py admits a cmake record only from the release this installs (setup_toolchain's)
@@ -188,10 +190,11 @@ jobs:
         with:
           persist-credentials: false
 
-      # what admission compares each record's identity with
+      # what admission compares each record's identity with, agentrc's at its pin included
       - name: Fetch the build inputs
         run: |
-          git submodule update --init --depth 1 lib/tinyusb lib/uf2 lib/agentrc
+          git submodule update --init --depth 1 lib/tinyusb lib/uf2
+          python3 .claude/skills/hil-contract/scripts/agentrc.py fetch
           python3 tools/get_deps.py $(printf -- '-b %s ' $BOARDS)
 
       # every leg's <board>/ into one dir; a leg that failed in this attempt may have left an earlier attempt's build

@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: MIT
 """The rig side of hil_remote.py (SKILL.md Execution, Remote): launched detached in its attempt directory by
 agentrc's remote core, it checks the staged bundles and hosted builds against the manifest, rebuilds the committed
-checkout from the bundles and verifies it, then per board admits the HIL record the dev PC built (hosted/<board>,
-hil_hosted.py admit, as CI admits its hosted runner's) and runs one battery as hil_ci.py does (its report pair
-prepared before the copy-back), and writes result.json, the attempt's outcome. The rig builds nothing.
+checkout from the bundles and verifies it, moves the staged agentrc (the dev PC's, .agentrc/) into it, where its
+bootstrap selects it, and checks it against the manifest, then per board admits the HIL record the dev PC built
+(hosted/<board>, hil_hosted.py admit, as CI admits its hosted runner's) and runs one battery as hil_ci.py does (its
+report pair prepared before the copy-back), and writes result.json, the attempt's outcome. The rig builds nothing.
 
   python3 driver/hil_remote_driver.py manifest.json        (cwd: the attempt directory)
 
@@ -25,19 +26,20 @@ import sys
 import time
 from pathlib import Path
 
-SCHEMA, VERSION = 'tinyuf2-hil-remote', 2
+SCHEMA, VERSION = 'tinyuf2-hil-remote', 3
 RESULT = 'result.json'          # written once, when the driver ends
 PROGRESS = 'progress.json'      # the rows so far, after each board: what a driver that died had reached
 CHECKOUT = 'src'
 OUT = 'out'
 HOSTED = 'hosted'   # the dev PC's hil_hosted.py builds, one <board> each, every file in the manifest's `hosted`
+STAGED = '.agentrc'   # the dev PC's agentrc (agentrc_source.stage), every file in the manifest's `agentrc`
 REFUSED = 3
 SCRIPTS = '.claude/skills/hil-contract/scripts'
 REPO_PATH = re.compile(r'[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*')
 SHA = re.compile(r'[0-9a-f]{40}')
 SHA256 = re.compile(r'[0-9a-f]{64}')
 FIELDS = ('runId', 'head', 'hostname', 'repos', 'submodules', 'roster', 'driver', 'boards', 'lockWait', 'failAt',
-          'ciStateRoot', 'hosted')
+          'ciStateRoot', 'hosted', 'agentrc')
 
 
 class Refused(Exception):
@@ -90,6 +92,12 @@ def load_manifest(path):
       and '..' not in rel.split('/') and isinstance(digest, str) and SHA256.fullmatch(digest)
       for rel, digest in hosted.items()):
     raise Refused(f'manifest {path}: hosted is not {{"{HOSTED}/<board>/<file>": sha256}}')
+  staged = m['agentrc']
+  if not isinstance(staged, dict) or f'{STAGED}/manifest.json' not in staged or not all(
+      isinstance(rel, str) and REPO_PATH.fullmatch(rel) and rel.split('/')[0] == STAGED and len(rel.split('/')) > 1
+      and not {'.', '..'} & set(rel.split('/')) and isinstance(digest, str) and SHA256.fullmatch(digest)
+      for rel, digest in staged.items()):
+    raise Refused(f'manifest {path}: agentrc is not {{"{STAGED}/<file>": sha256}} with its {STAGED}/manifest.json')
   return m
 
 
@@ -101,24 +109,44 @@ def check_packages(attempt, m):
     raise Refused(f'staged packages missing or changed since the manifest froze them: {", ".join(bad)}')
 
 
-def check_hosted(attempt, m):
-  """The staged hosted builds are exactly the files the manifest froze, each with its hash: a file it does not name,
-  a link or anything not a regular file refuses, before any of them is read."""
-  root = attempt / HOSTED
+def unlike(base, top, want):
+  """The `base`-relative paths under base/top that are not exactly `want` ({path: sha256}): a file it does not name or
+  lacks, a link or anything not a regular file, or a hash that differs; top alone when it is no directory of its own."""
+  root = base / top
   if root.is_symlink() or root.exists() and not root.is_dir():   # os.walk follows a linked root
-    raise Refused(f'staged hosted builds are not the ones the manifest froze: {HOSTED} is not a directory of its own')
+    return [f'{top} is not a directory of its own']
   found, odd = set(), []
   for d, dirs, files in os.walk(root):
     for name in dirs + files:
       p = Path(d, name)
       if p.is_symlink() or not (p.is_dir() or p.is_file()):
-        odd.append(p.relative_to(attempt).as_posix())
+        odd.append(p.relative_to(base).as_posix())
     dirs[:] = [x for x in dirs if not os.path.islink(os.path.join(d, x))]
-    found |= {Path(d, f).relative_to(attempt).as_posix() for f in files} - {*odd}   # unhashed: open() blocks on a FIFO
-  bad = sorted({*odd, *(found ^ set(m['hosted'])),
-                *(rel for rel in found & set(m['hosted']) if sha256(attempt / rel) != m['hosted'][rel])})
+    found |= {Path(d, f).relative_to(base).as_posix() for f in files} - {*odd}   # unhashed: open() blocks on a FIFO
+  return sorted({*odd, *(found ^ set(want)), *(rel for rel in found & set(want) if sha256(base / rel) != want[rel])})
+
+
+def check_hosted(attempt, m):
+  """The staged hosted builds are exactly the files the manifest froze, each with its hash: a file it does not name,
+  a link or anything not a regular file refuses, before any of them is read."""
+  bad = unlike(attempt, HOSTED, m['hosted'])
   if bad:
     raise Refused(f'staged hosted builds are not the ones the manifest froze: {", ".join(bad[:5])}')
+
+
+def place_agentrc(attempt, src, m):
+  """The staged agentrc moved into the rebuilt checkout as src/.agentrc, where its bootstrap selects it (agentrc.py,
+  which checks it against its own manifest at every load), and checked there against this manifest: exactly its
+  files, each a regular file with its hash. Before anything that loads agentrc runs."""
+  staged, dest = attempt / STAGED, src / STAGED
+  if staged.is_symlink() or not staged.is_dir():
+    raise Refused(f'the attempt holds no staged {STAGED} directory')
+  if os.path.lexists(dest):
+    raise Refused(f'{dest} exists in the rebuilt checkout: a checkout never holds a staged agentrc of its own')
+  os.rename(staged, dest)
+  bad = unlike(src, STAGED, m['agentrc'])
+  if bad:
+    raise Refused(f'the staged agentrc is not the one the manifest froze: {", ".join(bad[:5])}')
 
 
 def rebuild(attempt, m):
@@ -212,6 +240,7 @@ def drive(attempt, m, driver, result):
   why = verify(src, m, driver)
   if why:
     raise Refused(f'the rebuilt checkout is not the committed identity: {"; ".join(why)}')
+  place_agentrc(attempt, src, m)
   result['checkout'] = str(src)
   ci_root = state_root(m)
   sys.dont_write_bytecode = True   # nothing imported from the checkout may write into it
