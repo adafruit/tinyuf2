@@ -1089,13 +1089,13 @@ class EspFake(Tmp):
 
 def assert_closure_change_leaves_board_untouched(case):
   """No esptool session ran: install fails the step untouched, and cleanup restores nothing."""
-  before = case.flash.read_bytes()
+  before, files = case.flash.read_bytes(), case.files()
   with mock.patch.object(ht.agentrc, 'path_of', side_effect=ImportError('closure changed')):
     bat = ht.EspBattery(case.board, case.facts, case.work)
     with case.assertRaisesRegex(ht.StepFail, 'esptool_session.py unavailable: .*rerun .*closure changed'):
-      bat.install(case.files())
+      bat.install(files)
     row = {'board': case.board['name'], 'firmware': {'version': 'v'}}
-    code = ht.clean_up(row, 1, bat, None, case.board, None, case.files())
+    code = ht.clean_up(row, 1, bat, None, case.board, None, files)
   case.assertEqual((bat.touched, code, row['cleanup']['state'], row['cleanup']['pass']), (False, 1, 'untouched', True))
   case.assertEqual(case.flash.read_bytes(), before)
 
