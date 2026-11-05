@@ -1268,9 +1268,7 @@ class EspFlash(EspFake):
 
   def test_a_child_whose_agentrc_closure_changed_mid_run_fails_the_step(self):
     for err in (ImportError('closure changed'), PermissionError(13, 'Permission denied')):
-      def changed(rel, err=err):
-        raise err
-      with self.subTest(type(err).__name__), mock.patch.object(ht.agentrc, 'path_of', changed):
+      with self.subTest(type(err).__name__), mock.patch.object(ht.agentrc, 'path_of', side_effect=err):
         with self.assertRaisesRegex(ht.StepFail, f'esptool_session.py unavailable: .*rerun .*{re.escape(str(err))}'):
           ht.Esptool(self.board, self.work, self.work / 'hil.log').run([], 'no-reset')
         with self.assertRaisesRegex(ht.StepFail, f'usb_dfu.py unavailable: .*rerun .*{re.escape(str(err))}'):
@@ -5050,14 +5048,12 @@ class Main(Tmp):
       bat.touched = True
       ht.EspBattery.usb_dfu(bat, 'detach')
     for err in (ImportError('closure changed'), FileNotFoundError(2, 'No such file or directory')):
-      def changed(rel, err=err):
-        raise err
       out = io.StringIO()
       with self.subTest(type(err).__name__), contextlib.redirect_stdout(out), \
            mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / type(err).__name__), \
            mock.patch.object(ht, 'load_helper', lambda: None), mock.patch.object(ht, 'manual_holder', lambda *a: None), \
            mock.patch.object(ht, 'admit_record', lambda *a: ({}, {'version': 'v'})), \
-           mock.patch.object(ht.Battery, 'install', install), mock.patch.object(ht.agentrc, 'path_of', changed):
+           mock.patch.object(ht.Battery, 'install', install), mock.patch.object(ht.agentrc, 'path_of', side_effect=err):
         code = ht.main(['install', '-b', BOARD, '--build-record', 'r.json', '--under-hold', 'x', str(cfg)])
         report = json.loads(out.getvalue().splitlines()[-1])
         self.assertEqual((code, report['exitCode'], report['pass']), (4, 4, False))
