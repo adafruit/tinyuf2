@@ -3011,6 +3011,7 @@ class EspBattery(Battery):
     if self.b['flasher'] == 'openocd_esp':
       return self.jtag(files)
     tty = esp_port(self.b['probe'])   # no tty fails here, untouched; any session may leave the chip in its ROM loader
+    child_path(ESP_SESSION)   # so does a changed agentrc closure, before any session
     self.touched = True
     if self.preserved is None:
       keep = self.b['regions']['preserved']
@@ -3042,6 +3043,7 @@ class EspBattery(Battery):
     left running is cleanup pending, and nothing follows it."""
     refuse_openocd(self.b['flasher'])   # before the security and snapshot session, as the provider before its own
     tty = esp_port(self.b['probe'])
+    child_path(ESP_SESSION)   # a changed agentrc closure fails here, untouched
     self.touched = True
     keep = self.b['regions']['preserved']
     # hard-reset: a chip left in the ROM loader faults openocd's flash stub after its reset init (PMP Load access fault);

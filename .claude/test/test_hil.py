@@ -1087,6 +1087,19 @@ class EspFake(Tmp):
                       'sha256': {rel: ht.sha256(root / rel) for rel in ht.cb.FLASH['esptool'][1]}}}
 
 
+def assert_closure_change_leaves_board_untouched(case):
+  """No esptool session ran: install fails the step untouched, and cleanup restores nothing."""
+  before = case.flash.read_bytes()
+  with mock.patch.object(ht.agentrc, 'path_of', side_effect=ImportError('closure changed')):
+    bat = ht.EspBattery(case.board, case.facts, case.work)
+    with case.assertRaisesRegex(ht.StepFail, 'esptool_session.py unavailable: .*rerun .*closure changed'):
+      bat.install(case.files())
+    row = {'board': case.board['name'], 'firmware': {'version': 'v'}}
+    code = ht.clean_up(row, 1, bat, None, case.board, None, case.files())
+  case.assertEqual((bat.touched, code, row['cleanup']['state'], row['cleanup']['pass']), (False, 1, 'untouched', True))
+  case.assertEqual(case.flash.read_bytes(), before)
+
+
 class EspFlash(EspFake):
   """The esptool install."""
 
@@ -1273,6 +1286,9 @@ class EspFlash(EspFake):
           ht.Esptool(self.board, self.work, self.work / 'hil.log').run([], 'no-reset')
         with self.assertRaisesRegex(ht.StepFail, f'usb_dfu.py unavailable: .*rerun .*{re.escape(str(err))}'):
           ht.EspBattery(self.board, self.facts, self.work).usb_dfu('detach')
+
+  def test_an_install_whose_agentrc_closure_changed_leaves_the_board_untouched(self):
+    assert_closure_change_leaves_board_untouched(self)
 
   def test_a_malformed_snapshot_is_refused_not_coerced(self):
     good = {'nvs': [0x9000, 0xe000]}, {'nvs': 'ab' * 16}
@@ -1577,6 +1593,10 @@ class JtagRoute(EspFake):
   def install(self):
     self.bat = ht.EspBattery(self.board, self.facts, self.work)
     return self.bat.install(self.files())
+
+  def test_a_jtag_install_whose_agentrc_closure_changed_leaves_the_board_untouched(self):
+    assert_closure_change_leaves_board_untouched(self)
+    self.assertEqual(self.events(), [])
 
   def test_security_and_snapshot_then_jtag_program_and_read_back_then_esptool_preservation_check(self):
     before = self.flash.read_bytes()
