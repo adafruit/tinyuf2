@@ -51,6 +51,7 @@ REPRESENTATIVES = {
   'lpc55': ['lpcxpresso55s69'],
   'maxim': ['max32666fthr'],
   'mimxrt10xx': ['imxrt1064_evk', 'imxrt1170_evk'],
+  'samd51': ['intech_grid'],
   'stm32f3': ['stm32f303disco'],
   'stm32f4': ['stm32f411ve_discovery', 'feather_stm32f405_express'],
   'stm32h5': ['stm32h563_nucleo'],

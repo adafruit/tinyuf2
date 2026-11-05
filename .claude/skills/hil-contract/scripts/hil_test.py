@@ -62,11 +62,14 @@ import hil_run_report as run_report  # noqa: E402
 # 0x1FF00000 stays outside, and its option bytes are registers only.
 # MAX32665/6: 1 MiB internal flash at 0x10000000, two 512 KiB blocks (MAX32665/MAX32666 UG Rev 3, 3.3.1); the
 # information block at 0x10800000 stays outside.
+# ATSAMD51J19: 512 KiB internal flash at 0 (DS60001507N Table 1-2 p18, Figure 8-1 p48); the NVM user page at
+# 0x00804000 stays outside.
 FLASH_LIMITS = {'LPC55S69_M33_0': (0, 0x9D800), 'MIMXRT1062xxx6A': (0x60000000, 0x60800000),
                 'MIMXRT1011DAE5A': (0x60000000, 0x60800000), 'MIMXRT1064xxx6A': (0x70000000, 0x70400000),
                 'stm32f303vc': (0x08000000, 0x08040000), 'stm32f407vg': (0x08000000, 0x08100000),
                 'stm32f411ve': (0x08000000, 0x08080000), 'stm32h563zi': (0x08000000, 0x08200000),
-                'stm32h743zi': (0x08000000, 0x08200000), 'max32665': (0x10000000, 0x10100000)}
+                'stm32h743zi': (0x08000000, 0x08200000), 'max32665': (0x10000000, 0x10100000),
+                'ATSAMD51J19': (0, 0x80000)}
 # by a board's kind, its firmware and battery: a J-Link, ST-LINK or openocd Cortex-M board, or an Espressif one whatever
 # transport installs it (board['flasher'])
 STEPS = {'jlink': ('install', 'dfu', 'copy', 'app-ran', 'reenter')}
