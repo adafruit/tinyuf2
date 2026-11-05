@@ -204,7 +204,7 @@ class Hosted(unittest.TestCase):
       'idf not an object': (name, json.dumps(dict(rec, idf='docker')).encode()),
       'a row without its build dir': (name, json.dumps(dict(rec, boards=[{k: v for k, v in rec['boards'][0].items()
                                                                           if k != 'buildDir'}])).encode()),
-      'a record nested too deep': (name, b'[' * 100000),
+      'a record nested too deep': (name, b'[' * 100000),   # RecursionError before Python 3.14, JSONDecodeError on it
       'a provenance nested too deep': (hh.PROVENANCE, b'[' * 100000),
     }
     for what, (rel, data) in cases.items():
@@ -214,7 +214,8 @@ class Hosted(unittest.TestCase):
         (artifact / rel).write_bytes(data)
         record, ok, why = hil_ci.hosted_record(BOARD, str(self.roster), self.out, self.hosted)
         self.assertEqual((record, ok), (self.out / name, False))
-        self.assertRegex(why, '^hosted build refused: .*(its checks stopped on|no readable provenance.json)')
+        self.assertRegex(why, '^hosted build refused: .*'
+                              '(its checks stopped on|cannot read build record|no readable provenance.json)')
         with mock.patch.object(sys, 'stdout', new_callable=io.StringIO) as out:
           self.assertEqual(hh.main(['admit', '--artifact', str(artifact), '--board', BOARD, '--roster',
                                     str(self.roster), '--out', str(self.out)]), 2)
