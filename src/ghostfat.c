@@ -497,6 +497,9 @@ int uf2_write_block (uint32_t block_no, uint8_t *data, WriteState *state) {
 
   if ( !is_uf2_block(bl) ) return -1;
 
+  // the file is complete and its reset pending: another file's blocks would write over it
+  if ( state->numBlocks && state->numWritten >= state->numBlocks ) return -1;
+
   if (bl->familyID == BOARD_UF2_FAMILY_ID) {
     // generic family ID
     board_flash_write(bl->targetAddr, bl->data, bl->payloadSize);
