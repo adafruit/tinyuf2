@@ -1266,6 +1266,15 @@ class EspFlash(EspFake):
     with self.assertRaisesRegex(ht.Refused, 'this checkout preserves'):
       ht.report_snapshot(json.loads(json.dumps(row)), {'nvs': (0x9000, 0xe000)})
 
+  def test_a_child_whose_agentrc_closure_changed_mid_run_fails_the_step(self):
+    def changed(rel):
+      raise ImportError('closure changed')
+    with mock.patch.object(ht.agentrc, 'path_of', changed):
+      with self.assertRaisesRegex(ht.StepFail, 'esptool_session.py unavailable: closure changed'):
+        ht.Esptool(self.board, self.work, self.work / 'hil.log').run([], 'no-reset')
+      with self.assertRaisesRegex(ht.StepFail, 'usb_dfu.py unavailable: closure changed'):
+        ht.EspBattery(self.board, self.facts, self.work).usb_dfu('detach')
+
   def test_a_malformed_snapshot_is_refused_not_coerced(self):
     good = {'nvs': [0x9000, 0xe000]}, {'nvs': 'ab' * 16}
     cases = {'empty': ({}, {}), 'zero length': ({'nvs': [0x9000, 0x9000]}, good[1]),
@@ -5032,6 +5041,25 @@ class Main(Tmp):
            mock.patch.object(ht, 'manual_holder', lambda *a: None), \
            mock.patch.object(ht, 'admit_record', lambda *a: ({}, {'version': 'v'})), mock.patch.object(ht.Battery, 'install', fail):
         self.assertEqual(ht.main(['install', '-b', BOARD, '--build-record', 'r.json', '--under-hold', 'x', str(cfg)]), want)
+
+  def test_an_agentrc_closure_changed_mid_install_still_reports_and_keeps_the_hold(self):
+    cfg = roster(self.tmp, tinyuf2={'reentry': None})
+
+    def install(bat, files):
+      bat.touched = True
+      ht.child_path(ht.USB_DFU)
+
+    def changed(rel):
+      raise ImportError('closure changed')
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out), mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / 'b'), \
+         mock.patch.object(ht, 'load_helper', lambda: None), mock.patch.object(ht, 'manual_holder', lambda *a: None), \
+         mock.patch.object(ht, 'admit_record', lambda *a: ({}, {'version': 'v'})), \
+         mock.patch.object(ht.Battery, 'install', install), mock.patch.object(ht.agentrc, 'path_of', changed):
+      code = ht.main(['install', '-b', BOARD, '--build-record', 'r.json', '--under-hold', 'x', str(cfg)])
+    report = json.loads(out.getvalue().splitlines()[-1])
+    self.assertEqual((code, report['exitCode'], report['pass']), (4, 4, False))
+    self.assertIn('usb_dfu.py unavailable: closure changed', report['error'])
 
   def test_a_restore_that_fails_after_touching_the_board_is_exit_4(self):
     cfg = roster(self.tmp, tinyuf2={'reentry': None})

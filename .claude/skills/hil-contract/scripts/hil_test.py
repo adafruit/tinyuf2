@@ -1155,6 +1155,14 @@ def esp_port(uid):
     raise StepFail(str(e))
 
 
+def child_path(rel):
+  """A helper child's path mid-run: an agentrc closure changed since the preflight fails the step, not the run."""
+  try:
+    return agentrc.path_of(rel)
+  except ImportError as e:
+    raise StepFail(f'{Path(rel).name} unavailable: {e}')
+
+
 def child_json(cmd, log, timeout, what):
   """The JSON last line of a helper child (esptool_session.py, usb_dfu.py, fat-read); a missing line, a non-zero
   exit or an `ok` other than true fails the step with the helper's `reason` (else `error`) and the output tail."""
@@ -1176,7 +1184,7 @@ class Esptool:
     refuse_pending(self.dir, self.b.get('pendingMark'))
     spec = self.dir / f'esp-{time.monotonic_ns()}.json'
     spec.write_text(json.dumps(ops))
-    return child_json([esptool_runtime()['python'], '-B', agentrc.path_of(ESP_SESSION), '--port',
+    return child_json([esptool_runtime()['python'], '-B', child_path(ESP_SESSION), '--port',
                        esp_port(self.b['probe']), '--chip', self.b['device'], '--baud', str(ESP_BAUD), '--after', after,
                        spec], self.log, ESP_TIMEOUT, 'esptool session')
 
@@ -3083,7 +3091,7 @@ class EspBattery(Battery):
 
   def usb_dfu(self, op):
     f = self.f
-    return child_json([sys.executable, '-B', agentrc.path_of(USB_DFU), '--vid', hex(f['appVid']), '--pid',
+    return child_json([sys.executable, '-B', child_path(USB_DFU), '--vid', hex(f['appVid']), '--pid',
                        hex(f['appPid']), '--serial', self.b['uid'], '--path', self.usb_path, op], self.log, USB_TIMEOUT,
                       f'usb_dfu.py {op}')
 
