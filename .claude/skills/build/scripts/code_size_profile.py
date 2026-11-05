@@ -103,8 +103,9 @@ def _checkout_borrowing(common, dst, pin, rel, src, fetch_in=None):
 def prepare_base(main_root, worktree):
   """Give the base worktree its submodules at the base's pins, each a checkout borrowing this checkout's objects
   (git refuses a symlinked submodule path), so a submodule bump's own size change is in the diff; a base that still
-  pins lib/agentrc as a submodule (its .gitmodules lists it) gets it the same way, borrowing from the git checkout
-  of the agentrc this process loaded, while a later base pins none and its build loads no agentrc; and
+  pins lib/agentrc as a submodule (its .gitmodules lists it) gets it the same way from the git checkout of the
+  agentrc this process loaded, then copies the borrowed objects in (that checkout is outside the base's docker
+  mounts), while a later base pins none and its build loads no agentrc; and
   the dependency dirs its own get_deps.py lists: linked from this checkout's where that is a clean checkout
   of the base's pin, else a checkout of the base's pin borrowing its objects; one that is no git checkout is refused.
   A dependency neither mandatory nor of a port the base keeps a sized board in is linked as it is: no sized build
@@ -124,6 +125,8 @@ def prepare_base(main_root, worktree):
                + (f'load agentrc from a git checkout ({check_build.agentrc().INSTALL})' if rel == LEGACY_AGENTRC
                   else f'git submodule update --init {rel}'))
     _checkout_borrowing(dep[0], dst, pin, rel, src, src if rel == LEGACY_AGENTRC else None)
+    if rel == LEGACY_AGENTRC:
+      _own_objects(dst, src)
   linked = []
   ports = None if _boards is None else {p.parent.parent.name for b in _boards
                                          for p in Path(worktree, 'ports').glob(f'*/boards/{b}')}
@@ -143,6 +146,17 @@ def prepare_base(main_root, worktree):
     else:
       _checkout_borrowing(dep[0], os.path.join(worktree, rel), pin, rel, src)
   engine.link_deps(main_root, worktree, linked)
+
+
+def _own_objects(dst, src):
+  """`dst` holding the objects it borrows from `src`, its alternates removed: the base's docker build mounts only the
+  checkout, its git dir and the build dir, and its `git describe --dirty` fails on a submodule whose borrowed objects
+  are not there. The shallow boundary and refs stay, so the submodule's describe is unchanged."""
+  ret = engine.run(['git', '-C', dst, 'repack', '-a', '-d', '-q'])
+  if ret.returncode != 0:
+    sys.exit(f'Error: {dst} cannot copy the objects it borrows from {src} ({ret.stderr.strip()}), '
+             'which the base\'s docker build does not mount')
+  os.remove(os.path.join(dst, '.git', 'objects', 'info', 'alternates'))
 
 
 def _agentrc_checkout():

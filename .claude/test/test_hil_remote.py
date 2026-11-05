@@ -1009,7 +1009,7 @@ class Driver(unittest.TestCase):
     for what, change, refusal in (
         ('as staged', lambda a, s: None, None),
         ('nothing staged', lambda a, s: shutil.rmtree(a / '.agentrc'), 'no staged .agentrc directory'),
-        ('a linked stage', lambda a, s: (a / '.agentrc').rename(a / 'elsewhere') or (a / '.agentrc').symlink_to('elsewhere'),
+        ('a linked stage', lambda a, s: [(a / '.agentrc').rename(a / 'elsewhere'), (a / '.agentrc').symlink_to('elsewhere')],
          'no staged .agentrc directory'),
         ('one in the checkout', lambda a, s: (s / '.agentrc').mkdir(), 'a checkout never holds a staged agentrc'),
         ('an extra file', lambda a, s: (a / '.agentrc/extra.py').write_bytes(b'x'), 'extra.py'),

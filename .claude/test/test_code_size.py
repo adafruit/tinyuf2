@@ -251,9 +251,11 @@ class PrepareBase(unittest.TestCase):
            mock.patch.object(prof, '_dep_checkout', side_effect=lambda src: (src + '/.git', 'f' * 40)), \
            mock.patch.object(prof, '_agentrc_checkout', return_value='/agentrc'), \
            mock.patch.object(prof, '_checkout_borrowing') as borrow, \
+           mock.patch.object(prof, '_own_objects') as own, \
            mock.patch.object(prof, 'engine', engine):
         prof.prepare_base(main, wt)
       engine.link_deps.assert_called_once_with(main, wt, ['lib/mcu/st', 'lib/absent'])
+      self.owned = [c.args for c in own.call_args_list]
       return main, wt, [c.args for c in borrow.call_args_list]
 
   def test_each_submodule_is_checked_out_at_the_bases_pin_borrowing_its_objects_and_its_get_deps_rows_are_linked(self):
@@ -269,7 +271,9 @@ class PrepareBase(unittest.TestCase):
     self.assertEqual(borrowed[-1], ('/agentrc/.git', os.path.join(wt, 'lib/agentrc'), 'a' * 40, 'lib/agentrc',
                                     '/agentrc', '/agentrc'))
     self.assertEqual(len(borrowed), len(pins) + 1)
+    self.assertEqual(self.owned, [(os.path.join(wt, 'lib/agentrc'), '/agentrc')])   # the submodules' own git dir is mounted
     self.assertEqual(len(self.prepare(pins)[2]), len(pins))   # migrated: lib/agentrc is no submodule of the base
+    self.assertEqual(self.owned, [])
 
   def test_a_base_needing_shared_is_refused_without_posix_locks(self):
     for text, refused in (('an older contract', True), ('--build-dir', False)):
@@ -482,6 +486,12 @@ class PrepareBaseSubmodules(unittest.TestCase):
     self.assertEqual((git('-C', str(legacy / 'lib/agentrc'), 'rev-parse', 'HEAD'),
                       (legacy / 'lib/agentrc/README').read_text()), (old, 'old'))
     self.assertEqual(git('-C', str(agentrc), 'status', '--porcelain'), '')
+    # the base's docker build does not mount the loaded agentrc: its describe --dirty needs none of its objects
+    self.assertFalse((legacy / 'lib/agentrc/.git/objects/info/alternates').exists())
+    agentrc.rename(self.tmp / 'agentrc-away')
+    self.assertEqual(git('-C', str(legacy / 'lib/agentrc'), 'rev-parse', 'HEAD'), old)
+    self.assertEqual(git('-C', str(legacy / 'lib/agentrc'), 'status', '--porcelain'), '')
+    git('-C', str(legacy), 'describe', '--dirty', '--always', '--tags')
     self.prepare()   # the base before it pins no lib/agentrc: nothing gives it one
     self.assertFalse((self.wt / 'lib/agentrc').exists())
 
