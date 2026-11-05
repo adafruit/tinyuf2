@@ -1159,8 +1159,9 @@ def child_path(rel):
   """A helper child's path mid-run: an agentrc closure changed since the preflight fails the step, not the run."""
   try:
     return agentrc.path_of(rel)
-  except ImportError as e:
-    raise StepFail(f'{Path(rel).name} unavailable: {e}')
+  except (ImportError, OSError) as e:   # OSError: a closure file unreadable or unlinked while drift hashes it
+    raise StepFail(f'{Path(rel).name} unavailable: the agentrc closure changed mid-run, rerun once the agentrc '
+                   f'checkout is stable: {e}')
 
 
 def child_json(cmd, log, timeout, what):

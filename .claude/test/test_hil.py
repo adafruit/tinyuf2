@@ -1267,13 +1267,14 @@ class EspFlash(EspFake):
       ht.report_snapshot(json.loads(json.dumps(row)), {'nvs': (0x9000, 0xe000)})
 
   def test_a_child_whose_agentrc_closure_changed_mid_run_fails_the_step(self):
-    def changed(rel):
-      raise ImportError('closure changed')
-    with mock.patch.object(ht.agentrc, 'path_of', changed):
-      with self.assertRaisesRegex(ht.StepFail, 'esptool_session.py unavailable: closure changed'):
-        ht.Esptool(self.board, self.work, self.work / 'hil.log').run([], 'no-reset')
-      with self.assertRaisesRegex(ht.StepFail, 'usb_dfu.py unavailable: closure changed'):
-        ht.EspBattery(self.board, self.facts, self.work).usb_dfu('detach')
+    for err in (ImportError('closure changed'), PermissionError(13, 'Permission denied')):
+      def changed(rel, err=err):
+        raise err
+      with self.subTest(type(err).__name__), mock.patch.object(ht.agentrc, 'path_of', changed):
+        with self.assertRaisesRegex(ht.StepFail, f'esptool_session.py unavailable: .*rerun .*{re.escape(str(err))}'):
+          ht.Esptool(self.board, self.work, self.work / 'hil.log').run([], 'no-reset')
+        with self.assertRaisesRegex(ht.StepFail, f'usb_dfu.py unavailable: .*rerun .*{re.escape(str(err))}'):
+          ht.EspBattery(self.board, self.facts, self.work).usb_dfu('detach')
 
   def test_a_malformed_snapshot_is_refused_not_coerced(self):
     good = {'nvs': [0x9000, 0xe000]}, {'nvs': 'ab' * 16}
@@ -5045,21 +5046,22 @@ class Main(Tmp):
   def test_an_agentrc_closure_changed_mid_install_still_reports_and_keeps_the_hold(self):
     cfg = roster(self.tmp, tinyuf2={'reentry': None})
 
-    def install(bat, files):
+    def install(bat, files):   # a real child call site, reached with main()'s own battery
       bat.touched = True
-      ht.child_path(ht.USB_DFU)
-
-    def changed(rel):
-      raise ImportError('closure changed')
-    out = io.StringIO()
-    with contextlib.redirect_stdout(out), mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / 'b'), \
-         mock.patch.object(ht, 'load_helper', lambda: None), mock.patch.object(ht, 'manual_holder', lambda *a: None), \
-         mock.patch.object(ht, 'admit_record', lambda *a: ({}, {'version': 'v'})), \
-         mock.patch.object(ht.Battery, 'install', install), mock.patch.object(ht.agentrc, 'path_of', changed):
-      code = ht.main(['install', '-b', BOARD, '--build-record', 'r.json', '--under-hold', 'x', str(cfg)])
-    report = json.loads(out.getvalue().splitlines()[-1])
-    self.assertEqual((code, report['exitCode'], report['pass']), (4, 4, False))
-    self.assertIn('usb_dfu.py unavailable: closure changed', report['error'])
+      ht.EspBattery.usb_dfu(bat, 'detach')
+    for err in (ImportError('closure changed'), FileNotFoundError(2, 'No such file or directory')):
+      def changed(rel, err=err):
+        raise err
+      out = io.StringIO()
+      with self.subTest(type(err).__name__), contextlib.redirect_stdout(out), \
+           mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / type(err).__name__), \
+           mock.patch.object(ht, 'load_helper', lambda: None), mock.patch.object(ht, 'manual_holder', lambda *a: None), \
+           mock.patch.object(ht, 'admit_record', lambda *a: ({}, {'version': 'v'})), \
+           mock.patch.object(ht.Battery, 'install', install), mock.patch.object(ht.agentrc, 'path_of', changed):
+        code = ht.main(['install', '-b', BOARD, '--build-record', 'r.json', '--under-hold', 'x', str(cfg)])
+        report = json.loads(out.getvalue().splitlines()[-1])
+        self.assertEqual((code, report['exitCode'], report['pass']), (4, 4, False))
+        self.assertRegex(report['error'], f'usb_dfu.py unavailable: .*rerun .*{re.escape(str(err))}')
 
   def test_a_restore_that_fails_after_touching_the_board_is_exit_4(self):
     cfg = roster(self.tmp, tinyuf2={'reentry': None})
