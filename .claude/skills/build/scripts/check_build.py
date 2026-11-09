@@ -45,6 +45,7 @@ BUILD_DIR = ROOT / 'cmake-build'
 # The ports CI builds (build.yml's jobs; test_build.py holds the two equal) and the boards that stand in for each:
 # rig boards first; espressif covers every IDF target, mimxrt10xx both the RT10xx and RT1170 boot layouts.
 REPRESENTATIVES = {
+  'ch32v4x7': ['metro_ch32v407', 'metro_ch32v467'],
   'espressif': ['espressif_esp32s3_devkitm_1', 'espressif_esp32s2_devkitc_1', 'espressif_p4_function_ev',
                 'espressif_esp32s31_func_core'],
   'kinetis_k32l2': ['frdm_k32l2b'],
@@ -64,7 +65,7 @@ UNBUILT = {
   'template_port': 'a template no build compiles',
 }
 # compiler a port's cmake build needs, when not arm-none-eabi-gcc
-COMPILER = {'ch32v20x': 'riscv-none-elf-gcc'}
+COMPILER = {'ch32v20x': 'riscv-none-elf-gcc', 'ch32v4x7': 'riscv-none-elf-gcc'}
 GHOSTFAT = 'test_ghostfat'
 GHOSTFAT_INPUTS = ('src/ghostfat.c', 'src/favicon/', 'src/board_api.h', 'src/compile_date.h', 'src/uf2.h',
                    'lib/uf2', 'ports/family_support.cmake', 'ports/test_ghostfat/',

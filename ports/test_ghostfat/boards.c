@@ -31,6 +31,7 @@ uint32_t test_flash_write_addr;
 uint32_t test_flash_write_len;
 uint8_t  test_flash_write_data[sizeof(((UF2_Block *) 0)->data)];
 uint32_t test_flash_flush_count;
+bool test_flash_write_succeeds = true;
 
 // records the call; copies data only when it fits the record, since the test may make its length out of range
 bool board_flash_write(uint32_t addr, void const* data, uint32_t len) {
@@ -40,7 +41,7 @@ bool board_flash_write(uint32_t addr, void const* data, uint32_t len) {
   if (len <= sizeof(test_flash_write_data)) {
     memcpy(test_flash_write_data, data, len);
   }
-  return true;
+  return test_flash_write_succeeds;
 }
 
 // not supported

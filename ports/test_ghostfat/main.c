@@ -446,6 +446,19 @@ static int TestWriteBlock(void) {
     r = ExpectWriteRejected(1, sizeof(uf2Block.data), otherFamily);
     if (r) { return r; }
 
+    // A failed flash write must not count as the final block or flush the app.
+    MakeUf2Block(1, 256, BOARD_UF2_FAMILY_ID);
+    memcpy(&writeStateBefore, &writeState, sizeof(writeState));
+    uint32_t const flushes = test_flash_flush_count;
+    test_flash_write_succeeds = false;
+    r = uf2_write_block(0, (uint8_t *) &uf2Block, &writeState);
+    test_flash_write_succeeds = true;
+    if (r != -1 || memcmp(&writeStateBefore, &writeState, sizeof(writeState)) ||
+        test_flash_flush_count != flushes) {
+        printf("FAIL: rejected flash write advanced completion state\n");
+        return ERR_WRITE_BLOCK_UNEXPECTED_RESULT;
+    }
+
     // last block of the file flushes
     return ExpectWriteAccepted(1, sizeof(uf2Block.data), 1);
 }

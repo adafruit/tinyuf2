@@ -1,0 +1,128 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 Adafruit Industries
+// SPDX-License-Identifier: MIT
+#include "board_api.h"
+#include "tusb.h"
+#include "ch32v4x7_usb.h"
+
+void SysTick_Handler(void) __attribute__((interrupt, used));
+void USBHS1_IRQHandler(void) __attribute__((interrupt, used));
+void SW_Handler(void) __attribute__((interrupt, used));
+
+void board_init(void) {
+  __disable_irq();
+  RCC_PB1PeriphClockCmd(RCC_PB1Periph_BKP | RCC_PB1Periph_PWR, ENABLE);
+  PWR->CTLR |= PWR_CTLR_DBP;
+  RCC_PB2PeriphClockCmd(RCC_PB2Periph_GPIOB, ENABLE);
+  GPIO_InitTypeDef led = {
+    .GPIO_Pin   = LED_PIN,
+    .GPIO_Mode  = GPIO_Mode_Out_PP,
+    .GPIO_Speed = GPIO_Speed_High,
+  };
+  GPIO_Init(LED_PORT, &led);
+  board_led_write(0);
+  __enable_irq();
+}
+
+void board_teardown(void) {
+  __disable_irq();
+  board_timer_stop();
+  USBHS1D->INT_EN  = 0;
+  USBHS1D->CONTROL = USBHS_UD_RST_SIE | USBHS_UD_RST_LINK;
+  for (unsigned i = 0; i < 8; i++) {
+    NVIC->IRER[i] = 0xffffffff;
+    NVIC->IPRR[i] = 0xffffffff;
+  }
+}
+
+void board_dfu_init(void) {
+  // SystemInit starts the Metro's 25 MHz HSE and the 200 MHz core clock.
+  // USBHS needs the crystal reference for reliable full-size packets.
+  RCC->CTLR &= ~RCC_USBHSPLLON;
+  RCC_USBHSPLLCLKConfig(RCC_USBHSPLLCLKSource_HSE);
+  RCC_USBHSPLLReferConfig(RCC_USBHSPLLCKREFCLK_25M);
+  RCC->CTLR |= RCC_USBHSPLLON;
+  uint32_t timeout = 1000000;
+  while (!(RCC->CTLR & RCC_USBHSPLLRDY) && --timeout) {}
+  RCC_UTMI1cmd(ENABLE);
+  RCC_HBPeriphClockCmd(RCC_HBPeriph_USBHS1, ENABLE);
+}
+
+void board_reset(void) {
+  NVIC_SystemReset();
+  while (1) {}
+}
+
+void board_dfu_complete(void) {
+  board_flash_flush();
+  if (board_flash_ok()) {
+    TINYUF2_DBL_TAP_REG = DBL_TAP_MAGIC_QUICK_BOOT;
+    board_reset();
+  }
+}
+
+bool board_app_valid(void) {
+  const uint32_t first = *(volatile const uint32_t *)(FLASH_BASE + BOARD_FLASH_APP_START);
+  // An erased WCH code-flash word reads E339E339. Accept a RISC-V JAL or
+  // compressed jump at the application reset vector, not arbitrary data.
+  return first != 0xe339e339u && first != 0xffffffffu && ((first & 0x7fu) == 0x6fu || (first & 0xe003u) == 0xa001u);
+}
+
+void board_app_jump(void) {
+  // The vendor startup enters user mode. Application reset code needs
+  // machine mode to initialize its CSRs, as in WCH's V4x7 IAP example.
+  NVIC_EnableIRQ(Software_IRQn);
+  NVIC_SetPendingIRQ(Software_IRQn);
+  __enable_irq();
+  while (1) {}
+}
+
+void SW_Handler(void) {
+  __disable_irq();
+  NVIC_DisableIRQ(Software_IRQn);
+  NVIC_ClearPendingIRQ(Software_IRQn);
+  __asm volatile("fence.i\nli t0, 0x8000\njr t0" ::: "t0", "memory");
+  __builtin_unreachable();
+}
+
+uint8_t board_usb_get_serial(uint8_t serial_id[16]) {
+  memcpy(serial_id, (const void *)0x1ffff7e8, 8);
+  return 8;
+}
+
+void board_led_write(uint32_t state) {
+  GPIO_WriteBit(LED_PORT, LED_PIN, state ? Bit_SET : Bit_RESET);
+}
+
+void board_rgb_write(const uint8_t rgb[]) {
+  (void)rgb;
+}
+
+void board_timer_start(uint32_t ms) {
+  SysTick->CTLR = 0;
+  SysTick->SR   = 0;
+  SysTick->CNT  = 0;
+  SysTick->CMP  = (SystemCoreClock / 1000) * ms - 1;
+  NVIC_EnableIRQ(SysTick_IRQn);
+  SysTick->CTLR = 0x0f;
+}
+
+void board_timer_stop(void) {
+  SysTick->CTLR = 0;
+  NVIC_DisableIRQ(SysTick_IRQn);
+  NVIC_ClearPendingIRQ(SysTick_IRQn);
+}
+
+void SysTick_Handler(void) {
+  SysTick->SR = 0;
+  board_timer_handler();
+}
+
+void USBHS1_IRQHandler(void) {
+  tud_int_handler(0);
+}
+
+int board_uart_write(const void *buf, int len) {
+  (void)buf;
+  (void)len;
+  return 0;
+}

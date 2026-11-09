@@ -103,6 +103,14 @@ jobs:
   # ---------------------------------------
   # Build RISC-V
   # ---------------------------------------
+  ch32v4x7:
+    needs: set-matrix
+    uses: ./.github/workflows/build_util.yml
+    with:
+      port: 'ch32v4x7'
+      boards: ${{ toJSON(fromJSON(needs.set-matrix.outputs.json)['ch32v4x7'].board) }}
+      toolchain: 'riscv-gcc'
+
   riscv:
     if: false
     needs: set-matrix

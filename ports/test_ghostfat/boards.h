@@ -23,6 +23,7 @@ extern uint32_t test_flash_write_addr;
 extern uint32_t test_flash_write_len;
 extern uint8_t  test_flash_write_data[]; // payload of the last write, UF2's data field at most
 extern uint32_t test_flash_flush_count;
+extern bool test_flash_write_succeeds;
 
 #ifdef __cplusplus
  }

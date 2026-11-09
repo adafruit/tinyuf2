@@ -499,7 +499,7 @@ int uf2_write_block (uint32_t block_no, uint8_t *data, WriteState *state) {
 
   if (bl->familyID == BOARD_UF2_FAMILY_ID) {
     // generic family ID
-    board_flash_write(bl->targetAddr, bl->data, bl->payloadSize);
+    if (!board_flash_write(bl->targetAddr, bl->data, bl->payloadSize)) return -1;
   }else {
     // TODO family matches VID/PID
     return -1;
