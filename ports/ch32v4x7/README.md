@@ -10,8 +10,8 @@ the D13 LED on PB12. External PSRAM is not used by the bootloader.
 | Metro CH32V467 | `metro_ch32v467` | `239A:017F` | `METRO467` |
 
 USB IDs are allocated in Adafruit's `MBAdafruitBoards/Production/usb_vid_pid.csv`.
-The shared UF2 family ID, **`0x7b8c32a7`, is provisional and not yet registered**
-in Microsoft's UF2 registry. Use it only with these development builds.
+The shared UF2 family ID, **`0x7b8c32a7` (`CH32V4X7`)**, is registered in
+[Microsoft's UF2 registry](https://github.com/microsoft/uf2/pull/109).
 
 ## Build and initial installation
 
