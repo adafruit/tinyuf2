@@ -61,10 +61,11 @@ REPRESENTATIVES = {
 # Ports no CI job builds: a change there is uncovered; --board may still build one explicitly.
 UNBUILT = {
   'ch32v20x': 'its riscv job is disabled in build.yml',
+  'ch32x035': 'its riscv job is disabled in build.yml',
   'template_port': 'a template no build compiles',
 }
 # compiler a port's cmake build needs, when not arm-none-eabi-gcc
-COMPILER = {'ch32v20x': 'riscv-none-elf-gcc'}
+COMPILER = {'ch32v20x': 'riscv-none-elf-gcc', 'ch32x035': 'riscv-none-elf-gcc'}
 GHOSTFAT = 'test_ghostfat'
 GHOSTFAT_INPUTS = ('src/ghostfat.c', 'src/favicon/', 'src/board_api.h', 'src/compile_date.h', 'src/uf2.h',
                    'lib/uf2', 'ports/family_support.cmake', 'ports/test_ghostfat/',

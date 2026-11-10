@@ -1,5 +1,11 @@
 # Supported Boards
 
+## ch32x035
+
+| Board | Name | VID PID | URL |
+| --- | --- | --- | --- |
+| ch32x035g8u6_r0_1v2 | WCH CH32X035G8U6 EVT | 0x1A86:0xFE10 | https://www.wch.cn |
+
 ## espressif
 
 | Board | Name | VID PID | URL |

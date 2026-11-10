@@ -126,7 +126,7 @@ function(family_add_app NAME SOURCE_DIR)
     -DARTIFACT_PATH=${ARTIFACT_PATH}
     -DPython_EXECUTABLE=${Python_EXECUTABLE}
     )
-  foreach (VAR LOG LOGGER CFLAGS_CLI TRACE_ETM LTO_ON)
+  foreach (VAR LOG LOGGER CFLAGS_CLI TRACE_ETM LTO_ON BOOT_SIZE)
     if (DEFINED ${VAR})
       # LIST_SEPARATOR below turns | back into ; so a list value stays one argument
       string(REPLACE ";" "|" VALUE "${${VAR}}")
