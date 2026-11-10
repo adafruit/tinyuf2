@@ -67,8 +67,9 @@ UNBUILT = {
 # compiler a port's cmake build needs, when not arm-none-eabi-gcc
 COMPILER = {'ch32v20x': 'riscv-none-elf-gcc', 'ch32v4x7': 'riscv-none-elf-gcc'}
 GHOSTFAT = 'test_ghostfat'
-GHOSTFAT_INPUTS = ('src/ghostfat.c', 'src/favicon/', 'src/board_api.h', 'src/compile_date.h', 'src/uf2.h',
-                   'lib/uf2', 'ports/family_support.cmake', 'ports/test_ghostfat/',
+GHOSTFAT_INPUTS = ('src/ghostfat.c', 'src/msc.c', 'src/favicon/', 'src/board_api.h', 'src/compile_date.h', 'src/uf2.h',
+                   'lib/uf2', 'lib/tinyusb', 'ports/family_support.cmake', 'ports/test_ghostfat/',
+                   'ports/ch32v4x7/board_flash.c',
                    '.github/workflows/build_ghostfat.yml')
 CORE = ('src/', 'lib/', 'ports/family_support.cmake', 'CMakeLists.txt', 'cmake/', 'tools/get_deps.py')
 CONTRACT_TESTS = ('.claude/test/test_build', '.claude/test/test_hil', '.claude/test/test_code_size')

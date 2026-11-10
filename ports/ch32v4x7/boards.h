@@ -12,5 +12,3 @@
 #define BOARD_FLASH_ADDR_ZERO    BOARD_FLASH_APP_START
 #define CFG_UF2_FLASH_SIZE       BOARD_FLASH_SIZE
 #define BOARD_FLASH_PAGE_SIZE    4096u
-
-bool board_flash_ok(void);

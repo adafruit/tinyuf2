@@ -78,7 +78,7 @@ typedef struct {
     uint32_t numBlocks;
     uint32_t numWritten;
 
-    bool aborted;             // aborting update and reset
+    bool aborted;             // failed update; remain in the bootloader until reset
 
     uint8_t writtenMask[MAX_BLOCKS / 8 + 1];
 } WriteState;
@@ -101,6 +101,9 @@ typedef struct {
     uint32_t magicEnd;
 } UF2_Block;
 
+
+// Distinguish a failed flash operation from an ignored filesystem sector (-1).
+#define UF2_WRITE_FAILED (-2)
 
 void uf2_init(void);
 void uf2_read_block(uint32_t block_no, uint8_t *data);

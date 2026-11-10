@@ -398,6 +398,8 @@ class Selection(unittest.TestCase):
   def test_ghostfat_inputs(self):
     self.assertEqual(classify('ports/test_ghostfat/main.c'), ('ghostfat', 'select', [], True, False))
     self.assertEqual(classify('src/ghostfat.c')[:2] + classify('src/ghostfat.c')[3:4], ('core', 'core', True))
+    for path in ('src/msc.c', 'lib/tinyusb', 'ports/ch32v4x7/board_flash.c'):
+      self.assertTrue(classify(path)[3], path)
     self.assertFalse(classify('src/main.c')[3])
 
   def test_build_control_runs_tests_and_one_smoke_build_per_backend(self):
@@ -502,6 +504,10 @@ class CiSelection(unittest.TestCase):
 
   def test_ghostfat_input_selects_ghostfat_only(self):
     self.assertEqual(ci('ports/test_ghostfat/main.c'), {'full': False, 'ports': {}, 'ghostfat': True})
+
+  def test_ch32_flash_change_runs_its_native_regressions(self):
+    self.assertEqual(ci('ports/ch32v4x7/board_flash.c'),
+                     {'full': False, 'ports': {'ch32v4x7': cb.boards_of('ch32v4x7')}, 'ghostfat': True})
 
   def test_paths_no_build_job_compiles_select_nothing(self):
     for path in ('README.md', '.claude/test/test_build.py', 'test/hil/local.json', '.github/workflows/codeql.yml',

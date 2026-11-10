@@ -32,6 +32,8 @@ uint32_t test_flash_write_len;
 uint8_t  test_flash_write_data[sizeof(((UF2_Block *) 0)->data)];
 uint32_t test_flash_flush_count;
 bool test_flash_write_succeeds = true;
+bool test_flash_flush_succeeds = true;
+uint32_t test_flash_fail_on_write;
 
 // records the call; copies data only when it fits the record, since the test may make its length out of range
 bool board_flash_write(uint32_t addr, void const* data, uint32_t len) {
@@ -41,7 +43,7 @@ bool board_flash_write(uint32_t addr, void const* data, uint32_t len) {
   if (len <= sizeof(test_flash_write_data)) {
     memcpy(test_flash_write_data, data, len);
   }
-  return test_flash_write_succeeds;
+  return test_flash_write_succeeds && test_flash_write_count != test_flash_fail_on_write;
 }
 
 // not supported
@@ -52,6 +54,10 @@ void board_self_update(const uint8_t* bootloader_bin, uint32_t bootloader_len) {
 
 void board_flash_flush(void) {
   test_flash_flush_count++;
+}
+
+bool board_flash_ok(void) {
+  return test_flash_flush_succeeds;
 }
 
 // not supported

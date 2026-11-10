@@ -11,29 +11,60 @@ static bool     page_dirty;
 static bool     updating;
 static bool     failed;
 
-static bool write_page(uint32_t address, uint32_t *data) {
-  __disable_irq();
-  FLASH_Status status = FLASH_ROM_ERASE(FLASH_BASE + address, BOARD_FLASH_PAGE_SIZE);
-  if (status == FLASH_COMPLETE) {
-    if (address == BOARD_FLASH_APP_START) {
-      // Commit the reset vector only after the rest of the first sector.
-      status = FLASH_ROM_WRITE(FLASH_BASE + address + 256, data + 64, BOARD_FLASH_PAGE_SIZE - 256);
-      if (status == FLASH_COMPLETE) {
-        status = FLASH_ROM_WRITE(FLASH_BASE + address, data, 256);
-      }
-    } else {
-      status = FLASH_ROM_WRITE(FLASH_BASE + address, data, BOARD_FLASH_PAGE_SIZE);
-    }
-  }
+/** Erase and verify code flash with interrupts disabled by the caller.
+ * The SDK can report FLASH_COMPLETE even for write-protected sectors.
+ */
+static bool erase_region(uint32_t address, uint32_t length) {
+  FLASH_Status status = FLASH_ROM_ERASE(FLASH_BASE + address, length);
   __asm volatile("fence.i" ::: "memory");
-  __enable_irq();
-  if (status != FLASH_COMPLETE || memcmp((void *)(FLASH_BASE + address), data, BOARD_FLASH_PAGE_SIZE)) {
+  if (status != FLASH_COMPLETE) {
     failed = true;
     return false;
+  }
+  const volatile uint32_t *words = (const volatile uint32_t *)(FLASH_BASE + address);
+  for (uint32_t i = 0; i < length / sizeof(*words); i++) {
+    // WCH's erased code-flash value is not the usual all-ones word.
+    if (words[i] != 0xe339e339u) {
+      failed = true;
+      return false;
+    }
   }
   return true;
 }
 
+/** Program and verify one sector, committing the reset-vector block last. */
+static bool write_page(uint32_t address, uint32_t *data) {
+  __disable_irq();
+  bool ok = erase_region(address, BOARD_FLASH_PAGE_SIZE);
+  if (ok && address == BOARD_FLASH_APP_START) {
+    FLASH_Status status = FLASH_ROM_WRITE(FLASH_BASE + address + 256, data + 64, BOARD_FLASH_PAGE_SIZE - 256);
+    __asm volatile("fence.i" ::: "memory");
+    // Do not install a reset vector until the rest of the sector reads back.
+    ok = status == FLASH_COMPLETE &&
+         memcmp((const void *)(FLASH_BASE + address + 256), data + 64, BOARD_FLASH_PAGE_SIZE - 256) == 0;
+    if (ok) {
+      status = FLASH_ROM_WRITE(FLASH_BASE + address, data, 256);
+      __asm volatile("fence.i" ::: "memory");
+      ok = status == FLASH_COMPLETE && memcmp((const void *)(FLASH_BASE + address), data, BOARD_FLASH_PAGE_SIZE) == 0;
+    }
+  } else if (ok) {
+    FLASH_Status status = FLASH_ROM_WRITE(FLASH_BASE + address, data, BOARD_FLASH_PAGE_SIZE);
+    __asm volatile("fence.i" ::: "memory");
+    ok = status == FLASH_COMPLETE && memcmp((const void *)(FLASH_BASE + address), data, BOARD_FLASH_PAGE_SIZE) == 0;
+  }
+  if (!ok) {
+    if (address == BOARD_FLASH_APP_START) {
+      // A failed first-block readback may still contain a valid jump instruction.
+      // Remove it so a later reset cannot start the damaged application.
+      erase_region(address, BOARD_FLASH_PAGE_SIZE);
+    }
+    failed = true;
+  }
+  __enable_irq();
+  return ok;
+}
+
+/** Commit a dirty non-vector sector and retain any programming failure. */
 static bool flush_page(void) {
   if (page_dirty) {
     if (!write_page(page_address, page)) {
@@ -45,7 +76,9 @@ static bool flush_page(void) {
 }
 
 void board_flash_init(void) {
-  page_dirty = updating = failed = false;
+  // check_dfu_mode() may already have attempted an application erase.
+  // Preserve its error; a reset starts a new session with zero-initialized state.
+  page_dirty = updating = false;
 }
 
 uint32_t board_flash_size(void) {
@@ -56,6 +89,7 @@ void board_flash_read(uint32_t addr, void *buffer, uint32_t len) {
   memcpy(buffer, (const void *)(FLASH_BASE + addr), len);
 }
 
+/** Buffer a UF2 payload after invalidating and verifying the old reset sector. */
 bool board_flash_write(uint32_t addr, const void *data, uint32_t len) {
   // UF2 addresses are zero-based, as in the linked RISC-V application.
   // Reject aliases, bootloader writes, crossing the end and partial pages.
@@ -65,11 +99,9 @@ bool board_flash_write(uint32_t addr, const void *data, uint32_t len) {
   if (!updating) {
     memcpy(first_page, (const void *)(FLASH_BASE + BOARD_FLASH_APP_START), sizeof first_page);
     __disable_irq();
-    FLASH_Status status = FLASH_ROM_ERASE(FLASH_BASE + BOARD_FLASH_APP_START, BOARD_FLASH_PAGE_SIZE);
-    __asm volatile("fence.i" ::: "memory");
+    bool erased = erase_region(BOARD_FLASH_APP_START, BOARD_FLASH_PAGE_SIZE);
     __enable_irq();
-    if (status != FLASH_COMPLETE) {
-      failed = true;
+    if (!erased) {
       return false;
     }
     updating = true;
@@ -91,22 +123,28 @@ bool board_flash_write(uint32_t addr, const void *data, uint32_t len) {
   return true;
 }
 
+/** Commit remaining data and the saved vector sector only for a healthy update. */
 void board_flash_flush(void) {
-  if (updating && flush_page() && write_page(BOARD_FLASH_APP_START, first_page)) {
+  if (!failed && updating && flush_page() && write_page(BOARD_FLASH_APP_START, first_page)) {
     updating = false;
   }
 }
 
+/** Report whether all accepted data reached flash without a latched error. */
 bool board_flash_ok(void) {
   return !failed && !updating;
 }
 
+/** Erase and verify the whole application without altering protection options. */
 void board_flash_erase_app(void) {
   __disable_irq();
-  FLASH_Status status = FLASH_ROM_ERASE(FLASH_BASE + BOARD_FLASH_APP_START, BOARD_FLASH_SIZE - BOARD_FLASH_APP_START);
-  __asm volatile("fence.i" ::: "memory");
+  // Invalidate the reset sector first. If it is protected, leave the rest of
+  // the old application intact instead of creating a bootable partial erase.
+  if (erase_region(BOARD_FLASH_APP_START, BOARD_FLASH_PAGE_SIZE)) {
+    erase_region(BOARD_FLASH_APP_START + BOARD_FLASH_PAGE_SIZE,
+                 BOARD_FLASH_SIZE - BOARD_FLASH_APP_START - BOARD_FLASH_PAGE_SIZE);
+  }
   __enable_irq();
-  failed = status != FLASH_COMPLETE;
 }
 
 bool board_flash_protect_bootloader(bool protect) {

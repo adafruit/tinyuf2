@@ -123,17 +123,20 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buff
   return count;
 }
 
-// Callback invoked when received WRITE10 command.
-// Process data in buffer to disk's storage and return number of written bytes
+/** @brief Process WRITE10 sectors and report flash failures as SCSI write errors. */
 int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset, uint8_t* buffer, uint32_t bufsize) {
-  (void) lun;
   (void) offset;
 
   uint32_t count = 0;
   while (count < bufsize) {
-    // Consider non-uf2 block write as successful
-    // only break if write_block is busy with flashing (return 0)
-    if (0 == uf2_write_block(lba, buffer, &_wr_state)) break;
+    int const result = uf2_write_block(lba, buffer, &_wr_state);
+    if (result == UF2_WRITE_FAILED) {
+      // Fail the whole command, even if earlier sectors were accepted.
+      tud_msc_set_sense(lun, SCSI_SENSE_MEDIUM_ERROR, 0x0c, 0x00); // Write error
+      return -1;
+    }
+    // Non-UF2 sectors remain successful; zero means retry a busy write.
+    if (result == 0) break;
 
     lba++;
     buffer += 512;
@@ -143,15 +146,14 @@ int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset, uint8_t* 
   return count;
 }
 
-// Callback invoked when WRITE10 command is completed (status received and accepted by host).
+/** @brief Boot only after a successful completed update; keep failed copies in DFU. */
 void tud_msc_write10_complete_cb(uint8_t lun) {
   (void) lun;
   static bool first_write = true;
 
-  // abort the DFU, uf2 block failed integrity check
+  // A rejected write/flush must not reset or hang the USB task.
   if (_wr_state.aborted) {
-    // aborted and reset
-    indicator_set(STATE_WRITING_FINISHED);
+    indicator_set(STATE_USB_PLUGGED);
   } else if (_wr_state.numBlocks) {
     // Start LED writing pattern with first write
     if (first_write) {

@@ -422,6 +422,7 @@ static int ExpectWriteAccepted(uint32_t blockNo, uint32_t payloadSize, uint32_t 
     return ERR_NONE;
 }
 
+/** @brief Validate rejected blocks, completion bookkeeping and latched flash errors. */
 static int TestWriteBlock(void) {
     static uint32_t const oversized[] = { 477, 481, 0xFFFFFFFFu };
     uint32_t const otherFamily = BOARD_UF2_FAMILY_ID ^ 1u;
@@ -453,14 +454,39 @@ static int TestWriteBlock(void) {
     test_flash_write_succeeds = false;
     r = uf2_write_block(0, (uint8_t *) &uf2Block, &writeState);
     test_flash_write_succeeds = true;
-    if (r != -1 || memcmp(&writeStateBefore, &writeState, sizeof(writeState)) ||
+    writeStateBefore.aborted = true;
+    if (r != UF2_WRITE_FAILED || memcmp(&writeStateBefore, &writeState, sizeof(writeState)) ||
         test_flash_flush_count != flushes) {
-        printf("FAIL: rejected flash write advanced completion state\n");
+        printf("FAIL: rejected flash write advanced completion state\n\r");
         return ERR_WRITE_BLOCK_UNEXPECTED_RESULT;
     }
 
-    // last block of the file flushes
-    return ExpectWriteAccepted(1, sizeof(uf2Block.data), 1);
+    // A failed session stays aborted even if another UF2 block arrives.
+    uint32_t const writes = test_flash_write_count;
+    r = uf2_write_block(0, (uint8_t *) &uf2Block, &writeState);
+    if (r != UF2_WRITE_FAILED || test_flash_write_count != writes) {
+        return ERR_WRITE_BLOCK_UNEXPECTED_RESULT;
+    }
+
+    // A fresh session can complete, while a failed final flush cannot.
+    memset(&writeState, 0, sizeof(writeState));
+    r = ExpectWriteAccepted(0, 256, 0);
+    if (r) { return r; }
+    r = ExpectWriteAccepted(1, sizeof(uf2Block.data), 1);
+    if (r) { return r; }
+
+    memset(&writeState, 0, sizeof(writeState));
+    r = ExpectWriteAccepted(0, 256, 0);
+    if (r) { return r; }
+    MakeUf2Block(1, 256, BOARD_UF2_FAMILY_ID);
+    test_flash_flush_succeeds = false;
+    r = uf2_write_block(0, (uint8_t *) &uf2Block, &writeState);
+    test_flash_flush_succeeds = true;
+    if (r != UF2_WRITE_FAILED || !writeState.aborted) {
+        printf("FAIL: final flush failure reported success\n\r");
+        return ERR_WRITE_BLOCK_UNEXPECTED_RESULT;
+    }
+    return ERR_NONE;
 }
 
 int main(void)
@@ -480,6 +506,9 @@ int main(void)
 
     printf("testing uf2_write_block\n"); fflush(stdout);
     r = TestWriteBlock();
+    if (r) { goto errorExit; }
+
+    r = TestMscWrites();
     if (r) { goto errorExit; }
 
     printf("PASS: Ghostfat generation validation completed successfully.\n");

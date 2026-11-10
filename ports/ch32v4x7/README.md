@@ -65,6 +65,15 @@ therefore returns to the bootloader after reset; copy the complete file again.
 This is recovery from an interrupted upload, not a dual-image rollback scheme
 or a guarantee against power loss during the final flash-program operation.
 
+Erases are checked by readback, including the first sector before any later
+sectors are modified. The first sector's data is verified before its vector
+block is installed; a failed vector-block readback invalidates that sector.
+Write and final-flush failures are reported to the host as USB mass-storage
+write errors. The bootloader stays responsive and rejects further application
+writes in that failed session. Reset the board before retrying a complete UF2.
+Existing option-byte protection is preserved; protected flash must be unlocked
+separately before retrying.
+
 `CURRENT.UF2` contains the 480 KB application region. Bootloader self-update
 over UF2 is not implemented; changing the bootloader still needs the probe.
 

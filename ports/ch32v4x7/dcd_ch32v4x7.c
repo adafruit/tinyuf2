@@ -57,14 +57,17 @@ static volatile bool ep_data_tog[EP_MAX][2];
 // confined to idle endpoints - edpt_stall()/edpt_clear_stall() call them on an endpoint that may be
 // actively armed and ACKing, because a class driver may halt an endpoint with a transfer in flight
 // (usbtest case 13 does exactly that).
+/** @brief Set the IN handshake without clearing a pending DONE flag. */
 static void set_tx_res(uint8_t ep_num, uint8_t res) {
   EP_TX_CTRL(ep_num) = (uint8_t)((EP_TX_CTRL(ep_num) & ~USBHS_UEP_T_RES_MASK) | USBHS_UEP_T_DONE | res);
 }
 
+/** @brief Set the OUT handshake without clearing a pending DONE flag. */
 static void set_rx_res(uint8_t ep_num, uint8_t res) {
   EP_RX_CTRL(ep_num) = (uint8_t)((EP_RX_CTRL(ep_num) & ~USBHS_UEP_R_RES_MASK) | USBHS_UEP_R_DONE | res);
 }
 
+/** @brief Select the endpoint data PID while preserving completion status. */
 static void set_ep_toggle(uint8_t ep_num, tusb_dir_t ep_dir, bool data1) {
   if (ep_dir == TUSB_DIR_IN) {
     EP_TX_CTRL(ep_num) = (uint8_t)((EP_TX_CTRL(ep_num) & ~USBHS_UEP_T_TOG_MASK) | USBHS_UEP_T_DONE |
@@ -83,10 +86,12 @@ static void set_ep_toggle(uint8_t ep_num, tusb_dir_t ep_dir, bool data1) {
 // the next packet of a multi-packet control-OUT, having just had that packet's DONE cleared by the
 // scan, and edpt_xfer() runs with EP0 NAKing, since usbd submits a stage only once the previous
 // one has completed, so no transaction is in flight to raise DONE underneath it.
+/** @brief Arm the shared control buffer with the expected OUT data PID. */
 static void arm_ep0_out(void) {
   EP_RX_CTRL(0) = (uint8_t)((ep0_rx_tog ? USBHS_UEP_R_TOG_DATA1 : USBHS_UEP_R_TOG_DATA0) | USBHS_UEP_R_RES_ACK);
 }
 
+/** @brief Queue the next IN packet and track its armed byte count. */
 static void queue_in_packet(uint8_t ep_num, xfer_ctl_t *xfer) {
   uint16_t remaining = xfer->total_len - xfer->queued_len;
   uint16_t tx_len    = TU_MIN(remaining, xfer->max_size);
@@ -111,6 +116,7 @@ static void queue_in_packet(uint8_t ep_num, xfer_ctl_t *xfer) {
   }
 }
 
+/** @brief Point OUT DMA at the next packet and select its handshake. */
 static void queue_out_packet(uint8_t ep_num, xfer_ctl_t *xfer) {
   uint16_t remaining = xfer->total_len - xfer->queued_len;
   uint16_t rx_len    = TU_MIN(remaining, xfer->max_size);
@@ -130,6 +136,7 @@ static void queue_out_packet(uint8_t ep_num, xfer_ctl_t *xfer) {
   }
 }
 
+/** @brief Advance a completed IN transfer or arm its first packet when forced. */
 static void update_in(uint8_t rhport, uint8_t ep_num, bool force) {
   xfer_ctl_t *xfer = XFER_CTL_BASE(ep_num, TUSB_DIR_IN);
   if (!xfer->valid) {
@@ -153,6 +160,7 @@ static void update_in(uint8_t rhport, uint8_t ep_num, bool force) {
   }
 }
 
+/** @brief Consume a received packet, update its toggle and report completion. */
 static void update_out(uint8_t rhport, uint8_t ep_num, uint16_t rx_len) {
   xfer_ctl_t *xfer = XFER_CTL_BASE(ep_num, TUSB_DIR_OUT);
   if (!xfer->valid) {
@@ -203,6 +211,7 @@ static void update_out(uint8_t rhport, uint8_t ep_num, uint16_t rx_len) {
 // Controller internals, shared with the USB3.0 dcd for runtime fallback
 //--------------------------------------------------------------------+
 
+/** @brief Initialize USBHS1 and the control endpoint for device operation. */
 static bool ch32v4x7_usb2_init(uint8_t rhport) {
   (void)rhport;
 
@@ -251,6 +260,7 @@ static bool ch32v4x7_usb2_init(uint8_t rhport) {
   return true;
 }
 
+/** @brief Mask controller interrupts before resetting the USB link. */
 static void ch32v4x7_usb2_deinit(void) {
   // Mask and acknowledge before resetting the SIE. Resetting the SIE does not touch INT_EN or
   // INT_FG, so a flag latched by a prior fallback survives - and the USB3 dcd_init() path calls
@@ -262,28 +272,34 @@ static void ch32v4x7_usb2_deinit(void) {
   USBHSD->CONTROL = USBHS_UD_RST_SIE | USBHS_UD_RST_LINK;
 }
 
+/** @brief Attach the device to the USB bus. */
 static void ch32v4x7_usb2_connect(void) {
   USBHSD->CONTROL |= USBHS_UD_DEV_EN; // attach: enable the device (pull-up on)
 }
 
+/** @brief Detach the device from the USB bus. */
 static void ch32v4x7_usb2_disconnect(void) {
   USBHSD->CONTROL &= (uint32_t)~USBHS_UD_DEV_EN; // detach: disable the device (pull-up off)
 }
 
 // Resume signalling: RB_UD_REMOTE_WKUP is RW1Z, the hardware drives K and clears the bit itself
 // (vendor USBHS_Send_Resume)
+/** @brief Ask the controller to generate remote-wakeup signalling. */
 static void ch32v4x7_usb2_remote_wakeup(void) {
   USBHSD->WAKE_CTRL |= USBHS_UD_REMOTE_WKUP;
 }
 
+/** @brief Enable the USBHS1 interrupt at the interrupt controller. */
 static void ch32v4x7_usb2_int_enable(void) {
   NVIC_EnableIRQ(USBHS1_IRQn);
 }
 
+/** @brief Mask the USBHS1 interrupt at the interrupt controller. */
 static void ch32v4x7_usb2_int_disable(void) {
   NVIC_DisableIRQ(USBHS1_IRQn);
 }
 
+/** @brief Apply SET_ADDRESS only after its control status stage finishes. */
 static void ch32v4x7_usb2_edpt0_status_complete(uint8_t rhport, const tusb_control_request_t *request) {
   (void)rhport;
   if (request->bmRequestType_bit.recipient == TUSB_REQ_RCPT_DEVICE &&
@@ -292,6 +308,7 @@ static void ch32v4x7_usb2_edpt0_status_complete(uint8_t rhport, const tusb_contr
   }
 }
 
+/** @brief Configure an endpoint direction from its USB descriptor. */
 static bool ch32v4x7_usb2_edpt_open(uint8_t rhport, const tusb_desc_endpoint_t *desc_edpt) {
   (void)rhport;
   const uint8_t    ep_num = tu_edpt_number(desc_edpt->bEndpointAddress);
@@ -326,6 +343,7 @@ static bool ch32v4x7_usb2_edpt_open(uint8_t rhport, const tusb_desc_endpoint_t *
   return true;
 }
 
+/** @brief Disable a data endpoint direction and discard its pending transfer. */
 static void ch32v4x7_usb2_edpt_close(uint8_t rhport, uint8_t ep_addr) {
   (void)rhport;
   const uint8_t    ep_num = tu_edpt_number(ep_addr);
@@ -352,6 +370,7 @@ static void ch32v4x7_usb2_edpt_close(uint8_t rhport, uint8_t ep_addr) {
   XFER_CTL_BASE(ep_num, dir)->valid = false;
 }
 
+/** @brief Close all data endpoints while preserving the control endpoint. */
 static void ch32v4x7_usb2_edpt_close_all(uint8_t rhport) {
   (void)rhport;
   memset((void *)ep_data_tog, 0, sizeof(ep_data_tog));
@@ -369,6 +388,7 @@ static void ch32v4x7_usb2_edpt_close_all(uint8_t rhport) {
   USBHSD->UEP_RX_ISO = 0;
 }
 
+/** @brief Submit a transfer buffer and arm its first packet. */
 static bool ch32v4x7_usb2_edpt_xfer(uint8_t rhport, uint8_t ep_addr, uint8_t *buffer, uint16_t total_bytes) {
   const uint8_t    ep_num = tu_edpt_number(ep_addr);
   const tusb_dir_t dir    = tu_edpt_dir(ep_addr);
@@ -395,6 +415,7 @@ static bool ch32v4x7_usb2_edpt_xfer(uint8_t rhport, uint8_t ep_addr, uint8_t *bu
   return true;
 }
 
+/** @brief Set the selected endpoint direction to STALL. */
 static void ch32v4x7_usb2_edpt_stall(uint8_t rhport, uint8_t ep_addr) {
   (void)rhport;
   const uint8_t    ep_num = tu_edpt_number(ep_addr);
@@ -412,6 +433,7 @@ static void ch32v4x7_usb2_edpt_stall(uint8_t rhport, uint8_t ep_addr) {
   }
 }
 
+/** @brief Clear a halt, reset DATA0 and rearm a pending transfer. */
 static void ch32v4x7_usb2_edpt_clear_stall(uint8_t rhport, uint8_t ep_addr) {
   (void)rhport;
   const uint8_t    ep_num = tu_edpt_number(ep_addr);
@@ -452,6 +474,7 @@ static void ch32v4x7_usb2_edpt_clear_stall(uint8_t rhport, uint8_t ep_addr) {
   }
 }
 
+/** @brief Enable or disable start-of-frame interrupts requested by the stack. */
 static void ch32v4x7_usb2_sof_enable(uint8_t rhport, bool en) {
   sof_enabled = en;
   (void)rhport;
@@ -462,6 +485,7 @@ static void ch32v4x7_usb2_sof_enable(uint8_t rhport, bool en) {
   }
 }
 
+/** @brief Drain endpoint completions and report reset, link and suspend events. */
 static void ch32v4x7_usb2_int_handler(uint8_t rhport) {
   uint8_t intflag = USBHSD->INT_FG;
 
@@ -614,11 +638,13 @@ static void ch32v4x7_usb2_int_handler(uint8_t rhport) {
 //--------------------------------------------------------------------+
 
 
+/** @brief Initialize the TinyUSB device-controller implementation. */
 bool dcd_init(uint8_t rhport, const tusb_rhport_init_t *rh_init) {
   (void)rh_init;
   return ch32v4x7_usb2_init(rhport);
 }
 
+/** @brief Shut down the TinyUSB device-controller implementation. */
 bool dcd_deinit(uint8_t rhport) {
   (void)rhport;
   ch32v4x7_usb2_int_disable();
@@ -626,61 +652,76 @@ bool dcd_deinit(uint8_t rhport) {
   return true;
 }
 
+/** @brief Enable device-controller interrupts. */
 void dcd_int_enable(uint8_t rhport) {
   (void)rhport;
   ch32v4x7_usb2_int_enable();
 }
+/** @brief Disable device-controller interrupts. */
 void dcd_int_disable(uint8_t rhport) {
   (void)rhport;
   ch32v4x7_usb2_int_disable();
 }
+/** @brief Dispatch a USBHS1 interrupt to the controller handler. */
 void dcd_int_handler(uint8_t rhport) {
   ch32v4x7_usb2_int_handler(rhport);
 }
 
+/** @brief Queue the zero-length status reply for SET_ADDRESS. */
 void dcd_set_address(uint8_t rhport, uint8_t dev_addr) {
   (void)dev_addr;
   dcd_edpt_xfer(rhport, 0x80, NULL, 0, false); // status ZLP; address applied at status-complete
 }
 
+/** @brief Request remote wakeup through the device controller. */
 void dcd_remote_wakeup(uint8_t rhport) {
   (void)rhport;
   ch32v4x7_usb2_remote_wakeup();
 }
+/** @brief Connect the device controller to the bus. */
 void dcd_connect(uint8_t rhport) {
   (void)rhport;
   ch32v4x7_usb2_connect();
 }
+/** @brief Disconnect the device controller from the bus. */
 void dcd_disconnect(uint8_t rhport) {
   (void)rhport;
   ch32v4x7_usb2_disconnect();
 }
+/** @brief Control delivery of start-of-frame events to TinyUSB. */
 void dcd_sof_enable(uint8_t rhport, bool en) {
   ch32v4x7_usb2_sof_enable(rhport, en);
 }
 
+/** @brief Finish the controller-specific control status handling. */
 void dcd_edpt0_status_complete(uint8_t rhport, const tusb_control_request_t *request) {
   ch32v4x7_usb2_edpt0_status_complete(rhport, request);
 }
 
+/** @brief Open an endpoint described by the active configuration. */
 bool dcd_edpt_open(uint8_t rhport, const tusb_desc_endpoint_t *desc_edpt) {
   return ch32v4x7_usb2_edpt_open(rhport, desc_edpt);
 }
+/** @brief Close one endpoint direction. */
 void dcd_edpt_close(uint8_t rhport, uint8_t ep_addr) {
   ch32v4x7_usb2_edpt_close(rhport, ep_addr);
 }
+/** @brief Close every non-control endpoint. */
 void dcd_edpt_close_all(uint8_t rhport) {
   ch32v4x7_usb2_edpt_close_all(rhport);
 }
 
+/** @brief Submit an endpoint transfer to the controller. */
 bool dcd_edpt_xfer(uint8_t rhport, uint8_t ep_addr, uint8_t *buffer, uint16_t total_bytes, bool is_isr) {
   (void)is_isr;
   return ch32v4x7_usb2_edpt_xfer(rhport, ep_addr, buffer, total_bytes);
 }
 
+/** @brief Halt one endpoint direction. */
 void dcd_edpt_stall(uint8_t rhport, uint8_t ep_addr) {
   ch32v4x7_usb2_edpt_stall(rhport, ep_addr);
 }
+/** @brief Restore one endpoint direction after clearing its halt. */
 void dcd_edpt_clear_stall(uint8_t rhport, uint8_t ep_addr) {
   ch32v4x7_usb2_edpt_clear_stall(rhport, ep_addr);
 }
