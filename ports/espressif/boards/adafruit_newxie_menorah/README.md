@@ -26,3 +26,8 @@ The flash layout is `partitions-4MB-noota.csv`: the application starts at
 `0x10000`, TinyUF2 at `0x2d0000`, and FAT storage at `0x310000`. Applications
 must use this partition layout. Convert the application binary to UF2 with
 family `ESP32S3` and base address `0`, then copy it to `NEWXIEBOOT`.
+
+Bench-tested on Rev A on 2026-11-10: USB mass storage and CDC enumerate as
+`239A:0181`, the J1 display shows the TinyUF2 screen, and USB firmware updates
+work with J1 unplugged. Copying the Arduino bring-up UF2 starts the application,
+which reports working PSRAM, MPR121 initialization, and Wi-Fi scanning.
