@@ -32,7 +32,7 @@
 #define DISPLAY_ROW_OFFSET     40
 #define DISPLAY_MADCTL         (TFT_MADCTL_MX)
 #define DISPLAY_VSCSAD         0
-#define DISPLAY_TITLE          "Newxie Menorah"
+#define DISPLAY_TITLE          "Menorah"
 
 #define USB_VID                0x239A
 #define USB_PID                0x0181
