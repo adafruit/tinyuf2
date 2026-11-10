@@ -19,6 +19,7 @@
 | adafruit_metro_esp32s2 | Adafruit Metro ESP32-S2 | 0x239A:0x00DF | https://www.adafruit.com/product/4775 |
 | adafruit_metro_esp32s3 | Adafruit Metro ESP32-S3 | 0x239A:0x0145 | https://www.adafruit.com/product/5500 |
 | adafruit_mylittlehacker_esp32s2 | Adafruit My Little Hacker ESP32-S2 | 0x239A:0x013F | https://www.adafruit.com/product/5742 |
+| adafruit_newxie_menorah | Adafruit Newxie Menorah ESP32-S3 | 0x239A:0x0181 | https://www.adafruit.com/ |
 | adafruit_qtpy_esp32s2 | Adafruit QT Py ESP32-S2 | 0x239A:0x0111 | https://www.adafruit.com/product/5325 |
 | adafruit_qtpy_esp32s3 | Adafruit QT Py ESP32-S3 | 0x239A:0x0119 | https://adafruit.com/product/5426 |
 | adafruit_qtpy_esp32s3_n4r2 | Adafruit QT Py ESP32-S3 (4M Flash, 2M PSRAM) | 0x239A:0x0143 | https://adafruit.com/product/5700 |
