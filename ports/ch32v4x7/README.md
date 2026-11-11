@@ -85,13 +85,10 @@ over UF2 is not implemented; changing the bootloader still needs the probe.
 
 ## Implementation sources
 
-- WCH's common V4x7 SDK, mirrored by [CH32 RISC-V User Group](https://github.com/ch32-riscv-ug/CH32V407),
-  pinned by `tools/get_deps.py`. Its flash implementation is shared by V407 and V467.
+- WCH's [CH32V407/V467 SDK](https://github.com/openwch/ch32v407_ch32v467), pinned by `tools/get_deps.py`.
+  Its flash implementation is shared by V407 and V467.
   Vendor code retains WCH's restriction to WCH microcontrollers.
-- The USB driver adapts Ha Thach's MIT-licensed
-  [CH32H417 USBHS driver](https://github.com/hathach/tinyusb/pull/3779), commit
-  `0c97a1c7b9b61dc66b890525f700fd45343650e6`, to V4x7's USBHS1 registers and IRQ.
-  It is local to this port; TinyUSB's pinned submodule is unchanged.
+- The USB driver is TinyUSB's `usbhs_v2` device driver (`OPT_MCU_CH32V407`), on USBHS1.
 - Application entry uses a software interrupt, following WCH's V4x7 IAP
   example, so application reset code executes with machine-mode CSR access.
 
