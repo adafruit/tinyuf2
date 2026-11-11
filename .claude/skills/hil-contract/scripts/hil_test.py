@@ -126,7 +126,6 @@ INTERRUPT_PASSES, INTERRUPT_OFFSET, INTERRUPT_TIMEOUT = 25, 0x100000, 120
 # every block reaches the device before the write returns (O_DIRECT is Linux's, as is the runner)
 WRITE_FLAGS = os.O_WRONLY | getattr(os, 'O_DIRECT', 0) | os.O_SYNC
 JLINK_CONNECTED = r'(?m)^Cortex-M\w+ identified\.$'
-UDEV_RULES = ('/etc/udev/rules.d', '/run/udev/rules.d')
 # J-Link devices whose connect as the chip resets it to unprotect it (bench-history.md, stm32f411ve_discovery,
 # stm32f407disco): (the core runner sessions connect as instead, ms the install's verify session waits before its halt
 # after the flash's unlock, empirical)
@@ -1384,43 +1383,16 @@ def stays_away(fn, seconds, what, ev):
     time.sleep(min(0.2, max(0.0, end - time.monotonic())))
 
 
-def exclusion_configured(facts, serial):
-  """A udev rule in exactly commissioning.md's form sets UDISKS_IGNORE=1 on this bootloader's VID, PID and
-  serial, so desktop automount cannot race the raw I/O: any other predicate could keep it from applying
-  when the device appears. Checked before any hardware access; the property on the enumerated device
-  (check_exclusive) is the proof."""
-  want = {('ATTRS{idVendor}', '=='): f'{facts["vid"]:04x}', ('ATTRS{idProduct}', '=='): f'{facts["pid"]:04x}',
-          ('ATTRS{serial}', '=='): serial, ('ENV{UDISKS_IGNORE}', '='): '1'}
-  token = r'([A-Za-z_]+(?:\{[^}]*\})?)\s*(==|!=|:=|\+=|-=|=)\s*"([^"]*)"'
-  for d in UDEV_RULES:
-    for f in sorted(Path(d).glob('*.rules')) if Path(d).is_dir() else ():
-      for line in f.read_text(errors='replace').splitlines():
-        found = re.findall(token, line)
-        rest = re.sub(token, '', line).replace(',', '').strip()
-        rule = {(k, op): v for k, op, v in found}
-        if rest or len(rule) != len(found) or rule.pop(('SUBSYSTEM', '=='), 'block') != 'block':
-          continue
-        if rule == want:
-          return str(f)
-  raise Refused(f'no udev rule in the required form sets ENV{{UDISKS_IGNORE}}="1" on idVendor '
-                f'{want[("ATTRS{idVendor}", "==")]}, idProduct {want[("ATTRS{idProduct}", "==")]} and serial {serial} '
-                '(commissioning.md: 99-tinyuf2-hil.rules)')
-
-
-def udisks_ignored(dev):
-  props = subprocess.run(['udevadm', 'info', '--query=property', f'--name={dev}'], capture_output=True, text=True)
-  return 'UDISKS_IGNORE=1' in props.stdout.split()
-
-
-def check_exclusive(dev, timeout=UDEV_TIMEOUT):
-  # the block node shows in sysfs before udev has run its rules on it (bench: RT1060 re-entry), so the
-  # property gets a bounded wait; the mount check still catches a rule that did not apply
+def check_block(dev, timeout=UDEV_TIMEOUT):
+  """Wait, bounded, for read-write access to the drive's node, then refuse it mounted; the seconds waited. The node
+  shows in sysfs before udev has applied its access rule (bench: RT1060 re-entry). The mount check is point-in-time,
+  before an automounter would act: on a host that automounts (udisks2), the board's drive also needs its udev
+  exclusion (commissioning.md), which the runner does not verify."""
   start = time.monotonic()
   try:
-    wait_for(lambda: udisks_ignored(dev), timeout, f'UDISKS_IGNORE=1 on {dev}')
+    wait_for(lambda: os.access(dev, os.R_OK | os.W_OK), timeout, f'read-write access to {dev}')
   except StepFail:
-    raise StepFail(f'{dev} has no UDISKS_IGNORE=1: desktop automount could race the raw I/O '
-                   '(commissioning.md: 99-tinyuf2-hil.rules)')
+    raise StepFail(f'no read-write access to {dev} within {timeout:.3g}s (commissioning.md: Drive access)')
   mounted = [l.split()[0] for l in Path('/proc/mounts').read_text().splitlines()]
   if any(os.path.realpath(m) == dev for m in mounted):
     raise StepFail(f'{dev} is mounted; refusing raw I/O')
@@ -2457,7 +2429,7 @@ class Battery:
       raise StepFail('came back on another USB port', {'usb': path, 'expected': self.usb_path})
     self.usb_path = path
     dev = wait_for(lambda: block_device(path), left(), f'the block device of USB {path}')
-    udev_wait = check_exclusive(dev, min(UDEV_TIMEOUT, left()))
+    udev_wait = check_block(dev, min(UDEV_TIMEOUT, left()))
     info = fat_read(dev, 'INFO_UF2.TXT', 512, self.log, timeout=left())
     lines = info['data'].decode('ascii', 'replace').splitlines()
     want = f'TinyUF2 Bootloader {version}'
@@ -3288,7 +3260,6 @@ def admit_record(record_path, board, facts, workdir):
       raise Refused(f'{files["hex"]} and {files["bin"]} do not hold the same bytes')
     files['verify'] = verify_images(data, workdir)
     check_bootloader_bin(files['bin'], board, facts, 'candidate')
-  exclusion_configured(facts, board['uid'])
   if shutil.which('mcopy') is None:
     raise Refused('mcopy must be on PATH')
   check_flasher(board)
