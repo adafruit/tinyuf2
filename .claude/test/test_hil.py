@@ -6207,10 +6207,6 @@ class OpenocdBatteryRun(Tmp):
     self.assertEqual(self.oocd.scripts[0][2], f'mww 0x{self.bat.f["dblTapReg"]:08x} 0x{self.bat.f["dblTapMagic"]:08x}')
 
 
-if __name__ == '__main__':
-  unittest.main()
-
-
 # the bench CH32V4x7 EVT on a WCH-LinkE: a bench board names its own flasher
 WCH_FLASHER = {'name': 'openocd', 'uid': 'E9B38F066FBB', 'vid_pid': '0x1a86 0x8010', 'args': '-f target/wch-riscv.cfg'}
 
@@ -6388,8 +6384,7 @@ class WchBatteryRun(Tmp):
 
   def test_only_a_reset_session_may_log_the_reexamination_and_only_once(self):
     out = 'Error: [wch_riscv.cpu.0] Polling failed, trying to reexamine\nshutdown command invoked\n'
-    op = lambda o: ht.provider().Operation if False else type('Op', (), {'attempts': [type('A', (), {
-      'timed_out': False, 'result': subprocess.CompletedProcess([], 0, o, '')})()]})()
+    op = lambda o: one_attempt(subprocess.CompletedProcess(['openocd'], 0, o, ''))
     self.assertEqual(self.bat.probe.judge(op(out), ht.WCH_REEXAMINE), out)
     for what, o, benign in (('outside a reset', out, None), ('twice', out.replace('\n', '\n' + out.splitlines()[0] + '\n', 1),
                                                                ht.WCH_REEXAMINE),
@@ -6419,3 +6414,7 @@ class WchBatteryRun(Tmp):
     self.oocd.run = drop
     with self.assertRaisesRegex(ht.StepFail, 'reads back'):
       self.bat.write_dbl_tap(0xf016)
+
+
+if __name__ == '__main__':
+  unittest.main()

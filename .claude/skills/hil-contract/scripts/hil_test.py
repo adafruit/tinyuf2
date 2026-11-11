@@ -2927,14 +2927,18 @@ class OpenocdProbe:
   shutdown, from a script in the run dir. openocd stops at the first failing command and exits 1; success is read from
   the transcript too: the closing shutdown and no error line."""
 
+  BENIGN_ON_RESET = None   # a line a `reset run` session may log once and still pass
+
   def __init__(self, board, workdir, log):
     self.b, self.dir, self.log = board, workdir, log
     self.retried = []   # the report's jlinkRetried: an openocd session is never retried
     self.flasher = board['entry']
 
   def run(self, commands):
-    return self.judge(provider().run_openocd_commands(self.flasher, list(commands), timeout=PROBE_TIMEOUT,
-                                                      run=tool_runner(self.log), workdir=str(self.dir)))
+    commands = list(commands)
+    op = provider().run_openocd_commands(self.flasher, commands, timeout=PROBE_TIMEOUT, run=tool_runner(self.log),
+                                         workdir=str(self.dir))
+    return self.judge(op, self.BENIGN_ON_RESET if 'reset run' in commands else None)
 
   def sysreset(self):
     """The provider's SYSRESETREQ session (the AIRCR write). Bench: the write and the shutdown after it complete
@@ -2973,10 +2977,12 @@ def shown(command):
   return f'echo [{command}]'
 
 
-def mdw_value(out, addr):
-  m = re.findall(rf'^0x{addr:08x}: ([0-9a-f]{{8}}) *$', out, re.M)
+def mdw_value(out, addr, cmd='mdw'):
+  """The one value `cmd` (mdw, or mdh's 16 bits) printed for `addr`."""
+  digits = {'mdw': 8, 'mdh': 4}[cmd]
+  m = re.findall(rf'^0x{addr:08x}: ([0-9a-f]{{{digits}}}) *$', out, re.M)
   if len(m) != 1:
-    raise StepFail(f'mdw gave no single value for {addr:#x}')
+    raise StepFail(f'{cmd} gave no single value for {addr:#x}')
   return int(m[0], 16)
 
 
@@ -2998,10 +3004,11 @@ class OpenocdBattery(Battery):
   """The J-Link battery's steps on a CMSIS-DAP board, each probe session one openocd script."""
 
   READ = 'dump_image {{{path}}} 0x{addr:08x} {n:#x}'
+  PROBE = OpenocdProbe
 
   def __init__(self, board, facts, workdir, fail_at=None, commissioning=False):
     super().__init__(board, facts, workdir, fail_at, commissioning)
-    self.probe = OpenocdProbe(board, workdir, self.log)
+    self.probe = self.PROBE(board, workdir, self.log)
 
   def install(self, files):
     """The record's HEX through the provider's openocd flash (`program` with reset, without its verify, as the
@@ -3046,11 +3053,7 @@ class WchProbe(OpenocdProbe):
   """openocd sessions on a WCH-LinkE: the openocd board's, a system reset being openocd's `reset run`, which the
   CH32V4x7 backup registers survive (CH32V407RM 3.2.2), never an Arm AIRCR write."""
 
-  def run(self, commands):
-    commands = list(commands)
-    op = provider().run_openocd_commands(self.flasher, commands, timeout=PROBE_TIMEOUT, run=tool_runner(self.log),
-                                         workdir=str(self.dir))
-    return self.judge(op, WCH_REEXAMINE if 'reset run' in commands else None)
+  BENIGN_ON_RESET = WCH_REEXAMINE
 
   def sysreset(self):
     return self.run(['reset run'])
@@ -3060,17 +3063,13 @@ class WchProbe(OpenocdProbe):
     return openocd_failure(out, WCH_NO_PROBE, WCH_CONTACT)
 
   def mem16(self, addr):
-    m = re.findall(rf'^0x{addr:08x}: ([0-9a-f]{{4}}) *$', self.run([shown(f'mdh 0x{addr:08x}')]), re.M)
-    if len(m) != 1:
-      raise StepFail(f'mdh gave no single value for {addr:#x}')
-    return int(m[0], 16)
+    return mdw_value(self.run([shown(f'mdh 0x{addr:08x}')]), addr, 'mdh')
 
   def write16(self, addr, value):
     """Write and read back on the running core (its system bus access); only the read-back proves the write."""
-    out = self.run([f'mwh 0x{addr:08x} 0x{value:04x}', shown(f'mdh 0x{addr:08x}')])
-    got = re.findall(rf'^0x{addr:08x}: ([0-9a-f]{{4}}) *$', out, re.M)
-    if got != [f'{value:04x}']:
-      raise StepFail(f'{addr:#010x} reads back {got}, not {value:#06x}')
+    got = mdw_value(self.run([f'mwh 0x{addr:08x} 0x{value:04x}', shown(f'mdh 0x{addr:08x}')]), addr, 'mdh')
+    if got != value:
+      raise StepFail(f'{addr:#010x} reads back {got:#06x}, not {value:#06x}')
     return hex(value)
 
 
@@ -3091,9 +3090,7 @@ class WchBattery(OpenocdBattery):
   core still running, and an enumerated TinyUF2 drops off USB within ~3 s until the next reset (bench-history.md,
   ch32v407_evt_r0): no probe session opens while the battery still needs the drive."""
 
-  def __init__(self, board, facts, workdir, fail_at=None, commissioning=False):
-    super().__init__(board, facts, workdir, fail_at, commissioning)
-    self.probe = WchProbe(board, workdir, self.log)
+  PROBE = WchProbe
 
   def write_dbl_tap(self, value):
     return self.probe.write16(self.f['dblTapReg'], value)
