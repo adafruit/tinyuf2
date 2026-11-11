@@ -2482,13 +2482,16 @@ class Battery:
     return self.retained_reentry(version, 'DFU did not enumerate after the install; the retained-register re-entry '
                                           'brought it up')
 
-  def retained_reentry(self, version, claim):
+  def retained_reentry(self, version, claim, while_up=None):
+    """`while_up` reads the drive before the register's probe session, which on a WCH-LinkE stops USB (WchBattery)."""
     f = self.f
     self.write_dbl_tap(f['dblTapMagic'])
     # no probe session opens again until DFU is observed
     tail = self.sysreset()
     ev = dict(self.dfu(version), dfuCameUp=True, resetTail=tail.strip().splitlines()[-3:], claim=claim)
     try:
+      if while_up:
+        ev.update(while_up())
       left = self.read_dbl_tap()
     except StepFail as e:
       e.evidence = {**ev, **e.evidence}
@@ -2508,6 +2511,9 @@ class Battery:
 
   def read_dbl_tap(self):
     return self.probe.mem32([self.f['dblTapReg']])[self.f['dblTapReg']]
+
+  def clear_dbl_tap(self):
+    return self.write_dbl_tap(0)
 
   def dfu(self, version, timeout=USB_TIMEOUT):
     """DFU naming `version` within `timeout` in all: each wait and the read in turn gets only what is left."""
@@ -2595,7 +2601,7 @@ class Battery:
     self.step('install', lambda: self.install(files))
     # cleared once the bootloader has run board_init (the register's clock), so a magic a failed reenter left
     # cannot send the copied app back to DFU
-    self.step('dfu', lambda: dict(self.dfu_after_install(version), dblTapReg=self.write_dbl_tap(0)))
+    self.step('dfu', lambda: dict(self.dfu_after_install(version), dblTapReg=self.clear_dbl_tap()))
 
     self.step('copy', lambda: self.copy(app_uf2, len(blocks), nonce))
 
@@ -2621,7 +2627,11 @@ class Battery:
     def entered(ev):
       if self.commissioning:
         ev.update(self.control(app_bin))
-      ev.update(self.retained_reentry(version, 'the write/reset sequence re-entered DFU (register retention inferred)'))
+      ev.update(self.retained_reentry(version, 'the write/reset sequence re-entered DFU (register retention inferred)',
+                                      app_intact))
+      return ev
+
+    def app_intact():
       expect = self.fix['image']
       n = -(-len(expect) // 256)
       try:
@@ -2629,10 +2639,9 @@ class Battery:
         if got[:len(expect)] != expect:
           raise StepFail('CURRENT.UF2 does not read back the fixture from the app start')
       except StepFail as e:
-        e.evidence = {**ev, **e.evidence, 'failedAt': 'readback', 'appIntact': 'unshown'}
+        e.evidence = {**e.evidence, 'failedAt': 'readback', 'appIntact': 'unshown'}
         raise
-      ev['appIntact'] = True
-      return ev
+      return {'appIntact': True}
     self.step('reenter', reenter)
 
   def run_update(self, files, version):
@@ -2641,7 +2650,7 @@ class Battery:
     by a probe reset while its write is in flight, then the candidate installed again by the battery's own install."""
     u = files['update']
     self.step('install', lambda: self.install(files))
-    self.step('dfu', lambda: dict(self.dfu_after_install(version), dblTapReg=self.write_dbl_tap(0)))
+    self.step('dfu', lambda: dict(self.dfu_after_install(version), dblTapReg=self.clear_dbl_tap()))
     self.step('update-variant', lambda: self.update_to(u['variant']))
     self.step('update', lambda: self.update_to(u['candidate']))
     missed = None
@@ -3069,7 +3078,11 @@ def wch_regs(out):
 
 class WchBattery(OpenocdBattery):
   """The openocd battery on a CH32V4x7 through a WCH-LinkE: the RV32 fixture (fixture_riscv), its registers as the
-  evidence, the 16-bit backup register as the double-tap register, and `reset run` as the system reset."""
+  evidence, the 16-bit backup register as the double-tap register, and `reset run` as the system reset.
+
+  The WCH-LinkE's attach (wlink_init's 81 0d 01 02) leaves HSEON and USBHS_PLLON clear (CH32V407RM 3.4.1) with the
+  core still running, and an enumerated TinyUF2 drops off USB within ~3 s until the next reset (bench-history.md,
+  ch32v407_evt_r0): no probe session opens while the battery still needs the drive."""
 
   def __init__(self, board, facts, workdir, fail_at=None, commissioning=False):
     super().__init__(board, facts, workdir, fail_at, commissioning)
@@ -3080,6 +3093,19 @@ class WchBattery(OpenocdBattery):
 
   def read_dbl_tap(self):
     return self.probe.mem16(self.f['dblTapReg'])
+
+  def read_back_install(self, ev, files, halt, end):
+    """The register cleared before the session whose reset brings DFU up, so none follows DFU coming up."""
+    self.cleared = self.write_dbl_tap(0)
+    return super().read_back_install(ev, files, halt, end)
+
+  def clear_dbl_tap(self):
+    return self.cleared
+
+  def dfu_after_install(self, version):
+    """No retained-register fallback: its register read would stop USB before the copy. The install's `program`
+    erases the whole chip (wlink_erase), so DFU comes up on the empty app."""
+    return self.dfu(version)
 
   def observe_app(self, app_bin):
     """Two halted samples in one session, the image read back in it."""

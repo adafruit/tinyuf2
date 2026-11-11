@@ -3999,7 +3999,9 @@ class BatteryRun(Tmp):
           bat.run(self.files, 'v1')
         last = bat.steps[-1]
         self.assertEqual((last['step'], last['pass'], last['evidence']['failedAt']), ('reenter', False, 'readback'))
-        self.assertTrue(last['evidence']['dfuCameUp'] and last['evidence']['magicConsumed'])
+        # the drive is read before the register's session, so the register stays unread
+        self.assertTrue(last['evidence']['dfuCameUp'])
+        self.assertNotIn('magicConsumed', last['evidence'])
         self.assertEqual((last['evidence']['appIntact'], last['evidence']['claim']),
                          ('unshown', 'the write/reset sequence re-entered DFU (register retention inferred)'))
 
@@ -6253,12 +6255,13 @@ class RiscvFixture(unittest.TestCase):
 
 
 class FakeWch(FakeOpenocd):
-  """openocd over a WCH-LinkE: the openocd board's sessions, RV32 registers, 16-bit memory, and a `reset run` the
-  next poll logs as a re-examination (bench, 2026-11-11)."""
+  """openocd over a WCH-LinkE: the openocd board's sessions, RV32 registers, 16-bit memory, a `reset run` the
+  next poll logs as a re-examination, and an attach that stops the target's USB until a reset (bench, 2026-11-11)."""
 
   def __init__(self):
     super().__init__()
     self.pc, self.a0, self.sp, self.mtvec, self.mem16 = 0, 5, 0, 0, {}
+    self.on_attach = None
 
   def run(self, argv):
     if argv[-2] == '-c':
@@ -6266,6 +6269,8 @@ class FakeWch(FakeOpenocd):
       return 0, oocd_program()
     lines = Path(argv[-1]).read_text().splitlines()
     self.scripts.append(lines)
+    if self.on_attach:
+      self.on_attach()
     out = 'Info : WCH-LinkE  mode:RV version 2.22\nInfo : [wch_riscv.cpu.0] Examined RISC-V core\n'
     for line in lines:
       echo = re.fullmatch(r'echo \[(.*)\]', line)
@@ -6313,6 +6318,7 @@ class WchBatteryRun(Tmp):
       magic = oocd.mem16.pop(f['dblTapReg'], None) == f['dblTapMagic']
       self.present[0] = magic or f['appStart'] not in oocd.flash
     oocd.on_reset = reset
+    oocd.on_attach = lambda: self.present.__setitem__(0, False)
     build = self.tmp / 'build'
     build.mkdir()
     (build / 'tinyuf2.hex').write_text(':00000001FF\n')
@@ -6322,6 +6328,8 @@ class WchBatteryRun(Tmp):
 
     def spawn(cmd, log, timeout, cwd=None, **k):
       if cmd[0] == 'mcopy':
+        if not self.present[0]:
+          return 1, f"Can't open {cmd[3]}: No medium found"
         self.present[0] = False
         oocd.flash[f['appStart']] = bat.fix['image']
         oocd.pc, oocd.sp, oocd.mtvec = bat.fix['handler'], bat.fix['sp'], bat.fix['mtvec']
@@ -6329,6 +6337,8 @@ class WchBatteryRun(Tmp):
       return oocd.run(cmd) if cmd[0] == 'openocd' else (0, '')
 
     def fat_read(dev, name, length, log, offset=0, timeout=None):
+      if not self.present[0]:
+        raise ht.StepFail(f'{dev}: No medium found')
       if name == 'INFO_UF2.TXT':
         data = (f'TinyUF2 Bootloader v1\r\nModel: x\r\nBoard-ID: {f["boardId"]}\r\nDate: d\r\n'
                 f'Flash Size: 0x{0x78000:08X} bytes').encode()   # the app region, as board_flash_size() reports
@@ -6351,8 +6361,9 @@ class WchBatteryRun(Tmp):
     self.bat.run(self.files, 'v1')
     self.assertEqual([x['step'] for x in self.bat.steps if x['pass']], list(ht.STEPS['wch']))
     s, reg = self.oocd.scripts, self.bat.f['dblTapReg']
-    self.assertEqual((s[0][:2], s[0][-2:]), (['init', 'halt'], ['reset run', 'shutdown']))
-    self.assertEqual(s[1], ['init', f'mwh 0x{reg:08x} 0x0000', f'echo [mdh 0x{reg:08x}]', 'shutdown'])
+    # cleared before the session whose reset brings DFU up: no session follows it while the drive is needed
+    self.assertEqual(s[0], ['init', f'mwh 0x{reg:08x} 0x0000', f'echo [mdh 0x{reg:08x}]', 'shutdown'])
+    self.assertEqual((s[1][:2], s[1][-2:]), (['init', 'halt'], ['reset run', 'shutdown']))
     observe = next(x for x in s if 'echo [reg a0]' in x)
     self.assertEqual((observe.count('echo [reg pc]'), observe.count('echo [reg mtvec]'), observe[-2:]),
                      (2, 2, ['resume', 'shutdown']))
