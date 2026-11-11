@@ -177,6 +177,12 @@
 | intech_wrid | Intech Studio Wrid | 0x03EB:0x2402 | https://github.com/intechstudio/grid-fw/ |
 | metro_m4_express | Adafruit Metro M4 Express | 0x239A:0x0021 | https://www.adafruit.com/product/3382 |
 
+## stm32f1
+
+| Board | Name | VID PID | URL |
+| --- | --- | --- | --- |
+| stm32f103_bluepill | STM32 Blue Pill | 0xCAFE:0xFFFF | https://stm32-base.org/boards/STM32F103C8T6-Blue-Pill |
+
 ## stm32f3
 
 | Board | Name | VID PID | URL |
