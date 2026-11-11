@@ -5796,6 +5796,7 @@ class ProbeBusy(Tmp):
       return ht.probe_busy(board), seen
 
   def test_each_flasher_is_checked_by_its_probe_serial(self):
+    no_ci_job(self)
     stlink = self.tmp / 'stlink.json'
     stlink.write_text(json.dumps({'boards': [{'name': 'stm32h563_nucleo', 'uid': 'U', 'tinyuf2': {
       'device': 'stm32h563zi', 'reentry': 'retained-register'}, 'flasher': {'name': 'stlink', 'uid': '0023'}}]}))
