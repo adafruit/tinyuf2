@@ -265,7 +265,12 @@ RT1064_FACTS = dict(RT1060_FACTS, flashBase=0x70000000, binBase=0x70000000, appS
                     boardId='MIMXRT1064-EVK-revA')
 # the RT1011 boots its RAM image from the FCB, 0x400 into flash (IMXRT1010RM Table 9-8)
 RT1011_FACTS = dict(RT1060_FACTS, binBase=0x60000400, pid=0x00e1, boardId='MIMXRT1011-Metro-revA', vectors=96)
+# the CH32V4x7 EVT build: UF2 addresses from the app start, flash from the bootloader at 0 (board_facts.read)
+WCH_FACTS = {'arch': 'riscv', 'flashBase': 0, 'binBase': 0, 'appStart': 0x8000, 'flashSize': 0x80000, 'vid': 0x239a,
+             'pid': 0x017d, 'boardId': 'CH32V407-EVT-R0', 'family': 0x7b8c32a7, 'ram': 0x20000000,
+             'dblTapDelayMs': 500, 'dblTapSize': 16, 'dblTapReg': 0x40006c28, 'dblTapMagic': 0xf016}
 BOARD_FACTS = {'lpcxpresso55s69': LPC_FACTS, 'stm32h563_nucleo': H563_FACTS, 'max32666fthr': MAX_FACTS,
+               'ch32v407_evt_r0': WCH_FACTS,
                'stm32h743nucleo': H743_FACTS, 'stm32f407disco': F407_FACTS, 'stm32f303disco': F303_FACTS,
                'stm32f411ve_discovery': F411_FACTS, 'imxrt1060_evk': RT1060_FACTS, 'imxrt1064_evk': RT1064_FACTS,
                'metro_m7_1011': RT1011_FACTS}
@@ -6196,3 +6201,190 @@ class OpenocdBatteryRun(Tmp):
 
 if __name__ == '__main__':
   unittest.main()
+
+
+# the bench CH32V4x7 EVT on a WCH-LinkE: a bench board names its own flasher
+WCH_FLASHER = {'name': 'openocd', 'uid': 'E9B38F066FBB', 'vid_pid': '0x1a86 0x8010', 'args': '-f target/wch-riscv.cfg'}
+
+
+def wch_roster(tmp, name='ch32v407_evt_r0', **tinyuf2):
+  t = {'reentry': 'retained-register', 'device': 'ch32v4x7', 'lock': 'ch32v407-evt-r0', **tinyuf2}
+  cfg = tmp / f'wch-{len(list(tmp.glob("wch-*.json")))}.json'
+  cfg.write_text(json.dumps({'boards': [{'name': name, 'uid': '763A5E1AA7107B65', 'flasher': WCH_FLASHER,
+                                         'tinyuf2': {k: v for k, v in t.items() if v is not None}}]}))
+  return cfg
+
+
+class WchRoster(Tmp):
+  def test_a_wch_entry_loads_as_the_wch_battery_of_its_device(self):
+    b = self.load(wch_roster(self.tmp), 'ch32v407_evt_r0')
+    self.assertEqual((b['kind'], b['flasher'], b['device'], b['lock'], b['install'], b['app']),
+                     ('wch', 'openocd', 'ch32v4x7', 'ch32v407-evt-r0', (0, 0x8000), (0x8000, 0x80000)))
+    self.assertEqual((ht.STEPS['wch'], ht.REENTRY['wch'], ht.BATTERIES['wch']),
+                     (ht.STEPS['jlink'], ('retained-register',), ht.WchBattery))
+
+  def test_refusals(self):
+    for what, cfg, err in (('no device', wch_roster(self.tmp, device=None), 'needs tinyuf2.device'),
+                           ('another device', wch_roster(self.tmp, device='ch32v20x'), 'needs tinyuf2.device'),
+                           ('another port', wch_roster(self.tmp, name='max32666fthr'), 'needs tinyuf2.device')):
+      with self.subTest(what), self.assertRaisesRegex(ht.Refused, err):
+        ht.load_board(cfg, 'max32666fthr' if what == 'another port' else 'ch32v407_evt_r0')
+    with self.assertRaisesRegex(ht.Refused, 'is a WCH device'):
+      ht.load_board(max_roster(self.tmp, args='-f interface/cmsis-dap.cfg -f target/ch32v4x7.cfg'), 'max32666fthr')
+
+  def test_the_build_binds_the_wch_target_cfg_and_no_interface(self):
+    self.assertEqual(ht.cb.openocd_cfgs('ch32v4x7'), ['-f', 'target/wch-riscv.cfg'])
+    self.assertEqual(ht.cb.openocd_cfgs('max32665'), ['-f', 'interface/cmsis-dap.cfg', '-f', 'target/max32665.cfg'])
+
+
+class RiscvFixture(unittest.TestCase):
+  def test_the_image_jumps_to_its_setup_traps_into_a_loop_and_counts_in_a0(self):
+    fix = ht.fixture(dict(WCH_FACTS), b'n' * 16)
+    words = struct.unpack('<11I', fix['image'][:44])
+    # riscv-none-elf-objdump of the image at 0x8000: j 0x8010; j 0x8004; addi a0,a0,1; j 0x8008; lui sp,0x20001;
+    # mv sp,sp; lui t0,0x8; addi t0,t0,4; csrw mtvec,t0; li a0,0; j 0x8008
+    self.assertEqual(words, (0x0100006f, 0x0000006f, 0x00150513, 0xffdff06f, 0x20001137, 0x00010113, 0x000082b7,
+                             0x00428293, 0x30529073, 0x00000513, 0xfe1ff06f))
+    self.assertEqual((fix['handler'], fix['fault'], fix['mtvec'], fix['sp']), (0x8008, 0x8004, 0x8004, 0x20001000))
+    self.assertNotEqual(fix['image'], ht.fixture(dict(WCH_FACTS), b'm' * 16)['image'])
+
+
+class FakeWch(FakeOpenocd):
+  """openocd over a WCH-LinkE: the openocd board's sessions, RV32 registers, 16-bit memory, and a `reset run` the
+  next poll logs as a re-examination (bench, 2026-11-11)."""
+
+  def __init__(self):
+    super().__init__()
+    self.pc, self.a0, self.sp, self.mtvec, self.mem16 = 0, 5, 0, 0, {}
+
+  def run(self, argv):
+    if argv[-2] == '-c':
+      self.flashes.append(argv)
+      return 0, oocd_program()
+    lines = Path(argv[-1]).read_text().splitlines()
+    self.scripts.append(lines)
+    out = 'Info : WCH-LinkE  mode:RV version 2.22\nInfo : [wch_riscv.cpu.0] Examined RISC-V core\n'
+    for line in lines:
+      echo = re.fullmatch(r'echo \[(.*)\]', line)
+      w = (echo[1] if echo else line).split()
+      if self.fail and self.fail(line):
+        return 1, out + f'Error: {line} failed\n'
+      result = ''
+      if w[0] == 'reg':
+        regs = {'pc': self.pc, 'a0': self.a0 + 3, 'sp': self.sp, 'mtvec': self.mtvec}
+        if w[1] == 'a0':
+          self.a0 += 3
+        result = f'{w[1]} (/32): 0x{regs[w[1]]:08x}'
+      elif w[0] == 'mdh':
+        a = int(w[1], 16)
+        result = f'0x{a:08x}: {self.mem16.get(a, 0):04x} '
+      elif w[0] == 'mwh':
+        self.mem16[int(w[1], 16)] = int(w[2], 16)
+      elif w[0] == 'reset':
+        out += 'Error: [wch_riscv.cpu.0] Polling failed, trying to reexamine\n'
+        if self.on_reset:
+          self.on_reset()
+      elif w[0] == 'dump_image':
+        a, n = int(w[2], 16), int(w[3], 16)
+        Path(w[1].strip('{}')).write_bytes(self.flash.get(a, b'')[:n])
+      elif w[0] == 'shutdown':
+        out += 'shutdown command invoked\n'
+      if echo:
+        out += result + '\n'
+    return 0, out
+
+
+class WchBatteryRun(Tmp):
+  """WchBattery.run end to end over the fake WCH-LinkE openocd and a fake drive."""
+
+  def setUp(self):
+    super().setUp()
+    board = self.load(wch_roster(self.tmp), 'ch32v407_evt_r0')
+    self.bat = bat = ht.WchBattery(board, board_facts(board), self.tmp)
+    oocd, f = FakeWch(), bat.f
+    self.oocd, self.present = oocd, [True]
+    bin_path = bootloader_bin(self.tmp / 'c.bin', board_id=b'CH32V407-EVT-R0')
+    oocd.flash[f['binBase']] = bin_path.read_bytes()
+
+    def reset():   # DFU with the magic retained, or with no app to boot
+      magic = oocd.mem16.pop(f['dblTapReg'], None) == f['dblTapMagic']
+      self.present[0] = magic or f['appStart'] not in oocd.flash
+    oocd.on_reset = reset
+    build = self.tmp / 'build'
+    build.mkdir()
+    (build / 'tinyuf2.hex').write_text(':00000001FF\n')
+    self.files = {'bin': bin_path, 'hex': build / 'tinyuf2.hex', 'verify': [(f['binBase'], bin_path)],
+                  'flash': {'root': build, 'binding': {'target': 'tinyuf2-openocd'},
+                            'sha256': {'tinyuf2.hex': ht.sha256(build / 'tinyuf2.hex')}}}
+
+    def spawn(cmd, log, timeout, cwd=None, **k):
+      if cmd[0] == 'mcopy':
+        self.present[0] = False
+        oocd.flash[f['appStart']] = bat.fix['image']
+        oocd.pc, oocd.sp, oocd.mtvec = bat.fix['handler'], bat.fix['sp'], bat.fix['mtvec']
+        return 0, ''
+      return oocd.run(cmd) if cmd[0] == 'openocd' else (0, '')
+
+    def fat_read(dev, name, length, log, offset=0, timeout=None):
+      if name == 'INFO_UF2.TXT':
+        data = (f'TinyUF2 Bootloader v1\r\nModel: x\r\nBoard-ID: {f["boardId"]}\r\nDate: d\r\n'
+                f'Flash Size: 0x{f["flashSize"]:08X} bytes').encode()
+      else:
+        data = ht.make_uf2(bat.fix['image'], f['appStart'], f['family'], self.tmp / 'cur')[1].read_bytes()[:length]
+      return {'entries': {'CURRENT.UF2': [9, f['flashSize'] // 256 * 512]}, 'data': data, 'size': len(data)}
+    (self.tmp / 'cur').mkdir()
+    clock = [0.0]
+    for p in (mock.patch.object(ht, 'usb_device', lambda *a: '9-2.2' if self.present[0] else None),
+              mock.patch.object(ht, 'block_device', lambda p: '/dev/sdz'),
+              mock.patch.object(ht, 'check_exclusive', lambda d, timeout=None: None),
+              mock.patch.object(ht, 'fat_read', fat_read),
+              mock.patch.object(ht, 'spawn', spawn),
+              mock.patch.object(ht.time, 'sleep', lambda s: clock.__setitem__(0, clock[0] + s)),
+              mock.patch.object(ht.time, 'monotonic', lambda: clock[0] + 1e-3)):
+      p.start()
+      self.addCleanup(p.stop)
+
+  def test_every_step_passes_on_rv32_evidence_and_a_reset_run(self):
+    self.bat.run(self.files, 'v1')
+    self.assertEqual([x['step'] for x in self.bat.steps if x['pass']], list(ht.STEPS['wch']))
+    s, reg = self.oocd.scripts, self.bat.f['dblTapReg']
+    self.assertEqual((s[0][:2], s[0][-2:]), (['init', 'halt'], ['reset run', 'shutdown']))
+    self.assertEqual(s[1], ['init', f'mwh 0x{reg:08x} 0x0000', f'echo [mdh 0x{reg:08x}]', 'shutdown'])
+    observe = next(x for x in s if 'echo [reg a0]' in x)
+    self.assertEqual((observe.count('echo [reg pc]'), observe.count('echo [reg mtvec]'), observe[-2:]),
+                     (2, 2, ['resume', 'shutdown']))
+    self.assertIn(['init', 'reset run', 'shutdown'], s)
+    self.assertFalse(any('mww' in line for x in s for line in x))   # no Arm AIRCR write
+    app = self.bat.steps[3]['evidence']
+    self.assertEqual((app['pc'], app['mtvec'], app['sp']), ([hex(self.bat.fix['handler'])] * 2, '0x8004', '0x20001000'))
+    ev = self.bat.steps[-1]['evidence']
+    self.assertTrue(ev['dfuCameUp'] and ev['magicConsumed'] and ev['appIntact'])
+
+  def test_a_fixture_in_its_trap_loop_fails_app_ran(self):
+    self.bat.run(self.files, 'v1')
+    self.oocd.pc = self.bat.fix['fault']
+    with self.assertRaisesRegex(ht.StepFail, 'not running from the bootloader handoff'):
+      self.bat.observe_app(self.tmp / 'app.bin')
+
+  def test_only_a_reset_session_may_log_the_reexamination_and_only_once(self):
+    out = 'Error: [wch_riscv.cpu.0] Polling failed, trying to reexamine\nshutdown command invoked\n'
+    op = lambda o: ht.provider().Operation if False else type('Op', (), {'attempts': [type('A', (), {
+      'timed_out': False, 'result': subprocess.CompletedProcess([], 0, o, '')})()]})()
+    self.assertEqual(self.bat.probe.judge(op(out), ht.WCH_REEXAMINE), out)
+    for what, o, benign in (('outside a reset', out, None), ('twice', out.replace('\n', '\n' + out.splitlines()[0] + '\n', 1),
+                                                               ht.WCH_REEXAMINE),
+                            ('another error', 'Error: [wch_riscv.cpu.0] Failed to read priv register.\n' + out,
+                             ht.WCH_REEXAMINE)):
+      with self.subTest(what), self.assertRaisesRegex(ht.StepFail, 'openocd failed'):
+        self.bat.probe.judge(op(o), benign)
+
+  def test_a_double_tap_write_that_does_not_read_back_fails(self):
+    self.oocd.fail = None
+    real = self.oocd.run
+
+    def drop(argv):
+      code, out = real(argv)
+      return code, re.sub(r'(0x40006c28: )f016', r'\g<1>0000', out)
+    self.oocd.run = drop
+    with self.assertRaisesRegex(ht.StepFail, 'reads back'):
+      self.bat.write_dbl_tap(0xf016)

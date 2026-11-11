@@ -14,4 +14,8 @@ target_link_options(tinyuf2 PUBLIC
 )
 family_configure_tinyuf2(tinyuf2 OPT_MCU_CH32V407)
 
+# needs an openocd whose WCH-LinkE driver attaches to CH32V4x7 (hathach/openocd)
+set(OPENOCD_OPTION "-f target/wch-riscv.cfg")
+family_flash_openocd(tinyuf2 hex)
+
 family_add_app(blinky ${TOP}/apps/blinky)

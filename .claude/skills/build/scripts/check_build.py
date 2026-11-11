@@ -99,7 +99,10 @@ FLASH = {'jlink': ('tinyuf2-jlink', ('tinyuf2.jlink', 'tinyuf2.hex')), 'stlink':
 # a resolved flasher's args (agentrc's board registry): jlink's and openocd's one group is the device their flash
 # target must name; stlink's and esptool's name none (an esptool baud at most), their device is tinyuf2.device
 FLASHER_ARGS = {'jlink': r'-device (\S+)', 'stlink': r'', 'esptool': r'(?:-b \d+)?',
-                'openocd': r'-f interface/cmsis-dap\.cfg -f target/(\w+)\.cfg'}
+                'openocd': r'-f interface/cmsis-dap\.cfg -f target/(\w+)\.cfg|-f target/wch-riscv\.cfg'}
+# an openocd board on a WCH-LinkE (args `-f target/wch-riscv.cfg`, a cfg for every WCH RISC-V chip): its
+# tinyuf2.device, the chip family, and that family's port
+WCH_DEVICES = {'ch32v4x7': 'ch32v4x7'}
 DEVICE = re.compile(r'[\w.-]+')   # a tinyuf2.device: the ST-LINK device or the Espressif chip
 VID_PID = r'0x[0-9a-fA-F]{4} 0x[0-9a-fA-F]{4}'   # an openocd flasher's one `adapter usb vid_pid` pair, its probe's
 # a further install route of an Espressif board (tinyuf2.routes): the chip's built-in USB-Serial/JTAG through agentrc's
@@ -870,8 +873,13 @@ def board_flasher(board, entry, registry):
     raise Fail(f'{board}: flasher args {fl.get("args")!r} or uid {uid!r} is not the roster form')
   if m.lastindex:
     if device is not None:
-      raise Fail(f'{board}: tinyuf2.device is for stlink and esptool boards; its {name} args name {m[1]}')
+      raise Fail(f'{board}: tinyuf2.device is for stlink, esptool and WCH openocd boards; its {name} args name {m[1]}')
+    if m[1] in WCH_DEVICES:
+      raise Fail(f'{board}: {m[1]} is a WCH device, flashed through -f target/wch-riscv.cfg')
     device = m[1]
+  elif name == 'openocd' and not (isinstance(device, str) and WCH_DEVICES.get(device) == port_of(board)):
+    raise Fail(f'{board}: a WCH openocd board needs tinyuf2.device naming its chip family, one of '
+               f'{sorted(k for k, v in WCH_DEVICES.items() if v == port_of(board))}, not {device!r}')
   elif not (isinstance(device, str) and DEVICE.fullmatch(device)):
     raise Fail(f'{board}: its {name} flasher names no device: the board needs tinyuf2.device, the device or chip its '
                'flash target names')
@@ -933,6 +941,13 @@ def flash_routes(rec, routes):
   return {r['name']: {'flasher': r, 'inputs': list(fl['inputs'])} for r in routes}
 
 
+def openocd_cfgs(device):
+  """The interface and target cfgs an openocd flasher's args name for `device`."""
+  if device in WCH_DEVICES:
+    return ['-f', 'target/wch-riscv.cfg']
+  return ['-f', 'interface/cmsis-dap.cfg', '-f', f'target/{device}.cfg']
+
+
 def flash_binding(flasher, root, ninja):
   """The generated flash target's own command, checked token for token against the roster flasher: the probe,
   device and image it names, not CMakeCache, which need not hold JLINK_DEVICE. `ninja(dir, args)` runs ninja in the
@@ -959,7 +974,7 @@ def flash_binding(flasher, root, ninja):
     # the probe by serial and USB ID, the roster's interface and target cfgs, and the build's HEX
     ok = cd == f'cd {root}' and shlex.split(cmd) == [
       'openocd', '-c', 'tcl_port disabled; gdb_port disabled', '-c', f'adapter serial {flasher["uid"]}', '-c',
-      f'adapter usb vid_pid {flasher["vid_pid"]}', '-f', 'interface/cmsis-dap.cfg', '-f', f'target/{flasher["device"]}.cfg',
+      f'adapter usb vid_pid {flasher["vid_pid"]}', *openocd_cfgs(flasher['device']),
       '-c', f'init; halt; program {root / inputs[0]}', '-c', 'reset', '-c', 'exit']
   elif ok:
     argv = shlex.split(cmd)

@@ -1339,6 +1339,31 @@ class HilRecord(FakeTools, unittest.TestCase):
       with self.subTest(vid_pid=vid_pid), self.assertRaisesRegex(cb.Fail, 'needs its probe|vid_pid must be'):
         cb.roster_flasher(self.config, 'max32666fthr')
 
+  def test_a_wch_openocd_flasher_names_its_chip_family_by_tinyuf2_device(self):
+    fl = {'name': 'openocd', 'uid': 'E9B38F066FBB', 'vid_pid': '0x1a86 0x8010', 'args': '-f target/wch-riscv.cfg'}
+    entry = {'name': 'ch32v407_evt_r0', 'uid': 'W', 'flasher': fl, 'tinyuf2': {'device': 'ch32v4x7'}}
+    self.roster.write_text(json.dumps({'boards': [entry]}))
+    self.assertEqual(cb.roster_flasher(self.config, 'ch32v407_evt_r0'),
+                     ({'name': 'openocd', 'uid': 'E9B38F066FBB', 'device': 'ch32v4x7', 'vid_pid': '0x1a86 0x8010'},
+                      ['OPENOCD=openocd', 'OPENOCD_SERIAL=E9B38F066FBB', 'OPENOCD_VID_PID=0x1a86 0x8010']))
+    for what, board in (('no device', dict(entry, tinyuf2={})),
+                        ('another family', dict(entry, tinyuf2={'device': 'ch32v20x'})),
+                        ('another port', dict(entry, name='max32666fthr'))):
+      self.roster.write_text(json.dumps({'boards': [board]}))
+      with self.subTest(what), self.assertRaisesRegex(cb.Fail, 'needs tinyuf2.device naming its chip family'):
+        cb.roster_flasher(self.config, board['name'])
+
+  def test_the_generated_wch_openocd_target_names_the_wch_target_cfg_alone(self):
+    flasher = {'name': 'openocd', 'uid': 'E9B38F066FBB', 'device': 'ch32v4x7', 'vid_pid': '0x1a86 0x8010'}
+    root = self.tmp / 'w'
+    options = '-c "adapter serial E9B38F066FBB" -c "adapter usb vid_pid 0x1a86 0x8010"'
+    self.assertEqual(cb.flash_binding(flasher, root, self.openocd_tree(root, options=options,
+                                                                       cfgs='-f target/wch-riscv.cfg'))['target'],
+                     'tinyuf2-openocd')
+    with self.assertRaisesRegex(cb.Fail, 'does not flash'):
+      cb.flash_binding(flasher, root, self.openocd_tree(root, options=options,
+                                                        cfgs='-f interface/cmsis-dap.cfg -f target/wch-riscv.cfg'))
+
   def test_an_esptool_flasher_may_name_the_chips_usj_by_its_mac_form_serial(self):
     usj = '30:ED:A0:F4:0A:94'
     self.roster.write_text(json.dumps({'boards': [{'name': 'espressif_esp32s31_func_core', 'uid': '30EDA0F40A94',
