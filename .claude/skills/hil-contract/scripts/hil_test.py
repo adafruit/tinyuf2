@@ -2489,14 +2489,21 @@ class Battery:
     # no probe session opens again until DFU is observed
     tail = self.sysreset()
     ev = dict(self.dfu(version), dfuCameUp=True, resetTail=tail.strip().splitlines()[-3:], claim=claim)
+    unread = None
     try:
       if while_up:
-        ev.update(while_up())
+        try:
+          ev.update(while_up())
+        except StepFail as e:   # the register is still read: commissioning admits a readback-only failure
+          unread = e
       left = self.read_dbl_tap()
     except StepFail as e:
       e.evidence = {**ev, **e.evidence}
       raise
     ev.update(dblTapRegAfter=hex(left), magicConsumed=not left)
+    if unread:
+      unread.evidence = {**ev, **unread.evidence}
+      raise unread
     if left:
       raise StepFail('the double-tap register was not consumed', ev)
     return ev

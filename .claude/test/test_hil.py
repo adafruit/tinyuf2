@@ -3999,11 +3999,17 @@ class BatteryRun(Tmp):
           bat.run(self.files, 'v1')
         last = bat.steps[-1]
         self.assertEqual((last['step'], last['pass'], last['evidence']['failedAt']), ('reenter', False, 'readback'))
-        # the drive is read before the register's session, so the register stays unread
-        self.assertTrue(last['evidence']['dfuCameUp'])
-        self.assertNotIn('magicConsumed', last['evidence'])
+        self.assertTrue(last['evidence']['dfuCameUp'] and last['evidence']['magicConsumed'])
         self.assertEqual((last['evidence']['appIntact'], last['evidence']['claim']),
                          ('unshown', 'the write/reset sequence re-entered DFU (register retention inferred)'))
+
+  def test_a_readback_only_failure_still_decides_the_reentry(self):
+    bat, rig = self.battery(commissioning=True, corrupt=lambda img: img.__setitem__(0, img[0] ^ 1))
+    with self.assertRaises(ht.StepFail):
+      bat.run(self.files, 'v1')
+    row = {'commissioning': True, 'tried': 'retained-register', 'steps': bat.steps, 'cleanup': {'pass': True},
+           'pass': False}
+    self.assertEqual(ht.reentry_decision(row), 'retained-register')
 
   def test_commissioning_runs_the_control_first_and_no_probe_session_before_dfu(self):
     bat, rig = self.battery(commissioning=True)
