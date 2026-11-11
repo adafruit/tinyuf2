@@ -83,7 +83,7 @@ def check_toolchain(what, row):
 
 
 def build(board, roster, out):
-  """check_build's HIL record of `board` (CI's docker image, or cmake with CI's arm-gcc) packed as out/<board>."""
+  """check_build's HIL record of `board` (CI's docker image, or cmake with CI's compiler for its port) packed as out/<board>."""
   ht.load_board(cb.ROOT / roster, board)
   dest = out / board
   if dest.exists():

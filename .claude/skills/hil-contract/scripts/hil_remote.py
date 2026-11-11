@@ -9,7 +9,7 @@ identity and admitted there (SKILL.md Execution, Remote).
 
 `run` freezes HEAD and every repository it pins -- the submodules and the get_deps dependencies of the boards' ports,
 unpushed commits included -- as self-contained git bundles, builds each board's HIL record here from that checkout
-(hil_hosted.py build, as CI's hosted runner does: this PC's arm-gcc, cmake and ninja, which must be CI's arm-gcc, or
+(hil_hosted.py build, as CI's hosted runner does: this PC's cmake, ninja and CI's compiler for each board's port, or
 docker with CI's ESP-IDF image), stages the agentrc this process loaded (agentrc.py: the closure its records bind, as
 .agentrc/ with its manifest) and binds them all by a manifest (commits, roster digest, boards, bundle digests and every
 hosted build and staged agentrc file's), refusing a dirty, off-pin or missing input, one that moved while frozen, a
