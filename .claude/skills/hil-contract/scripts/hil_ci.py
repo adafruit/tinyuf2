@@ -12,18 +12,21 @@ record, each board's run directory (`hil_test.py run --run-root`: its report, hi
 `<board>.started` / `<board>.done` markers go there; the battery touches `.started` once it holds the board
 (`run --started-marker`) and `.done` before it releases it (`run --done-marker`), so whoever takes the lock meanwhile
 never sees a waiting battery started, and whoever takes it next sees it finished. A `.started` without its `.done` in
-any earlier run is a run that ended without a report or kept a cleanup holder (SKILL.md Recovery): that board is a
-blocker here until recovery removes the marker. Runs older than PRUNE_DAYS with every marker done are removed;
-one with a marker left is kept, whatever its age. Each battery's report pair is prepared for the upload (prepare()), and
-summary.json carries the shared run rules' `sharedVerdict` beside each native `verdict`, which alone decides the exit,
-each battery's `steps`, `cleanupPass` (null when the board was untouched) and whether it is the Espressif one
-(`espressif`), the seconds its record's admission (`buildS`, a name kept from when the rig built it) and battery
-(`runS`) took, and the board loop's `elapsedS`.
+any earlier run is a run that ended without a report or with a blocker, a failed cleanup among them (SKILL.md
+Recovery): that board is a blocker here until recovery removes the marker, though its lock ended with that run. Runs
+older than PRUNE_DAYS with every marker done are removed; one with a marker left is kept, whatever its age. Each
+battery's report pair is prepared for the upload (prepare()), and summary.json carries the shared run rules'
+`sharedVerdict` beside each native `verdict`, which alone decides the exit, each battery's `steps`, `cleanupPass` (null
+when the board was untouched) and whether it is the Espressif one (`espressif`), the open cleanup failures it found on
+the board (`previousCleanupFailure`, `openCleanupFailures`) and what else it could not record, its lock's end among
+them (`notes`: run_report.diagnostics), the seconds its record's admission (`buildS`, a name kept from when the rig
+built it) and battery (`runS`) took, and the board loop's `elapsedS`.
 `upload-views`, written last, is the upload's decision on the report views (UPLOAD_VIEWS).
 
 Exit 0: every board passed. 1: a board failed or was not run (held past `--lock-wait`, its hosted build missing or its
-admission refused). 2: a blocker (a run without a report, a failed cleanup, a cleanup holder, a dead battery's record or
-a takeover journal, or a stale probe session on the board).
+admission refused). 2: a blocker (a run without a report, a failed cleanup or a lock that did not end as its verdict
+said, an unfinished CI run, an older helper's cleanup holder, a process on the board's probe or a session an older
+tinyuf2 left still running).
 """
 import argparse
 import json
@@ -122,12 +125,10 @@ def hosted_record(board, roster, out, hosted):
     return record, False, f'hosted build refused: {e}'[:400]
 
 
-def launch(cmd, where, board):
-  """One `hil_test.py run` of `board` (`cmd`, its argv), its output streamed to `where/stdout.txt` as it comes, so a
-  killed run keeps what it printed, and its stderr to `where/stderr.txt`; its last JSON line is the report (SKILL.md
-  Results). A runner that became the in-process cleanup holder (`cleanup.holder.inProcess`, Recovery) printed its
-  report, closed its stdio and never exits: it is left running, not waited for. Returns (report or None, exit or None,
-  held), `held` true for that live holder, whose exit is None."""
+def launch(cmd, where):
+  """One `hil_test.py run` (`cmd`, its argv), its output streamed to `where/stdout.txt` as it comes, so a killed run
+  keeps what it printed, and its stderr to `where/stderr.txt`; its last JSON line is the report (SKILL.md Results).
+  Returns (report or None, exit)."""
   report = None
   with open(where / 'stderr.txt', 'w') as err, open(where / 'stdout.txt', 'w') as log:
     p = subprocess.Popen([str(c) for c in cmd], cwd=ROOT, stdout=subprocess.PIPE, stderr=err, text=True)
@@ -140,16 +141,13 @@ def launch(cmd, where, board):
         except ValueError:
           pass
     p.stdout.close()
-  row = run_report.row_of(report, board) or {}
-  if ((row.get('cleanup') or {}).get('holder') or {}).get('inProcess') and p.poll() is None:
-    return report, None, True
-  return report, p.wait(), False
+  return report, p.wait()
 
 
 def battery(board, roster, record, where, lock_wait, fail_at=None, ci_state_root=None, done=None, started=None):
   """One `hil_test.py run` with its run directory under `where`, `ci_state_root` a remote driver's (its
   --ci-state-root), `done` and `started` CI's markers (its --done-marker, --started-marker). Returns launch()'s (report
-  or None, exit or None, held)."""
+  or None, exit)."""
   where.mkdir(parents=True)
   cmd = [sys.executable, HIL_TEST, 'run', '-b', board, '--build-record', record, '--run-root', where,
          '--lock-wait', lock_wait]
@@ -161,7 +159,7 @@ def battery(board, roster, record, where, lock_wait, fail_at=None, ci_state_root
     cmd += ['--started-marker', started]
   if fail_at:
     cmd += ['--fail-at', fail_at]
-  return launch(cmd + [roster], where, board)
+  return launch(cmd + [roster], where)
 
 
 def run_dirs(where):
@@ -184,7 +182,7 @@ def prepare(code, where, board):
     reading = readings[-1] if readings else core.Reading('missing', None, None, f'no run directory under {where}')
     shared = run_report.shared_run(core, code, reading, [board])['rows'][0]
     return {'sharedVerdict': shared['verdict'], 'sharedDetail': shared['detail']}
-  except Exception as e:   # the battery's exit, markers and any holder stand: only this board's shared view is lost
+  except Exception as e:   # the battery's exit and markers stand: only this board's shared view is lost
     why = f'{UNPREPARED}: {type(e).__name__}: {e}'
     unsafe = withhold(where, why, usable)
     return {'sharedVerdict': 'blocker', 'sharedDetail': why, **({'unsafeArtifacts': unsafe} if unsafe else {})}
@@ -241,8 +239,7 @@ def run_board(board, roster, out, state, lock_wait, hosted, fail_at=None, marker
   done, started = (out / f'{board}.done', out / f'{board}.started') if markers else (None, None)
   wait = lock_wait() if callable(lock_wait) else lock_wait
   t0 = time.monotonic()
-  report, code, held = battery(board, roster, record, out / board, wait, fail_at, None if markers else state, done,
-                               started)
+  report, code = battery(board, roster, record, out / board, wait, fail_at, None if markers else state, done, started)
   run_s = round(time.monotonic() - t0)
   v, detail = run_report.verdict(code, report, board)
   if done is not None and v == 'blocker':   # the battery's own touch stands only where this verdict agrees
@@ -250,7 +247,7 @@ def run_board(board, roster, out, state, lock_wait, hosted, fail_at=None, marker
   elif done is not None and started.exists():   # a battery that never held the board leaves no marker
     done.touch()
   row = {'board': board, 'phase': 'battery', 'verdict': v, 'detail': detail, 'run': str(out / board), 'exit': code,
-         'heldInProcess': held, 'report': report is not None, 'buildS': build_s, 'runS': run_s}
+         'report': report is not None, 'buildS': build_s, 'runS': run_s}
   native = run_report.row_of(report, board)
   if native is not None:
     row['steps'] = {s['step']: bool(s.get('pass')) for s in native.get('steps') or [] if s.get('step')}
@@ -258,9 +255,9 @@ def run_board(board, roster, out, state, lock_wait, hosted, fail_at=None, marker
     # an untouched board passes its cleanup with nothing done: no blinky was copied
     row['cleanupPass'] = None if cleanup.get('state') == 'untouched' else cleanup.get('pass')
     row['espressif'] = espressif(board)
-  holder = ((native or {}).get('cleanup') or {}).get('holder')
-  if holder:
-    row['holder'] = holder
+    row.update({k: native[k] for k in ('previousCleanupFailure', 'openCleanupFailures') if k in native})
+    if notes := run_report.diagnostics(native):
+      row['notes'] = notes
   if (report or {}).get('reportError'):   # its run dir's report is missing or incomplete; stdout.txt keeps the JSON
     row['reportError'] = report['reportError']
   row.update(prepare(code, out / board, board))
@@ -279,8 +276,13 @@ def summary(rows, roster):
     kept = f' (not uploaded: {", ".join(r["unsafeArtifacts"])})' if r.get('unsafeArtifacts') else ''
     return cell(f'{r["sharedVerdict"]}: {r["sharedDetail"]}{kept}')
   lines = [f'HIL on `{roster}`', '', '| board | native verdict | detail | shared run rules |', '|---|---|---|---|']
-  lines += [f'| {r["board"]} | {r["verdict"]} | {cell(r["detail"])} | {shared(r)} |' for r in rows]
+  lines += [f'| {r["board"]} | {r["verdict"]} | {cell(summary_detail(r))} | {shared(r)} |' for r in rows]
   return '\n'.join(lines) + '\n'
+
+
+def summary_detail(r):
+  """The row's native detail, the open cleanup failures its battery found on the board and what it could not record."""
+  return '; '.join(filter(None, (r['detail'], *run_report.board_notes(r))))
 
 
 def main(argv=None):

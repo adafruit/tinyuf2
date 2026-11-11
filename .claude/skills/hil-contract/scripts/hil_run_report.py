@@ -7,7 +7,7 @@ import importlib.util
 
 NAME, VERSION, STEM = 'tinyuf2-hil-run', 1, 'hil_report'
 STEP_MARK = {True: '✅', False: '❌'}
-# native fields typed when present: a legacy report never recorded exitCode or heldInProcess
+# native fields typed when present: a legacy report never recorded exitCode; heldInProcess only an older runner's
 TYPES = {'pass': bool, 'caveat': str, 'reportPath': str, 'error': str, 'exitCode': int, 'heldInProcess': bool}
 
 
@@ -33,6 +33,7 @@ def render(core, body):
   for k in ('error', 'caveat'):
     if body.get(k):
       lines.append(f'{k.capitalize()}: {cell(body[k])}')
+  lines += [cell(text) for text in board_notes(body)]   # a manual install's or restore's, at its top level
   for r in body['results']:
     steps = [[cell(s.get('step', '?')), STEP_MARK[bool(s.get('pass'))], cell(s.get('detail', ''))]
              for s in r.get('steps') or [] if isinstance(s, dict)]
@@ -42,6 +43,8 @@ def render(core, body):
     lines += ['', f'### {cell(r.get("board", "?"))}', '']
     if r.get('detail'):
       lines += [cell(r['detail']), '']
+    for text in board_notes(r):
+      lines += [cell(text), '']
     lines.append(core.table(['Step', 'Result', 'Detail'], steps, center={1}) if steps else '_No steps ran._')
   return '\n'.join(lines) + '\n'
 
@@ -51,12 +54,70 @@ def schema(core):
                          empty=lambda b: not b['results'], render=lambda b: render(core, b), legacy=legacy)
 
 
+def failure_text(f):
+  """One logged cleanup failure (agentrc hil_lock's failure_report entry) on one line, as its own failure_text."""
+  if not isinstance(f, dict):
+    return str(f)
+  if 'unavailable' in f:
+    return str(f['unavailable'])
+  return (f'{f.get("at")} ({f.get("how")}, {f.get("reason") or "unknown task"} pid {f.get("pid")}, id {f.get("id")}): '
+          f'{f.get("detail")}' + (f'; {f["noteError"]}' if f.get('noteError') else ''))
+
+
+def previous_failures(row):
+  """The open cleanup failures a run found on its board as it took it (SKILL.md Results), '' when none."""
+  f = row.get('previousCleanupFailure')
+  if f is None:
+    return ''
+  n = row.get('openCleanupFailures')
+  return f'Previous cleanup failure: {failure_text(f)}' + (f' ({n - 1} earlier still open)' if n else '')
+
+
+def lock_of(row):
+  """The row's board lock end (`lock`, run_board's), {} when it recorded none."""
+  return row['lock'] if isinstance(row.get('lock'), dict) else {}
+
+
+def diagnostics(row):
+  """What a run could not record, and an older runner's pending mark it met, beside its verdict, which they never
+  change (SKILL.md Results), as `key: text`: `legacyPending`, each non-empty `*Note` and a manual body's `logError`;
+  the lock's end (`describe`) when it did not end cleanly, logged a failure, was bypassed or met errors, or an older
+  runner's cleanup holder still holding the board; and each of its `restoreNotes`."""
+  lock = lock_of(row)
+  notes = [f'{k}: {v}' for k, v in row.items() if v and (k.endswith('Note') or k in ('legacyPending', 'logError'))]
+  cleanup = row.get('cleanup') if isinstance(row.get('cleanup'), dict) else {}
+  if cleanup.get('heldAfter') or cleanup.get('holder'):   # SKILL.md Recovery, Legacy
+    notes.append(f'lock: board held by an older runner\'s cleanup holder {cleanup.get("holder") or ""}'.rstrip())
+  if lock.get('endedCleanly') is False or lock.get('failureLogged') is not None or lock.get('bypassed') or \
+     lock.get('errors'):
+    notes.append(f'lock: {lock.get("describe")}')
+  return notes + [f'restoredNote: {n}' for n in lock.get('restoreNotes') or []]
+
+
+def board_notes(row):
+  """The lines a row (or a manual body, or hil_ci's summary row with its native row's `notes`) carries beside its
+  verdict: the open cleanup failures its run found on taking the board, and its notes (diagnostics)."""
+  notes = row['notes'] if isinstance(row.get('notes'), list) else diagnostics(row)
+  return [text for text in (previous_failures(row), notes_text(notes)) if text]
+
+
+def notes_text(notes):
+  return f'Notes: {"; ".join(notes)}' if notes else ''
+
+
+def board_state(row):
+  """What a run left of the board's lock: its task's own line (`lock.describe`); an older runner's report records only
+  its cleanup holder (`heldAfter`/`holder`), never assumed released when unrecorded."""
+  if describe := lock_of(row).get('describe'):
+    return describe
+  cleanup = row.get('cleanup') if isinstance(row.get('cleanup'), dict) else {}
+  return 'board held' if cleanup.get('heldAfter') or cleanup.get('holder') else 'board lock end not recorded'
+
+
 def exit_of(body):
-  """verdict()'s `code` from a report alone: None for a holder kept in process, and for a legacy report, which never
-  recorded its exit."""
-  if body.get('heldInProcess') or 'exitCode' not in body:
-    return None
-  return body['exitCode']
+  """verdict()'s `code` from a report alone: None for a legacy report, which never recorded its exit (an older runner's
+  holder kept in process recorded at least 4)."""
+  return body.get('exitCode')
 
 
 def row_of(report, board):
@@ -72,16 +133,18 @@ def fold_exit(verdicts):
 
 def verdict(code, report, board):
   """The `hil` verdict of one run from the report's row (SKILL.md Verdicts): (verdict, detail). `code` is the runner's
-  exit, None for a runner that stayed the in-process cleanup holder."""
+  exit, None when unknown (exit_of). A process on the probe (`probeUsers`) or a session an older tinyuf2 left still
+  running (`pendingSessions`) is a blocker."""
   if report is None:
     return 'blocker', f'run ended without a report (exit {code})'
   row = row_of(report, board)
   if row is None:
     return 'blocker', f'report has no row for {board} (exit {code}): {report.get("caveat") or report.get("error")}'
   cleanup = row.get('cleanup') or {}
-  if code in (4, None) or row.get('ran') is None or cleanup.get('heldAfter'):
-    return 'blocker', f'cleanup failed or no report; board held: {row.get("detail")} {cleanup}'[:400]
-  if row.get('probeUsers') or row.get('recoveryBlocker') and not row.get('locked'):
+  if code in (4, None) or row.get('ran') is None:
+    return 'blocker', f'cleanup failed or no report; {board_state(row)}: {row.get("detail")} {cleanup}'[:400]
+  if row.get('probeUsers') or row.get('pendingSessions') or \
+     row.get('recoveryBlocker') and not row.get('locked'):
     return 'blocker', str(row.get('detail'))
   if row.get('locked'):
     return ('blocker' if row.get('recoveryBlocker') else 'not-run'), f'locked: {row.get("detail")}'

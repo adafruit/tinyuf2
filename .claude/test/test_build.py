@@ -1271,14 +1271,15 @@ class HilRecord(FakeTools, unittest.TestCase):
       {'name': 'stm32h563_nucleo', 'uid': 'S', 'flasher': {'name': 'stlink', 'uid': '0023ab'},
        'tinyuf2': {'device': 'stm32h563zi'}},
       {'name': 'lpcxpresso55s69', 'uid': 'L', 'flasher': {'name': 'openocd', 'uid': 'x', 'args': '-f a.cfg'}},
-      {'name': 'max32666fthr', 'uid': '0C81464124010B20FF0A08CC2C000000', 'probe': 'E6614C311B597D32'},
+      {'name': 'max32666fthr', 'uid': '0C81464124010B20FF0A08CC2C000000', 'probe': '000063728732'},
       {'name': 'frdm_k32l2b', 'uid': 'K', 'flasher': {'name': 'pyocd', 'uid': 'p', 'args': '-t k32l2b3'}}]}))
     self.config = str(self.roster.relative_to(ROOT))
 
-  def jlink_tree(self, root, script=None, options='-USB 000801012283 -ExitOnError 1 -NoGui 1', interface='swd'):
+  def jlink_tree(self, root, script=None, options='-USB 000801012283 -ExitOnError 1 -NoGui 1', interface='swd',
+                 device='MIMXRT1011DAE5A'):
     root.mkdir(parents=True, exist_ok=True)
     (root / 'tinyuf2.jlink').write_text(script or f'halt\nloadfile {root / "tinyuf2.hex"}\nr\ngo\nexit')
-    line = (f'cd {root} && JLinkExe -device MIMXRT1011DAE5A {options} -if {interface} -JTAGConf -1,-1 -speed auto '
+    line = (f'cd {root} && JLinkExe -device {device} {options} -if {interface} -JTAGConf -1,-1 -speed auto '
             f'-CommandFile {root / "tinyuf2.jlink"}')
     return lambda d, args: subprocess.CompletedProcess(args, 0, f'arm-none-eabi-gcc ...\n{line}\n', '')
 
@@ -1317,15 +1318,21 @@ class HilRecord(FakeTools, unittest.TestCase):
                      ({'name': 'stlink', 'uid': '0023ab', 'device': 'stm32h563zi'}, ['STLINK_SERIAL=0023ab']))
     self.assertEqual(cb.roster_flasher(self.config, 'espressif_esp32s3_devkitc_1'),
                      ({'name': 'esptool', 'uid': 'b1', 'device': 'esp32s3'}, []))   # the tty is chosen at flash time
-    # the openocd on PATH, the provider's, and the probe by serial and USB ID
-    self.assertEqual(cb.roster_flasher(self.config, 'max32666fthr'),
-                     ({'name': 'openocd', 'uid': 'E6614C311B597D32', 'device': 'max32665', 'vid_pid': '0x2e8a 0x000c'},
-                      ['OPENOCD=openocd', 'OPENOCD_SERIAL=E6614C311B597D32', 'OPENOCD_VID_PID=0x2e8a 0x000c']))
+    self.assertEqual(cb.roster_flasher(self.config, 'max32666fthr'),   # the registry's J-Link, by probe
+                     ({'name': 'jlink', 'uid': '000063728732', 'device': 'MAX32665'},
+                      ['JLINK_OPTION=-USB 000063728732 -ExitOnError 1 -NoGui 1']))
     for board, err in (('lpcxpresso55s69', 'not the roster form'), ('frdm_k32l2b', 'no HIL flash target'),
                        ('imxrt1060_evk', 'not on')):
       with self.subTest(board), self.assertRaisesRegex(cb.Fail, err):
         cb.roster_flasher(self.config, board)
-    fl = {'name': 'openocd', 'uid': 'BENCH1', 'args': '-f interface/cmsis-dap.cfg -f target/max32665.cfg'}
+    # a bench CMSIS-DAP probe the registry does not hold: the openocd on PATH, the provider's, and the probe by serial
+    # and USB ID
+    fl = {'name': 'openocd', 'uid': 'E6614C311B597D32', 'args': '-f interface/cmsis-dap.cfg -f target/max32665.cfg'}
+    self.roster.write_text(json.dumps({'boards': [{'name': 'max32666fthr', 'uid': 'X',
+                                                   'flasher': dict(fl, vid_pid='0x2e8a 0x000c')}]}))
+    self.assertEqual(cb.roster_flasher(self.config, 'max32666fthr'),
+                     ({'name': 'openocd', 'uid': 'E6614C311B597D32', 'device': 'max32665', 'vid_pid': '0x2e8a 0x000c'},
+                      ['OPENOCD=openocd', 'OPENOCD_SERIAL=E6614C311B597D32', 'OPENOCD_VID_PID=0x2e8a 0x000c']))
     for vid_pid in (None, '0x2e8a', '0x2e8a 0x000c 0x1366 0x0101', '2e8a 000c', '0x2e8a\t0x000c', '0x2e8a 0x000c;x'):
       self.roster.write_text(json.dumps({'boards': [{'name': 'max32666fthr', 'uid': 'X',
                                                      'flasher': dict(fl, **({'vid_pid': vid_pid} if vid_pid else {}))}]}))
@@ -1497,6 +1504,7 @@ class HilRecord(FakeTools, unittest.TestCase):
                        ('no exit on error', dict(options='-USB 000801012283')),
                        ('two probes', dict(options='-USB 000801012283 -USB 2 -ExitOnError 1 -NoGui 1')),
                        ('jtag', dict(interface='jtag')),
+                       ('the device in another spelling', dict(device='mimxrt1011dae5a')),
                        ('another image', dict(script=f'halt\nloadfile {self.tmp / "other.hex"}\nr\ngo\nexit')),
                        ('a second image', dict(script=f'halt\nloadfile {root / "tinyuf2.hex"}\nloadfile /tmp/o.hex\nr\ngo\nexit'))):
       with self.subTest(what), self.assertRaisesRegex(cb.Fail, 'does not flash'):
