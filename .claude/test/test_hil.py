@@ -6333,7 +6333,7 @@ class WchBatteryRun(Tmp):
     clock = [0.0]
     for p in (mock.patch.object(ht, 'usb_device', lambda *a: '9-2.2' if self.present[0] else None),
               mock.patch.object(ht, 'block_device', lambda p: '/dev/sdz'),
-              mock.patch.object(ht, 'check_exclusive', lambda d, timeout=None: None),
+              mock.patch.object(ht, 'check_block', lambda d, timeout=None: None),
               mock.patch.object(ht, 'fat_read', fat_read),
               mock.patch.object(ht, 'spawn', spawn),
               mock.patch.object(ht.time, 'sleep', lambda s: clock.__setitem__(0, clock[0] + s)),
