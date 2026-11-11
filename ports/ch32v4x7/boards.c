@@ -1,8 +1,10 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 Adafruit Industries
 // SPDX-License-Identifier: MIT
 #include "board_api.h"
-#include "tusb.h"
 #include "ch32v4x7_usb.h"
+#ifndef BUILD_NO_TINYUSB
+  #include "tusb.h"
+#endif
 
 void SysTick_Handler(void) __attribute__((interrupt, used));
 void USBHS1_IRQHandler(void) __attribute__((interrupt, used));
@@ -13,7 +15,7 @@ void board_init(void) {
   __disable_irq();
   RCC_PB1PeriphClockCmd(RCC_PB1Periph_BKP | RCC_PB1Periph_PWR, ENABLE);
   PWR->CTLR |= PWR_CTLR_DBP;
-  RCC_PB2PeriphClockCmd(RCC_PB2Periph_GPIOB, ENABLE);
+  RCC_PB2PeriphClockCmd(LED_CLOCK, ENABLE);
   GPIO_InitTypeDef led = {
     .GPIO_Pin   = LED_PIN,
     .GPIO_Mode  = GPIO_Mode_Out_PP,
@@ -50,6 +52,7 @@ void board_dfu_init(void) {
   RCC_HBPeriphClockCmd(RCC_HBPeriph_USBHS1, ENABLE);
 }
 
+#ifndef BUILD_APPLICATION
 /** @brief Reset the MCU and wait for reset to take effect. */
 void board_reset(void) {
   NVIC_SystemReset();
@@ -92,6 +95,8 @@ void SW_Handler(void) {
   __builtin_unreachable();
 }
 
+#endif
+
 /** @brief Copy the MCU unique identifier into the USB serial buffer. */
 uint8_t board_usb_get_serial(uint8_t serial_id[16]) {
   memcpy(serial_id, (const void *)0x1ffff7e8, 8);
@@ -100,7 +105,7 @@ uint8_t board_usb_get_serial(uint8_t serial_id[16]) {
 
 /** @brief Drive the activity LED to the requested state. */
 void board_led_write(uint32_t state) {
-  GPIO_WriteBit(LED_PORT, LED_PIN, state ? Bit_SET : Bit_RESET);
+  GPIO_WriteBit(LED_PORT, LED_PIN, (state ? LED_STATE_ON : !LED_STATE_ON) ? Bit_SET : Bit_RESET);
 }
 
 /** @brief Ignore RGB updates because this bootloader uses only its activity LED. */
@@ -131,10 +136,12 @@ void SysTick_Handler(void) {
   board_timer_handler();
 }
 
+#ifndef BUILD_NO_TINYUSB
 /** @brief Dispatch the device USB interrupt to TinyUSB. */
 void USBHS1_IRQHandler(void) {
   tud_int_handler(0);
 }
+#endif
 
 /** @brief Report no UART output because this port has no debug UART. */
 int board_uart_write(const void *buf, int len) {

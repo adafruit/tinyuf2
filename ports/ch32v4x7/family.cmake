@@ -1,5 +1,7 @@
 include_guard(GLOBAL)
 
+set(UF2_FAMILY_ID 0x7b8c32a7)
+
 set(SDK_DIR ${TOP}/lib/mcu/wch/ch32v4x7)
 set(SDK_SRC_DIR ${SDK_DIR}/EVT/EXAM/SRC)
 set(SDK_SYSTEM_DIR ${SDK_DIR}/EVT/EXAM/FLASH/FLASH_Program/User)
@@ -26,7 +28,7 @@ function(family_add_board_target BOARD_TARGET)
     ${SDK_SYSTEM_DIR}
   )
   target_compile_definitions(${BOARD_TARGET} PUBLIC
-    BOARD_UF2_FAMILY_ID=0x7b8c32a7
+    BOARD_UF2_FAMILY_ID=${UF2_FAMILY_ID}
     HSE_VALUE=25000000
   )
   target_compile_options(${BOARD_TARGET} PUBLIC -mcmodel=medany -march=rv32imac_zicsr_zifencei)

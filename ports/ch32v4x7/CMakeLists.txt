@@ -10,5 +10,8 @@ add_executable(tinyuf2
   )
 target_link_options(tinyuf2 PUBLIC
   "LINKER:--script=${CMAKE_CURRENT_LIST_DIR}/linker/ch32v4x7_boot.ld"
+  "LINKER:--script=${CMAKE_CURRENT_LIST_DIR}/linker/ch32v4x7_common.ld"
 )
 family_configure_tinyuf2(tinyuf2 OPT_MCU_CH32V407)
+
+family_add_app(blinky ${TOP}/apps/blinky)
