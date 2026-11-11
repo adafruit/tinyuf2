@@ -377,8 +377,8 @@ static void MakeUf2Block(uint32_t blockNo, uint32_t payloadSize, uint32_t family
     }
 }
 
-// a payloadSize beyond the 476-byte data field, or another family, must be rejected before flashing or touching
-// the state
+// a payloadSize beyond the 476-byte data field, another family, or any block once the file is complete, must be
+// rejected before flashing or touching the state
 static int ExpectWriteRejected(uint32_t blockNo, uint32_t payloadSize, uint32_t familyID) {
     MakeUf2Block(blockNo, payloadSize, familyID);
     memcpy(&writeStateBefore, &writeState, sizeof(writeState));
@@ -447,7 +447,11 @@ static int TestWriteBlock(void) {
     if (r) { return r; }
 
     // last block of the file flushes
-    return ExpectWriteAccepted(1, sizeof(uf2Block.data), 1);
+    r = ExpectWriteAccepted(1, sizeof(uf2Block.data), 1);
+    if (r) { return r; }
+
+    // the file is complete: no block is flashed until the reset
+    return ExpectWriteRejected(0, 256, BOARD_UF2_FAMILY_ID);
 }
 
 int main(void)
