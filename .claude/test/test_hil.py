@@ -6240,12 +6240,15 @@ class WchRoster(Tmp):
 class RiscvFixture(unittest.TestCase):
   def test_the_image_jumps_to_its_setup_traps_into_a_loop_and_counts_in_a0(self):
     fix = ht.fixture(dict(WCH_FACTS), b'n' * 16)
-    words = struct.unpack('<11I', fix['image'][:44])
-    # riscv-none-elf-objdump of the image at 0x8000: j 0x8010; j 0x8004; addi a0,a0,1; j 0x8008; lui sp,0x20001;
-    # mv sp,sp; lui t0,0x8; addi t0,t0,4; csrw mtvec,t0; li a0,0; j 0x8008
-    self.assertEqual(words, (0x0100006f, 0x0000006f, 0x00150513, 0xffdff06f, 0x20001137, 0x00010113, 0x000082b7,
-                             0x00428293, 0x30529073, 0x00000513, 0xfe1ff06f))
-    self.assertEqual((fix['handler'], fix['fault'], fix['mtvec'], fix['sp']), (0x8008, 0x8004, 0x8004, 0x20001000))
+    words = struct.unpack('<10I', fix['image'][:40])
+    # riscv-none-elf-objdump of the image at 0x8000: j 0x800c; addi a0,a0,1; j 0x8004; lui sp,0x20001; mv sp,sp;
+    # lui t0,0x8; addi t0,t0,1024; csrw mtvec,t0; li a0,0; j 0x8004; then at 0x8400 the trap loop, j 0x8400
+    self.assertEqual(words, (0x00c0006f, 0x00150513, 0xffdff06f, 0x20001137, 0x00010113, 0x000082b7, 0x40028293,
+                             0x30529073, 0x00000513, 0xfe1ff06f))
+    self.assertEqual(struct.unpack_from('<I', fix['image'], 0x400), (0x0000006f,))
+    self.assertEqual((fix['handler'], fix['fault'], fix['mtvec'], fix['sp']), (0x8004, 0x8400, 0x8400, 0x20001000))
+    with self.assertRaisesRegex(ht.Refused, 'not 1024-byte aligned'):   # mtvec[9:2] are fixed to 0
+      ht.fixture(dict(WCH_FACTS, appStart=0x8200), b'n' * 16)
     self.assertNotEqual(fix['image'], ht.fixture(dict(WCH_FACTS), b'm' * 16)['image'])
 
 
@@ -6356,7 +6359,7 @@ class WchBatteryRun(Tmp):
     self.assertIn(['init', 'reset run', 'shutdown'], s)
     self.assertFalse(any('mww' in line for x in s for line in x))   # no Arm AIRCR write
     app = self.bat.steps[3]['evidence']
-    self.assertEqual((app['pc'], app['mtvec'], app['sp']), ([hex(self.bat.fix['handler'])] * 2, '0x8004', '0x20001000'))
+    self.assertEqual((app['pc'], app['mtvec'], app['sp']), ([hex(self.bat.fix['handler'])] * 2, '0x8400', '0x20001000'))
     ev = self.bat.steps[-1]['evidence']
     self.assertTrue(ev['dfuCameUp'] and ev['magicConsumed'] and ev['appIntact'])
 
@@ -6377,6 +6380,17 @@ class WchBatteryRun(Tmp):
                              ht.WCH_REEXAMINE)):
       with self.subTest(what), self.assertRaisesRegex(ht.StepFail, 'openocd failed'):
         self.bat.probe.judge(op(o), benign)
+
+  def test_a_missing_probe_fails_the_install_untouched(self):
+    # openocd 4c9931a with no WCH-LinkE of the serial (bench, 2026-11-11)
+    no_probe = ('Info : No device matches the serial string\nError: open failed\n\n'
+                'Error: [wch_riscv.cpu.0] Unsupported DTM version: -1\n')
+    run = self.oocd.run
+    self.oocd.run = lambda cmd: (1, no_probe) if cmd[-2] == '-c' else run(cmd)
+    with self.assertRaisesRegex(ht.StepFail, 'the openocd flash failed') as e:
+      self.bat.install(self.files)
+    self.assertTrue(e.exception.evidence['beforeTarget'])
+    self.assertFalse(self.bat.probe.failure('Info : WCH-LinkE  mode:RV version 2.22\nError: open failed\n')['beforeTarget'])
 
   def test_a_double_tap_write_that_does_not_read_back_fails(self):
     self.oocd.fail = None

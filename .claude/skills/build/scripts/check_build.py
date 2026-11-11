@@ -103,6 +103,7 @@ FLASHER_ARGS = {'jlink': r'-device (\S+)', 'stlink': r'', 'esptool': r'(?:-b \d+
 # an openocd board on a WCH-LinkE (args `-f target/wch-riscv.cfg`, a cfg for every WCH RISC-V chip): its
 # tinyuf2.device, the chip family, and that family's port
 WCH_DEVICES = {'ch32v4x7': 'ch32v4x7'}
+WCH_VID_PID = '0x1a86 0x8010'   # the only USB ID hathach/openocd's WCH-LinkE driver opens (wlinke.c)
 DEVICE = re.compile(r'[\w.-]+')   # a tinyuf2.device: the ST-LINK device or the Espressif chip
 VID_PID = r'0x[0-9a-fA-F]{4} 0x[0-9a-fA-F]{4}'   # an openocd flasher's one `adapter usb vid_pid` pair, its probe's
 # a further install route of an Espressif board (tinyuf2.routes): the chip's built-in USB-Serial/JTAG through agentrc's
@@ -883,6 +884,9 @@ def board_flasher(board, entry, registry):
   elif not (isinstance(device, str) and DEVICE.fullmatch(device)):
     raise Fail(f'{board}: its {name} flasher names no device: the board needs tinyuf2.device, the device or chip its '
                'flash target names')
+  if name == 'openocd' and not m.lastindex and fl.get('vid_pid') != WCH_VID_PID:
+    # the probe check finds the probe's node by this ID
+    raise Fail(f'{board}: a WCH-LinkE flasher needs "vid_pid": "{WCH_VID_PID}", not {fl.get("vid_pid")!r}')
   if name == 'openocd' and not (isinstance(fl.get('vid_pid'), str) and re.fullmatch(VID_PID, fl['vid_pid'])):
     # unpinned, CMSIS-DAP discovery opens every USB device on the host
     raise Fail(f'{board}: an openocd flasher needs its probe\'s "vid_pid": "0xVVVV 0xPPPP", not {fl.get("vid_pid")!r}')

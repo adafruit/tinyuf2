@@ -466,22 +466,26 @@ def rv_csrw(csr, rs1):
 
 
 CSR_MTVEC = 0x305
+MTVEC_ALIGN = 0x400
 SP, T0, A0 = 2, 5, 10
 
 
 def fixture_riscv(facts, nonce):
   """An RV32 image the probe can prove ran: a jump at the app start (board_app_valid's check), a known stack, every
-  trap (mtvec in unified-entry mode, QingKeV5 manual 2.3) into a trap loop, then a counter in a0 forever, and the
-  nonce pattern."""
+  trap into a trap loop (mtvec unified entry, its base 1 KiB aligned: QingKeV3 manual 3.2, mtvec[9:2] fixed to 0),
+  then a counter in a0 forever, and the nonce pattern."""
   start = facts['appStart']
-  trap, handler, entry = start + 4, start + 8, start + 16
+  handler, entry, trap = start + 4, start + 12, start + MTVEC_ALIGN
+  if start % MTVEC_ALIGN:
+    raise Refused(f'the app start {start:#x} is not {MTVEC_ALIGN}-byte aligned for the fixture\'s trap vector')
   sp = facts['ram'] + bf.STACK
-  words = [rv_jal(0, entry - start), rv_jal(0, 0),                 # j entry ; trap: j .
+  words = [rv_jal(0, entry - start),                                # j entry
            rv_addi(A0, A0, 1), rv_jal(0, -4),                       # handler: addi a0,a0,1 ; j handler
            *rv_li32(SP, sp), *rv_li32(T0, trap), rv_csrw(CSR_MTVEC, T0),
            rv_addi(A0, 0, 0)]
   words.append(rv_jal(0, handler - (start + 4 * len(words))))       # li a0,0 ; j handler
-  img = struct.pack(f'<{len(words)}I', *words) + nonce_pattern(nonce)
+  code = struct.pack(f'<{len(words)}I', *words)
+  img = code + b'\0' * (MTVEC_ALIGN - len(code)) + struct.pack('<I', rv_jal(0, 0)) + nonce_pattern(nonce)   # trap: j .
   return {'image': img, 'handler': handler, 'fault': trap, 'sp': sp, 'mtvec': trap}
 
 
@@ -2885,20 +2889,20 @@ def openocd_error(out):
   return re.search(r'^\s*Error', out, re.M) is not None
 
 
-def openocd_failure(out):
+def openocd_failure(out, no_probe=OPENOCD_NO_PROBE, contact='DPIDR'):
   """A session recognised as ending before any target connect: no probe with the serial and USB ID, and no debug port
   read (a DPIDR line). Any other failure may have reached the target."""
-  return {'tail': out.strip().splitlines()[-5:], 'beforeTarget': OPENOCD_NO_PROBE in out and 'DPIDR' not in out}
+  return {'tail': out.strip().splitlines()[-5:], 'beforeTarget': no_probe in out and contact not in out}
 
 
-def judge_openocd_target(code, out, cmd, hex_path):
+def judge_openocd_target(code, out, cmd, hex_path, failure=openocd_failure):
   """The provider's openocd flash of the record's HEX (`program <hex> reset exit`, without program's verify: the
   runner reads the image back itself): openocd exits 0 once the proc's own shutdown ran, so success is read from the
   transcript too: each of program's phases echoed in order and no error line."""
   seen = iter(l.strip() for l in out.splitlines())
   if code or f'program {hex_path} reset exit' not in str(cmd) or not all(p in seen for p in OPENOCD_PROGRAM) or \
      openocd_error(out):
-    raise StepFail(f'the openocd flash failed (exit {code})', openocd_failure(out))
+    raise StepFail(f'the openocd flash failed (exit {code})', failure(out))
   return {'flashDownload': '** Programming Finished **'}
 
 
@@ -2927,10 +2931,13 @@ class OpenocdProbe:
     a = op.attempts[-1]
     code, out = a.result.returncode, text(a.result.stdout)
     if a.timed_out:
-      raise StepFail(f'openocd timed out after {PROBE_TIMEOUT}s', dict(openocd_failure(out), beforeTarget=False))
+      raise StepFail(f'openocd timed out after {PROBE_TIMEOUT}s', dict(self.failure(out), beforeTarget=False))
     if code or OPENOCD_SHUTDOWN not in out or openocd_error(benign.sub('', out, count=1) if benign else out):
-      raise StepFail(f'openocd failed (exit {code})', openocd_failure(out))
+      raise StepFail(f'openocd failed (exit {code})', self.failure(out))
     return out
+
+  def failure(self, out):
+    return openocd_failure(out)
 
   def mem32(self, addrs):
     out = self.run([shown(f'mdw 0x{a:08x}') for a in addrs])
@@ -2987,8 +2994,9 @@ class OpenocdBattery(Battery):
     hexp, ops, flasher = str(files['hex']), [], dict(self.probe.flasher, verify=False)
     ev = self.flash_target(files['flash'], lambda run: ops.append(provider().flash_openocd(
                              flasher, hexp, timeout=CMSIS_DAP_TIMEOUT, run=run)) or ops[-1],
-                           lambda code, out: judge_openocd_target(code, out, ops[-1].attempts[-1].cmd, hexp),
-                           lambda code, out: openocd_failure(out)['beforeTarget'], 'openocd', CMSIS_DAP_TIMEOUT)
+                           lambda code, out: judge_openocd_target(code, out, ops[-1].attempts[-1].cmd, hexp,
+                                                                  self.probe.failure),
+                           lambda code, out: self.probe.failure(out)['beforeTarget'], 'openocd', CMSIS_DAP_TIMEOUT)
     return self.read_back_install(ev, files, 'halt', 'reset run')
 
   def sysreset(self):
@@ -3013,6 +3021,9 @@ class OpenocdBattery(Battery):
 WCH_REEXAMINE = re.compile(r'^Error: \[wch_riscv\.cpu\.\d+\] Polling failed, trying to reexamine$', re.M)
 # RV32 integer registers and the trap vector, openocd riscv names: `reg NAME` gives "NAME (/32): 0x%08x"
 WCH_REGS = ('pc', 'a0', 'sp', 'mtvec')
+# no WCH-LinkE matches the serial (bench, openocd 4c9931a): "Info : No device matches the serial string" then this;
+# an opened probe prints its mode line before any target access
+WCH_NO_PROBE, WCH_CONTACT = 'Error: open failed', 'WCH-LinkE  mode:'
 
 
 class WchProbe(OpenocdProbe):
@@ -3027,6 +3038,10 @@ class WchProbe(OpenocdProbe):
 
   def sysreset(self):
     return self.run(['reset run'])
+
+  def failure(self, out):
+    """No WCH-LinkE of the serial ("open failed", wlinke.c) and none opened: its mode line is the first contact."""
+    return openocd_failure(out, WCH_NO_PROBE, WCH_CONTACT)
 
   def mem16(self, addr):
     m = re.findall(rf'^0x{addr:08x}: ([0-9a-f]{{4}}) *$', self.run([shown(f'mdh 0x{addr:08x}')]), re.M)
