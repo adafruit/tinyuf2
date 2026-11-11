@@ -1848,7 +1848,7 @@ class EspBatteryRun(EspFake):
     clock = [0.0]
     for p in (mock.patch.object(ht, 'usb_device', rig.usb_device),
               mock.patch.object(ht, 'block_device', lambda p: '/dev/sdz'),
-              mock.patch.object(ht, 'check_exclusive', lambda d, timeout=None: None),
+              mock.patch.object(ht, 'check_block', lambda d, timeout=None: None),
               mock.patch.object(ht, 'fat_read', rig.fat_read),
               mock.patch.object(ht, 'spawn', rig.spawn),
               mock.patch.object(ht.time, 'sleep', lambda s: clock.__setitem__(0, clock[0] + s)),
@@ -2091,54 +2091,37 @@ class Citations(unittest.TestCase):
           self.assertEqual(self.unresolved(f.read_text()), [])
 
 
-class Exclusive(unittest.TestCase):
-  def test_the_udev_property_gets_a_bounded_wait(self):
+class Block(Tmp):
+  def test_access_gets_a_bounded_wait(self):
     seen = iter([False, False, True])
-    with mock.patch.object(ht, 'udisks_ignored', lambda d: next(seen)), mock.patch.object(ht.time, 'sleep', lambda s: None), \
+    with mock.patch.object(ht.os, 'access', lambda d, m: next(seen)), mock.patch.object(ht.time, 'sleep', lambda s: None), \
          mock.patch.object(ht, 'Path', lambda p: mock.Mock(read_text=lambda: '')):
-      ht.check_exclusive('/dev/sdz')
+      ht.check_block('/dev/sdz')
     clock = [0.0]
-    with mock.patch.object(ht, 'udisks_ignored', lambda d: False), \
+    with mock.patch.object(ht.os, 'access', lambda d, m: False), \
          mock.patch.object(ht.time, 'sleep', lambda s: clock.__setitem__(0, clock[0] + s)), \
-         mock.patch.object(ht.time, 'monotonic', lambda: clock[0]), self.assertRaisesRegex(ht.StepFail, 'no UDISKS_IGNORE'):
-      ht.check_exclusive('/dev/sdz')
+         mock.patch.object(ht.time, 'monotonic', lambda: clock[0]), \
+         self.assertRaisesRegex(ht.StepFail, 'no read-write access to /dev/sdz within 5s'):
+      ht.check_block('/dev/sdz')
+    with mock.patch.object(ht.os, 'access', lambda d, m: False), \
+         mock.patch.object(ht.time, 'sleep', lambda s: clock.__setitem__(0, clock[0] + s)), \
+         mock.patch.object(ht.time, 'monotonic', lambda: clock[0]), \
+         self.assertRaisesRegex(ht.StepFail, r'within 4\.87s \('):
+      ht.check_block('/dev/sdz', 4.873123)   # dfu() passes min(UDEV_TIMEOUT, left())
 
-
-class Exclusion(Tmp):
-  def test_a_udev_rule_must_ignore_this_bootloader_by_serial(self):
-    facts = {'vid': 0x1fc9, 'pid': 0x0094}
-    rule = self.tmp / '99-tinyuf2-hil.rules'
-    with mock.patch.object(ht, 'UDEV_RULES', (str(self.tmp),)):
-      for text, ok in (('ATTRS{idVendor}=="1fc9", ATTRS{idProduct}=="0094", ATTRS{serial}=="UID", '
-                        'ENV{UDISKS_IGNORE}="1"', True),
-                       ('# ATTRS{idVendor}=="1fc9", ATTRS{idProduct}=="0094", ATTRS{serial}=="UID", '
-                        'ENV{UDISKS_IGNORE}="1"', False),
-                       ('ATTRS{idVendor}=="1fc9", ATTRS{idProduct}=="0094", ATTRS{serial}=="OTHER", '
-                        'ENV{UDISKS_IGNORE}="1"', False),
-                       ('ATTRS{idVendor}=="1fc9", ATTRS{idProduct}=="0094", ATTRS{serial}!="UID", '
-                        'ENV{UDISKS_IGNORE}="1"', False),
-                       ('ATTRS{idVendor}=="1fc9", ATTRS{idProduct}=="0094", ATTRS{serial}=="OTHERUID", '
-                        'ENV{UDISKS_IGNORE}="1"', False),
-                       ('ATTRS{idVendor}=="1fc9", ATTRS{idProduct}=="0094", ATTRS{serial}=="UID", '
-                        'ENV{UDISKS_IGNORE}="0"', False),
-                       ('SUBSYSTEM=="block", ATTRS{idVendor}=="1fc9", ATTRS{idProduct}=="0094", '
-                        'ATTRS{serial}=="UID", ENV{UDISKS_IGNORE}="1"', True),
-                       ('ACTION=="remove", ATTRS{idVendor}=="1fc9", ATTRS{idProduct}=="0094", '   # Codex's case
-                        'ATTRS{serial}=="UID", ENV{UDISKS_IGNORE}="1"', False),
-                       ('SUBSYSTEM=="usb", ATTRS{idVendor}=="1fc9", ATTRS{idProduct}=="0094", '
-                        'ATTRS{serial}=="UID", ENV{UDISKS_IGNORE}="1"', False),
-                       ('ATTRS{idVendor}=="1fc9", ATTRS{idProduct}=="0094", ATTRS{serial}=="UID", '
-                        'ATTRS{serial}=="X", ENV{UDISKS_IGNORE}="1"', False),
-                       ('ATTRS{idVendor}=="1fc9", ATTRS{idProduct}=="0094", ATTRS{serial}=="UID", '
-                        'ENV{UDISKS_IGNORE}="1", GOTO="end"', False),
-                       ('ATTRS{idVendor}=="1fc9", ATTRS{idProduct}=="0094", ATTRS{serial}=="UID", '
-                        'ENV{UDISKS_IGNORE}="1" junk', False)):
-        rule.write_text(text + '\n')
-        with self.subTest(text):
-          if ok:
-            self.assertEqual(ht.exclusion_configured(facts, 'UID'), str(rule))
-          else:
-            self.assertRaises(ht.Refused, ht.exclusion_configured, facts, 'UID')
+  def test_a_mounted_drive_is_refused_by_any_alias_and_an_unmounted_one_needs_no_udev_property(self):
+    dev = self.tmp.resolve() / 'sdz'   # check_block compares realpaths; TMPDIR may be a symlink
+    dev.write_text('')
+    alias = self.tmp / 'by-id'
+    alias.symlink_to(dev)
+    for mounts, refused in ((f'{dev} /media/x vfat rw 0 0\n', True), (f'{alias} /media/x vfat rw 0 0\n', True),
+                            ('/dev/sda1 / ext4 rw 0 0\n', False)):
+      with self.subTest(mounts), mock.patch.object(ht, 'Path', lambda p: mock.Mock(read_text=lambda: mounts)):
+        if refused:
+          with self.assertRaisesRegex(ht.StepFail, 'is mounted; refusing raw I/O'):
+            ht.check_block(str(dev))
+        else:
+          ht.check_block(str(dev))
 
 
 class Fixture(Tmp):
@@ -3040,7 +3023,6 @@ class RunBoard(Tmp):
               mock.patch.object(ht, 'hex_matches_bin', lambda d, b, base: True),
               mock.patch.object(ht, 'check_jlink', lambda: None),
               mock.patch.object(ht, 'check_bootloader_bin', lambda *a: None),
-              mock.patch.object(ht, 'exclusion_configured', lambda *a: None),
               mock.patch.object(ht, 'probe_users', lambda b: []),   # not the host's J-Link tools: tests patch their own
               mock.patch.object(ht.shutil, 'which', lambda t: '/usr/bin/' + t)):
       p.start()
@@ -3917,7 +3899,7 @@ class BatteryRun(Tmp):
       return rig.fat_read(*a, **k)
     for p in (mock.patch.object(ht, 'usb_device', lambda *a: '1-2' if rig.present else None),
               mock.patch.object(ht, 'block_device', lambda p: '/dev/sdz'),
-              mock.patch.object(ht, 'check_exclusive', lambda d, timeout=None: None),
+              mock.patch.object(ht, 'check_block', lambda d, timeout=None: None),
               mock.patch.object(ht, 'fat_read', fat_read),
               mock.patch.object(ht, 'spawn', rig.spawn),
               mock.patch.object(ht.time, 'sleep', lambda s: clock.__setitem__(0, clock[0] + s)),
@@ -4029,10 +4011,10 @@ class BatteryRun(Tmp):
     bat, rig = self.battery(commissioning=True)
     dfu, calls = bat.dfu, []
 
-    def flaky(v):   # the install's DFU passes; the re-entry's finds no exclusion property
+    def flaky(v):   # the install's DFU passes; the re-entry's finds the drive mounted
       calls.append(v)
       if len(calls) > 1:
-        raise ht.StepFail('/dev/sdz has no UDISKS_IGNORE=1')
+        raise ht.StepFail('/dev/sdz is mounted; refusing raw I/O')
       return dfu(v)
     bat.dfu = flaky
     with self.assertRaises(ht.StepFail):
@@ -4520,18 +4502,18 @@ class UpdateRun(BatteryRun):
     read = ht.fat_read
     waits = iter(['1-2', '/dev/sdz'])
     with mock.patch.object(ht, 'wait_for', lambda fn, timeout, what, fail=None: takes('wait', next(waits))(fn, timeout)), \
-         mock.patch.object(ht, 'check_exclusive', takes('exclusive', 0.0)), \
+         mock.patch.object(ht, 'check_block', takes('block', 0.0)), \
          mock.patch.object(ht, 'fat_read', takes('read', lambda *a: read(*a))):
       start = clock[0]
       with self.assertRaisesRegex(ht.StepFail, 'past their 40s bound'):
         bat.dfu('v1', 40)
       self.assertLessEqual(clock[0] - start, 40)
-      self.assertEqual([w for w, _ in given], ['wait', 'wait'])   # nothing left for the exclusivity wait or the read
+      self.assertEqual([w for w, _ in given], ['wait', 'wait'])   # nothing left for the access wait or the read
       self.assertAlmostEqual(given[1][1], 1, delta=0.01)
       given.clear()
       waits, clock[0] = iter(['1-2', '/dev/sdz']), 0.0
-      bat.dfu('v1', 200)   # with room for all four, each still gets only what is left, the exclusivity wait its own cap
-    self.assertEqual([w for w, _ in given], ['wait', 'wait', 'exclusive', 'read'])
+      bat.dfu('v1', 200)   # with room for all four, each still gets only what is left, the access wait its own cap
+    self.assertEqual([w for w, _ in given], ['wait', 'wait', 'block', 'read'])
     self.assertEqual([round(b, 2) for _, b in given], [200, 161, ht.UDEV_TIMEOUT, 161 - 39 - ht.UDEV_TIMEOUT])
 
   def test_the_usb_watcher_ends_however_the_interrupt_does(self):
@@ -5196,7 +5178,7 @@ class Main(Tmp):
            mock.patch.object(ht, 'verify_record', lambda *a: ({'hex': 'x.hex', 'bin': fw}, {'version': 'v'})), \
            mock.patch.object(ht, 'parse_hex', lambda p: {0: 1}), mock.patch.object(ht, 'hex_matches_bin', lambda *a: True), \
            mock.patch.object(ht.cb, 'BUILD_DIR', self.tmp / argv[0]), mock.patch.object(ht, 'load_helper', lambda: None), \
-           mock.patch.object(ht, 'manual_holder', lambda *a: None), mock.patch.object(ht, 'exclusion_configured', lambda *a: None), \
+           mock.patch.object(ht, 'manual_holder', lambda *a: None), \
            mock.patch.object(ht.shutil, 'which', lambda t: None if t == 'JLinkExe' else '/usr/bin/' + t), \
            mock.patch.object(ht.Probe, 'run', lambda *a, **k: probed.append(a)):
         self.assertEqual(ht.main(argv + [str(cfg)]), 2)
@@ -5643,7 +5625,7 @@ class StlinkBatteryRun(Tmp):
     clock = [0.0]
     for p in (mock.patch.object(ht, 'usb_device', lambda *a: '1-2' if self.present[0] else None),
               mock.patch.object(ht, 'block_device', lambda p: '/dev/sdz'),
-              mock.patch.object(ht, 'check_exclusive', lambda d, timeout=None: None),
+              mock.patch.object(ht, 'check_block', lambda d, timeout=None: None),
               mock.patch.object(ht, 'fat_read', fat_read),
               mock.patch.object(ht, 'spawn', spawn),
               mock.patch.object(ht.time, 'sleep', lambda s: clock.__setitem__(0, clock[0] + s)),
@@ -6133,7 +6115,7 @@ class OpenocdBatteryRun(Tmp):
     clock = [0.0]
     for p in (mock.patch.object(ht, 'usb_device', lambda *a: '9-2.2' if self.present[0] else None),
               mock.patch.object(ht, 'block_device', lambda p: '/dev/sdz'),
-              mock.patch.object(ht, 'check_exclusive', lambda d, timeout=None: None),
+              mock.patch.object(ht, 'check_block', lambda d, timeout=None: None),
               mock.patch.object(ht, 'fat_read', fat_read),
               mock.patch.object(ht, 'spawn', spawn),
               mock.patch.object(ht.time, 'sleep', lambda s: clock.__setitem__(0, clock[0] + s)),
