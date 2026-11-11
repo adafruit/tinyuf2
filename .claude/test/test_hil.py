@@ -3349,15 +3349,20 @@ class RunBoard(BoardRun):
     self.assertIn(self.helper.CLEANUP_ROLE, row['detail'])
     self.assertLess(time.monotonic() - t0, 5)
 
-  def test_the_lock_wait_ends_at_its_budget_even_when_the_board_frees_meanwhile(self):
-    held = self.helper.acquire_board_lock(BOARD, reason='someone')
+  def test_the_lock_wait_ends_at_its_budget_and_a_board_freed_in_its_last_pause_gets_one_more_take(self):
     self.args.lock_wait = 1
-    threading.Timer(0.5, lambda: (self.helper.clear_record(held), held.close())).start()
-    t0 = time.monotonic()
-    with mock.patch.object(self.helper, 'TASK_POLL', 5):   # one sleep, capped to the budget, waking after the release
-      row, code, _ = self.run_board(lambda *a: self.fail('ran'))
-    self.assertEqual((code, row['locked'], row['recoveryBlocker']), (1, True, False))
-    self.assertLess(time.monotonic() - t0, 3)
+    for freed in (False, True):
+      held = self.helper.acquire_board_lock(BOARD, reason='someone')
+      release = lambda held=held: (self.helper.clear_record(held), held.close())   # noqa: E731
+      if freed:
+        threading.Timer(0.5, release).start()
+      t0 = time.monotonic()
+      with self.subTest(freed=freed), mock.patch.object(self.helper, 'TASK_POLL', 5):   # one sleep, capped to the budget
+        row, code, cleaned = self.run_board(lambda *a: None)
+        self.assertEqual((code, row['locked'], row['ran'], cleaned), (0, False, True, []) if freed else (1, True, False, []))
+        self.assertLess(time.monotonic() - t0, 3)
+      if not freed:
+        release()
 
   def test_a_probe_still_in_use_is_refused_after_the_lock_and_released_with_nothing_logged(self):
     self.helper.log_cleanup_failure(BOARD, 'hil_test.py', detail='earlier')

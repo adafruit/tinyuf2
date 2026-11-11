@@ -972,13 +972,13 @@ class RealRunner(unittest.TestCase):
       # a remote driver's runner takes the board before CI's battery tries again
       report, code = hil_ci.battery(LPC, 'ci.json', self.out / f'{LPC}.build.json', self.tmp / 'remote' / LPC, 0,
                                        ci_state_root=self.state)
-      ci.join()
+      ci.join()   # its last pause over, CI's battery takes the board once more (agentrc board_task) and runs
     remote = run_report.row_of(report, LPC) or {}
     self.assertEqual((waiting, run_report.verdict(code, report, LPC), remote.get('unfinishedAttempts'),
                       ended['code'], self.row(self.out)['verdict'],
                       (self.out / f'{LPC}.started').exists(), (self.out / f'{LPC}.done').exists(),
                       self.helper.record_state(LPC)[0]),
-                     ((False, []), ('pass', ''), None, 1, 'not-run', False, False, 'empty'))
+                     ((False, []), ('pass', ''), None, 0, 'pass', True, True, 'empty'))
 
 
 
