@@ -85,7 +85,7 @@ On metro_m4_express (2026-11-01, ci.lan, J-Link V9.78 on a J-Link OB-Mini Plus 0
 On ch32v407_evt_r0 (2026-11-11, htpc, openocd 0.12.0+dev-g4c9931a, hathach/openocd `claude/wch-ch32v4x7`, on a
 WCH-LinkE E9B38F066FBB, firmware 2.22, at 5-2.4; ESIG chip ID 0x46700010, the schematic's U2 a CH32V467VET; option bytes
 0x40BF5AA5, RAM_CODE_MOD 0), TinyUF2 enumerates 239a:017d at 5-2.3, 480M, with serial 763A5E1AA7107B65, behind the same
-ganged hub as its probe. tinyusb's HIL shares the board under lock `ch32v407-evt-r0`; what it had left on the board
+ganged hub as its probe. tinyusb's HIL shares the board under lock `ch32v407_r0`; what it had left on the board
 before the first install is unknown, overwritten by a bench smoke test.
 
 The flash driver's erase is the probe's chip erase (`wlink_erase`, command 81 02 01 01, `wchriscv.c` `ch32vx_erase`)

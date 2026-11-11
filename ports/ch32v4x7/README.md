@@ -88,7 +88,7 @@ over UF2 is not implemented; changing the bootloader still needs the probe.
 - WCH's [CH32V407/V467 SDK](https://github.com/openwch/ch32v407_ch32v467), pinned by `tools/get_deps.py`.
   Its flash implementation is shared by V407 and V467.
   Vendor code retains WCH's restriction to WCH microcontrollers.
-- The USB driver is TinyUSB's `usbhs_v2` device driver (`OPT_MCU_CH32V407`), on USBHS1.
+- The USB driver is TinyUSB's `wch_hs2` device driver (`OPT_MCU_CH32V4X7`), on USBHS1.
 - Application entry uses a software interrupt, following WCH's V4x7 IAP
   example, so application reset code executes with machine-mode CSR access.
 
