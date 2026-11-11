@@ -266,7 +266,7 @@ RT1064_FACTS = dict(RT1060_FACTS, flashBase=0x70000000, binBase=0x70000000, appS
 # the RT1011 boots its RAM image from the FCB, 0x400 into flash (IMXRT1010RM Table 9-8)
 RT1011_FACTS = dict(RT1060_FACTS, binBase=0x60000400, pid=0x00e1, boardId='MIMXRT1011-Metro-revA', vectors=96)
 # the CH32V4x7 EVT build: UF2 addresses from the app start, flash from the bootloader at 0 (board_facts.read)
-WCH_FACTS = {'arch': 'riscv', 'flashBase': 0, 'binBase': 0, 'appStart': 0x8000, 'flashSize': 0x80000, 'vid': 0x239a,
+WCH_FACTS = {'arch': 'riscv', 'flashBase': 0, 'uf2Base': 0x8000, 'binBase': 0, 'appStart': 0x8000, 'flashSize': 0x80000, 'vid': 0x239a,
              'pid': 0x017d, 'boardId': 'CH32V407-EVT-R0', 'family': 0x7b8c32a7, 'ram': 0x20000000,
              'dblTapDelayMs': 500, 'dblTapSize': 16, 'dblTapReg': 0x40006c28, 'dblTapMagic': 0xf016}
 BOARD_FACTS = {'lpcxpresso55s69': LPC_FACTS, 'stm32h563_nucleo': H563_FACTS, 'max32666fthr': MAX_FACTS,
@@ -6328,10 +6328,10 @@ class WchBatteryRun(Tmp):
     def fat_read(dev, name, length, log, offset=0, timeout=None):
       if name == 'INFO_UF2.TXT':
         data = (f'TinyUF2 Bootloader v1\r\nModel: x\r\nBoard-ID: {f["boardId"]}\r\nDate: d\r\n'
-                f'Flash Size: 0x{f["flashSize"]:08X} bytes').encode()
+                f'Flash Size: 0x{0x78000:08X} bytes').encode()   # the app region, as board_flash_size() reports
       else:
         data = ht.make_uf2(bat.fix['image'], f['appStart'], f['family'], self.tmp / 'cur')[1].read_bytes()[:length]
-      return {'entries': {'CURRENT.UF2': [9, f['flashSize'] // 256 * 512]}, 'data': data, 'size': len(data)}
+      return {'entries': {'CURRENT.UF2': [9, 0x78000 // 256 * 512]}, 'data': data, 'size': len(data)}
     (self.tmp / 'cur').mkdir()
     clock = [0.0]
     for p in (mock.patch.object(ht, 'usb_device', lambda *a: '9-2.2' if self.present[0] else None),

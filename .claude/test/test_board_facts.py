@@ -164,7 +164,7 @@ class Read(unittest.TestCase):
 
   def test_a_consistent_build_gives_its_facts(self):
     self.assertEqual(self.read(), {
-      'arch': 'arm', 'flashBase': BOOT, 'binBase': BOOT, 'appStart': APP, 'flashSize': 0x100000, 'vid': 0x239A,
+      'arch': 'arm', 'flashBase': BOOT, 'uf2Base': BOOT, 'binBase': BOOT, 'appStart': APP, 'flashSize': 0x100000, 'vid': 0x239A,
       'pid': 0x0057, 'boardId': 'STM32F407-Discovery-revD', 'family': 0x57755a57, 'vectors': 98, 'ram': RAM,
       'dblTapDelayMs': 500, 'dblTapSize': 32, 'dblTapReg': 0x2000fffc, 'dblTapMagic': 0xf01669ef, 'flashCache': 0x1000})
 
@@ -178,7 +178,7 @@ class Read(unittest.TestCase):
     # ch32v4x7: BOARD_FLASH_ADDR_ZERO is the app start, BOARD_FLASH_SIZE counts from the bootloader's BIN
     self.b.facts.update(words(flash_addr_zero=APP))
     facts = self.read()
-    self.assertEqual((facts['flashBase'], facts['binBase'], facts['appStart']), (BOOT, BOOT, APP))
+    self.assertEqual((facts['flashBase'], facts['uf2Base'], facts['binBase'], facts['appStart']), (BOOT, APP, BOOT, APP))
 
   def test_a_relocated_word_adds_its_in_place_addend(self):
     self.b.facts.update(words(flash_app_start=BOOT))   # BOOT + __flash_boot_size, the addend in place (REL)

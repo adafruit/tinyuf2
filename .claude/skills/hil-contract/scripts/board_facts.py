@@ -257,6 +257,7 @@ def _read(root, limits):
     raise Refused(f'{root}/_bin/tinyuf2.hex is not tinyuf2.bin laid out from {bin_base:#x}')
   flash_base = word(vals, 'hil_flash_addr_zero', 'BOARD_FLASH_ADDR_ZERO')
   app_start = word(vals, 'hil_flash_app_start', 'BOARD_FLASH_APP_START')
+  uf2_base = flash_base
   rom_copied = boot.symbol('_flash_base', required=False)
   if rom_copied:   # the boot ROM copies the bootloader to RAM: the BIN is the FCB onward (IMXRT1010RM Table 9-8)
     fcfb = boot.symbol('_fcfb_origin', required=False)
@@ -269,7 +270,7 @@ def _read(root, limits):
     flash_base = bin_base
   elif bin_base != flash_base:
     raise Refused(f'the BIN starts at {bin_base:#x}, not BOARD_FLASH_ADDR_ZERO {flash_base:#x}')
-  facts = {'arch': arch, 'flashBase': flash_base, 'binBase': bin_base, 'appStart': app_start,
+  facts = {'arch': arch, 'flashBase': flash_base, 'uf2Base': uf2_base, 'binBase': bin_base, 'appStart': app_start,
            'flashSize': flash_size(vals, limits),
            'vid': word(vals, 'hil_usb_vid', 'USB_VID'), 'pid': word(vals, 'hil_usb_pid', 'USB_PID'),
            'boardId': board_id(vals, bin_bytes),

@@ -2407,7 +2407,10 @@ class Battery:
     self.power = PortPower(board.get('usbPower'), self.log)
     self.steps, self.usb_path, self.touched, self.at, self.kept = [], None, False, 'setup', []
     # where CURRENT.UF2 starts and the flash size INFO_UF2.TXT reports
-    self.app_start, self.dfu_flash = facts.get('appStart'), facts['flashSize']
+    # the drive's flash: from BOARD_FLASH_ADDR_ZERO, the app start where UF2 addresses start there (ch32v4x7)
+    self.app_start = facts.get('appStart')
+    base = facts.get('flashBase', 0)
+    self.dfu_flash = base + facts['flashSize'] - facts.get('uf2Base', base)
     self.dfu_claim = 'DFU observed after the install'
 
   def step(self, name, fn):
