@@ -675,8 +675,8 @@ class Workflow(unittest.TestCase):
     self.assertNotRegex(leg, r'(?m)^ +continue-on-error:')
     steps = re.findall(r'\n      - (?:name: (.+)|uses: (\S+))\n', leg)
     self.assertEqual([n or u for n, u in steps], [
-      'actions/checkout@v4', 'Fetch the build inputs', 'Set up arm-gcc', "CI's ESP-IDF image version", 'Set up ESP-IDF',
-      'Build and pack the record', 'actions/upload-artifact@v4'])
+      'actions/checkout@v4', 'Fetch the build inputs', "The cmake board's toolchain", 'Set up the cmake toolchain',
+      "CI's ESP-IDF image version", 'Set up ESP-IDF', 'Build and pack the record', 'actions/upload-artifact@v4'])
     self.assertIn("if: matrix.backend == 'cmake'\n        uses: ./.github/actions/setup_toolchain\n", leg)
     self.assertIn("if: matrix.backend == 'idf'\n        uses: ./.github/actions/setup_toolchain\n        with:\n"
                   "          toolchain: esp-idf\n          toolchain_version: ${{ steps.idf.outputs.version }}\n", leg)

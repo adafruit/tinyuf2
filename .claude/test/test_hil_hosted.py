@@ -26,6 +26,7 @@ BRIDGE = '3ea619acd1cdeb11a0a0b806e93fd3f1'
 NOW = {'head': 'h' * 40, 'submodules': {'lib/tinyusb': 't' * 40}, 'deps': {}, 'dirty': False}
 IDF = {'mode': 'docker', 'ciVersion': 'v6.1', 'image': 'espressif/idf:v6.1'}
 ARM_GCC = 'arm-none-eabi-gcc (Arm GNU Toolchain 14.2.Rel1 (Build arm-14.52)) 14.2.1 20241119'   # 14.2.rel1's, measured
+RISCV_GCC = 'riscv-none-elf-gcc (xPack GNU RISC-V Embedded GCC x86_64) 13.2.0'   # 13.2.0-2's, measured
 # cmake boards' uids and the flashers agentrc's board registry gives them: a J-Link board and an ST-LINK one
 # (test/hil/ci.json)
 CMAKE_BOARDS = {
@@ -318,8 +319,34 @@ class Hosted(unittest.TestCase):
   def test_the_pin_is_the_release_the_hosted_build_installs(self):
     """hil.yml's hosted build sets up arm-gcc through setup_toolchain, whose release admission reads."""
     self.assertRegex(REAL_RELEASE(), r'^\d+\.\d+\.rel\d+$')
-    self.assertRegex(workflow_job('hil-build'),
-                     r"uses: \./\.github/actions/setup_toolchain\n\s+with:\n\s+toolchain: arm-gcc\n")
+    self.assertRegex(workflow_job('hil-build'), r"hil_hosted\.py toolchain --board \"\$BOARD\"")
+    self.assertRegex(workflow_job('hil-build'), r"uses: \./\.github/actions/setup_toolchain\n\s+with:\n"
+                                                 r"\s+toolchain: \$\{\{ steps\.toolchain\.outputs\.name \}\}\n")
+
+  def test_a_risc_v_port_takes_cis_xpack_release_and_an_arm_port_still_arm_gcc(self):
+    mock.patch.object(cb, 'ci_riscv_gcc_release', lambda: '13.2.0-2').start()
+    for port, name in (('ch32v4x7', 'riscv-gcc'), ('ch32v20x', 'riscv-gcc'), ('mimxrt10xx', 'arm-gcc')):
+      with self.subTest(port):
+        self.assertEqual(hh.toolchain(port)[0], name)
+    for board, version, ok in (('ch32v407_evt_r0', RISCV_GCC, True),
+                               ('ch32v407_evt_r0', RISCV_GCC.replace('13.2.0', '13.2.1'), False),
+                               ('ch32v407_evt_r0', RISCV_GCC + '.1', False),
+                               ('ch32v407_evt_r0', ARM_GCC, False),
+                               ('imxrt1064_evk', RISCV_GCC, False),
+                               ('imxrt1064_evk', ARM_GCC, True)):
+      with self.subTest(board=board, version=version):
+        row = {'board': board, 'port': 'not read', 'compiler': {'version': version}}
+        if ok:
+          hh.check_toolchain(board, row)
+        else:
+          with self.assertRaisesRegex(ht.Refused, 'compiled by .*a hosted record takes CI\'s '):
+            hh.check_toolchain(board, row)
+
+  def test_the_toolchain_command_names_the_setup_toolchain_entry(self):
+    for board, name in (('ch32v407_evt_r0', 'riscv-gcc'), ('imxrt1064_evk', 'arm-gcc')):
+      with self.subTest(board), contextlib.redirect_stdout(io.StringIO()) as out:
+        self.assertEqual(hh.main(['toolchain', '--board', board]), 0)
+        self.assertEqual(out.getvalue().strip(), name)
 
   def test_an_espressif_record_needs_no_compiler(self):
     artifact = self.build()

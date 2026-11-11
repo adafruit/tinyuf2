@@ -152,6 +152,8 @@ class TablesMatchTheTree(unittest.TestCase):
 ACTIONS = ROOT / '.github' / 'actions' / 'setup_toolchain'
 ARM_URL = ('https://gitlab.arm.com/api/v4/projects/tooling%2Fgnu-toolchains-for-arm/packages/generic/gnu-toolchain/'
            '{dir}/arm-gnu-toolchain-{rel}-{host}-arm-none-eabi.tar.xz')
+RISCV_URL = ('https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases/download/v{rel}/'
+             'xpack-riscv-none-elf-gcc-{rel}-{host}.tar.gz')
 CURL = """#!/bin/sh
 # curl stand-in: logs its argv, writes $FAKE_BODY to the -o file
 printf '%s\\n' "$@" > "$FAKE_CURL_LOG"
@@ -214,6 +216,27 @@ class SetupToolchain(unittest.TestCase):
           continue
         with self.assertRaisesRegex(cb.Fail, error):
           self.release(manifest)
+
+  def test_the_riscv_release_is_read_from_the_riscv_gcc_url(self):
+    self.assertRegex(cb.ci_riscv_gcc_release(), r'^\d+\.\d+\.\d+-\d+$')
+    path = self.tmp / 'toolchain.json'
+    for what, url, expect in (
+        ('the release', RISCV_URL.format(rel='13.2.0-2', host='linux-x64'), '13.2.0-2'),
+        ('another host', RISCV_URL.format(rel='13.2.0-2', host='darwin-arm64'), None),
+        ('no build number', RISCV_URL.format(rel='13.2.0', host='linux-x64'), None),
+        ('plain http', RISCV_URL.format(rel='13.2.0-2', host='linux-x64').replace('https:', 'http:'), None),
+        ('not a string', 13.2, None)):
+      with self.subTest(what):
+        path.write_text(json.dumps({'riscv-gcc': {'url': url, 'sha256': '0' * 64}}))
+        with mock.patch.object(cb, 'SETUP_TOOLCHAIN', path):
+          if expect:
+            self.assertEqual(cb.ci_riscv_gcc_release(), expect)
+          else:
+            with self.assertRaisesRegex(cb.Fail, 'is no xPack riscv-none-elf-gcc'):
+              cb.ci_riscv_gcc_release()
+    path.write_text(json.dumps({'arm-gcc': {}}))
+    with mock.patch.object(cb, 'SETUP_TOOLCHAIN', path), self.assertRaisesRegex(cb.Fail, 'no riscv-gcc url'):
+      cb.ci_riscv_gcc_release()
 
   def fetch(self, manifest, name, body):
     """The action's fetch.sh run from a copy beside `manifest`, with curl a stand-in that serves `body`."""

@@ -170,6 +170,20 @@ def ci_arm_gcc_release():
   return m[1]
 
 
+
+def ci_riscv_gcc_release():
+  """The xPack riscv-none-elf-gcc release CI's riscv-gcc builds install, from setup_toolchain's riscv-gcc url: e.g.
+  13.2.0-2 (its compiler prints 13.2.0, without the xPack build number)."""
+  try:
+    url = json.loads(SETUP_TOOLCHAIN.read_text())['riscv-gcc']['url']
+  except (OSError, ValueError, KeyError, TypeError) as e:
+    raise Fail(f'no riscv-gcc url in {SETUP_TOOLCHAIN}: {e!r}')
+  m = re.fullmatch(r'https://\S+/xpack-riscv-none-elf-gcc-(\d+\.\d+\.\d+-\d+)-linux-x64\.tar\.gz', url) \
+    if isinstance(url, str) else None
+  if not m:
+    raise Fail(f'the riscv-gcc url in {SETUP_TOOLCHAIN}, {url!r}, is no xPack riscv-none-elf-gcc linux-x64 release')
+  return m[1]
+
 @functools.cache
 def codeql_build():
   """(port, board) codeql-buildscript.sh builds with cmake on every pull request, a port CI builds with cmake."""

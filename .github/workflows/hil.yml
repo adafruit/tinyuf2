@@ -3,11 +3,11 @@ name: HIL
 run-name: "${{ github.event.pull_request && format('HIL PR #{0}', github.event.pull_request.number) || 'HIL' }}"
 
 # The battery on the ci.lan rig (.claude/skills/hil-contract/SKILL.md, roster test/hil/ci.json) for the commissioned
-# boards a pull request's change reaches, each built by its own hosted runner leg (cmake with CI's arm-gcc, or an
-# Espressif board in CI's ESP-IDF image) and admitted on the rig against its record and roster (hil_hosted.py): the
-# rig has no toolchain and builds nothing. A pull request from a fork never reaches the rig. A dispatch runs named
-# boards, with fail_at and hosted_fault for the contract's acceptance only, and also builds a named board pending
-# commissioning, whose artifact commissioning admits by hand.
+# boards a pull request's change reaches, each built by its own hosted runner leg (cmake with CI's compiler for its
+# port, or an Espressif board in CI's ESP-IDF image) and admitted on the rig against its record and roster
+# (hil_hosted.py): the rig has no toolchain and builds nothing. A pull request from a fork never reaches the rig. A
+# dispatch runs named boards, with fail_at and hosted_fault for the contract's acceptance only, and also builds a
+# named board pending commissioning, whose artifact commissioning admits by hand.
 on:
   pull_request:
   workflow_dispatch:
@@ -125,12 +125,20 @@ jobs:
           python3 .claude/skills/hil-contract/scripts/agentrc.py fetch
           python3 tools/get_deps.py -b "$BOARD"
 
+      - name: The cmake board's toolchain
+        id: toolchain
+        if: matrix.backend == 'cmake'
+        run: |
+          name=$(python3 .claude/skills/hil-contract/scripts/hil_hosted.py toolchain --board "$BOARD")
+          [[ $name == arm-gcc || $name == riscv-gcc ]] || { echo "::error::no hosted toolchain: $name"; exit 1; }
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
       # hil_hosted.py admits a cmake record only from the release this installs (setup_toolchain's)
-      - name: Set up arm-gcc
+      - name: Set up the cmake toolchain
         if: matrix.backend == 'cmake'
         uses: ./.github/actions/setup_toolchain
         with:
-          toolchain: arm-gcc
+          toolchain: ${{ steps.toolchain.outputs.name }}
 
       - name: CI's ESP-IDF image version
         id: idf
