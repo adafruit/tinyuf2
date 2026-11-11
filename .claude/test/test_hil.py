@@ -2098,9 +2098,14 @@ class Block(Tmp):
          mock.patch.object(ht.time, 'monotonic', lambda: clock[0]), \
          self.assertRaisesRegex(ht.StepFail, 'no read-write access to /dev/sdz within 5s'):
       ht.check_block('/dev/sdz')
+    with mock.patch.object(ht.os, 'access', lambda d, m: False), \
+         mock.patch.object(ht.time, 'sleep', lambda s: clock.__setitem__(0, clock[0] + s)), \
+         mock.patch.object(ht.time, 'monotonic', lambda: clock[0]), \
+         self.assertRaisesRegex(ht.StepFail, r'within 4\.87s \('):
+      ht.check_block('/dev/sdz', 4.873123)   # dfu() passes min(UDEV_TIMEOUT, left())
 
   def test_a_mounted_drive_is_refused_by_any_alias_and_an_unmounted_one_needs_no_udev_property(self):
-    dev = self.tmp / 'sdz'
+    dev = self.tmp.resolve() / 'sdz'   # check_block compares realpaths; TMPDIR may be a symlink
     dev.write_text('')
     alias = self.tmp / 'by-id'
     alias.symlink_to(dev)

@@ -1392,7 +1392,7 @@ def check_block(dev, timeout=UDEV_TIMEOUT):
   try:
     wait_for(lambda: os.access(dev, os.R_OK | os.W_OK), timeout, f'read-write access to {dev}')
   except StepFail:
-    raise StepFail(f'no read-write access to {dev} within {timeout}s (commissioning.md: Drive access)')
+    raise StepFail(f'no read-write access to {dev} within {timeout:.3g}s (commissioning.md: Drive access)')
   mounted = [l.split()[0] for l in Path('/proc/mounts').read_text().splitlines()]
   if any(os.path.realpath(m) == dev for m in mounted):
     raise StepFail(f'{dev} is mounted; refusing raw I/O')
