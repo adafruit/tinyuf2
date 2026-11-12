@@ -167,7 +167,7 @@ Locks are taken through agentrc's `hil` helper, `skills/hil/scripts/hil_lock.py`
   snapshot, never proof that nothing uses the board (a DUT-side tool such as `mcopy` or a serial monitor is not seen),
   so CI's `.started`/`.done` markers stay the backstop for a killed battery's leftovers (Execution, CI).
 - **A remote run takes no lock of its own** (Execution, Remote): each of its batteries is `hil_test.py run` on the rig and locks its board as above, then, holding it and before any hardware access, checks CI's state root (`--ci-state-root`, Results). Attempts on different boards run side by side, one on a held board waits for `--lock-wait` (its last take may land just past it) or is not run, and an attempt id is used once. CI's markers stay CI's: a remote run never writes them.
-- **The lock fails closed.** An unusable lock dir refuses the run (exit 2); it never runs unlocked. `HIL_NO_BOARD_LOCK=1` is the bypass (`hil` Board locks); the row's `lock` then says `bypassed: true` and `taken` false, the busy check still runs, a failed cleanup is logged all the same (`log_cleanup_failure`) and a restore resolves nothing.
+- **The lock fails closed.** An unusable lock dir refuses the run (exit 2); it never runs unlocked. `HIL_NO_BOARD_LOCK=1` is the bypass (`hil` Board locks); the row's `lock` then says `bypassed: true` and `taken` false, the busy check still runs, a failed cleanup is logged all the same (`log_cleanup_failure`), though with no lock record one the cleanup log cannot take is recorded nowhere, and a restore resolves nothing.
 - **Manual sessions** (hw-debugger, hw-validator):
   1. Take your own hold: `python3 <agentrc>/skills/hil/scripts/hil_lock.py hold <lock> --reason "<unique session reason>"`.
   2. Install a build record's TinyUF2, and restore the board when done:
@@ -215,8 +215,10 @@ A delegated run (`hil-operator`) returns `{pass, results, caveat, wedged}` and, 
 - A launched run that ended without printing its JSON (killed, crashed) may have programmed the board and left it running a candidate. The operator writes `pass: false`, `caveat: "run ended without a report; board state unknown"` and one row per board, exactly `{board, ran: null, pass: false, locked: false, detail}`, with `detail` naming the exit status, the output tail and `python3 <agentrc>/skills/hil/scripts/hil_lock.py status` at that moment.
 - A cleanup that raised (Reservation) logs its failure `unrecheckable` or, when the cleanup log cannot be appended,
   keeps it in the board's lock record (`cleanupOwed`) for the next take to log as `found-left`. With no report, no
-  `lock.failureLogged` says which; `hil_lock.py status` shows either. Its row is still the one above (`ran: null`, a
-  blocker), and the board gets Recovery's `restore --under-hold`.
+  `lock.failureLogged` says which; `hil_lock.py status` shows either. Under `HIL_NO_BOARD_LOCK=1` there is no lock
+  record, so a cleanup log that cannot be appended leaves the failure recorded nowhere: neither `status` nor a later
+  take shows it. Its row is still the one above (`ran: null`, a blocker), and the board gets Recovery's
+  `restore --under-hold` whatever `status` shows.
 - The operator runs the battery once and returns. It never waits on a lock and never retries: a `locked` row comes back as is, and its caller retries under `hil`'s Caller rules, marking a flaky pass `flaky: true`.
 - A recovery dispatch runs Recovery's `restore --under-hold` under its own hold, with `--report` when the failed run printed one, in the foreground and returns `{pass, results, caveat: "", wedged, exit, error, survivors}`: that JSON's `results`, `error` (`null` when absent) and `survivors` (`[]` when absent), and the exit status. Any exit but 0 is a blocker for the caller. A probe that cannot connect is `needs-user` (the board's recovery note, Recovery).
 
