@@ -150,7 +150,8 @@ Locks are taken through agentrc's `hil` helper, `skills/hil/scripts/hil_lock.py`
 
   | Verdict | When | Exit |
   |---|---|---|
-  | failed | `cleanup.pass` false: a child that survived SIGKILL (logged `unrecheckable`), an `openocd_esp` session not ended (logged `retained`), a failed or injected restore; a cleanup that raised after the battery ran (logged `unrecheckable`, the board released, the error uncaught: exit 1 and no report, a run that ended without one in Results) | 4 |
+  | failed | `cleanup.pass` false: a child that survived SIGKILL (logged `unrecheckable`), an `openocd_esp` session not ended (logged `retained`), a failed or injected restore | 4 |
+  | failed | a cleanup that raised after the battery ran: logged `unrecheckable`, the board released, the error uncaught; no JSON printed or report published, so a delegated run records it as one that ended without its JSON (Results: `ran: null`, a blocker) | 1 |
   | restored | the cleanup passed on a touched board, whatever the battery did | the battery's |
   | clean | `cleanup.state` `untouched`; a refusal after the take (an unfinished CI attempt, a live legacy session, a marker or state root it cannot use); or the battery's setup raised before any hardware access | the battery's, or the refusal's |
 
@@ -204,7 +205,7 @@ The last stdout line is JSON. It is also published, through agentrc's report cor
 | Exit | Meaning |
 |---|---|
 | 0 | every board passed and was cleaned up |
-| 1 | a board failed or did not run; it was cleaned up or never touched |
+| 1 | a board failed or did not run; it was cleaned up or never touched, unless no JSON was printed (a cleanup that raised, Reservation) |
 | 2 | refused before any hardware access (usage, roster, source, build record, lock helper, lock dir) |
 | 4 | cleanup failed or is pending, or the lock did not end as its verdict said (Reservation); the board released (`lock.released`, unless its flock did not close or under `HIL_NO_BOARD_LOCK`) and the failure logged in its cleanup log (`lock.failureLogged`), or `lock.describe` says why not. From `install` or `restore`: a child that survived SIGKILL or an `openocd_esp` session not ended, or the operation failed after it began writing, logged as a failure; keep your hold |
 
