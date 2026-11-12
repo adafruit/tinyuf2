@@ -20,6 +20,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # msc_test.c compiles src/msc.c, which includes tusb.h
+      - name: Fetch TinyUSB
+        run: git submodule update --init --depth 1 lib/tinyusb
+
       - name: Build and execute native self-test
         run: |
           cmake -B build -G Ninja -DBOARD=${{ matrix.board }} ports/test_ghostfat

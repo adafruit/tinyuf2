@@ -46,6 +46,12 @@
       "uid": "48AD95993243375320202031340A10FF",
       "probe": "000063728691",
       "tinyuf2": {"reentry": "retained-register"}
+    },
+    {
+      "name": "ch32v407_r0",
+      "uid": "763A5E1AA7107B65",
+      "probe": "E9B38F066FBB",
+      "tinyuf2": {"device": "ch32v4x7", "reentry": "retained-register"}
     }
   ]
 }

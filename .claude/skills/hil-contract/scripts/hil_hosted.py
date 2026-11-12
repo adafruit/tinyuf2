@@ -4,16 +4,17 @@
 Hosted).
 
   hil_hosted.py image
+  hil_hosted.py toolchain --board B
   hil_hosted.py build --board B --roster ROSTER --out DIR
   hil_hosted.py admit --artifact DIR/B --board B --roster ROSTER --out DIR
 
 `build` runs check_build's HIL record -- an Espressif board's in CI's ESP-IDF image, any other's with cmake and
-the arm-none-eabi-gcc on PATH, which must be CI's -- and packs it as DIR/B: the record (`B.build.json`), every file
+the compiler on PATH that CI installs for its port (`toolchain`) -- and packs it as DIR/B: the record (`B.build.json`), every file
 its row hashes under `build/`, and `provenance.json`, which names the board and the roster's path and sha256 (the
 record does not say which roster was selected). `admit` refuses (exit 2) unless provenance names this board and this
 checkout's roster, the record passes the runner's own admission here (hil_test.record_row: HEAD, submodules and
 get_deps dependencies, clean, the board's backend, CI's pinned IDF image, the agentrc this process loads) and a cmake
-record names CI's pinned Arm GNU Toolchain as its compiler, and the artifact holds exactly the files that record
+record names that pinned release as its compiler, and the artifact holds exactly the files that record
 hashes, with the same flash binding; it then places the files as the record's build dir and writes the record and
 provenance to --out. The last stdout line is JSON.
 """
@@ -60,18 +61,29 @@ def build_root(board):
   return cb.BUILD_DIR / Path(build_dir(board)).name
 
 
-def check_toolchain(what, row):
-  """Refuse a cmake record whose compiler is not the Arm GNU Toolchain release CI's arm-gcc builds install, as
-  record_row refuses an IDF record not built in CI's image."""
+def toolchain(port):
+  """(setup_toolchain's toolchain, the compiler --version pattern, its name) CI builds `port`'s cmake record with:
+  riscv-gcc's xPack release for a RISC-V port (check_build's COMPILER), else arm-gcc's Arm GNU Toolchain release."""
+  if cb.COMPILER.get(port) == 'riscv-none-elf-gcc':
+    release = cb.ci_riscv_gcc_release()
+    version = re.escape(release.split('-')[0])
+    return 'riscv-gcc', rf'\(xPack GNU RISC-V Embedded GCC x86_64\) {version}$', f'xPack riscv-none-elf-gcc {release}'
   release = cb.ci_arm_gcc_release()
+  return 'arm-gcc', rf'\(Arm GNU Toolchain {re.escape(release)}\b', f'Arm GNU Toolchain {release}'
+
+
+def check_toolchain(what, row):
+  """Refuse a cmake record whose compiler is not the release CI's hosted builds install for its board's port (the
+  checkout's, never the record's say), as record_row refuses an IDF record not built in CI's image."""
+  _, pattern, name = toolchain(cb.port_of(row['board']))
   version = (row.get('compiler') or {}).get('version') or ''
-  if not re.search(rf'\(Arm GNU Toolchain {re.escape(release)}\b', version, re.I):
-    raise ht.Refused(f'{what}: compiled by {version or "an unrecorded compiler"}; a hosted record takes CI\'s Arm GNU '
-                     f'Toolchain {release} only (.github/actions/setup_toolchain)')
+  if not re.search(pattern, version, re.I):
+    raise ht.Refused(f'{what}: compiled by {version or "an unrecorded compiler"}; a hosted record takes CI\'s {name} '
+                     'only (.github/actions/setup_toolchain)')
 
 
 def build(board, roster, out):
-  """check_build's HIL record of `board` (CI's docker image, or cmake with CI's arm-gcc) packed as out/<board>."""
+  """check_build's HIL record of `board` (CI's docker image, or cmake with CI's compiler for its port) packed as out/<board>."""
   ht.load_board(cb.ROOT / roster, board)
   dest = out / board
   if dest.exists():
@@ -182,6 +194,8 @@ def main(argv=None):
   ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
   sub = ap.add_subparsers(dest='cmd', required=True)
   sub.add_parser('image', help="CI's ESP-IDF image, which an Espressif board's `build` needs pulled")
+  sub.add_parser('toolchain', help="setup_toolchain's toolchain a cmake board's `build` needs").add_argument(
+    '--board', required=True)
   for name in ('build', 'admit'):
     p = sub.add_parser(name)
     p.add_argument('--board', required=True)
@@ -193,6 +207,9 @@ def main(argv=None):
   try:
     if args.cmd == 'image':
       print(image())
+      return 0
+    if args.cmd == 'toolchain':
+      print(toolchain(cb.port_of(args.board))[0])
       return 0
     if args.cmd == 'build':
       print(json.dumps(build(args.board, args.roster, args.out)))

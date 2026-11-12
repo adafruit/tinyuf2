@@ -107,13 +107,22 @@ class Build:
     self.app_base, self.regions = APP, 'RAM              0x20000000         0x0000fffc         xrw\n' \
                                        'FLASH            0x08010000         0x00020000         xr\n'
     self.bin, self.hex_base = None, BOOT
+    self.machine = ARM
+
+  def riscv(self):
+    """The same build for RV32: RELA words, blinky entered at its _start, a 16-bit double-tap register."""
+    self.machine = RISCV
+    self.obj_relocs = {'.rodata.hil_dbl_tap_reg': [(0, '_board_dfu_dbl_tap', 1, 0)]}
+    self.facts.update(words(dbl_tap_size=16, dbl_tap_magic=0xf016))
+    return self
 
   def boot_elf(self):
     text_at = BOOT + len(self.vectors)
     data_lma = text_at + len(self.text)
     return elf([('.isr_vector', BOOT, self.vectors, ALLOC), ('.text', text_at, self.text, ALLOC),
                 ('.data', RAM, self.data, ALLOC | WRITE), ('.bss', RAM + 0x100, None, ALLOC | WRITE, 0x1000)],
-               self.boot_syms, [(BOOT, BOOT, len(self.vectors) + len(self.text)), (RAM, data_lma, len(self.data))])
+               self.boot_syms, [(BOOT, BOOT, len(self.vectors) + len(self.text)), (RAM, data_lma, len(self.data))],
+               machine=self.machine)
 
   def image(self):
     return self.vectors + self.text + self.data
@@ -126,11 +135,11 @@ class Build:
     (self.root / 'board_facts.o').write_bytes(
       elf(secs, [(k, 0, len(v), f'.rodata.{k}') for k, v in self.facts.items()] +
           [(s, 0, 0, None) for s in {r[1] for rows in self.obj_relocs.values() for r in rows}],
-          relocs=self.obj_relocs, etype=1))
+          relocs=self.obj_relocs, machine=self.machine, etype=1))
     (self.root / 'apps/blinky/blinky.elf').write_bytes(
       elf([('.isr_vector', self.app_base, b'\0' * 0x188, ALLOC), ('.data', RAM, b'\1' * 8, ALLOC | WRITE)],
-          [('g_pfnVectors', self.app_base, 0, '.isr_vector')],
-          segments=[(self.app_base, self.app_base, 0x188), (RAM, self.app_base + 0x188, 8)]))
+          [('g_pfnVectors' if self.machine == ARM else '_start', self.app_base, 0, '.isr_vector')],
+          segments=[(self.app_base, self.app_base, 0x188), (RAM, self.app_base + 0x188, 8)], machine=self.machine))
     (self.root / 'apps/blinky/blinky.elf.map').write_text(
       f'Memory Configuration\n\nName             Origin             Length             Attributes\n{self.regions}'
       '*default*        0x00000000         0xffffffff\n\nLinker script and memory map\n')
@@ -155,9 +164,21 @@ class Read(unittest.TestCase):
 
   def test_a_consistent_build_gives_its_facts(self):
     self.assertEqual(self.read(), {
-      'flashBase': BOOT, 'binBase': BOOT, 'appStart': APP, 'flashSize': 0x100000, 'vid': 0x239A, 'pid': 0x0057,
-      'boardId': 'STM32F407-Discovery-revD', 'family': 0x57755a57, 'vectors': 98, 'ram': RAM, 'dblTapDelayMs': 500,
-      'dblTapReg': 0x2000fffc, 'dblTapMagic': 0xf01669ef, 'flashCache': 0x1000})
+      'arch': 'arm', 'flashBase': BOOT, 'uf2Base': BOOT, 'binBase': BOOT, 'appStart': APP, 'flashSize': 0x100000, 'vid': 0x239A,
+      'pid': 0x0057, 'boardId': 'STM32F407-Discovery-revD', 'family': 0x57755a57, 'vectors': 98, 'ram': RAM,
+      'dblTapDelayMs': 500, 'dblTapSize': 32, 'dblTapReg': 0x2000fffc, 'dblTapMagic': 0xf01669ef, 'flashCache': 0x1000})
+
+  def test_a_riscv_build_gives_its_facts_without_a_vector_count(self):
+    facts = bf.read(self.b.riscv().write(), (BOOT, BOOT + 0x100000))
+    self.assertEqual((facts['arch'], facts['dblTapSize'], facts['dblTapMagic'], facts['appStart']),
+                     ('riscv', 16, 0xf016, APP))
+    self.assertNotIn('vectors', facts)
+
+  def test_uf2_addresses_from_the_app_start_the_flash_at_the_bin(self):
+    # ch32v4x7: BOARD_FLASH_ADDR_ZERO is the app start, BOARD_FLASH_SIZE counts from the bootloader's BIN
+    self.b.facts.update(words(flash_addr_zero=APP))
+    facts = self.read()
+    self.assertEqual((facts['flashBase'], facts['uf2Base'], facts['binBase'], facts['appStart']), (BOOT, APP, BOOT, APP))
 
   def test_a_relocated_word_adds_its_in_place_addend(self):
     self.b.facts.update(words(flash_app_start=BOOT))   # BOOT + __flash_boot_size, the addend in place (REL)
@@ -176,8 +197,13 @@ class Read(unittest.TestCase):
 
   def test_a_bootloader_for_another_architecture_refuses(self):
     self.b.boot_elf = lambda: elf([('.text', BOOT, self.b.image(), ALLOC)], self.b.boot_syms[1:2], [(BOOT, BOOT, 0x200)],
-                                  machine=RISCV)
-    self.refused('not Arm')
+                                  machine=3)   # EM_386
+    self.refused('machine 3 .*not one the battery has a fixture for')
+
+  def test_a_blinky_for_another_architecture_than_the_bootloader_refuses(self):
+    self.b.riscv()
+    self.b.boot_elf = lambda: elf([('.text', BOOT, self.b.image(), ALLOC)], self.b.boot_syms[1:2], [(BOOT, BOOT, 0x200)])
+    self.refused('blinky 243')
 
   def test_a_relocation_the_bootloader_cannot_resolve_or_of_another_type_refuses(self):
     self.b.obj_relocs['.rodata.hil_dbl_tap_reg'] = [(0, 'nowhere', 2, None)]
@@ -245,7 +271,9 @@ class Read(unittest.TestCase):
 
   def test_a_narrow_double_tap_register_refuses(self):
     self.b.facts.update(words(dbl_tap_size=16))
-    self.refused('TINYUF2_DBL_TAP_REG_SIZE is not 32')
+    self.refused('TINYUF2_DBL_TAP_REG_SIZE is 16: the arm retained-register battery writes a 32-bit magic')
+    self.b.riscv().facts.update(words(dbl_tap_size=32))
+    self.refused('TINYUF2_DBL_TAP_REG_SIZE is 32: the riscv retained-register battery writes a 16-bit magic')
 
   def test_a_vector_count_from_the_device_header_wins_over_the_table(self):
     self.b.facts.update(words(vectors=76))

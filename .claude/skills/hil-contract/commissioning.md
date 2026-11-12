@@ -27,7 +27,7 @@ Commissioning is the lead's, never `hil-operator`'s or a review's. It runs under
 - **Cleanup:** `restore` under the hold and observe DFU leave after the blinky copy. Record the reset notes J-Link prints on install in bench-history.md.
 - **Loader footprint:** for the flash target's `loadfile`, place sentinels just past the written range and elsewhere in its erase block. Confirm them from a fresh session before the operation under test, and again from another fresh session after it: a verify in the session that wrote them cannot show what a later operation destroys. Make the written data differ from what is on the flash, since a download whose data already matches is skipped ("Contents already match") and erases nothing. Record the result in bench-history.md.
 - **Fixture prerequisites,** before anything executes the battery's fixture:
-  - the app start meets VTOR's alignment for the fixture's vector table (`fixture()`);
+  - the app start meets VTOR's alignment for the fixture's vector table, or on RISC-V `mtvec`'s 1 KiB alignment for its trap loop (`fixture()`);
   - its stack top, the `m_data` origin the runner reads (`ram_origin`) + 0x1000, is in RAM enabled when the bootloader hands off: the ROM default per read-doc, which TinyUF2 does not reconfigure (DTCM on imxrt1060_evk);
   - under a hold, a word just below that stack top takes a written value and reads it back, and then its saved value (0x20000FFC on imxrt1060_evk).
 - **Re-entry:** commit the roster entry without `reentry` (`ci.json`; the untracked bench roster is saved in place, where the clean-tree check cannot see it), build the record, release the manual hold, and run the battery in commissioning mode; it locks itself and ends with the cleanup, so it also proves the restore:

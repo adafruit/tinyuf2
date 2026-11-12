@@ -80,6 +80,36 @@ On max32666fthr (2026-10-22, ci.lan, openocd 0.12.0+dev-02620-g0ce743125 on a Ra
 
 On metro_m4_express (2026-11-01, ci.lan, J-Link V9.78 on a J-Link OB-Mini Plus 000063728691 at 9-1.1, ATSAMD51J19A DSU DID 0x60060005, BOOTPROT 13 already set in the user row), TinyUF2 enumerates 239a:0021 at 9-1.4 with serial 48AD95993243375320202031340A10FF, behind the same hub (9-1, 1a40:0201) as its probe. On htpc's bench, `loadfile` of the HEX programmed and verified it with BOOTPROT set and kept BOOTPROT and the app at 0x4000 (on ci.lan the contents already matched). Over a valid app DFU came up only through the retained-register re-entry, and the re-entry run passed with `controlBootedApp`, `dfuCameUp` and `magicConsumed` true. On htpc's bench, a J-Link session ending within ~600 ms of reset left SET_CONFIGURATION without its status stage (8/8 runs), fixed in `ports/samd51/boards.c`'s cycle-counter waits. That probe drops a session about 1 in 30 before any target access ("Communication timed out: Requested 4 bytes, received -1 bytes", VTref 0.000 V).
 
+## ch32v407_r0
+
+On ch32v407_r0 (2026-11-11, htpc, openocd 0.12.0+dev-g4c9931a, hathach/openocd `claude/wch-ch32v4x7`, on a
+WCH-LinkE E9B38F066FBB, firmware 2.22, at 5-2.4; ESIG chip ID 0x46700010, the schematic's U2 a CH32V467VET; option bytes
+0x40BF5AA5, RAM_CODE_MOD 0), TinyUF2 enumerates 239a:017d at 5-2.3, 480M, with serial 763A5E1AA7107B65, behind the same
+ganged hub as its probe. tinyusb's HIL shares the board under the same name; what it had left on the board
+before the first install is unknown, overwritten by a bench smoke test.
+
+The flash driver's erase is the probe's chip erase (`wlink_erase`, command 81 02 01 01, `wchriscv.c` `ch32vx_erase`)
+whatever the sectors, so `program` and `flash fillw` erase the whole code flash: sentinels at 0x5000 and 0x7FFC, past
+the image, read erased from a fresh session after an install, and DFU comes up on the empty app.
+
+The probe's attach (`wlink_init`'s 81 0d 01 02) leaves the clock tree on HSI with the core running: right after it
+RCC_CTLR read 0x03006B83, HSEON and USBHS_PLLON clear (CH32V407RM Rev 1.3 3.4.1, book 6684, p24-25), where TinyUF2's
+SystemInit and `board_dfu_init` set both. An enumerated TinyUF2 dropped off USB 2.4-3.2 s after the attach in each of
+five trials (also with a `resume` right after `init`, and with the command alone over raw USB), its USBHS frame number
+frozen and its other USBHS registers unchanged; it stays off until the next reset. With no probe session it stayed
+enumerated for 25 s. So the WCH battery opens no probe session while it still needs the drive.
+
+A `reset run` logs "Hart unexpectedly reset!" and then the `WCH_REEXAMINE` line; a `mww` to PFIC_CFGR fails with fence
+and abstract-command errors, so `reset run` is the system reset.
+
+On ci.lan (2026-11-12, openocd 0.12.0+dev-g4c9931a, the same probe at 21-1.3), TinyUF2 enumerates 239a:0183 at 21-1.1,
+480M, with serial 763A5E1AA7107B65, behind the same 1a40:0201 hub (21-1) as its probe and three other WCH-LinkEs. Before
+the first install tinyusb had left an example that enumerated nothing; its flash held "Hello from TinyUSB" (the first
+128 KiB, sha256 ad515584605d62605f0e833a2246e858f4bf97d69c2159e36f69dc647ca770cd). A word at 0x20000FFC took 0xA5C3E1F0
+and its saved value back under the hold, and the re-entry run (run-20261112-032534) passed with `controlBootedApp`,
+`dfuCameUp` and `magicConsumed` true. tinyusb's HIL at its master 53c1d147 then passed on the board (14 tests, its two
+FreeRTOS examples unbuilt).
+
 ## J-Link
 
 J-Link's QSPI loader is undocumented (SEGGER UM08001 has nothing on it). Historically, at sampled sentinel points on both RT boards, the runner's former `loadbin` install (no longer issued) lost the rest of its 64 KiB block past the image while a sentinel at 0x60010000, in the next block, survived; a sample, not a guarantee for every image.

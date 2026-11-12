@@ -486,7 +486,8 @@ void uf2_read_block (uint32_t block_no, uint8_t *data) {
 
 /**
  * Write an uf2 block wrapped by 512 sector.
- * @return number of bytes processed, only 3 following values
+ * @return number of bytes processed, or a status below
+ * UF2_WRITE_FAILED : flash write/flush failed; abort this update
  *  -1 : if not an uf2 block
  * 512 : write is successful (BPB_SECTOR_SIZE == 512)
  *   0 : is busy with flashing, tinyusb stack will call write_block again with the same parameters later on
@@ -499,7 +500,11 @@ int uf2_write_block (uint32_t block_no, uint8_t *data, WriteState *state) {
 
   if (bl->familyID == BOARD_UF2_FAMILY_ID) {
     // generic family ID
-    board_flash_write(bl->targetAddr, bl->data, bl->payloadSize);
+    if (state->aborted) return UF2_WRITE_FAILED;
+    if (!board_flash_write(bl->targetAddr, bl->data, bl->payloadSize)) {
+      state->aborted = true;
+      return UF2_WRITE_FAILED;
+    }
   }else {
     // TODO family matches VID/PID
     return -1;
@@ -531,6 +536,10 @@ int uf2_write_block (uint32_t block_no, uint8_t *data, WriteState *state) {
       // TODO numWritten can be smaller than numBlocks if return early
       if ( state->numWritten >= state->numBlocks ) {
         board_flash_flush();
+        if (board_flash_ok && !board_flash_ok()) {
+          state->aborted = true;
+          return UF2_WRITE_FAILED;
+        }
       }
     }
   }

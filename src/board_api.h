@@ -225,6 +225,10 @@ bool board_flash_write(uint32_t addr, void const* data, uint32_t len);
 // Flush/Sync flash contents
 void board_flash_flush(void);
 
+// Optional: false after a flash error or an incomplete flush. Ports without
+// this hook retain the existing assumption that board_flash_flush succeeds.
+bool board_flash_ok(void) ATTR_WEAK;
+
 // Erase application
 void board_flash_erase_app(void);
 

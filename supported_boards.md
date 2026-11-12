@@ -1,5 +1,13 @@
 # Supported Boards
 
+## ch32v4x7
+
+| Board | Name | VID PID | URL |
+| --- | --- | --- | --- |
+| ch32v407_r0 | WCH CH32V407 EVT TinyUF2 | 0x239A:0x0183 | https://www.wch-ic.com/products/CH32V407.html |
+| metro_ch32v407 | Adafruit Metro CH32V407 TinyUF2 | 0x239A:0x017D | https://www.adafruit.com |
+| metro_ch32v467 | Adafruit Metro CH32V467 TinyUF2 | 0x239A:0x017F | https://www.adafruit.com |
+
 ## espressif
 
 | Board | Name | VID PID | URL |

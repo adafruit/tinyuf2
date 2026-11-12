@@ -152,6 +152,8 @@ class TablesMatchTheTree(unittest.TestCase):
 ACTIONS = ROOT / '.github' / 'actions' / 'setup_toolchain'
 ARM_URL = ('https://gitlab.arm.com/api/v4/projects/tooling%2Fgnu-toolchains-for-arm/packages/generic/gnu-toolchain/'
            '{dir}/arm-gnu-toolchain-{rel}-{host}-arm-none-eabi.tar.xz')
+RISCV_URL = ('https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases/download/v{rel}/'
+             'xpack-riscv-none-elf-gcc-{rel}-{host}.tar.gz')
 CURL = """#!/bin/sh
 # curl stand-in: logs its argv, writes $FAKE_BODY to the -o file
 printf '%s\\n' "$@" > "$FAKE_CURL_LOG"
@@ -214,6 +216,27 @@ class SetupToolchain(unittest.TestCase):
           continue
         with self.assertRaisesRegex(cb.Fail, error):
           self.release(manifest)
+
+  def test_the_riscv_release_is_read_from_the_riscv_gcc_url(self):
+    self.assertRegex(cb.ci_riscv_gcc_release(), r'^\d+\.\d+\.\d+-\d+$')
+    path = self.tmp / 'toolchain.json'
+    for what, url, expect in (
+        ('the release', RISCV_URL.format(rel='13.2.0-2', host='linux-x64'), '13.2.0-2'),
+        ('another host', RISCV_URL.format(rel='13.2.0-2', host='darwin-arm64'), None),
+        ('no build number', RISCV_URL.format(rel='13.2.0', host='linux-x64'), None),
+        ('plain http', RISCV_URL.format(rel='13.2.0-2', host='linux-x64').replace('https:', 'http:'), None),
+        ('not a string', 13.2, None)):
+      with self.subTest(what):
+        path.write_text(json.dumps({'riscv-gcc': {'url': url, 'sha256': '0' * 64}}))
+        with mock.patch.object(cb, 'SETUP_TOOLCHAIN', path):
+          if expect:
+            self.assertEqual(cb.ci_riscv_gcc_release(), expect)
+          else:
+            with self.assertRaisesRegex(cb.Fail, 'is no xPack riscv-none-elf-gcc'):
+              cb.ci_riscv_gcc_release()
+    path.write_text(json.dumps({'arm-gcc': {}}))
+    with mock.patch.object(cb, 'SETUP_TOOLCHAIN', path), self.assertRaisesRegex(cb.Fail, 'no riscv-gcc url'):
+      cb.ci_riscv_gcc_release()
 
   def fetch(self, manifest, name, body):
     """The action's fetch.sh run from a copy beside `manifest`, with curl a stand-in that serves `body`."""
@@ -375,8 +398,8 @@ class Selection(unittest.TestCase):
 
   def test_top_level_app_selects_ports_whose_backend_compiles_it(self):
     ports = {cb.port_of(b) for b, _ in classify('apps/blinky/src/blinky.c')[2]}
-    self.assertEqual(ports, {'espressif', 'lpc55', 'maxim', 'mimxrt10xx', 'samd51', 'stm32f3', 'stm32f4', 'stm32h5',
-                             'stm32h7'})
+    self.assertEqual(ports, {'ch32v4x7', 'espressif', 'lpc55', 'maxim', 'mimxrt10xx', 'samd51', 'stm32f3', 'stm32f4',
+                             'stm32h5', 'stm32h7'})
 
   def test_a_ports_cmake_files_select_its_cmake_build(self):
     for port in ('kinetis_k32l2', 'stm32h7', 'stm32l4'):
@@ -398,6 +421,8 @@ class Selection(unittest.TestCase):
   def test_ghostfat_inputs(self):
     self.assertEqual(classify('ports/test_ghostfat/main.c'), ('ghostfat', 'select', [], True, False))
     self.assertEqual(classify('src/ghostfat.c')[:2] + classify('src/ghostfat.c')[3:4], ('core', 'core', True))
+    for path in ('src/msc.c', 'lib/tinyusb', 'ports/ch32v4x7/board_flash.c'):
+      self.assertTrue(classify(path)[3], path)
     self.assertFalse(classify('src/main.c')[3])
 
   def test_build_control_runs_tests_and_one_smoke_build_per_backend(self):
@@ -502,6 +527,10 @@ class CiSelection(unittest.TestCase):
 
   def test_ghostfat_input_selects_ghostfat_only(self):
     self.assertEqual(ci('ports/test_ghostfat/main.c'), {'full': False, 'ports': {}, 'ghostfat': True})
+
+  def test_ch32_flash_change_runs_its_native_regressions(self):
+    self.assertEqual(ci('ports/ch32v4x7/board_flash.c'),
+                     {'full': False, 'ports': {'ch32v4x7': cb.boards_of('ch32v4x7')}, 'ghostfat': True})
 
   def test_paths_no_build_job_compiles_select_nothing(self):
     for path in ('README.md', '.claude/test/test_build.py', 'test/hil/local.json', '.github/workflows/codeql.yml',
@@ -1339,6 +1368,36 @@ class HilRecord(FakeTools, unittest.TestCase):
       # the registry refuses a pin outside its own grammar first
       with self.subTest(vid_pid=vid_pid), self.assertRaisesRegex(cb.Fail, 'needs its probe|vid_pid must be'):
         cb.roster_flasher(self.config, 'max32666fthr')
+
+  def test_a_wch_openocd_flasher_names_its_chip_family_by_tinyuf2_device(self):
+    entry = {'name': 'ch32v407_r0', 'uid': 'W', 'probe': 'E9B38F066FBB', 'tinyuf2': {'device': 'ch32v4x7'}}
+    self.roster.write_text(json.dumps({'boards': [entry]}))
+    self.assertEqual(cb.roster_flasher(self.config, 'ch32v407_r0'),
+                     ({'name': 'openocd', 'uid': 'E9B38F066FBB', 'device': 'ch32v4x7', 'vid_pid': '0x1a86 0x8010'},
+                      ['OPENOCD=openocd', 'OPENOCD_SERIAL=E9B38F066FBB', 'OPENOCD_VID_PID=0x1a86 0x8010']))
+    # an unregistered bench WCH-LinkE names its own flasher
+    bench = {'name': 'openocd', 'uid': '0123456789AB', 'vid_pid': '0x1234 0x5678', 'args': '-f target/wch-riscv.cfg'}
+    self.roster.write_text(json.dumps({'boards': [{'name': 'ch32v407_r0', 'uid': 'W', 'flasher': bench,
+                                                   'tinyuf2': {'device': 'ch32v4x7'}}]}))
+    with self.assertRaisesRegex(cb.Fail, 'a WCH-LinkE flasher needs "vid_pid": "0x1a86 0x8010"'):
+      cb.roster_flasher(self.config, 'ch32v407_r0')
+    for what, board in (('no device', dict(entry, tinyuf2={})),
+                        ('another family', dict(entry, tinyuf2={'device': 'ch32v20x'})),
+                        ('another port', dict(entry, name='max32666fthr'))):
+      self.roster.write_text(json.dumps({'boards': [board]}))
+      with self.subTest(what), self.assertRaisesRegex(cb.Fail, 'needs tinyuf2.device naming its chip family'):
+        cb.roster_flasher(self.config, board['name'])
+
+  def test_the_generated_wch_openocd_target_names_the_wch_target_cfg_alone(self):
+    flasher = {'name': 'openocd', 'uid': 'E9B38F066FBB', 'device': 'ch32v4x7', 'vid_pid': '0x1a86 0x8010'}
+    root = self.tmp / 'w'
+    options = '-c "adapter serial E9B38F066FBB" -c "adapter usb vid_pid 0x1a86 0x8010"'
+    self.assertEqual(cb.flash_binding(flasher, root, self.openocd_tree(root, options=options,
+                                                                       cfgs='-f target/wch-riscv.cfg'))['target'],
+                     'tinyuf2-openocd')
+    with self.assertRaisesRegex(cb.Fail, 'does not flash'):
+      cb.flash_binding(flasher, root, self.openocd_tree(root, options=options,
+                                                        cfgs='-f interface/cmsis-dap.cfg -f target/wch-riscv.cfg'))
 
   def test_an_esptool_flasher_may_name_the_chips_usj_by_its_mac_form_serial(self):
     usj = '30:ED:A0:F4:0A:94'

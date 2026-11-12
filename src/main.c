@@ -108,7 +108,7 @@ int main(void) {
 #endif
 }
 
-// return true if start DFU mode, else App mode
+/** @brief Select DFU for reset requests or an invalid app; retain erase failures. */
 static bool check_dfu_mode(void) {
 #if TINYUF2_DBL_TAP_DFU
   // Consume before the app-valid checks: the register survives resets and would act on a later valid-app boot
@@ -122,7 +122,12 @@ static bool check_dfu_mode(void) {
     TUF2_LOG1("Erase app\r\n");
     indicator_set(STATE_WRITING_STARTED);
     board_flash_erase_app();
-    indicator_set(STATE_WRITING_FINISHED);
+    if (board_flash_ok && !board_flash_ok()) {
+      TUF2_LOG1("Erase app failed\r\n");
+      indicator_set(STATE_USB_UNPLUGGED);
+    } else {
+      indicator_set(STATE_WRITING_FINISHED);
+    }
     return true;
   }
 #endif

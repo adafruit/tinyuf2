@@ -12,6 +12,9 @@ PT_LOAD = 1
 # (ELF machine, relocation section type) -> the one relocation type an absolute 32-bit word carries
 EM_ARM, EM_RISCV = 40, 243
 ABS32 = {(EM_ARM, SHT_REL): 2, (EM_RISCV, SHT_RELA): 1}   # R_ARM_ABS32, R_RISCV_32
+ARCH = {EM_ARM: 'arm', EM_RISCV: 'riscv'}   # the machines hil_test.fixture builds an image for
+# the double-tap register widths each battery writes: the WCH battery's BKP data registers are 16-bit (CH32V407RM 4.3.1)
+DBL_TAP_SIZES = {'arm': (32,), 'riscv': (16,)}
 STACK = 0x1000   # the fixture's initial SP is ram + STACK (hil_test.fixture)
 # the CMSIS startups' vector table, aliases included, and the Microchip DFP startups' exception_table
 VECTOR_NAMES = ('__isr_vector', '__Vectors', 'g_pfnVectors', 'exception_table')
@@ -237,8 +240,10 @@ def read(root, limits):
 
 def _read(root, limits):
   boot, blinky = Elf(root / 'tinyuf2.elf'), Elf(root / 'apps/blinky/blinky.elf')
-  if boot.machine != EM_ARM:
-    raise Refused(f'{boot.path}: machine {boot.machine}, not Arm: the battery\'s fixture is a Cortex-M image')
+  arch = ARCH.get(boot.machine)
+  if arch is None or blinky.machine != boot.machine:
+    raise Refused(f'{boot.path}: machine {boot.machine} (blinky {blinky.machine}), not one the battery has a fixture '
+                  f'for: {sorted(ARCH.values())}')
   vals = object_values(Elf(root / 'board_facts.o'), boot)
   bin_bytes = (root / '_bin/tinyuf2.bin').read_bytes()
   elf_base, img = boot.image()
@@ -251,6 +256,8 @@ def _read(root, limits):
   if not hex_matches_bin(hexdata, bin_bytes, bin_base):
     raise Refused(f'{root}/_bin/tinyuf2.hex is not tinyuf2.bin laid out from {bin_base:#x}')
   flash_base = word(vals, 'hil_flash_addr_zero', 'BOARD_FLASH_ADDR_ZERO')
+  app_start = word(vals, 'hil_flash_app_start', 'BOARD_FLASH_APP_START')
+  uf2_base = flash_base
   rom_copied = boot.symbol('_flash_base', required=False)
   if rom_copied:   # the boot ROM copies the bootloader to RAM: the BIN is the FCB onward (IMXRT1010RM Table 9-8)
     fcfb = boot.symbol('_fcfb_origin', required=False)
@@ -258,23 +265,30 @@ def _read(root, limits):
        bin_base != flash_base + (fcfb['value'] & 0xFFF):
       raise Refused(f'tinyuf2.elf: a RAM image whose _flash_base is not BOARD_FLASH_ADDR_ZERO {flash_base:#x}, or '
                     f'whose BIN does not start at its _fcfb_origin, {flash_base:#x} + its offset in a 4 KiB page')
+  elif flash_base == app_start and bin_base < app_start:
+    # UF2 addresses start at the app (ch32v4x7): the flash, and BOARD_FLASH_SIZE, start at the bootloader's BIN
+    flash_base = bin_base
   elif bin_base != flash_base:
     raise Refused(f'the BIN starts at {bin_base:#x}, not BOARD_FLASH_ADDR_ZERO {flash_base:#x}')
-  facts = {'flashBase': flash_base, 'binBase': bin_base,
-           'appStart': word(vals, 'hil_flash_app_start', 'BOARD_FLASH_APP_START'),
+  facts = {'arch': arch, 'flashBase': flash_base, 'uf2Base': uf2_base, 'binBase': bin_base, 'appStart': app_start,
            'flashSize': flash_size(vals, limits),
            'vid': word(vals, 'hil_usb_vid', 'USB_VID'), 'pid': word(vals, 'hil_usb_pid', 'USB_PID'),
            'boardId': board_id(vals, bin_bytes),
            'family': word(vals, 'hil_family', 'BOARD_UF2_FAMILY_ID'),
-           'vectors': vectors(vals, boot), 'ram': ram(blinky, root / 'apps/blinky/blinky.elf.map'),
+           'ram': ram(blinky, root / 'apps/blinky/blinky.elf.map'),
            'dblTapDelayMs': word(vals, 'hil_dbl_tap_delay', 'TINYUF2_DBL_TAP_DELAY')}
   check_descriptor(boot, elf_base, img, facts)
   app_base, _ = blinky.image()
-  if app_base != facts['appStart'] or blinky.vector_table()[0] != facts['appStart']:
-    raise Refused(f'blinky.elf starts at {app_base:#x} with its vector table at {blinky.vector_table()[0]:#x}, not at '
-                  f'BOARD_FLASH_APP_START {facts["appStart"]:#x}')
-  if word(vals, 'hil_dbl_tap_size', 'TINYUF2_DBL_TAP_REG_SIZE') != 32:
-    raise Refused('TINYUF2_DBL_TAP_REG_SIZE is not 32: the retained-register battery writes a 32-bit magic')
+  entry = blinky.vector_table()[0] if arch == 'arm' else blinky.symbol('_start')['value']
+  if app_base != facts['appStart'] or entry != facts['appStart']:
+    raise Refused(f'blinky.elf starts at {app_base:#x} with its {"vector table" if arch == "arm" else "_start"} at '
+                  f'{entry:#x}, not at BOARD_FLASH_APP_START {facts["appStart"]:#x}')
+  if arch == 'arm':
+    facts['vectors'] = vectors(vals, boot)
+  facts['dblTapSize'] = word(vals, 'hil_dbl_tap_size', 'TINYUF2_DBL_TAP_REG_SIZE')
+  if facts['dblTapSize'] not in DBL_TAP_SIZES[arch]:
+    raise Refused(f'TINYUF2_DBL_TAP_REG_SIZE is {facts["dblTapSize"]}: the {arch} retained-register battery writes '
+                  f'a {" or ".join(map(str, DBL_TAP_SIZES[arch]))}-bit magic')
   facts['dblTapReg'] = word(vals, 'hil_dbl_tap_reg', 'TINYUF2_DBL_TAP_REG')
   facts['dblTapMagic'] = word(vals, 'hil_dbl_tap_magic', 'DBL_TAP_MAGIC')
   cache = boot.symbol('_flash_cache', required=False)

@@ -62,20 +62,24 @@ import hil_run_report as run_report  # noqa: E402
 # (MAX32665/MAX32666 UG Rev 3, 3.3.1); the information block at 0x10800000 stays outside.
 # ATSAMD51J19: 512 KiB internal flash at 0 (DS60001507N Table 1-2 p18, Figure 8-1 p48); the NVM user page at
 # 0x00804000 stays outside.
+# ch32v4x7 (CH32V407/V467): 992 KiB code flash at 0, its first 512 KiB the zero-wait region with RAM_CODE_MOD clear,
+# where flash erase and program code must run (CH32V407RM 1.2.1 p8, p581); the rest stays outside.
 FLASH_LIMITS = {'LPC55S69_M33_0': (0, 0x9D800), 'MIMXRT1062xxx6A': (0x60000000, 0x60800000),
                 'MIMXRT1011DAE5A': (0x60000000, 0x60800000), 'MIMXRT1064xxx6A': (0x70000000, 0x70400000),
                 'stm32f303vc': (0x08000000, 0x08040000), 'stm32f407vg': (0x08000000, 0x08100000),
                 'stm32f411ve': (0x08000000, 0x08080000), 'stm32h563zi': (0x08000000, 0x08200000),
                 'stm32h743zi': (0x08000000, 0x08200000), 'max32665': (0x10000000, 0x10100000),
-                'MAX32665': (0x10000000, 0x10100000), 'ATSAMD51J19': (0, 0x80000)}
+                'MAX32665': (0x10000000, 0x10100000), 'ATSAMD51J19': (0, 0x80000),
+                'ch32v4x7': (0, 0x80000)}
 # by a board's kind, its firmware and battery: a J-Link, ST-LINK or openocd Cortex-M board, or an Espressif one whatever
 # transport installs it (board['flasher'])
 STEPS = {'jlink': ('install', 'dfu', 'copy', 'app-ran', 'reenter')}
-STEPS['stlink'] = STEPS['openocd'] = STEPS['jlink']
+STEPS['stlink'] = STEPS['openocd'] = STEPS['wch'] = STEPS['jlink']
 STEPS['esp'] = STEPS['jlink'] + ('recopy',)
 # run --update-record: the update battery (SKILL.md Execution, Update), J-Link boards of UPDATE_PORTS only
 STEPS['update'] = ('install', 'dfu', 'update-variant', 'update', 'interrupt', 'recover')
 REENTRY = {'jlink': ('retained-register',), 'stlink': ('retained-register',), 'openocd': ('retained-register',),
+           'wch': ('retained-register',),
            'esp': ('dfu-detach',)}
 REENTRY_METHODS = sorted({m for v in REENTRY.values() for m in v})
 PROTECTED = {'hil_test.py', 'farm_check'}   # hil_lock.PROTECTED_REASONS, checked at load
@@ -201,9 +205,17 @@ def load_board(config, name):
     if fl['name'] != 'jlink':
       raise Refused(f'{name}: tinyuf2.usbPower is for J-Link boards only')
   return {'name': name, 'lock': lock, 'uid': b['uid'], 'flasher': fl['name'], 'probe': fl['uid'], 'device': device,
-          'entry': fl, 'kind': 'esp' if port == 'espressif' else fl['name'], 'if': JLINK_IF, 'speed': JLINK_SPEED,
+          'entry': fl, 'kind': board_kind(fl['name'], port, device), 'if': JLINK_IF, 'speed': JLINK_SPEED,
           'port': port, 'reentry': t.get('reentry'), 'usbPower': power, 'routes': board_routes(name, port, device, t),
           'route': None}
+
+
+def board_kind(flasher, port, device):
+  """Its battery: Espressif whatever installs it, WCH's RISC-V openocd battery for a cb.WCH_DEVICES device, else its
+  flasher's."""
+  if port == 'espressif':
+    return 'esp'
+  return 'wch' if device in cb.WCH_DEVICES else flasher
 
 
 def board_routes(name, port, chip, t):
@@ -412,6 +424,8 @@ def embedded_version(bin_path):
 def fixture(facts, nonce):
   """A Cortex-M image the probe can prove ran: every vector but SP and reset traps in a fault loop,
   the reset handler counts in r0 forever, and a nonce pattern makes an older run's image fail."""
+  if facts.get('arch') == 'riscv':
+    return fixture_riscv(facts, nonce)
   start = facts['appStart']
   table = 128
   while table < facts['vectors'] * 4:
@@ -419,10 +433,57 @@ def fixture(facts, nonce):
   handler, fault = start + table, start + table + 4
   vectors = [facts['ram'] + bf.STACK, handler | 1] + [fault | 1] * (table // 4 - 2)
   code = struct.pack('<HHH', 0x3001, 0xE7FD, 0xE7FE)   # adds r0,#1 ; b handler ; b . (fault)
-  pattern = b''.join(hashlib.sha256(nonce + i.to_bytes(4, 'little')).digest() for i in range(512))   # 16 KiB
   img = struct.pack(f'<{len(vectors)}I', *vectors) + code
-  img += b'\0' * (-len(img) % 4) + pattern
+  img += b'\0' * (-len(img) % 4) + nonce_pattern(nonce)
   return {'image': img, 'handler': handler, 'fault': fault, 'sp': vectors[0], 'table': table}
+
+
+def nonce_pattern(nonce):
+  return b''.join(hashlib.sha256(nonce + i.to_bytes(4, 'little')).digest() for i in range(512))   # 16 KiB
+
+
+# RV32I encodings (RISC-V unprivileged ISA 2.4), the registers by number: sp x2, t0 x5, a0 x10
+def rv_jal(rd, off):
+  return (((off >> 20) & 1) << 31 | ((off >> 1) & 0x3FF) << 21 | ((off >> 11) & 1) << 20 | ((off >> 12) & 0xFF) << 12 |
+          rd << 7 | 0x6F)
+
+
+def rv_addi(rd, rs1, imm):
+  return (imm & 0xFFF) << 20 | rs1 << 15 | rd << 7 | 0x13
+
+
+def rv_li32(rd, value):
+  """lui + addi loading a 32-bit value."""
+  hi = ((value + 0x800) >> 12) & 0xFFFFF
+  return [hi << 12 | rd << 7 | 0x37, rv_addi(rd, rd, value - (hi << 12))]
+
+
+def rv_csrw(csr, rs1):
+  return csr << 20 | rs1 << 15 | 1 << 12 | 0x73   # csrrw x0, csr, rs1
+
+
+CSR_MTVEC = 0x305
+MTVEC_ALIGN = 0x400
+SP, T0, A0 = 2, 5, 10
+
+
+def fixture_riscv(facts, nonce):
+  """An RV32 image the probe can prove ran: a jump at the app start (board_app_valid's check), a known stack, every
+  trap into a trap loop (mtvec unified entry, its base 1 KiB aligned: QingKeV3 manual 3.2, mtvec[9:2] fixed to 0),
+  then a counter in a0 forever, and the nonce pattern."""
+  start = facts['appStart']
+  handler, entry, trap = start + 4, start + 12, start + MTVEC_ALIGN
+  if start % MTVEC_ALIGN:
+    raise Refused(f'the app start {start:#x} is not {MTVEC_ALIGN}-byte aligned for the fixture\'s trap vector')
+  sp = facts['ram'] + bf.STACK
+  words = [rv_jal(0, entry - start),                                # j entry
+           rv_addi(A0, A0, 1), rv_jal(0, -4),                       # handler: addi a0,a0,1 ; j handler
+           *rv_li32(SP, sp), *rv_li32(T0, trap), rv_csrw(CSR_MTVEC, T0),
+           rv_addi(A0, 0, 0)]
+  words.append(rv_jal(0, handler - (start + 4 * len(words))))       # li a0,0 ; j handler
+  code = struct.pack(f'<{len(words)}I', *words)
+  img = code + b'\0' * (MTVEC_ALIGN - len(code)) + struct.pack('<I', rv_jal(0, 0)) + nonce_pattern(nonce)   # trap: j .
+  return {'image': img, 'handler': handler, 'fault': trap, 'sp': sp, 'mtvec': trap}
 
 
 def parse_uf2(blob):
@@ -2112,7 +2173,10 @@ class Battery:
     self.power = PortPower(board.get('usbPower'), self.log)
     self.steps, self.usb_path, self.touched, self.at, self.kept = [], None, False, 'setup', []
     # where CURRENT.UF2 starts and the flash size INFO_UF2.TXT reports
-    self.app_start, self.dfu_flash = facts.get('appStart'), facts['flashSize']
+    # the drive's flash: from BOARD_FLASH_ADDR_ZERO, the app start where UF2 addresses start there (ch32v4x7)
+    self.app_start = facts.get('appStart')
+    base = facts.get('flashBase', 0)
+    self.dfu_flash = base + facts['flashSize'] - facts.get('uf2Base', base)
     self.dfu_claim = 'DFU observed after the install'
 
   def step(self, name, fn):
@@ -2180,18 +2244,28 @@ class Battery:
     return self.retained_reentry(version, 'DFU did not enumerate after the install; the retained-register re-entry '
                                           'brought it up')
 
-  def retained_reentry(self, version, claim):
+  def retained_reentry(self, version, claim, while_up=None):
+    """`while_up` reads the drive before the register's probe session, which on a WCH-LinkE stops USB (WchBattery)."""
     f = self.f
-    self.probe.write32(f['dblTapReg'], f['dblTapMagic'])
+    self.write_dbl_tap(f['dblTapMagic'])
     # no probe session opens again until DFU is observed
     tail = self.sysreset()
     ev = dict(self.dfu(version), dfuCameUp=True, resetTail=tail.strip().splitlines()[-3:], claim=claim)
+    unread = None
     try:
-      left = self.probe.mem32([f['dblTapReg']])[f['dblTapReg']]
+      if while_up:
+        try:
+          ev.update(while_up())
+        except StepFail as e:   # the register is still read: commissioning admits a readback-only failure
+          unread = e
+      left = self.read_dbl_tap()
     except StepFail as e:
       e.evidence = {**ev, **e.evidence}
       raise
     ev.update(dblTapRegAfter=hex(left), magicConsumed=not left)
+    if unread:
+      unread.evidence = {**ev, **unread.evidence}
+      raise unread
     if left:
       raise StepFail('the double-tap register was not consumed', ev)
     return ev
@@ -2200,6 +2274,15 @@ class Battery:
     """SYSRESETREQ from the probe. It may drop the debug connection mid-write: its exit is not judged, its issue is;
     the caller's observation is the evidence."""
     return self.probe.sysreset()
+
+  def write_dbl_tap(self, value):
+    return self.probe.write32(self.f['dblTapReg'], value)
+
+  def read_dbl_tap(self):
+    return self.probe.mem32([self.f['dblTapReg']])[self.f['dblTapReg']]
+
+  def clear_dbl_tap(self):
+    return self.write_dbl_tap(0)
 
   def dfu(self, version, timeout=USB_TIMEOUT):
     """DFU naming `version` within `timeout` in all: each wait and the read in turn gets only what is left."""
@@ -2287,7 +2370,7 @@ class Battery:
     self.step('install', lambda: self.install(files))
     # cleared once the bootloader has run board_init (the register's clock), so a magic a failed reenter left
     # cannot send the copied app back to DFU
-    self.step('dfu', lambda: dict(self.dfu_after_install(version), dblTapReg=self.probe.write32(f['dblTapReg'], 0)))
+    self.step('dfu', lambda: dict(self.dfu_after_install(version), dblTapReg=self.clear_dbl_tap()))
 
     self.step('copy', lambda: self.copy(app_uf2, len(blocks), nonce))
 
@@ -2313,7 +2396,11 @@ class Battery:
     def entered(ev):
       if self.commissioning:
         ev.update(self.control(app_bin))
-      ev.update(self.retained_reentry(version, 'the write/reset sequence re-entered DFU (register retention inferred)'))
+      ev.update(self.retained_reentry(version, 'the write/reset sequence re-entered DFU (register retention inferred)',
+                                      app_intact))
+      return ev
+
+    def app_intact():
       expect = self.fix['image']
       n = -(-len(expect) // 256)
       try:
@@ -2321,10 +2408,9 @@ class Battery:
         if got[:len(expect)] != expect:
           raise StepFail('CURRENT.UF2 does not read back the fixture from the app start')
       except StepFail as e:
-        e.evidence = {**ev, **e.evidence, 'failedAt': 'readback', 'appIntact': 'unshown'}
+        e.evidence = {**e.evidence, 'failedAt': 'readback', 'appIntact': 'unshown'}
         raise
-      ev['appIntact'] = True
-      return ev
+      return {'appIntact': True}
     self.step('reenter', reenter)
 
   def run_update(self, files, version):
@@ -2333,7 +2419,7 @@ class Battery:
     by a probe reset while its write is in flight, then the candidate installed again by the battery's own install."""
     u = files['update']
     self.step('install', lambda: self.install(files))
-    self.step('dfu', lambda: dict(self.dfu_after_install(version), dblTapReg=self.probe.write32(self.f['dblTapReg'], 0)))
+    self.step('dfu', lambda: dict(self.dfu_after_install(version), dblTapReg=self.clear_dbl_tap()))
     self.step('update-variant', lambda: self.update_to(u['variant']))
     self.step('update', lambda: self.update_to(u['candidate']))
     missed = None
@@ -2582,20 +2668,20 @@ def openocd_error(out):
   return re.search(r'^\s*Error', out, re.M) is not None
 
 
-def openocd_failure(out):
+def openocd_failure(out, no_probe=OPENOCD_NO_PROBE, contact='DPIDR'):
   """A session recognised as ending before any target connect: no probe with the serial and USB ID, and no debug port
   read (a DPIDR line). Any other failure may have reached the target."""
-  return {'tail': out.strip().splitlines()[-5:], 'beforeTarget': OPENOCD_NO_PROBE in out and 'DPIDR' not in out}
+  return {'tail': out.strip().splitlines()[-5:], 'beforeTarget': no_probe in out and contact not in out}
 
 
-def judge_openocd_target(code, out, cmd, hex_path):
+def judge_openocd_target(code, out, cmd, hex_path, failure=openocd_failure):
   """The provider's openocd flash of the record's HEX (`program <hex> reset exit`, without program's verify: the
   runner reads the image back itself): openocd exits 0 once the proc's own shutdown ran, so success is read from the
   transcript too: each of program's phases echoed in order and no error line."""
   seen = iter(l.strip() for l in out.splitlines())
   if code or f'program {hex_path} reset exit' not in str(cmd) or not all(p in seen for p in OPENOCD_PROGRAM) or \
      openocd_error(out):
-    raise StepFail(f'the openocd flash failed (exit {code})', openocd_failure(out))
+    raise StepFail(f'the openocd flash failed (exit {code})', failure(out))
   return {'flashDownload': '** Programming Finished **'}
 
 
@@ -2604,14 +2690,18 @@ class OpenocdProbe:
   shutdown, from a script in the run dir. openocd stops at the first failing command and exits 1; success is read from
   the transcript too: the closing shutdown and no error line."""
 
+  BENIGN_ON_RESET = None   # a line a `reset run` session may log once and still pass
+
   def __init__(self, board, workdir, log):
     self.b, self.dir, self.log = board, workdir, log
     self.retried = []   # the report's jlinkRetried: an openocd session is never retried
     self.flasher = board['entry']
 
   def run(self, commands):
-    return self.judge(provider().run_openocd_commands(self.flasher, list(commands), timeout=PROBE_TIMEOUT,
-                                                      run=tool_runner(self.log), workdir=str(self.dir)))
+    commands = list(commands)
+    op = provider().run_openocd_commands(self.flasher, commands, timeout=PROBE_TIMEOUT, run=tool_runner(self.log),
+                                         workdir=str(self.dir))
+    return self.judge(op, self.BENIGN_ON_RESET if 'reset run' in commands else None)
 
   def sysreset(self):
     """The provider's SYSRESETREQ session (the AIRCR write). Bench: the write and the shutdown after it complete
@@ -2619,14 +2709,18 @@ class OpenocdProbe:
     return self.judge(provider().sysresetreq_openocd(self.flasher, timeout=PROBE_TIMEOUT, run=tool_runner(self.log),
                                                      workdir=str(self.dir)))
 
-  def judge(self, op):
+  def judge(self, op, benign=None):
+    """`benign`: a pattern whose one line the session may log and still pass."""
     a = op.attempts[-1]
     code, out = a.result.returncode, text(a.result.stdout)
     if a.timed_out:
-      raise StepFail(f'openocd timed out after {PROBE_TIMEOUT}s', dict(openocd_failure(out), beforeTarget=False))
-    if code or OPENOCD_SHUTDOWN not in out or openocd_error(out):
-      raise StepFail(f'openocd failed (exit {code})', openocd_failure(out))
+      raise StepFail(f'openocd timed out after {PROBE_TIMEOUT}s', dict(self.failure(out), beforeTarget=False))
+    if code or OPENOCD_SHUTDOWN not in out or openocd_error(benign.sub('', out, count=1) if benign else out):
+      raise StepFail(f'openocd failed (exit {code})', self.failure(out))
     return out
+
+  def failure(self, out):
+    return openocd_failure(out)
 
   def mem32(self, addrs):
     out = self.run([shown(f'mdw 0x{a:08x}') for a in addrs])
@@ -2646,10 +2740,12 @@ def shown(command):
   return f'echo [{command}]'
 
 
-def mdw_value(out, addr):
-  m = re.findall(rf'^0x{addr:08x}: ([0-9a-f]{{8}}) *$', out, re.M)
+def mdw_value(out, addr, cmd='mdw'):
+  """The one value `cmd` (mdw, or mdh's 16 bits) printed for `addr`."""
+  digits = {'mdw': 8, 'mdh': 4}[cmd]
+  m = re.findall(rf'^0x{addr:08x}: ([0-9a-f]{{{digits}}}) *$', out, re.M)
   if len(m) != 1:
-    raise StepFail(f'mdw gave no single value for {addr:#x}')
+    raise StepFail(f'{cmd} gave no single value for {addr:#x}')
   return int(m[0], 16)
 
 
@@ -2671,10 +2767,11 @@ class OpenocdBattery(Battery):
   """The J-Link battery's steps on a CMSIS-DAP board, each probe session one openocd script."""
 
   READ = 'dump_image {{{path}}} 0x{addr:08x} {n:#x}'
+  PROBE = OpenocdProbe
 
   def __init__(self, board, facts, workdir, fail_at=None, commissioning=False):
     super().__init__(board, facts, workdir, fail_at, commissioning)
-    self.probe = OpenocdProbe(board, workdir, self.log)
+    self.probe = self.PROBE(board, workdir, self.log)
 
   def install(self, files):
     """The record's HEX through the provider's openocd flash (`program` with reset, without its verify, as the
@@ -2683,8 +2780,9 @@ class OpenocdBattery(Battery):
     hexp, ops, flasher = str(files['hex']), [], dict(self.probe.flasher, verify=False)
     ev = self.flash_target(files['flash'], lambda run: ops.append(provider().flash_openocd(
                              flasher, hexp, timeout=CMSIS_DAP_TIMEOUT, run=run)) or ops[-1],
-                           lambda code, out: judge_openocd_target(code, out, ops[-1].attempts[-1].cmd, hexp),
-                           lambda code, out: openocd_failure(out)['beforeTarget'], 'openocd', CMSIS_DAP_TIMEOUT)
+                           lambda code, out: judge_openocd_target(code, out, ops[-1].attempts[-1].cmd, hexp,
+                                                                  self.probe.failure),
+                           lambda code, out: self.probe.failure(out)['beforeTarget'], 'openocd', CMSIS_DAP_TIMEOUT)
     return self.read_back_install(ev, files, 'halt', 'reset run')
 
   def sysreset(self):
@@ -2702,6 +2800,100 @@ class OpenocdBattery(Battery):
       raise StepFail('the fixture image does not read back from the app start')
     first, second = openocd_regs(out)
     return self.app_evidence(first, second, mdw_value(out, SCB_VTOR))
+
+
+# wch-riscv (hathach/openocd 4c9931a, WCH-LinkE): a `reset run` drops the core's debug state, and the next poll logs
+# this before it re-examines the core; the only error line of a clean reset (bench, CH32V4x7 EVT, 2026-11-11)
+WCH_REEXAMINE = re.compile(r'^Error: \[wch_riscv\.cpu\.\d+\] Polling failed, trying to reexamine$', re.M)
+# RV32 integer registers and the trap vector, openocd riscv names: `reg NAME` gives "NAME (/32): 0x%08x"
+WCH_REGS = ('pc', 'a0', 'sp', 'mtvec')
+# no WCH-LinkE matches the serial (bench, openocd 4c9931a): "Info : No device matches the serial string" then this;
+# an opened probe prints its mode line before any target access
+WCH_NO_PROBE, WCH_CONTACT = 'Error: open failed', 'WCH-LinkE  mode:'
+
+
+class WchProbe(OpenocdProbe):
+  """openocd sessions on a WCH-LinkE: the openocd board's, a system reset being openocd's `reset run`, which the
+  CH32V4x7 backup registers survive (CH32V407RM 3.2.2), never an Arm AIRCR write."""
+
+  BENIGN_ON_RESET = WCH_REEXAMINE
+
+  def sysreset(self):
+    return self.run(['reset run'])
+
+  def failure(self, out):
+    """No WCH-LinkE of the serial ("open failed", wlinke.c) and none opened: its mode line is the first contact."""
+    return openocd_failure(out, WCH_NO_PROBE, WCH_CONTACT)
+
+  def mem16(self, addr):
+    return mdw_value(self.run([shown(f'mdh 0x{addr:08x}')]), addr, 'mdh')
+
+  def write16(self, addr, value):
+    """Write and read back on the running core (its system bus access); only the read-back proves the write."""
+    got = mdw_value(self.run([f'mwh 0x{addr:08x} 0x{value:04x}', shown(f'mdh 0x{addr:08x}')]), addr, 'mdh')
+    if got != value:
+      raise StepFail(f'{addr:#010x} reads back {got:#06x}, not {value:#06x}')
+    return hex(value)
+
+
+def wch_regs(out):
+  """The two samples of WCH_REGS a session read, in order."""
+  vals = {r: re.findall(rf'^{r} \(/32\): 0x([0-9a-f]{{8}})$', out, re.M) for r in WCH_REGS}
+  if any(len(v) != 2 for v in vals.values()):
+    raise StepFail(f'expected two samples of {list(WCH_REGS)}, got {[len(v) for v in vals.values()]}',
+                   {'tail': out.strip().splitlines()[-8:]})
+  return [{r: int(vals[r][i], 16) for r in WCH_REGS} for i in (0, 1)]
+
+
+class WchBattery(OpenocdBattery):
+  """The openocd battery on a CH32V4x7 through a WCH-LinkE: the RV32 fixture (fixture_riscv), its registers as the
+  evidence, the 16-bit backup register as the double-tap register, and `reset run` as the system reset.
+
+  The WCH-LinkE's attach (wlink_init's 81 0d 01 02) leaves HSEON and USBHS_PLLON clear (CH32V407RM 3.4.1) with the
+  core still running, and an enumerated TinyUF2 drops off USB within ~3 s until the next reset (bench-history.md,
+  ch32v407_r0): no probe session opens while the battery still needs the drive."""
+
+  PROBE = WchProbe
+
+  def write_dbl_tap(self, value):
+    return self.probe.write16(self.f['dblTapReg'], value)
+
+  def read_dbl_tap(self):
+    return self.probe.mem16(self.f['dblTapReg'])
+
+  def read_back_install(self, ev, files, halt, end):
+    """The register cleared before the session whose reset brings DFU up, so none follows DFU coming up."""
+    self.cleared = self.write_dbl_tap(0)
+    return super().read_back_install(ev, files, halt, end)
+
+  def clear_dbl_tap(self):
+    return self.cleared
+
+  def dfu_after_install(self, version):
+    """No retained-register fallback: its register read would stop USB before the copy. The install's `program`
+    erases the whole chip (wlink_erase), so DFU comes up on the empty app."""
+    return self.dfu(version)
+
+  def observe_app(self, app_bin):
+    """Two halted samples in one session, the image read back in it."""
+    f = self.f
+    want = Path(app_bin).read_bytes()
+    path, dump = self.readback(f['appStart'], want)
+    regs_ = [shown(f'reg {r}') for r in WCH_REGS]
+    out = self.probe.run(['halt', 'resume', f'sleep {2 * f["dblTapDelayMs"] + 200}', 'halt', *regs_, 'resume',
+                          'sleep 10', 'halt', *regs_, dump, 'resume'])
+    if not uploaded(path, want):
+      raise StepFail('the fixture image does not read back from the app start')
+    first, second = wch_regs(out)
+    fix = self.fix
+    ev = {'pc': [hex(first['pc']), hex(second['pc'])], 'a0': [hex(first['a0']), hex(second['a0'])],
+          'sp': hex(first['sp']), 'mtvec': hex(first['mtvec']), 'readback': True,
+          'scope': 'executes through bootloader handoff after the observed reset; upload-triggered run unverified'}
+    loop = (fix['handler'], fix['handler'] + 4)
+    if not (first['pc'] in loop and second['pc'] in loop and first['a0'] != second['a0'] and
+            first['sp'] == second['sp'] == fix['sp'] and first['mtvec'] == second['mtvec'] == fix['mtvec']):
+      raise StepFail('the fixture is not running from the bootloader handoff', ev)
+    return ev
 
 
 def nonce_block(nonce):
@@ -2923,7 +3115,8 @@ class EspBattery(Battery):
                                      claim='a fresh copy boots the app after re-entry'))
 
 
-BATTERIES = {'jlink': Battery, 'stlink': StlinkBattery, 'openocd': OpenocdBattery, 'esp': EspBattery}
+BATTERIES = {'jlink': Battery, 'stlink': StlinkBattery, 'openocd': OpenocdBattery, 'wch': WchBattery,
+             'esp': EspBattery}
 
 
 TERM_SIGNALS = {signal.SIGTERM, signal.SIGINT}

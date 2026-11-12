@@ -6,10 +6,12 @@ project(tinyuf2)
 add_executable(tinyuf2
   boards.c
   main.c
+  msc_test.c
   ${TOP}/src/ghostfat.c
   )
 target_include_directories(tinyuf2 PUBLIC
   ${TOP}/src
+  ${TOP}/lib/tinyusb/src
   ${TOP}/src/favicon
   .
   boards/${BOARD}
@@ -47,8 +49,12 @@ add_custom_target(mk-knowngood
 
 # native self-test: the generated image must match the board's known-good one, which it never rewrites.
 # Known-good images are stored double-compressed: huge's is 1.5 GiB raw, 85 MiB gzipped once, 10 MiB twice.
+add_executable(ch32v4x7_flash_test ch32v4x7_flash_test.c)
+target_include_directories(ch32v4x7_flash_test PRIVATE ${TOP}/src)
+
 add_custom_target(selftest
-  DEPENDS tinyuf2
+  DEPENDS tinyuf2 ch32v4x7_flash_test
+  COMMAND $<TARGET_FILE:ch32v4x7_flash_test>
   COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_LIST_DIR}/boards/${BOARD}/knowngood.img.gz.gz knowngood.img.gz.gz
   COMMAND gzip -df knowngood.img.gz.gz
   COMMAND gzip -df knowngood.img.gz
