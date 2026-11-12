@@ -75,7 +75,8 @@ class Render(unittest.TestCase):
   def test_mixed_outcomes_are_counted_by_both_verdicts_and_noted(self):
     rows = [row('a'),
             row('b', 'fail', 'fail', detail='dfu: not seen', steps={'install': True, 'dfu': False}),
-            row('c', 'blocker', 'blocker', cleanupPass=False, detail='cleanup failed or no report; board held'),
+            row('c', 'blocker', 'blocker', cleanupPass=False,
+                detail='cleanup failed or no report; board released, failure logged'),
             row('d', 'not-run', 'not-run', steps={}, cleanupPass=None, detail='locked: held by pid 7'),
             row('e', 'pass', 'blocker', sharedDetail='run caveat denies a pass')]
     body = hc.render({'boards': rows}, selection(5), META)
@@ -83,11 +84,24 @@ class Render(unittest.TestCase):
     self.assertIn('_Boards the change reaches: 5._', body)
     notes = [ln for ln in lines(body) if ln.startswith('- `')]
     self.assertEqual(notes, ['- `b` dfu: `not seen`',
-                             '- `c` blinky: `cleanup failed or no report; board held`',
+                             '- `c` blinky: `cleanup failed or no report; board released, failure logged`',
                              '- `d` battery: `locked: held by pid 7`',
                              '- `e` battery: `run caveat denies a pass` (native pass, shared run rules blocker)'])
     self.assertNotIn('verdict', body)
     self.assertIn('| `d` |  |  |  |  |  |  |  | 40s | 15s |', body)   # no steps: every step cell blank
+
+  def test_the_cleanup_failures_a_battery_found_and_its_notes_are_shown_whatever_its_verdict(self):
+    found = {'how': 'found-left', 'reason': 'hil_test.py', 'pid': 7, 'id': 'f1', 'at': 'T', 'detail': 'left'}
+    rows = [row('a', previousCleanupFailure=found, notes=['legacyNote: cleanup log not written: x']),
+            row('b', 'fail', 'fail', detail='dfu: not seen', steps={'install': True, 'dfu': False},
+                previousCleanupFailure={'unavailable': 'cleanup log unreadable: x'}, openCleanupFailures=3)]
+    notes = [ln for ln in lines(hc.render({'boards': rows}, selection(2), META)) if ln.startswith('- `')]
+    self.assertEqual(notes, ['- `a` `Previous cleanup failure: T (found-left, hil_test.py pid 7, '
+                             'id f1): left`',
+                             '- `a` `Notes: legacyNote: cleanup log not written: x`',
+                             '- `b` dfu: `not seen`',
+                             '- `b` `Previous cleanup failure: cleanup log unreadable: x (2 earlier '
+                             'still open)`'])
 
   def test_an_untouched_board_has_a_blank_blinky_cell(self):
     r = row('u', 'not-run', 'not-run', steps={'install': False}, cleanupPass=None,

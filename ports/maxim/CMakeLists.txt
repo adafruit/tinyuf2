@@ -19,7 +19,7 @@ target_link_options(tinyuf2 PUBLIC
   )
 
 family_configure_tinyuf2(tinyuf2 OPT_MCU_${MAX_DEVICE_UPPER})
-family_flash_jlink(tinyuf2)
+family_flash_jlink(tinyuf2 hex)
 family_flash_openocd_adi(tinyuf2)
 
 #------------------------------------

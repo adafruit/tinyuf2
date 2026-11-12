@@ -109,6 +109,12 @@ def note(r):
   return f'- {literal(r["board"])} {cell(where)}: {literal(detail)}' + (f' ({"; ".join(extra)})' if extra else '')
 
 
+def board_notes(r):
+  """The open cleanup failures the board's battery found as it took the board, and what it could not record (`notes`),
+  passed or not; neither changes a verdict."""
+  return [f'- {literal(r["board"])} {literal(text)}' for text in run_report.board_notes(r)]
+
+
 def report(summary, views):
   """`views` is the upload's decision (hil_ci.py's upload-views): anything but `upload` withholds every report."""
   rows = [dict(r, viewsUploaded=views == 'upload') for r in summary['boards']]
@@ -121,7 +127,7 @@ def report(summary, views):
     lines += ['| Board | ' + ' | '.join(STEPS) + ' | blinky | admit | run |',
               '| --- | ' + ' | '.join(':-:' for _ in STEPS) + ' | :-: | --: | --: |']
     lines += [table_row(r) for r in rows] + ['', LEGEND, '']
-  notes = [note(r) for r in rows if kind(r) != 'passed']
+  notes = [n for r in rows for n in ([note(r)] if kind(r) != 'passed' else []) + board_notes(r)]
   if views != 'upload':
     shown = literal(views) if views else 'missing'
     notes.append(f'- report views withheld by the upload (upload-views: {shown}): no steps shown')
