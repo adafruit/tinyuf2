@@ -18,6 +18,7 @@ import errno
 import fcntl
 import functools
 import hashlib
+import inspect
 import json
 import mmap
 import os
@@ -1698,6 +1699,12 @@ def load_helper():
     raise Refused(f'lock helper {LOCK_HELPER}: protected reasons are not {sorted(PROTECTED)}, its CI reason is not '
                   "'hil_test.py', it has no LockUnavailable, BoardLocked, RecoveryBlocked, BoardBusy, SessionBusy or "
                   f'PendingRefused, or one of {list(LOCK_API)} is not callable; recheck this contract')
+  # run_board hands the board's verdict to BoardTask's collector and ends it with finish() and report()
+  task = mod.board_task
+  if 'verdict' not in inspect.signature(task).parameters or \
+     not all(callable(getattr(task, f, None)) for f in ('finish', 'report')):
+    raise Refused(f'lock helper {LOCK_HELPER}: its board_task takes no verdict collector or has no finish() or '
+                  'report(), an agentrc older than test/hil/agentrc.json; upgrade it and recheck this contract')
   return mod
 
 

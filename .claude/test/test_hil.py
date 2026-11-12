@@ -478,6 +478,19 @@ class Roster(Tmp):
       with self.subTest(what), mock.patch.object(helper, name, value), \
            self.assertRaisesRegex(ht.Refused, 'recheck this contract'):
         ht.load_helper()
+    # an agentrc older than the pin: its board_task takes no verdict collector, or has no finish() or report()
+    task = helper.board_task
+
+    class NoVerdict(task):
+      def __init__(self, board, reason=helper.CI_REASON, *, busy, wait=0, allow_bypass=False, **record_fields):
+        super().__init__(board, reason, busy=busy, wait=wait, allow_bypass=allow_bypass, **record_fields)
+    older = {'no verdict collector': NoVerdict,
+             'no finish': type('NoFinish', (task,), {'finish': None}),
+             'no report': type('NoReport', (task,), {'report': None})}
+    for what, value in older.items():
+      with self.subTest(what), mock.patch.object(helper, 'board_task', value), \
+           self.assertRaisesRegex(ht.Refused, 'older than test/hil/agentrc.json.*recheck this contract'):
+        ht.load_helper()
 
   def test_the_lock_defaults_to_the_board_name_and_the_port_comes_from_it(self):
     b = ht.load_board(roster(self.tmp), BOARD)
