@@ -151,7 +151,7 @@ Locks are taken through agentrc's `hil` helper, `skills/hil/scripts/hil_lock.py`
   | Verdict | When | Exit |
   |---|---|---|
   | failed | `cleanup.pass` false: a child that survived SIGKILL (logged `unrecheckable`), an `openocd_esp` session not ended (logged `retained`), a failed or injected restore | 4 |
-  | failed | a cleanup that raised after the battery ran: the board released, the error uncaught, the failure logged `unrecheckable`, or, when the cleanup log cannot be appended, kept in the board's lock record (`cleanupOwed`) for the next take to log as `found-left`; no JSON printed or report published, so no `lock.failureLogged` says which: `hil_lock.py status` shows either, and a delegated run records it as one that ended without its JSON (Results: `ran: null`, a blocker; Recovery's `restore --under-hold`) | 1 |
+  | failed | a cleanup raised after the battery ran: board released, error uncaught; no JSON printed or report published (Results and Recovery) | 1 |
   | restored | the cleanup passed on a touched board, whatever the battery did | the battery's |
   | clean | `cleanup.state` `untouched`; a refusal after the take (an unfinished CI attempt, a live legacy session, a marker or state root it cannot use); or the battery's setup raised before any hardware access | the battery's, or the refusal's |
 
@@ -213,6 +213,10 @@ A delegated run (`hil-operator`) returns `{pass, results, caveat, wedged}` and, 
 - `reportPaths` maps each board to its JSON's `reportPath` (`null` with `reportError` when it was not published), which a recovery dispatch needs.
 - Across several boards (Execution: one battery per board), `results` holds every board's row, `pass` is true only when every run's is, and `caveat` joins the runs' non-empty caveats.
 - A launched run that ended without printing its JSON (killed, crashed) may have programmed the board and left it running a candidate. The operator writes `pass: false`, `caveat: "run ended without a report; board state unknown"` and one row per board, exactly `{board, ran: null, pass: false, locked: false, detail}`, with `detail` naming the exit status, the output tail and `python3 <agentrc>/skills/hil/scripts/hil_lock.py status` at that moment.
+- A cleanup that raised (Reservation) logs its failure `unrecheckable` or, when the cleanup log cannot be appended,
+  keeps it in the board's lock record (`cleanupOwed`) for the next take to log as `found-left`. With no report, no
+  `lock.failureLogged` says which; `hil_lock.py status` shows either. Its row is still the one above (`ran: null`, a
+  blocker), and the board gets Recovery's `restore --under-hold`.
 - The operator runs the battery once and returns. It never waits on a lock and never retries: a `locked` row comes back as is, and its caller retries under `hil`'s Caller rules, marking a flaky pass `flaky: true`.
 - A recovery dispatch runs Recovery's `restore --under-hold` under its own hold, with `--report` when the failed run printed one, in the foreground and returns `{pass, results, caveat: "", wedged, exit, error, survivors}`: that JSON's `results`, `error` (`null` when absent) and `survivors` (`[]` when absent), and the exit status. Any exit but 0 is a blocker for the caller. A probe that cannot connect is `needs-user` (the board's recovery note, Recovery).
 
