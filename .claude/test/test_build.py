@@ -1364,14 +1364,14 @@ class HilRecord(FakeTools, unittest.TestCase):
 
   def test_a_wch_openocd_flasher_names_its_chip_family_by_tinyuf2_device(self):
     fl = {'name': 'openocd', 'uid': 'E9B38F066FBB', 'vid_pid': '0x1a86 0x8010', 'args': '-f target/wch-riscv.cfg'}
-    entry = {'name': 'ch32v407_evt_r0', 'uid': 'W', 'flasher': fl, 'tinyuf2': {'device': 'ch32v4x7'}}
+    entry = {'name': 'ch32v407_r0', 'uid': 'W', 'flasher': fl, 'tinyuf2': {'device': 'ch32v4x7'}}
     self.roster.write_text(json.dumps({'boards': [entry]}))
-    self.assertEqual(cb.roster_flasher(self.config, 'ch32v407_evt_r0'),
+    self.assertEqual(cb.roster_flasher(self.config, 'ch32v407_r0'),
                      ({'name': 'openocd', 'uid': 'E9B38F066FBB', 'device': 'ch32v4x7', 'vid_pid': '0x1a86 0x8010'},
                       ['OPENOCD=openocd', 'OPENOCD_SERIAL=E9B38F066FBB', 'OPENOCD_VID_PID=0x1a86 0x8010']))
     self.roster.write_text(json.dumps({'boards': [dict(entry, flasher=dict(fl, vid_pid='0x1234 0x5678'))]}))
     with self.assertRaisesRegex(cb.Fail, 'a WCH-LinkE flasher needs "vid_pid": "0x1a86 0x8010"'):
-      cb.roster_flasher(self.config, 'ch32v407_evt_r0')
+      cb.roster_flasher(self.config, 'ch32v407_r0')
     for what, board in (('no device', dict(entry, tinyuf2={})),
                         ('another family', dict(entry, tinyuf2={'device': 'ch32v20x'})),
                         ('another port', dict(entry, name='max32666fthr'))):

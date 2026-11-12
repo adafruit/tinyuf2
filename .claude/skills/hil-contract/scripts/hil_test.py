@@ -3060,7 +3060,7 @@ class WchBattery(OpenocdBattery):
 
   The WCH-LinkE's attach (wlink_init's 81 0d 01 02) leaves HSEON and USBHS_PLLON clear (CH32V407RM 3.4.1) with the
   core still running, and an enumerated TinyUF2 drops off USB within ~3 s until the next reset (bench-history.md,
-  ch32v407_evt_r0): no probe session opens while the battery still needs the drive."""
+  ch32v407_r0): no probe session opens while the battery still needs the drive."""
 
   PROBE = WchProbe
 

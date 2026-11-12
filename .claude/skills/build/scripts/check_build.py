@@ -45,7 +45,7 @@ BUILD_DIR = ROOT / 'cmake-build'
 # The ports CI builds (build.yml's jobs; test_build.py holds the two equal) and the boards that stand in for each:
 # rig boards first; espressif covers every IDF target, mimxrt10xx both the RT10xx and RT1170 boot layouts.
 REPRESENTATIVES = {
-  'ch32v4x7': ['ch32v407_evt_r0', 'metro_ch32v407', 'metro_ch32v467'],
+  'ch32v4x7': ['ch32v407_r0', 'metro_ch32v407', 'metro_ch32v467'],
   'espressif': ['espressif_esp32s3_devkitm_1', 'espressif_esp32s2_devkitc_1', 'espressif_p4_function_ev',
                 'espressif_esp32s31_func_core'],
   'kinetis_k32l2': ['frdm_k32l2b'],

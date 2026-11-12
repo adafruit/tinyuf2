@@ -270,7 +270,7 @@ WCH_FACTS = {'arch': 'riscv', 'flashBase': 0, 'uf2Base': 0x8000, 'binBase': 0, '
              'pid': 0x017d, 'boardId': 'CH32V407-EVT-R0', 'family': 0x7b8c32a7, 'ram': 0x20000000,
              'dblTapDelayMs': 500, 'dblTapSize': 16, 'dblTapReg': 0x40006c28, 'dblTapMagic': 0xf016}
 BOARD_FACTS = {'lpcxpresso55s69': LPC_FACTS, 'stm32h563_nucleo': H563_FACTS, 'max32666fthr': MAX_FACTS,
-               'ch32v407_evt_r0': WCH_FACTS,
+               'ch32v407_r0': WCH_FACTS,
                'stm32h743nucleo': H743_FACTS, 'stm32f407disco': F407_FACTS, 'stm32f303disco': F303_FACTS,
                'stm32f411ve_discovery': F411_FACTS, 'imxrt1060_evk': RT1060_FACTS, 'imxrt1064_evk': RT1064_FACTS,
                'metro_m7_1011': RT1011_FACTS}
@@ -6193,7 +6193,7 @@ class OpenocdBatteryRun(Tmp):
 WCH_FLASHER = {'name': 'openocd', 'uid': 'E9B38F066FBB', 'vid_pid': '0x1a86 0x8010', 'args': '-f target/wch-riscv.cfg'}
 
 
-def wch_roster(tmp, name='ch32v407_evt_r0', **tinyuf2):
+def wch_roster(tmp, name='ch32v407_r0', **tinyuf2):
   t = {'reentry': 'retained-register', 'device': 'ch32v4x7', 'lock': 'ch32v407-evt-r0', **tinyuf2}
   cfg = tmp / f'wch-{len(list(tmp.glob("wch-*.json")))}.json'
   cfg.write_text(json.dumps({'boards': [{'name': name, 'uid': '763A5E1AA7107B65', 'flasher': WCH_FLASHER,
@@ -6203,7 +6203,7 @@ def wch_roster(tmp, name='ch32v407_evt_r0', **tinyuf2):
 
 class WchRoster(Tmp):
   def test_a_wch_entry_loads_as_the_wch_battery_of_its_device(self):
-    b = self.load(wch_roster(self.tmp), 'ch32v407_evt_r0')
+    b = self.load(wch_roster(self.tmp), 'ch32v407_r0')
     self.assertEqual((b['kind'], b['flasher'], b['device'], b['lock'], b['install'], b['app']),
                      ('wch', 'openocd', 'ch32v4x7', 'ch32v407-evt-r0', (0, 0x8000), (0x8000, 0x80000)))
     self.assertEqual((ht.STEPS['wch'], ht.REENTRY['wch'], ht.BATTERIES['wch']),
@@ -6214,7 +6214,7 @@ class WchRoster(Tmp):
                            ('another device', wch_roster(self.tmp, device='ch32v20x'), 'needs tinyuf2.device'),
                            ('another port', wch_roster(self.tmp, name='max32666fthr'), 'needs tinyuf2.device')):
       with self.subTest(what), self.assertRaisesRegex(ht.Refused, err):
-        ht.load_board(cfg, 'max32666fthr' if what == 'another port' else 'ch32v407_evt_r0')
+        ht.load_board(cfg, 'max32666fthr' if what == 'another port' else 'ch32v407_r0')
     with self.assertRaisesRegex(ht.Refused, 'is a WCH device'):
       ht.load_board(max_roster(self.tmp, args='-f interface/cmsis-dap.cfg -f target/ch32v4x7.cfg'), 'max32666fthr')
 
@@ -6291,7 +6291,7 @@ class WchBatteryRun(Tmp):
 
   def setUp(self):
     super().setUp()
-    board = self.load(wch_roster(self.tmp), 'ch32v407_evt_r0')
+    board = self.load(wch_roster(self.tmp), 'ch32v407_r0')
     self.bat = bat = ht.WchBattery(board, board_facts(board), self.tmp)
     oocd, f = FakeWch(), bat.f
     self.oocd, self.present = oocd, [True]

@@ -80,12 +80,12 @@ On max32666fthr (2026-10-22, ci.lan, openocd 0.12.0+dev-02620-g0ce743125 on a Ra
 
 On metro_m4_express (2026-11-01, ci.lan, J-Link V9.78 on a J-Link OB-Mini Plus 000063728691 at 9-1.1, ATSAMD51J19A DSU DID 0x60060005, BOOTPROT 13 already set in the user row), TinyUF2 enumerates 239a:0021 at 9-1.4 with serial 48AD95993243375320202031340A10FF, behind the same hub (9-1, 1a40:0201) as its probe. On htpc's bench, `loadfile` of the HEX programmed and verified it with BOOTPROT set and kept BOOTPROT and the app at 0x4000 (on ci.lan the contents already matched). Over a valid app DFU came up only through the retained-register re-entry, and the re-entry run passed with `controlBootedApp`, `dfuCameUp` and `magicConsumed` true. On htpc's bench, a J-Link session ending within ~600 ms of reset left SET_CONFIGURATION without its status stage (8/8 runs), fixed in `ports/samd51/boards.c`'s cycle-counter waits. That probe drops a session about 1 in 30 before any target access ("Communication timed out: Requested 4 bytes, received -1 bytes", VTref 0.000 V).
 
-## ch32v407_evt_r0
+## ch32v407_r0
 
-On ch32v407_evt_r0 (2026-11-11, htpc, openocd 0.12.0+dev-g4c9931a, hathach/openocd `claude/wch-ch32v4x7`, on a
+On ch32v407_r0 (2026-11-11, htpc, openocd 0.12.0+dev-g4c9931a, hathach/openocd `claude/wch-ch32v4x7`, on a
 WCH-LinkE E9B38F066FBB, firmware 2.22, at 5-2.4; ESIG chip ID 0x46700010, the schematic's U2 a CH32V467VET; option bytes
 0x40BF5AA5, RAM_CODE_MOD 0), TinyUF2 enumerates 239a:017d at 5-2.3, 480M, with serial 763A5E1AA7107B65, behind the same
-ganged hub as its probe. tinyusb's HIL shares the board under lock `ch32v407_r0`; what it had left on the board
+ganged hub as its probe. tinyusb's HIL shares the board under the same name; what it had left on the board
 before the first install is unknown, overwritten by a bench smoke test.
 
 The flash driver's erase is the probe's chip erase (`wlink_erase`, command 81 02 01 01, `wchriscv.c` `ch32vx_erase`)

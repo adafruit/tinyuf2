@@ -328,10 +328,10 @@ class Hosted(unittest.TestCase):
     for port, name in (('ch32v4x7', 'riscv-gcc'), ('ch32v20x', 'riscv-gcc'), ('mimxrt10xx', 'arm-gcc')):
       with self.subTest(port):
         self.assertEqual(hh.toolchain(port)[0], name)
-    for board, version, ok in (('ch32v407_evt_r0', RISCV_GCC, True),
-                               ('ch32v407_evt_r0', RISCV_GCC.replace('13.2.0', '13.2.1'), False),
-                               ('ch32v407_evt_r0', RISCV_GCC + '.1', False),
-                               ('ch32v407_evt_r0', ARM_GCC, False),
+    for board, version, ok in (('ch32v407_r0', RISCV_GCC, True),
+                               ('ch32v407_r0', RISCV_GCC.replace('13.2.0', '13.2.1'), False),
+                               ('ch32v407_r0', RISCV_GCC + '.1', False),
+                               ('ch32v407_r0', ARM_GCC, False),
                                ('imxrt1064_evk', RISCV_GCC, False),
                                ('imxrt1064_evk', ARM_GCC, True)):
       with self.subTest(board=board, version=version):
@@ -343,7 +343,7 @@ class Hosted(unittest.TestCase):
             hh.check_toolchain(board, row)
 
   def test_the_toolchain_command_names_the_setup_toolchain_entry(self):
-    for board, name in (('ch32v407_evt_r0', 'riscv-gcc'), ('imxrt1064_evk', 'arm-gcc')):
+    for board, name in (('ch32v407_r0', 'riscv-gcc'), ('imxrt1064_evk', 'arm-gcc')):
       with self.subTest(board), contextlib.redirect_stdout(io.StringIO()) as out:
         self.assertEqual(hh.main(['toolchain', '--board', board]), 0)
         self.assertEqual(out.getvalue().strip(), name)
