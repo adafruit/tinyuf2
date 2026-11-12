@@ -3692,13 +3692,77 @@ class ManualHold(Tmp):
       closed.append((out.getvalue(), len(ht.HELD_BUILD)))
       late.kill()
       late.wait()
+    env = {k: v for k, v in os.environ.items() if k != ht.JOB_TRACKING}   # outside a job: no re-exec
     with mock.patch.object(ht.Battery, 'restore', keeps), mock.patch.object(ht, 'close_stdio', close_stdio), \
+         mock.patch.dict(os.environ, env, clear=True), \
          contextlib.redirect_stdout(out), mock.patch.object(ht.cb, 'BUILD_DIR', Path(tempfile.mkdtemp(dir=self.tmp))):
       code = ht.main(['restore', '-b', BOARD, '--build-record', 'r.json', '--under-hold', 'recovery 7', str(self.cfg)])
     res = json.loads(out.getvalue().splitlines()[-1])
     self.assertEqual((code, res['inProcessKeeper'], ht.HELD_BUILD, fh.closed), (0, os.getpid(), [], True))
     self.assertEqual(json.loads(Path(res['reportPath']).read_text())['inProcessKeeper'], os.getpid())
     self.assertEqual(closed, [(out.getvalue(), 1)])
+
+  def test_a_build_lock_kept_in_process_under_a_job_reexecutes_after_the_report_or_closes_stdio_when_it_cannot(self):
+    late = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
+    self.addCleanup(lambda: (late.kill(), late.wait()))
+    fh = open(self.tmp / 'build.lock', 'a')
+    self.addCleanup(fh.close)
+    self.addCleanup(ht.HELD_BUILD.clear)
+    out, calls, left, fd = io.StringIO(), [], [ht.survivor(late.pid)], fh.fileno()
+
+    def keeps(bat, f, v):
+      ht.HELD_BUILD.append((fh, left))
+      return {'pass': True, 'state': 'blinky copied', 'evidence': {}}
+
+    def execve(path, argv, env):
+      calls.append(('execve', out.getvalue(), argv[3:], ht.JOB_TRACKING in env))
+      raise OSError(errno.ENOEXEC, 'refused')
+
+    def close_stdio():
+      calls.append(('close_stdio',))
+      late.kill()
+      late.wait()
+    with mock.patch.object(ht.Battery, 'restore', keeps), mock.patch.object(ht, 'close_stdio', close_stdio), \
+         mock.patch.object(ht.os, 'execve', execve), mock.patch.object(ht.os, 'setsid', lambda: None), \
+         mock.patch.dict(os.environ, {ht.JOB_TRACKING: 'job'}), contextlib.redirect_stderr(io.StringIO()) as err, \
+         contextlib.redirect_stdout(out), mock.patch.object(ht.cb, 'BUILD_DIR', Path(tempfile.mkdtemp(dir=self.tmp))):
+      code = ht.main(['restore', '-b', BOARD, '--build-record', 'r.json', '--under-hold', 'recovery 7', str(self.cfg)])
+    self.assertEqual(calls[0][:2], ('execve', out.getvalue()))   # once the report is out
+    self.assertEqual((calls[0][2][:4], fh.closed), (['keep-build', '--exit', '0', str(fd)], True))
+    self.assertEqual((json.loads(calls[0][2][-1]), calls[0][3]), (left, False))
+    self.assertEqual((calls[1:], code, ht.HELD_BUILD), ([('close_stdio',)], 0, []))
+    self.assertIn('may end with the CI job', err.getvalue())
+    self.assertEqual([signal.getsignal(s) for s in ht.TERM_SIGNALS], [ht.on_signal] * len(ht.TERM_SIGNALS))
+
+  def test_a_runner_keeping_a_build_lock_reexecutes_as_its_keeper_outside_the_job_with_its_exit(self):
+    late = subprocess.Popen(['sleep', '60'], start_new_session=True)
+    self.addCleanup(lambda: (late.kill(), late.wait()))
+    lock = self.tmp / 'build.lock'
+    child = textwrap.dedent(f'''
+      import fcntl, importlib.util, sys
+      spec = importlib.util.spec_from_file_location('hil_test', {str(SCRIPT)!r})
+      ht = importlib.util.module_from_spec(spec)
+      spec.loader.exec_module(ht)
+      fh = open({str(lock)!r}, 'a')
+      fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+      ht.HELD_BUILD.append((fh, [ht.survivor({late.pid})]))
+      print('kept', flush=True)
+      ht.keep_out_of_job(3)
+      sys.exit(9)
+    ''')
+    p = subprocess.Popen([sys.executable, '-B', '-c', child], stdout=subprocess.PIPE,
+                         env=dict(os.environ, **{ht.JOB_TRACKING: 'job'}))
+    self.addCleanup(lambda: end_child(p.pid))
+    self.assertEqual(p.stdout.read(), b'kept\n')   # EOF: the keeper closed its stdio
+    p.stdout.close()
+    environ = Path(f'/proc/{p.pid}/environ').read_bytes().split(b'\0')
+    self.assertIn(b'keep-build', Path(f'/proc/{p.pid}/cmdline').read_bytes().split(b'\0'))
+    self.assertFalse(any(e.startswith(ht.JOB_TRACKING.encode() + b'=') for e in environ))
+    self.assertFalse(flock_free(lock))
+    late.kill()
+    late.wait()
+    self.assertEqual(p.wait(10), 3)
+    self.assertTrue(flock_free(lock))
 
   def test_a_probe_in_use_refuses_before_any_hardware_access_and_keeps_the_hold(self):
     self.helper.log_cleanup_failure(BOARD, 'hil_test.py', detail='an earlier failure')

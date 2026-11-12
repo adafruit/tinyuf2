@@ -904,13 +904,39 @@ def close_stdio():
       os.close(std)
 
 
-def keep_build(survivors):
-  """The keeper's wait (keep_build_lock): its stdio closed, it polls until no survivor lives, then exits, which
+def keep_out_of_job(code):
+  """Re-execute this process, which keeps build locks itself (HELD_BUILD) under a CI job, in place as their
+  `keep-build` keeper without the job tracking variable (JOB_TRACKING), so the job's end cannot free them while a
+  survivor lives; it exits `code` once none does. Returns only when it could not, its reason on stderr."""
+  if not os.access(HOLDER_SCRIPT, os.R_OK):   # an exec that cannot start the keeper would drop the locks now
+    print(f'cannot re-execute {HOLDER_SCRIPT} as the build locks\' keeper; they may end with the CI job',
+          file=sys.stderr, flush=True)
+    return
+  old = {sig: signal.signal(sig, signal.SIG_IGN) for sig in TERM_SIGNALS}
+  try:
+    with contextlib.suppress(OSError):   # a process group leader keeps its session
+      os.setsid()
+    ack = os.open(os.devnull, os.O_WRONLY)   # nobody waits for its acknowledgement
+    for fd in [fh.fileno() for fh, _ in HELD_BUILD] + [ack]:
+      os.set_inheritable(fd, True)
+    env = {k: v for k, v in os.environ.items() if k != JOB_TRACKING}
+    os.execve(sys.executable, [sys.executable, '-B', str(HOLDER_SCRIPT), 'keep-build', '--exit', str(code),
+                               str(HELD_BUILD[0][0].fileno()), str(ack),
+                               json.dumps([s for _, left in HELD_BUILD for s in left])], env)
+  except OSError as e:
+    for sig, handler in old.items():
+      signal.signal(sig, handler)
+    print(f'cannot re-execute as the build locks\' keeper ({e}); they may end with the CI job', file=sys.stderr,
+          flush=True)
+
+
+def keep_build(survivors, code=0):
+  """The keeper's wait (keep_build_lock): its stdio closed, it polls until no survivor lives, then exits `code`, which
   releases the lock it inherited."""
   close_stdio()
   while still_alive(survivors):
     time.sleep(KEEPER_POLL)
-  os._exit(0)
+  os._exit(code)
 
 
 # ------------------------------------------------------------------ probe
@@ -3412,6 +3438,7 @@ def main(argv=None):
   kb.add_argument('fd', type=int)
   kb.add_argument('ack', type=int)
   kb.add_argument('survivors', type=json.loads)
+  kb.add_argument('--exit', type=int, default=0, help='its exit status, the runner\'s it replaced (keep_out_of_job)')
   args = ap.parse_args(argv)
   if args.cmd == 'fat-read':
     return fat_read_main(args)
@@ -3427,7 +3454,7 @@ def main(argv=None):
         OPENOCD.append(agentrc.load(OPENOCD_ESP, 'agentrc_hil_openocd_esp'))
     os.write(args.ack, b'ok')
     os.close(args.ack)
-    keep_build(args.survivors)
+    keep_build(args.survivors, args.exit)
   for sig in TERM_SIGNALS:
     signal.signal(sig, on_signal)
   INTERRUPTS.clear()
@@ -3468,6 +3495,8 @@ def main(argv=None):
   publish_report(result, run_dir, args, sys.argv[1:] if argv is None else argv)
   print(json.dumps(result), flush=True)
   if result.get('inProcessKeeper'):
+    if JOB_TRACKING in os.environ:
+      keep_out_of_job(code)
     close_stdio()   # the reader's EOF (hil_ci.launch)
   while release_ended_builds():
     time.sleep(KEEPER_POLL)
