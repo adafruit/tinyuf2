@@ -15,7 +15,9 @@
 #include "board.h"
 
 // From board_api.h
+#ifndef BOARD_FLASH_APP_START
 #define BOARD_FLASH_APP_START  0
+#endif
 
 // call records of the board_flash_write() and board_flash_flush() stubs
 extern uint32_t test_flash_write_count;
