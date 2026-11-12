@@ -616,6 +616,29 @@ class Stubbed(unittest.TestCase):
     self.assertEqual((code, run_report.verdict(code, report, BOARD)[0]), (None, 'blocker'))
     self.assertIsInstance(report['inProcessKeeper'], int)
 
+  def test_a_keeper_that_dies_other_than_with_the_runners_exit_keeps_its_cleanup_blocker(self):
+    runner = self.tmp / 'keeper_died.py'   # its keeper exec'd, then dead at startup (exit 127) before the survivor
+    runner.write_text(textwrap.dedent('''
+      import json, os, sys, time
+      a = sys.argv
+      for marker in ('--started-marker', '--done-marker'):
+        open(a[a.index(marker) + 1], 'w').close()
+      row = {'board': a[a.index('-b') + 1], 'ran': True, 'pass': False, 'steps': [{'step': 'flash', 'pass': False}],
+             'cleanup': {'pass': False, 'state': 'unknown'}}
+      print(json.dumps({'pass': False, 'results': [row], 'exitCode': 4, 'inProcessKeeper': os.getpid()}), flush=True)
+      me = os.getpid()
+      if os.fork() == 0:   # holds the output until its parent is dead, so launch() reads EOF after the exit
+        while os.getppid() == me:
+          time.sleep(0.01)
+        os._exit(0)
+      os._exit(127)
+    '''))
+    mock.patch.object(hil_ci, 'HIL_TEST', runner).start()
+    self.assertEqual(self.main('--board', BOARD), 2)
+    r = self.rows()[0]
+    self.assertEqual((r['verdict'], r['exit']), ('blocker', None))
+    self.assertFalse((self.out / f'{BOARD}.done').exists())
+
   def test_a_recovery_blocker_row_is_a_blocker_locked_or_not(self):
     for row in ({'ran': False, 'locked': True, 'recoveryBlocker': True, 'detail': 'stale record'},
                 {'ran': False, 'locked': False, 'recoveryBlocker': True, 'detail': 'an unfinished attempt'}):
