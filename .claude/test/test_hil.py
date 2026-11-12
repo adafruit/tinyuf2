@@ -478,6 +478,19 @@ class Roster(Tmp):
       with self.subTest(what), mock.patch.object(helper, name, value), \
            self.assertRaisesRegex(ht.Refused, 'recheck this contract'):
         ht.load_helper()
+    # an agentrc older than the pin: its board_task takes no verdict collector, or has no finish() or report()
+    task = helper.board_task
+
+    class NoVerdict(task):
+      def __init__(self, board, reason=helper.CI_REASON, *, busy, wait=0, allow_bypass=False, **record_fields):
+        super().__init__(board, reason, busy=busy, wait=wait, allow_bypass=allow_bypass, **record_fields)
+    older = {'no verdict collector': NoVerdict,
+             'no finish': type('NoFinish', (task,), {'finish': None}),
+             'no report': type('NoReport', (task,), {'report': None})}
+    for what, value in older.items():
+      with self.subTest(what), mock.patch.object(helper, 'board_task', value), \
+           self.assertRaisesRegex(ht.Refused, 'older than test/hil/agentrc.json.*recheck this contract'):
+        ht.load_helper()
 
   def test_the_lock_defaults_to_the_board_name_and_the_port_comes_from_it(self):
     b = ht.load_board(roster(self.tmp), BOARD)
@@ -3147,6 +3160,24 @@ class RunBoard(BoardRun):
     self.assertEqual((code, cleaned, row['lock']['released'], self.failures()[-1]['detail']),
                      (4, [], True, row['cleanup']['detail']))
     self.assertIn('--fail-at cleanup', row['cleanup']['detail'])
+
+  def test_a_cleanup_that_raises_after_the_battery_touched_the_board_is_logged_unrecheckable(self):
+    with mock.patch.object(ht, 'settle_children', side_effect=OSError('reap failed')), \
+         self.assertRaisesRegex(OSError, 'reap failed'):
+      self.run_board(touches)
+    last = self.failures()[-1]
+    self.assertEqual((last['detail'], last['receipts']),
+                     ('cleanup did not finish; then OSError: reap failed',
+                      [{'unrecheckable': 'a cleanup that did not finish'}]))
+    self.assertRegex(self.helper.resolve_restored(BOARD, [last], evidence='restored')[0], 'stays open')
+    self.helper.flock_nb(BOARD).close()   # released
+
+  def test_a_restore_whose_settle_raises_is_no_restoration(self):
+    with mock.patch.object(ht, 'settle_children', side_effect=[[], OSError('reap failed'), OSError('reap failed')]), \
+         self.assertRaisesRegex(OSError, 'reap failed'):
+      self.run_board(touches)
+    self.assertEqual(self.failures()[-1]['detail'], 'cleanup did not finish; then OSError: reap failed')
+    self.helper.flock_nb(BOARD).close()   # released
 
   def test_try_reentry_is_for_an_uncommissioned_board_only_and_reports_its_decision(self):
     self.args.try_reentry = 'retained-register'
