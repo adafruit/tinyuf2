@@ -122,10 +122,10 @@ void SW_Handler(void) {
 
 #endif
 
-/** @brief Copy the MCU unique identifier into the USB serial buffer. */
+/** @brief Copy the MCU's 96-bit unique identifier (RM 31.1) into the USB serial buffer. */
 uint8_t board_usb_get_serial(uint8_t serial_id[16]) {
-  memcpy(serial_id, (const void *)0x1ffff7e8, 8);
-  return 8;
+  memcpy(serial_id, (const void *)0x1ffff7e8, 12);
+  return 12;
 }
 
 /** @brief Drive the activity LED to the requested state. */
