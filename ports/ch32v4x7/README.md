@@ -14,9 +14,9 @@ USB IDs are allocated in Adafruit's `MBAdafruitBoards/Production/usb_vid_pid.csv
 The shared UF2 family ID, **`0x7b8c32a7` (`CH32V4X7`)**, is registered in
 [Microsoft's UF2 registry](https://github.com/microsoft/uf2/pull/109).
 
-The WCH evaluation board is a development target: it reuses the Metro CH32V407's
-USB IDs and has no allocation of its own. Its LED1 reaches the MCU only through
-header P1; jumper it to PC0 to see the activity LED. `apps/blinky` builds for
+The WCH evaluation board uses the generic CH32V4X7 bootloader ID, `239A:0183`, for non-Adafruit
+CH32V4x7 boards. Its LED1 reaches the MCU only through header P1; jumper it to PC0 to see the
+activity LED. `apps/blinky` builds for
 every board here, linked at `0x8000`.
 
 ## Build and initial installation

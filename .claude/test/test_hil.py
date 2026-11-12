@@ -6194,7 +6194,7 @@ WCH_FLASHER = {'name': 'openocd', 'uid': 'E9B38F066FBB', 'vid_pid': '0x1a86 0x80
 
 
 def wch_roster(tmp, name='ch32v407_r0', **tinyuf2):
-  t = {'reentry': 'retained-register', 'device': 'ch32v4x7', 'lock': 'ch32v407-evt-r0', **tinyuf2}
+  t = {'reentry': 'retained-register', 'device': 'ch32v4x7', **tinyuf2}
   cfg = tmp / f'wch-{len(list(tmp.glob("wch-*.json")))}.json'
   cfg.write_text(json.dumps({'boards': [{'name': name, 'uid': '763A5E1AA7107B65', 'flasher': WCH_FLASHER,
                                          'tinyuf2': {k: v for k, v in t.items() if v is not None}}]}))
@@ -6205,7 +6205,7 @@ class WchRoster(Tmp):
   def test_a_wch_entry_loads_as_the_wch_battery_of_its_device(self):
     b = self.load(wch_roster(self.tmp), 'ch32v407_r0')
     self.assertEqual((b['kind'], b['flasher'], b['device'], b['lock'], b['install'], b['app']),
-                     ('wch', 'openocd', 'ch32v4x7', 'ch32v407-evt-r0', (0, 0x8000), (0x8000, 0x80000)))
+                     ('wch', 'openocd', 'ch32v4x7', 'ch32v407_r0', (0, 0x8000), (0x8000, 0x80000)))
     self.assertEqual((ht.STEPS['wch'], ht.REENTRY['wch'], ht.BATTERIES['wch']),
                      (ht.STEPS['jlink'], ('retained-register',), ht.WchBattery))
 
