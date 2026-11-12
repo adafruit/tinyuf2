@@ -151,7 +151,7 @@ Locks are taken through agentrc's `hil` helper, `skills/hil/scripts/hil_lock.py`
   | Verdict | When | Exit |
   |---|---|---|
   | failed | `cleanup.pass` false: a child that survived SIGKILL (logged `unrecheckable`), an `openocd_esp` session not ended (logged `retained`), a failed or injected restore | 4 |
-  | failed | a cleanup that raised after the battery ran: logged `unrecheckable`, the board released, the error uncaught; no JSON printed or report published, so a delegated run records it as one that ended without its JSON (Results: `ran: null`, a blocker) | 1 |
+  | failed | a cleanup that raised after the battery ran: the board released, the error uncaught, the failure logged `unrecheckable`, or, when the cleanup log cannot be appended, kept in the board's lock record (`cleanupOwed`) for the next take to log as `found-left`; no JSON printed or report published, so no `lock.failureLogged` says which: `hil_lock.py status` shows either, and a delegated run records it as one that ended without its JSON (Results: `ran: null`, a blocker; Recovery's `restore --under-hold`) | 1 |
   | restored | the cleanup passed on a touched board, whatever the battery did | the battery's |
   | clean | `cleanup.state` `untouched`; a refusal after the take (an unfinished CI attempt, a live legacy session, a marker or state root it cannot use); or the battery's setup raised before any hardware access | the battery's, or the refusal's |
 
