@@ -3159,6 +3159,13 @@ class RunBoard(BoardRun):
     self.assertRegex(self.helper.resolve_restored(BOARD, [last], evidence='restored')[0], 'stays open')
     self.helper.flock_nb(BOARD).close()   # released
 
+  def test_a_restore_whose_settle_raises_is_no_restoration(self):
+    with mock.patch.object(ht, 'settle_children', side_effect=[[], OSError('reap failed'), OSError('reap failed')]), \
+         self.assertRaisesRegex(OSError, 'reap failed'):
+      self.run_board(touches)
+    self.assertEqual(self.failures()[-1]['detail'], 'cleanup did not finish; then OSError: reap failed')
+    self.helper.flock_nb(BOARD).close()   # released
+
   def test_try_reentry_is_for_an_uncommissioned_board_only_and_reports_its_decision(self):
     self.args.try_reentry = 'retained-register'
     with self.assertRaisesRegex(ht.Refused, 'already commissioned'):

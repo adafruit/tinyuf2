@@ -3422,10 +3422,11 @@ def clean_up(row, code, bat, files):
       if bat.fail_at == 'cleanup':
         raise StepFail('--fail-at cleanup: injected cleanup failure (acceptance only)')
       release_ended_builds()   # the restore's flash would block on a build lock this process still keeps
-      row['cleanup'] = bat.restore(files, row['firmware']['version'])
+      restored = bat.restore(files, row['firmware']['version'])
       stuck = settle_children()   # the restore's own children, before the lock is released
       if stuck:
         raise StepFail('the restore left children that survived SIGKILL')
+      row['cleanup'] = restored   # only once settled: a settle that raised leaves no passing cleanup behind
     else:
       row['cleanup'] = {'pass': True, 'state': 'untouched', 'evidence': {}}
   except BaseException as e:
