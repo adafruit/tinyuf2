@@ -3800,6 +3800,17 @@ class ManualHold(Tmp):
         self.assertRegex(res['error'], f'usb_dfu.py unavailable: .*rerun .*{re.escape(str(err))}')
     self.held()
 
+  def test_a_restore_recovers_an_exit_4_whose_cleanup_passed_but_lock_did_not_end_cleanly(self):
+    lock_only = {'board': BOARD, 'ran': True, 'pass': True, 'steps': [],
+                 'cleanup': {'pass': True, 'state': 'blinky copied', 'evidence': {}},
+                 'lock': {'name': BOARD, 'endedCleanly': False, 'failureLogged': True}}
+    path = self.tmp / 'report.json'
+    path.write_text(json.dumps({'results': [lock_only, dict(lock_only, lock={'name': BOARD, 'endedCleanly': True})]}))
+    self.assertEqual(ht.failed_row(ht.read_report(path), path, {'name': BOARD}), lock_only)
+    code, res = self.restore('--report', str(path))
+    self.assertEqual((code, res['pass'], self.restored), (0, True, [1]), res)
+    self.held()
+
   def test_an_esptool_restore_checks_the_snapshot_in_the_failed_runs_report(self):
     cfg = s3_roster(self.tmp)
     keep = self.load(cfg, S3)['regions']['preserved']

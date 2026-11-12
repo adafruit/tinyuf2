@@ -1677,12 +1677,16 @@ def read_report(report):
 
 
 def failed_row(body, report, board):
-  """The one row of `body` (read_report of `report`) for `board` whose cleanup did not pass: the failed run's."""
-  failed = [x for x in body['results'] if isinstance(x.get('cleanup'), dict) and x['cleanup'].get('pass') is False
-            and x.get('board') == board['name']]
-  if len(failed) != 1:
-    raise Refused(f'{report} names {len(failed)} rows of {board["name"]} whose cleanup failed, not one')
-  return failed[0]
+  """The one row of `body` (read_report of `report`) for `board` whose cleanup did not pass or whose lock did not end
+  cleanly (exit 4 either way): the failed run's."""
+  def failed(x, key, field):
+    return isinstance(x.get(key), dict) and x[key].get(field) is False
+  rows = [x for x in body['results'] if (failed(x, 'cleanup', 'pass') or failed(x, 'lock', 'endedCleanly'))
+          and x.get('board') == board['name']]
+  if len(rows) != 1:
+    raise Refused(f'{report} names {len(rows)} rows of {board["name"]} whose cleanup failed or lock did not end '
+                  'cleanly, not one')
+  return rows[0]
 
 
 # ------------------------------------------------------------------ board admission

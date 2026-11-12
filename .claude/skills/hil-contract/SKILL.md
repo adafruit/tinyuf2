@@ -283,7 +283,8 @@ Exit 4, a failed cleanup:
   `firmware.buildRecord`, or a record rebuilt on the clean HEAD when it no longer verifies (on ci.lan, built off the rig
   and admitted there: Build, Hosted). `--report` is read through the report core before any probe: a report without
   `_hil` (an earlier runner's) is read as it is, one that is missing or corrupt or carries an unknown `_hil` or body
-  version is refused (exit 2), and its rows of this board must hold exactly one whose cleanup failed. On an Espressif
+  version is refused (exit 2), and its rows of this board must hold exactly one whose cleanup failed or whose lock did
+  not end cleanly (`lock.endedCleanly` false: exit 4 either way). On an Espressif
   board the restore checks the preserved regions against that row's snapshot, refused for a touched run without one or
   one whose regions differ from the checkout's; without `--report` (a run that printed none) it takes a fresh snapshot,
   so the preserved regions are proven unchanged only across the recovery itself, never across the failed run, and the
