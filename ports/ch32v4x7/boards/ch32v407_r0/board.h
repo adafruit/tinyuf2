@@ -5,9 +5,9 @@
 #define LED_PIN          GPIO_Pin_0
 #define LED_STATE_ON     0
 #define LED_CLOCK        RCC_PB2Periph_GPIOC
-// the Metro CH32V407's bootloader IDs: a development board, no allocation of its own
+// the generic CH32V4X7 bootloader row of the USB ID allocation, shared by any non-Adafruit CH32V4x7 board
 #define USB_VID          0x239a
-#define USB_PID          0x017d
+#define USB_PID          0x0183
 #define USB_MANUFACTURER "WCH"
 #define USB_PRODUCT      "CH32V407 EVT TinyUF2"
 #define UF2_PRODUCT_NAME USB_MANUFACTURER " " USB_PRODUCT

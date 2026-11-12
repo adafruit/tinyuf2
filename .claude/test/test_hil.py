@@ -267,7 +267,7 @@ RT1064_FACTS = dict(RT1060_FACTS, flashBase=0x70000000, binBase=0x70000000, appS
 RT1011_FACTS = dict(RT1060_FACTS, binBase=0x60000400, pid=0x00e1, boardId='MIMXRT1011-Metro-revA', vectors=96)
 # the CH32V4x7 EVT build: UF2 addresses from the app start, flash from the bootloader at 0 (board_facts.read)
 WCH_FACTS = {'arch': 'riscv', 'flashBase': 0, 'uf2Base': 0x8000, 'binBase': 0, 'appStart': 0x8000, 'flashSize': 0x80000, 'vid': 0x239a,
-             'pid': 0x017d, 'boardId': 'CH32V407-EVT-R0', 'family': 0x7b8c32a7, 'ram': 0x20000000,
+             'pid': 0x0183, 'boardId': 'CH32V407-EVT-R0', 'family': 0x7b8c32a7, 'ram': 0x20000000,
              'dblTapDelayMs': 500, 'dblTapSize': 16, 'dblTapReg': 0x40006c28, 'dblTapMagic': 0xf016}
 BOARD_FACTS = {'lpcxpresso55s69': LPC_FACTS, 'stm32h563_nucleo': H563_FACTS, 'max32666fthr': MAX_FACTS,
                'ch32v407_r0': WCH_FACTS,

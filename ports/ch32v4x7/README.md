@@ -8,7 +8,7 @@ the D13 LED on PB12. External PSRAM is not used by the bootloader.
 | --- | --- | --- | --- |
 | Metro CH32V407 | `metro_ch32v407` | `239A:017D` | `METRO407` |
 | Metro CH32V467 | `metro_ch32v467` | `239A:017F` | `METRO467` |
-| WCH CH32V4x7 EVT (CH32V407VET6-EVT-R0) | `ch32v407_r0` | `239A:017D` | `V407EVT` |
+| WCH CH32V4x7 EVT (CH32V407VET6-EVT-R0) | `ch32v407_r0` | `239A:0183` | `V407EVT` |
 
 USB IDs are allocated in Adafruit's `MBAdafruitBoards/Production/usb_vid_pid.csv`.
 The shared UF2 family ID, **`0x7b8c32a7` (`CH32V4X7`)**, is registered in
