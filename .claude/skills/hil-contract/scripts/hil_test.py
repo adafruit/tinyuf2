@@ -3285,7 +3285,7 @@ def run_board(args, board, facts, helper, workdir):
   signal.pthread_sigmask(signal.SIG_BLOCK, TERM_SIGNALS)
   # protected: a battery that dies holding the board leaves its record for the next taker to log as a failed cleanup
   task = helper.board_task(board['lock'], 'hil_test.py', busy=lambda: probe_busy(board), wait=args.lock_wait,
-                           allow_bypass=True, runDir=str(workdir))
+                           allow_bypass=True, verdict=lambda task, exc: end_board(task, row), runDir=str(workdir))
   try:
     code = take(args, board, facts, helper, workdir, task, row, files, update)
   except Refused as e:
@@ -3294,9 +3294,7 @@ def run_board(args, board, facts, helper, workdir):
     row['detail'], code = str(e), 2   # the row keeps the refusal beside the lock's failed end
   if not task.ended_cleanly:   # its record not cleared, its failure not logged, or its handle kept
     code = 4
-  row['lock'].update(taken=task.taken, released=task.released, bypassed=task.bypassed, endedCleanly=task.ended_cleanly,
-                     failureLogged=task.failure_logged, errors=task.errors, describe=task.describe(),
-                     restoreNotes=task.restore_notes)
+  row['lock'].update(task.report())
   return deferred(row), code
 
 
@@ -3321,10 +3319,7 @@ def take(args, board, facts, helper, workdir, task, row, files, update):
       row.update(helper.failure_report(task.cleanup_failures), detail=f'probe check: {e}')
       return 1
     except Interrupted as e:   # nothing touched: the board's row is a locked one
-      with contextlib.suppress(RuntimeError):   # only an entered task takes a verdict
-        task.clean()
-      if not task.ended:   # entered before the ExitStack registered its exit, which then never runs
-        task.__exit__(type(e), e, e.__traceback__)
+      task.finish(e)   # entered before the ExitStack registered its exit, which then never runs
       row.update(locked=True, recoveryBlocker=False, detail=f'{e} while waiting for the lock')
       return 1
     return run_task(args, board, facts, helper, workdir, task, row, files, update)
@@ -3332,7 +3327,7 @@ def take(args, board, facts, helper, workdir, task, row, files, update):
 
 def run_task(args, board, facts, helper, workdir, task, row, files, update):
   """run_board's body under its board task: the run admitted (CI's markers, an older tinyuf2's pending mark), the
-  battery, its cleanup, then the task's verdict (end_board). Its exit."""
+  battery, its cleanup and CI's `done` marker; the task's collector (end_board) gives its verdict. Its exit."""
   row.update(helper.failure_report(task.cleanup_failures))
   try:   # nothing is touched before the battery runs: every end here is clean
     if args.started_marker is not None:   # under the lock: a run waiting on the board is never seen started
@@ -3349,7 +3344,6 @@ def run_task(args, board, facts, helper, workdir, task, row, files, update):
       row.update(recoveryBlocker=True, unfinishedAttempts=earlier,
                  detail=f'CI run {", ".join(earlier)} under {args.ci_state_root} started a battery on {board["name"]} '
                         'and has no .done: an unfinished attempt')
-      task.clean()
       return 1
     legacy, found = legacy_pending(helper, board, task.cleanup_failures)
     row.update(helper.failure_report(found), **legacy)
@@ -3357,11 +3351,7 @@ def run_task(args, board, facts, helper, workdir, task, row, files, update):
   except InUse as e:
     row.update(locked=True, recoveryBlocker=False, detail=f'board in use: {e}', **e.fields,
                **helper.failure_report(e.found))
-    task.clean()
     return 2
-  except BaseException:
-    task.clean()
-    raise
   code = 0
   try:
     row['ran'] = True
@@ -3376,7 +3366,11 @@ def run_task(args, board, facts, helper, workdir, task, row, files, update):
   row.update(bat.report_fields())   # after the cleanup, whose install may take the snapshot a recovery needs
   if row.get('commissioning'):
     row['reentryDecision'] = reentry_decision(row)
-  end_board(task, row, code, args.done_marker)
+  # hil_ci.py's `<board>.done`, before the verdict ends the lock: a run that takes the lock next never sees CI's
+  # finished battery as unfinished (hil_ci.py touches it again after its own verdict)
+  if args.done_marker is not None and run_report.verdict(code, {'results': [row]}, row['board'])[0] != 'blocker':
+    with contextlib.suppress(OSError):
+      args.done_marker.touch()
   return code
 
 
@@ -3387,16 +3381,12 @@ def deferred(row):
   return row
 
 
-def end_board(task, row, code, done):
-  """The task's verdict on the board, its last action there (SKILL.md Verdicts): CI's `done` marker (hil_ci.py's
-  `<board>.done`) touched first when the row is no blocker, so a run that takes the lock next never sees CI's finished
-  battery as unfinished (hil_ci.py touches it again after its own verdict); then clean for an untouched board,
-  restored after a cleanup that restored it, whatever the battery did, and failed with the children and openocd_esp
-  sessions it could not prove ended when the cleanup failed, the board released and the failure logged."""
-  if done is not None and run_report.verdict(code, {'results': [row]}, row['board'])[0] != 'blocker':
-    with contextlib.suppress(OSError):
-      done.touch()
-  c = row['cleanup']
+def end_board(task, row):
+  """The board task's verdict collector (SKILL.md Verdicts), from the row's cleanup: clean for a board the battery
+  never touched or never ran on, restored after a cleanup that restored it, whatever the battery did, and failed with
+  the children and openocd_esp sessions it could not prove ended when the cleanup failed, the board released and the
+  failure logged."""
+  c = row['cleanup'] or {'pass': True, 'state': 'untouched'}
   if c['pass'] and c['state'] == 'untouched':
     task.clean()
   elif c['pass']:
