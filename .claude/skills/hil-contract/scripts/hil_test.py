@@ -1210,7 +1210,8 @@ def report_snapshot(row, keep):
   the writes), so a touched row without them is refused, never recovered blind."""
   ev = row.get('snapshot') or {}
   regions, md5 = ev.get('preservedRegions'), ev.get('preserved')
-  if regions is None and md5 is None and (row.get('cleanup') or {}).get('state') == 'untouched':
+  never_ran = row.get('ran') is False and row.get('cleanup') is None   # a setup refusal: the battery never started
+  if regions is None and md5 is None and (never_ran or (row.get('cleanup') or {}).get('state') == 'untouched'):
     return None
   if regions is None or md5 is None:
     raise Refused('the failed run touched the board but its report has no preserved-region snapshot to check')

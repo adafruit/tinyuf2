@@ -3811,6 +3811,27 @@ class ManualHold(Tmp):
     self.assertEqual((code, res['pass'], self.restored), (0, True, [1]), res)
     self.held()
 
+  def test_an_esptool_restore_recovers_a_setup_refusal_whose_lock_did_not_end_cleanly(self):
+    cfg = s3_roster(self.tmp)
+    hold = subprocess.Popen([sys.executable, '-c', HOLDER, self.helper.lock_path(ht.load_board(cfg, S3)['lock']),
+                             'recovery 7', 'lock'], stdout=subprocess.PIPE, text=True)
+    self.addCleanup(lambda: (hold.kill(), hold.wait(), hold.stdout.close()))
+    self.assertEqual(hold.stdout.readline().strip(), 'ready')
+    refused = {'board': S3, 'ran': False, 'pass': False, 'steps': [], 'cleanup': None,   # run_board's row, no snapshot
+               'detail': 'started marker x cannot be written', 'lock': {'name': S3, 'endedCleanly': False}}
+    path = self.tmp / 'report.json'
+    path.write_text(json.dumps({'results': [refused]}))
+    seen = []
+
+    def restore(bat, f, v):
+      seen.append(bat.preserved)
+      return {'pass': True, 'state': 'blinky copied', 'evidence': {}}
+    with mock.patch.object(ht.EspBattery, 'restore', restore):
+      code, res = self.restore('--report', str(path), board=S3, cfg=cfg)
+    self.assertEqual((code, res['pass'], seen), (0, True, [None]), res)   # nothing to check against: a fresh snapshot
+    with self.assertRaisesRegex(ht.Refused, 'no preserved-region snapshot'):   # one whose battery ran still refuses
+      ht.report_snapshot(dict(refused, ran=True), self.load(cfg, S3)['regions']['preserved'])
+
   def test_an_esptool_restore_checks_the_snapshot_in_the_failed_runs_report(self):
     cfg = s3_roster(self.tmp)
     keep = self.load(cfg, S3)['regions']['preserved']
