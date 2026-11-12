@@ -2817,21 +2817,26 @@ class Locks(Tmp):
     self.assertEqual(ht.still_alive([me, dict(me, start=me['start'] + 1), {'pid': 2 ** 22 + 1, 'start': 5}]), [me])
 
 
+def restore_signals(test):
+  """The test's signal mask and handlers put back at its end, after what is pending was dropped."""
+  mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+  handlers = {sig: signal.getsignal(sig) for sig in ht.TERM_SIGNALS}
+
+  def unblock():   # run_board and a manual operation leave the signals blocked until exit
+    for sig in ht.TERM_SIGNALS:
+      signal.signal(sig, signal.SIG_IGN)
+    signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+    for sig, h in handlers.items():
+      signal.signal(sig, h)
+  test.addCleanup(unblock)
+
+
 class BoardRun(Tmp):
   """run_board over a pinned helper and a fake battery."""
 
   def setUp(self):
     super().setUp()
-    mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
-    handlers = {sig: signal.getsignal(sig) for sig in ht.TERM_SIGNALS}
-
-    def unblock():   # run_board leaves the signals blocked until exit; drop what is pending, then put the mask back
-      for sig in ht.TERM_SIGNALS:
-        signal.signal(sig, signal.SIG_IGN)
-      signal.pthread_sigmask(signal.SIG_SETMASK, mask)
-      for sig, h in handlers.items():
-        signal.signal(sig, h)
-    self.addCleanup(unblock)
+    restore_signals(self)
     self.helper = pinned_helper(self, self.tmp / 'locks')
     self.board = self.load(roster(self.tmp))
     self.facts = board_facts(self.board)
@@ -3567,6 +3572,7 @@ class ManualHold(Tmp):
 
   def setUp(self):
     super().setUp()
+    restore_signals(self)
     lockdir = self.tmp / 'locks'
     lockdir.mkdir()
     self.helper = pinned_helper(self, lockdir)
@@ -3652,6 +3658,47 @@ class ManualHold(Tmp):
     last, = self.helper.open_cleanup_failures(BOARD)
     self.assertEqual(last['receipts'], [{'unrecheckable': ['mcopy'], 'survivors': [99]}])
     self.held()
+
+  def test_a_signal_while_a_failed_restore_settles_is_deferred_until_its_failure_is_logged(self):
+    def fails(bat, f, v):
+      bat.touched = True
+      raise ht.StepFail('verify failed')
+
+    def signalled(started=()):
+      os.kill(os.getpid(), signal.SIGINT)
+      return []
+    signal.pthread_sigmask(signal.SIG_UNBLOCK, ht.TERM_SIGNALS)
+    with mock.patch.object(ht.Battery, 'restore', fails), mock.patch.object(ht, 'settle_children', signalled):
+      code, res = self.restore()
+    self.assertEqual((code, res['failureLogged'], res['error']), (4, True, 'verify failed'))
+    self.assertIn('SIGINT deferred', res['detail'])
+    last, = self.helper.open_cleanup_failures(BOARD)
+    self.assertEqual(last['detail'], 'StepFail: verify failed')
+    self.held()
+
+  def test_a_build_lock_kept_in_process_closes_stdio_after_the_report_and_before_its_wait(self):
+    late = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
+    self.addCleanup(lambda: (late.kill(), late.wait()))
+    fh = open(self.tmp / 'build.lock', 'a')
+    self.addCleanup(fh.close)
+    self.addCleanup(ht.HELD_BUILD.clear)
+    out, closed = io.StringIO(), []
+
+    def keeps(bat, f, v):
+      ht.HELD_BUILD.append((fh, [ht.survivor(late.pid)]))
+      return {'pass': True, 'state': 'blinky copied', 'evidence': {}}
+
+    def close_stdio():   # the survivor ends once the reader has the report and its EOF
+      closed.append((out.getvalue(), len(ht.HELD_BUILD)))
+      late.kill()
+      late.wait()
+    with mock.patch.object(ht.Battery, 'restore', keeps), mock.patch.object(ht, 'close_stdio', close_stdio), \
+         contextlib.redirect_stdout(out), mock.patch.object(ht.cb, 'BUILD_DIR', Path(tempfile.mkdtemp(dir=self.tmp))):
+      code = ht.main(['restore', '-b', BOARD, '--build-record', 'r.json', '--under-hold', 'recovery 7', str(self.cfg)])
+    res = json.loads(out.getvalue().splitlines()[-1])
+    self.assertEqual((code, res['inProcessKeeper'], ht.HELD_BUILD, fh.closed), (0, os.getpid(), [], True))
+    self.assertEqual(json.loads(Path(res['reportPath']).read_text())['inProcessKeeper'], os.getpid())
+    self.assertEqual(closed, [(out.getvalue(), 1)])
 
   def test_a_probe_in_use_refuses_before_any_hardware_access_and_keeps_the_hold(self):
     self.helper.log_cleanup_failure(BOARD, 'hil_test.py', detail='an earlier failure')

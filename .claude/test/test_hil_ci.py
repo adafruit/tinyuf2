@@ -595,6 +595,27 @@ class Stubbed(unittest.TestCase):
     self.assertEqual(code, 4)
     self.assertTrue((self.tmp / 'b' / 'stdout.txt').read_text().endswith(json.dumps(report) + '\n'))
 
+  def test_launch_returns_without_waiting_for_a_runner_that_keeps_a_build_lock_itself(self):
+    gate = self.tmp / 'gate'
+    runner = self.tmp / 'keeps.py'   # hil_test.main's end: its report, stdio closed, then the wait for a survivor
+    runner.write_text(textwrap.dedent('''
+      import json, os, sys, time
+      row = {'board': sys.argv[2], 'ran': True, 'pass': True, 'cleanup': {'pass': True, 'state': 'blinky copied'}}
+      print(json.dumps({'pass': True, 'results': [row], 'inProcessKeeper': os.getpid()}), flush=True)
+      for std in (0, 1, 2):
+        os.close(std)
+      end = time.monotonic() + 30
+      while not os.path.exists(sys.argv[1]) and time.monotonic() < end:
+        time.sleep(0.05)
+    '''))
+    self.addCleanup(gate.touch)
+    (self.tmp / 'k').mkdir()
+    t0 = time.monotonic()
+    report, code = hil_ci.launch([sys.executable, runner, gate, BOARD], self.tmp / 'k')
+    self.assertLess(time.monotonic() - t0, 20)
+    self.assertEqual((code, run_report.verdict(code, report, BOARD)[0]), (None, 'blocker'))
+    self.assertIsInstance(report['inProcessKeeper'], int)
+
   def test_a_recovery_blocker_row_is_a_blocker_locked_or_not(self):
     for row in ({'ran': False, 'locked': True, 'recoveryBlocker': True, 'detail': 'stale record'},
                 {'ran': False, 'locked': False, 'recoveryBlocker': True, 'detail': 'an unfinished attempt'}):

@@ -898,12 +898,16 @@ def release_ended_builds():
   return HELD_BUILD
 
 
-def keep_build(survivors):
-  """The keeper's wait (keep_build_lock): its stdio closed, it polls until no survivor lives, then exits, which
-  releases the lock it inherited."""
+def close_stdio():
   for std in (0, 1, 2):
     with contextlib.suppress(OSError):
       os.close(std)
+
+
+def keep_build(survivors):
+  """The keeper's wait (keep_build_lock): its stdio closed, it polls until no survivor lives, then exits, which
+  releases the lock it inherited."""
+  close_stdio()
   while still_alive(survivors):
     time.sleep(KEEPER_POLL)
   os._exit(0)
@@ -3155,7 +3159,7 @@ def run_task(args, board, facts, helper, workdir, task, row, files, update):
 def deferred(row):
   pending = sorted(signal.Signals(s).name for s in signal.sigpending() & TERM_SIGNALS)
   if pending:
-    row['detail'] = '; '.join(filter(None, (row['detail'], f'{", ".join(pending)} deferred until the board was settled')))
+    row['detail'] = '; '.join(filter(None, (row.get('detail'), f'{", ".join(pending)} deferred until the board was settled')))
   return row
 
 
@@ -3250,22 +3254,28 @@ def manual(args, board, facts, helper, run_dir, result):
       raise InUse(probe_in_use(board, users), found, probeUsers=users)
     legacy, found = legacy_pending(helper, board, found)
     result.update(helper.failure_report(found), **legacy)
-    return operate(args, board, facts, helper, run_dir, result, files, fw, snapshot, found)
+    code = operate(args, board, facts, helper, run_dir, result, files, fw, snapshot, found)
+  deferred(result)
+  return code
 
 
 def operate(args, board, facts, helper, run_dir, result, files, fw, snapshot, found):
   """manual()'s install or restore, admitted: its exit."""
   bat, failed, code = None, '', 0
+  # blocked from here until the process exits, but for the operation: a signal acts only inside it, and its settling,
+  # failure log and report come first
+  signal.pthread_sigmask(signal.SIG_BLOCK, TERM_SIGNALS)
   try:
-    bat = BATTERIES[board['kind']](board, facts, run_dir)
-    if args.cmd == 'install':
-      ev = bat.install(files)
-      ev['dfu'] = bat.dfu_after_install(fw['version'])
-      row = {'board': board['name'], 'installed': fw, 'evidence': ev}
-    else:
-      if snapshot:
-        bat.preserved = snapshot
-      row = {'board': board['name'], 'firmware': fw, 'cleanup': bat.restore(files, fw['version'])}
+    with signals(signal.SIG_UNBLOCK):
+      bat = BATTERIES[board['kind']](board, facts, run_dir)
+      if args.cmd == 'install':
+        ev = bat.install(files)
+        ev['dfu'] = bat.dfu_after_install(fw['version'])
+        row = {'board': board['name'], 'installed': fw, 'evidence': ev}
+      else:
+        if snapshot:
+          bat.preserved = snapshot
+        row = {'board': board['name'], 'firmware': fw, 'cleanup': bat.restore(files, fw['version'])}
   except Exception as e:   # an unexpected error too: reported and logged, the hold kept
     failed = f'{type(e).__name__}: {e}'
     result['error'] = str(e) if isinstance(e, (StepFail, Interrupted)) else failed
@@ -3448,9 +3458,13 @@ def main(argv=None):
     code = 1
   RECORDS.clear()
   result.update(exitCode=code)
+  if release_ended_builds():   # no keeper started: this process keeps them, its report's reader never waiting on it
+    result['inProcessKeeper'] = os.getpid()
   publish_report(result, run_dir, args, sys.argv[1:] if argv is None else argv)
   print(json.dumps(result), flush=True)
-  while release_ended_builds():   # no keeper started: keep them here
+  if result.get('inProcessKeeper'):
+    close_stdio()   # the reader's EOF (hil_ci.launch)
+  while release_ended_builds():
     time.sleep(KEEPER_POLL)
   return code
 

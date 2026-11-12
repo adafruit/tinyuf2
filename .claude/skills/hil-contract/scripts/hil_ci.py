@@ -128,7 +128,8 @@ def hosted_record(board, roster, out, hosted):
 def launch(cmd, where):
   """One `hil_test.py run` (`cmd`, its argv), its output streamed to `where/stdout.txt` as it comes, so a killed run
   keeps what it printed, and its stderr to `where/stderr.txt`; its last JSON line is the report (SKILL.md Results).
-  Returns (report or None, exit)."""
+  Returns (report or None, exit), the exit None, a blocker, for a runner still keeping a build lock itself
+  (`inProcessKeeper`): it closed its output and waits for survivors, which CI does not."""
   report = None
   with open(where / 'stderr.txt', 'w') as err, open(where / 'stdout.txt', 'w') as log:
     p = subprocess.Popen([str(c) for c in cmd], cwd=ROOT, stdout=subprocess.PIPE, stderr=err, text=True)
@@ -141,7 +142,7 @@ def launch(cmd, where):
         except ValueError:
           pass
     p.stdout.close()
-  return report, p.wait()
+  return report, p.poll() if (report or {}).get('inProcessKeeper') else p.wait()
 
 
 def battery(board, roster, record, where, lock_wait, fail_at=None, ci_state_root=None, done=None, started=None):
