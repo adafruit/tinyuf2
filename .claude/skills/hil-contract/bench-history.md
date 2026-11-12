@@ -102,6 +102,13 @@ enumerated for 25 s. So the WCH battery opens no probe session while it still ne
 A `reset run` logs "Hart unexpectedly reset!" and then the `WCH_REEXAMINE` line; a `mww` to PFIC_CFGR fails with fence
 and abstract-command errors, so `reset run` is the system reset.
 
+On ci.lan (2026-11-12, openocd 0.12.0+dev-g4c9931a, the same probe at 21-1.3), TinyUF2 enumerates 239a:0183 at 21-1.1,
+480M, with serial 763A5E1AA7107B65, behind the same 1a40:0201 hub (21-1) as its probe and three other WCH-LinkEs. Before
+the first install tinyusb had left an example that enumerated nothing; its flash held "Hello from TinyUSB" (the first
+128 KiB, sha256 ad515584...). A word at 0x20000FFC took 0xA5C3E1F0 and its saved value back under the hold, and the
+re-entry run (run-20261112-032534) passed with `controlBootedApp`, `dfuCameUp` and `magicConsumed` true. tinyusb's
+HIL at its master 53c1d147 then passed on the board (14 tests, its two FreeRTOS examples unbuilt).
+
 ## J-Link
 
 J-Link's QSPI loader is undocumented (SEGGER UM08001 has nothing on it). Historically, at sampled sentinel points on both RT boards, the runner's former `loadbin` install (no longer issued) lost the rest of its 64 KiB block past the image while a sentinel at 0x60010000, in the next block, survived; a sample, not a guarantee for every image.
