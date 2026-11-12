@@ -68,12 +68,37 @@ void board_dfu_complete(void) {
   }
 }
 
-/** @brief Accept a supported RISC-V jump at the application reset vector. */
+/** @brief Return the sign-extended offset of a JAL or C.J, or false for any other word. */
+static bool reset_jump_offset(uint32_t insn, int32_t *offset) {
+  uint32_t imm;
+  unsigned sign_bit;
+  if ((insn & 0x7fu) == 0x6fu) {
+    // JAL imm[20|10:1|11|19:12] in bits 31:12
+    imm = ((insn >> 11) & 0x100000u) | ((insn >> 20) & 0x7feu) | ((insn >> 9) & 0x800u) | (insn & 0xff000u);
+    sign_bit = 20;
+  } else if ((insn & 0xe003u) == 0xa001u) {
+    // C.J imm[11|4|9:8|10|6|7|3:1|5] in bits 12:2
+    imm = ((insn >> 1) & 0x800u) | ((insn >> 7) & 0x10u) | ((insn >> 1) & 0x300u) | ((insn << 2) & 0x400u) |
+          ((insn >> 1) & 0x40u) | ((insn << 1) & 0x80u) | ((insn >> 2) & 0xeu) | ((insn << 3) & 0x20u);
+    sign_bit = 11;
+  } else {
+    return false;
+  }
+  *offset = (int32_t)(imm ^ (1u << sign_bit)) - (int32_t)(1u << sign_bit);
+  return true;
+}
+
+/** @brief Accept a RISC-V jump at the application reset vector that lands in application flash. */
 bool board_app_valid(void) {
   const uint32_t first = *(volatile const uint32_t *)(FLASH_BASE + BOARD_FLASH_APP_START);
+  int32_t offset;
   // An erased WCH code-flash word reads E339E339. Accept a RISC-V JAL or
   // compressed jump at the application reset vector, not arbitrary data.
-  return first != 0xe339e339u && first != 0xffffffffu && ((first & 0x7fu) == 0x6fu || (first & 0xe003u) == 0xa001u);
+  if (first == 0xe339e339u || first == 0xffffffffu || !reset_jump_offset(first, &offset)) {
+    return false;
+  }
+  // The reset vector runs from the code-flash alias at 0, where the app spans [APP_START, FLASH_SIZE).
+  return offset >= 0 && (uint32_t)offset < BOARD_FLASH_SIZE - BOARD_FLASH_APP_START;
 }
 
 /** @brief Enter the software interrupt used for machine-mode application startup. */

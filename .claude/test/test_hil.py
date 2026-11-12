@@ -6247,16 +6247,19 @@ class RiscvFixture(unittest.TestCase):
 
 class FakeWch(FakeOpenocd):
   """openocd over a WCH-LinkE: the openocd board's sessions, RV32 registers, 16-bit memory, a `reset run` the
-  next poll logs as a re-examination, and an attach that stops the target's USB until a reset (bench, 2026-11-11)."""
+  next poll logs as a re-examination, and an attach that stops the target's USB until a reset (bench, 2026-11-11).
+  The fixture's a0 advances by `a0_step` only across a running interval, ended by a `halt`; `program` chip-erases
+  (wlink_erase), so no app survives the bootloader HEX."""
 
   def __init__(self):
     super().__init__()
     self.pc, self.a0, self.sp, self.mtvec, self.mem16 = 0, 5, 0, 0, {}
-    self.on_attach = None
+    self.on_attach, self.running, self.a0_step = None, True, 3
 
   def run(self, argv):
     if argv[-2] == '-c':
       self.flashes.append(argv)
+      self.flash = {a: d for a, d in self.flash.items() if a < WCH_FACTS['appStart']}
       return 0, oocd_program()
     lines = Path(argv[-1]).read_text().splitlines()
     self.scripts.append(lines)
@@ -6269,10 +6272,13 @@ class FakeWch(FakeOpenocd):
       if self.fail and self.fail(line):
         return 1, out + f'Error: {line} failed\n'
       result = ''
-      if w[0] == 'reg':
-        regs = {'pc': self.pc, 'a0': self.a0 + 3, 'sp': self.sp, 'mtvec': self.mtvec}
-        if w[1] == 'a0':
-          self.a0 += 3
+      if w[0] == 'halt':
+        self.a0 += self.a0_step if self.running else 0
+        self.running = False
+      elif w[0] == 'resume':
+        self.running = True
+      elif w[0] == 'reg':
+        regs = {'pc': self.pc, 'a0': self.a0, 'sp': self.sp, 'mtvec': self.mtvec}
         result = f'{w[1]} (/32): 0x{regs[w[1]]:08x}'
       elif w[0] == 'mdh':
         a = int(w[1], 16)
@@ -6280,6 +6286,7 @@ class FakeWch(FakeOpenocd):
       elif w[0] == 'mwh':
         self.mem16[int(w[1], 16)] = int(w[2], 16)
       elif w[0] == 'reset':
+        self.running = 'halt' not in w[1:]
         out += 'Error: [wch_riscv.cpu.0] Polling failed, trying to reexamine\n'
         if self.on_reset:
           self.on_reset()
@@ -6370,6 +6377,17 @@ class WchBatteryRun(Tmp):
     self.oocd.pc = self.bat.fix['fault']
     with self.assertRaisesRegex(ht.StepFail, 'not running from the bootloader handoff'):
       self.bat.observe_app(self.tmp / 'app.bin')
+
+  def test_a_fixture_that_does_not_advance_between_samples_fails_app_ran(self):
+    self.bat.run(self.files, 'v1')
+    self.oocd.a0_step = 0   # in its loop but stalled
+    with self.assertRaisesRegex(ht.StepFail, 'not running from the bootloader handoff'):
+      self.bat.observe_app(self.tmp / 'app.bin')
+
+  def test_a_repeat_install_over_an_app_comes_up_in_dfu_by_the_chip_erase(self):
+    self.oocd.flash[self.bat.f['appStart']] = b'\x6f\x00\x00\x00' * 16   # a previous run's app, which would boot
+    self.bat.run(self.files, 'v1')
+    self.assertEqual([x['step'] for x in self.bat.steps if x['pass']], list(ht.STEPS['wch']))
 
   def test_only_a_reset_session_may_log_the_reexamination_and_only_once(self):
     out = 'Error: [wch_riscv.cpu.0] Polling failed, trying to reexamine\nshutdown command invoked\n'
