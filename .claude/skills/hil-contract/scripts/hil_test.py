@@ -4,20 +4,18 @@
   hil_test.py run -b BOARD --build-record FILE CONFIG [--fail-at STEP] [--try-reentry METHOD] [--ci-state-root DIR]
   hil_test.py run -b BOARD --build-record FILE --update-record VARIANT CONFIG [--fail-at STEP]
   hil_test.py install -b BOARD --build-record FILE --under-hold REASON [--try-reentry METHOD] CONFIG
-  hil_test.py restore -b BOARD --build-record FILE (--under-hold REASON [--try-reentry METHOD] | --recover-holder PID --report FILE
-                      | --recover-takeover TOKEN [--report FILE]) CONFIG
+  hil_test.py restore -b BOARD --build-record FILE --under-hold REASON [--report FILE] [--try-reentry METHOD] CONFIG
 
 The last stdout line is JSON. Exit 0 every board passed and was cleaned up, 1 a board failed or did not
-run (cleaned up or never touched), 2 refused before any hardware access, 4 cleanup failed (the board is
-held when `cleanup.heldAfter`; not under HIL_NO_BOARD_LOCK), a manual operation left `survivors`, or a
-`restore` failed after it began writing.
+run (cleaned up or never touched), 2 refused before any hardware access, 4 cleanup failed (the board released
+and the failure logged in its cleanup log) or the board lock did not end as its verdict said, a manual operation left
+`survivors`, or a manual operation failed after it began writing.
 SKILL.md beside this script is the contract; this file is its mechanics.
 """
 import argparse
 import contextlib
 import errno
 import fcntl
-import fnmatch
 import functools
 import hashlib
 import json
@@ -60,8 +58,8 @@ import hil_run_report as run_report  # noqa: E402
 # system memory at 0x0BF80000 stay outside, and its option bytes have no memory address (RM0481 7.4.1).
 # STM32H743ZI: 2 MiB main flash, banks at 0x08000000 and 0x08100000 (RM0433 Rev 8 Table 15); system memory at
 # 0x1FF00000 stays outside, and its option bytes are registers only.
-# MAX32665/6: 1 MiB internal flash at 0x10000000, two 512 KiB blocks (MAX32665/MAX32666 UG Rev 3, 3.3.1); the
-# information block at 0x10800000 stays outside.
+# MAX32665/6 (openocd's max32665, J-Link's MAX32665): 1 MiB internal flash at 0x10000000, two 512 KiB blocks
+# (MAX32665/MAX32666 UG Rev 3, 3.3.1); the information block at 0x10800000 stays outside.
 # ATSAMD51J19: 512 KiB internal flash at 0 (DS60001507N Table 1-2 p18, Figure 8-1 p48); the NVM user page at
 # 0x00804000 stays outside.
 # ch32v4x7 (CH32V407/V467): 992 KiB code flash at 0, its first 512 KiB the zero-wait region with RAM_CODE_MOD clear,
@@ -71,7 +69,8 @@ FLASH_LIMITS = {'LPC55S69_M33_0': (0, 0x9D800), 'MIMXRT1062xxx6A': (0x60000000, 
                 'stm32f303vc': (0x08000000, 0x08040000), 'stm32f407vg': (0x08000000, 0x08100000),
                 'stm32f411ve': (0x08000000, 0x08080000), 'stm32h563zi': (0x08000000, 0x08200000),
                 'stm32h743zi': (0x08000000, 0x08200000), 'max32665': (0x10000000, 0x10100000),
-                'ATSAMD51J19': (0, 0x80000), 'ch32v4x7': (0, 0x80000)}
+                'MAX32665': (0x10000000, 0x10100000), 'ATSAMD51J19': (0, 0x80000),
+                'ch32v4x7': (0, 0x80000)}
 # by a board's kind, its firmware and battery: a J-Link, ST-LINK or openocd Cortex-M board, or an Espressif one whatever
 # transport installs it (board['flasher'])
 STEPS = {'jlink': ('install', 'dfu', 'copy', 'app-ran', 'reenter')}
@@ -92,8 +91,6 @@ OPENOCD_ESP = 'skills/hil/scripts/hil_openocd_esp.py'   # an Espressif board's J
 BOARD_REGISTRY = 'skills/hil/scripts/hil_boards.py'   # each roster board's flasher, by its probe
 OPENOCD_TIMEOUT = 300   # s for one openocd_esp flash: every segment programmed, verified and read back
 CMSIS_DAP_TIMEOUT = 300   # s for one CMSIS-DAP program at the max32665 cfg's 100 kHz (untimed on the rig)
-HOLDER_ROLE = 'cleanup-holder'
-LOCK_POLL = 15   # s between tries at a held board within run's --lock-wait
 SCB_VTOR, SCB_AIRCR = 0xE000ED08, 0xE000ED0C
 AIRCR_SYSRESETREQ = 0x05FA0004
 UF2_MAGIC = (0x0A324655, 0x9E5D5157, 0x0AB16F30)
@@ -267,8 +264,9 @@ def select_route(board, route, run=False):
 
 
 def refuse_openocd(route):
-  """The provider's refusal of an openocd_esp session, or of board access preparing one; this runner keeps the board
-  lock through a session left pending (its cleanup holder), so it declares retains_lock."""
+  """The provider's refusal of an openocd_esp session, or of board access preparing one; this runner holds the board
+  lock through each operation and logs a session left pending in the board's cleanup log (end_board, or a manual
+  operation's log_failure), so it declares retains_lock."""
   if route == 'openocd_esp' and (why := openocd_esp().refusal(retains_lock=True)):
     raise Refused(why)
 
@@ -641,16 +639,15 @@ def still_alive(survivors):
 
 
 class CleanupPending(StepFail):
-  """A flash left a child or an openocd_esp session running: no session may follow or overlap it, and the board and
-  build locks stay held until it ends (a session: until recovery ends it by its receipt)."""
+  """A flash left a child or an openocd_esp session running: no session may follow or overlap it, its build lock stays
+  held until it ends, and the board's cleanup fails (a session: until recovery ends it by its receipt)."""
 
 
 OPENOCD_SESSIONS = 'hil_openocd_esp_*/receipt.json'   # flash_openocd_esp's session dirs under the run dir
 PROTECTED_SESSIONS = []   # every receipt an openocd_esp operation of this process returned, by path or record
-# the board's pending-session record, <lock>.tinyuf2-openocd-pending.json beside its lock (hil_lock.PendingSessions):
-# sessions no later invocation may overlap
+# an older tinyuf2's pending mark, <lock>.tinyuf2-openocd-pending.json beside its lock (hil_lock.PendingSessions): no
+# longer written, its sessions migrated to the board's cleanup log (legacy_pending)
 PENDING_KIND = 'tinyuf2-openocd'
-MARK_ERRORS = []   # every failure to write the mark this process met, for the report
 
 
 def session_entry(receipt):
@@ -707,27 +704,14 @@ def outstanding_sessions(workdir):
 
 
 def pending_mark(helper, lock):
-  """A board's pending mark, the lock helper's pending-session record of this runner's openocd_esp sessions."""
+  """A board's legacy pending mark, the lock helper's pending-session record an older tinyuf2 kept of its openocd_esp
+  sessions."""
   return helper.PendingSessions(lock, PENDING_KIND)
 
 
-def mark_pending(mark, sessions):
-  """Record sessions not ended beside the board's lock, so another invocation, in another run dir, refuses too.
-  Never raises: a failure, an unreadable mark included (kept as it is), is returned and kept in MARK_ERRORS for the
-  report, and the caller's survivor reporting and lock ownership go on as without a mark."""
-  if not mark or not sessions:
-    return None
-  try:
-    mark.add(sessions)
-    return None
-  except Exception as e:   # PendingRefused (unreadable), ValueError (a malformed session) or OSError
-    err = f'the pending mark {mark} could not be written: {type(e).__name__}: {e}'
-    MARK_ERRORS.append(err)
-    return err
-
-
 def clear_pending_mark(mark, note=None, hold=None):
-  """Remove the mark once every session it lists reads ended (as `hil_openocd_esp.py end` leaves its receipt), or,
+  """`clear-pending`, legacy maintenance: remove the mark once every session it lists reads ended (as
+  `hil_openocd_esp.py end` leaves its receipt), or,
   given the note of a separately reviewed recovery, whatever it holds, the note and `hold` logged first. Refuses
   otherwise, naming the receipts. Returns what was cleared."""
   ended = lambda e: session_state(e) == 'ended'   # noqa: E731
@@ -740,27 +724,12 @@ def clear_pending_mark(mark, note=None, hold=None):
     raise Refused(f'the pending mark {mark} could not be checked: {e}') from None
 
 
-def reviewed_receipts(mark):
-  """Every receipt a reviewed recovery's clear-pending recorded in the mark's cleared log: the mark's sessions and the
-  survivors of the cleanup holder it proved."""
-  try:
-    entries = mark.cleared()
-  except OSError as e:
-    raise Refused(f'the cleared log of {mark} could not be read: {e}') from None
-  found = []
-  for x in entries:
-    with contextlib.suppress(TypeError, AttributeError):
-      found += [e['receipt'] for e in (x.get('sessions') or []) + ((x.get('hold') or {}).get('survivors') or [])
-                if isinstance(e, dict) and 'receipt' in e]
-  return found
-
-
-def refuse_pending(workdir, mark=None):
+def refuse_pending(workdir):
+  """Refuse any session while one of this run's openocd_esp sessions is not ended."""
   left = outstanding_sessions(workdir)
-  err = mark_pending(mark, left)
   if left:
     raise CleanupPending(f'openocd_esp session {[s["receipt"] for s in left]} is still running: cleanup pending, no '
-                         'session may overlap it', {'survivors': left, **({'markError': err} if err else {})})
+                         'session may overlap it', {'survivors': left})
 
 
 # ------------------------------------------------------------------ the flash provider
@@ -768,13 +737,13 @@ def refuse_pending(workdir, mark=None):
 PROVIDER = []   # the one hil_flash module this process loads (provider())
 PROVIDER_API = ('flash_jlink', 'flash_stlink', 'flash_openocd', 'run_jlink_commands', 'run_stlink_commands',
                 'run_openocd_commands', 'sysresetreq_jlink', 'sysresetreq_stlink', 'sysresetreq_openocd', 'esptool_problem',
-                'Operation', 'Attempt')
+                'Operation', 'Attempt', 'probe_users', 'ProbeCheckInconclusive')
 OPENOCD = []    # and its openocd_esp module (openocd_esp())
-OPENOCD_API = ('admit', 'find_openocd', 'usj_tty', 'usj_node', 'session_state', 'security_evidence', 'admit_security',
+OPENOCD_API = ('admit', 'find_openocd', 'usj_tty', 'session_state', 'security_evidence', 'admit_security',
                'SECURITY_CHIPS', 'flash_openocd_esp', 'refusal')
 OBSERVE = []    # and its bounded USB observation (usb_observe())
 REGISTRY = []   # and agentrc's board registry (board_registry())
-OBSERVE_API = ('usb_devices', 'usb_node_serial', 'udev_serial', 'read_sysfs', 'enumeration_id')
+OBSERVE_API = ('usb_scan', 'usb_absent')
 USB_OBSERVE = 'skills/hil/scripts/usb_observe.py'
 CORE = []       # and the report core (report_core())
 CORE_API = ('BodySchema', 'READABLE', 'ReportError', 'read_document', 'start_attempt', 'make_meta', 'publish', 'table',
@@ -898,6 +867,11 @@ def judged(op, judge, before, what, timeout):
 BUILD_LOCK_WAIT = 2   # s a flash waits for a build dir's lock: a keeper (keep_build_lock) polls every KEEPER_POLL
 KEEPER_POLL = 1
 HELD_BUILD = []   # (lock file, survivors) this process keeps itself when no keeper could start
+# the GitHub Actions runner kills every process whose environment carries the job's tracking id when the job
+# ends (actions/runner JobExtension.FinalizeJob), so a keeper forked under it would free a build dir a survivor may
+# still read: the keeper re-executes itself without that variable
+JOB_TRACKING = 'RUNNER_TRACKING_ID'
+HOLDER_SCRIPT = Path(__file__).resolve()
 
 
 def take_build_lock(root):
@@ -938,8 +912,8 @@ def settle_children(started=()):
 
 def keep_build_lock(fh, survivors):
   """Hand a build dir's lock to a detached keeper while processes that may still read the tree survive (#579): it
-  shares the open file description, re-executes itself as `keep-build` without the job tracking variable (as
-  exec_holder), ignores SIGTERM and SIGINT, and exits, releasing the lock, once none of `survivors` lives. Its
+  shares the open file description, re-executes itself as `keep-build` without the job tracking variable (JOB_TRACKING),
+  ignores SIGTERM and SIGINT, and exits, releasing the lock, once none of `survivors` lives. Its
   acknowledgement comes only once it runs; without one this process keeps the lock and waits for them before it
   exits (main)."""
   try:
@@ -985,15 +959,45 @@ def release_ended_builds():
   return HELD_BUILD
 
 
-def keep_build(survivors):
-  """The keeper's wait (keep_build_lock): its stdio closed, it polls until no survivor lives, then exits, which
-  releases the lock it inherited."""
+def close_stdio():
   for std in (0, 1, 2):
     with contextlib.suppress(OSError):
       os.close(std)
+
+
+def keep_out_of_job(code):
+  """Re-execute this process, which keeps build locks itself (HELD_BUILD) under a CI job, in place as their
+  `keep-build` keeper without the job tracking variable (JOB_TRACKING), so the job's end cannot free them while a
+  survivor lives; it exits `code` once none does. Returns only when it could not, its reason on stderr."""
+  if not os.access(HOLDER_SCRIPT, os.R_OK):   # an exec that cannot start the keeper would drop the locks now
+    print(f'cannot re-execute {HOLDER_SCRIPT} as the build locks\' keeper; they may end with the CI job',
+          file=sys.stderr, flush=True)
+    return
+  old = {sig: signal.signal(sig, signal.SIG_IGN) for sig in TERM_SIGNALS}
+  try:
+    with contextlib.suppress(OSError):   # a process group leader keeps its session
+      os.setsid()
+    ack = os.open(os.devnull, os.O_WRONLY)   # nobody waits for its acknowledgement
+    for fd in [fh.fileno() for fh, _ in HELD_BUILD] + [ack]:
+      os.set_inheritable(fd, True)
+    env = {k: v for k, v in os.environ.items() if k != JOB_TRACKING}
+    os.execve(sys.executable, [sys.executable, '-B', str(HOLDER_SCRIPT), 'keep-build', '--exit', str(code),
+                               str(HELD_BUILD[0][0].fileno()), str(ack),
+                               json.dumps([s for _, left in HELD_BUILD for s in left])], env)
+  except OSError as e:
+    for sig, handler in old.items():
+      signal.signal(sig, handler)
+    print(f'cannot re-execute as the build locks\' keeper ({e}); they may end with the CI job', file=sys.stderr,
+          flush=True)
+
+
+def keep_build(survivors, code=0):
+  """The keeper's wait (keep_build_lock): its stdio closed, it polls until no survivor lives, then exits `code`, which
+  releases the lock it inherited."""
+  close_stdio()
   while still_alive(survivors):
     time.sleep(KEEPER_POLL)
-  os._exit(0)
+  os._exit(code)
 
 
 # ------------------------------------------------------------------ probe
@@ -1244,7 +1248,7 @@ class Esptool:
     self.b, self.dir, self.log = board, workdir, log
 
   def run(self, ops, after):
-    refuse_pending(self.dir, self.b.get('pendingMark'))
+    refuse_pending(self.dir)
     spec = self.dir / f'esp-{time.monotonic_ns()}.json'
     spec.write_text(json.dumps(ops))
     return child_json([esptool_runtime()['python'], '-B', child_path(ESP_SESSION), '--port',
@@ -1293,7 +1297,8 @@ def report_snapshot(row, keep):
   the writes), so a touched row without them is refused, never recovered blind."""
   ev = row.get('snapshot') or {}
   regions, md5 = ev.get('preservedRegions'), ev.get('preserved')
-  if regions is None and md5 is None and (row.get('cleanup') or {}).get('state') == 'untouched':
+  never_ran = row.get('ran') is False and row.get('cleanup') is None   # a setup refusal: the battery never started
+  if regions is None and md5 is None and (never_ran or (row.get('cleanup') or {}).get('state') == 'untouched'):
     return None
   if regions is None or md5 is None:
     raise Refused('the failed run touched the board but its report has no preserved-region snapshot to check')
@@ -1320,17 +1325,18 @@ def regs(out):
 # ------------------------------------------------------------------ USB mass storage
 
 def usb_device(vid, pid, serial):
-  hits = []
-  for d in Path('/sys/bus/usb/devices').iterdir():
-    try:
-      if (int((d / 'idVendor').read_text(), 16), int((d / 'idProduct').read_text(), 16)) == (vid, pid) and \
-         (d / 'serial').read_text().strip() == serial:
-        hits.append(d.name)
-    except OSError:
-      continue
+  """The bus-port of the one enumerated device with this VID, PID and serial (usb_scan: case aside, each serial read
+  bounded), None while none reads so: a presence check only, never proof of absence (usb_absent)."""
+  hits = [d['busport'] for d in usb_observe().usb_scan((f'{vid:04x}', f'{pid:04x}'), serial)]
   if len(hits) > 1:
     raise StepFail(f'{len(hits)} USB devices with {vid:04x}:{pid:04x} serial {serial}: {hits}')
   return hits[0] if hits else None
+
+
+def usb_absent(vid, pid, serial):
+  """Whether no device with this VID, PID and serial is enumerated. One of the VID:PID whose serial is missing,
+  unreadable, timed out or read across a re-enumeration counts as present: it may be the one sought."""
+  return usb_observe().usb_absent((f'{vid:04x}', f'{pid:04x}'), serial)
 
 
 def block_device(usb_path):
@@ -1570,32 +1576,26 @@ def fat_read(dev, name, length, log, offset=0, timeout=USB_TIMEOUT):
 
 
 def clear_pending_main(args):
-  """`clear-pending`: remove a board's pending mark once each session it lists is ended, or after a separately
-  reviewed recovery whose note is recorded (SKILL.md Recovery). Exit 0 cleared or none, 2 refused."""
-  note, recovery = args.after_reviewed_recovery, None
+  """`clear-pending`, legacy maintenance: remove the pending mark an older tinyuf2 left once each session it lists is
+  ended, or after a separately reviewed recovery whose note is recorded (SKILL.md Recovery). Exit 0 cleared or none, 2
+  refused."""
+  note = args.after_reviewed_recovery
   try:
     if note is not None and not note.strip():
       raise Refused('--after-reviewed-recovery needs the note of the reviewed recovery')
-    if note is not None and (args.under_hold is None) == (args.recover_holder is None):
-      raise Refused("--after-reviewed-recovery needs proof of the board's hold: --under-hold <reason> or "
-                    '--recover-holder <cleanup holder pid>')
+    if note is not None and args.under_hold is None:
+      raise Refused("--after-reviewed-recovery needs proof of the board's hold: --under-hold <reason>")
     lock = load_board(args.config, args.board)['lock']
     helper = load_helper()
-    hold = None
-    if note is not None:   # the note alone proves nothing: the board's existing hold does, never a new flock
-      recovery = recovery_lock(helper, lock)
-      if args.recover_holder is not None:
-        hold = prove_cleanup_holder(helper, lock, args.recover_holder)
-      else:
+    if note is None:
+      cleared = clear_pending_mark(pending_mark(helper, lock), None, None)
+    else:   # the note alone proves nothing: the board's existing hold does, never a new flock
+      with session_mutex(helper, lock):
         manual_holder(helper, lock, args.under_hold)
-        hold = helper.read_record(lock)
-    cleared = clear_pending_mark(pending_mark(helper, lock), note, hold)
+        cleared = clear_pending_mark(pending_mark(helper, lock), note, helper.read_record(lock))
   except Refused as e:
     print(json.dumps({'pass': False, 'error': str(e)}), flush=True)
     return 2
-  finally:
-    if recovery:
-      recovery.close()
   print(json.dumps({'pass': True, 'cleared': cleared}), flush=True)
   return 0
 
@@ -1682,19 +1682,22 @@ def agentrc_mismatch(recorded):
   return agentrc.helper().mismatch(recorded, agentrc.identity())
 
 
+# what the runner calls of the lock helper (agentrc `hil`, Board locks): the board's task, its cleanup log, a manual
+# hold's proof and an older tinyuf2's pending mark
+LOCK_API = ('board_task', 'session_mutex', 'log_cleanup_failure', 'open_cleanup_failures', 'failure_report',
+            'resolve_restored', 'read_record', 'lock_path', 'flock_nb', 'PendingSessions')
+
+
 def load_helper():
   mod = load_agentrc(LOCK_HELPER, 'hil_lock', (), 'lock helper')
-  errors = [getattr(mod, e, None) for e in ('LockUnavailable', 'RecoveryBlocked', 'ReleaseRefused')]
+  errors = [getattr(mod, e, None) for e in ('LockUnavailable', 'BoardLocked', 'RecoveryBlocked', 'BoardBusy',
+                                            'SessionBusy', 'PendingRefused')]
   if getattr(mod, 'PROTECTED_REASONS', None) != PROTECTED or getattr(mod, 'CI_REASON', None) != 'hil_test.py' or \
-     getattr(mod, 'CLEANUP_ROLE', None) != HOLDER_ROLE or not isinstance(getattr(mod, 'HOLD_KIND', None), str) or \
      not all(isinstance(e, type) and issubclass(e, RuntimeError) for e in errors) or \
-     not (isinstance(getattr(mod, 'PendingRefused', None), type) and issubclass(mod.PendingRefused, RuntimeError)) or \
-     not all(callable(getattr(mod, f, None)) for f in ('PendingSessions', 'takeover_predecessor', 'release_token',
-                                                        'write_record', 'proc_start', 'is_recovery_blocker')):
+     not all(callable(getattr(mod, f, None)) for f in LOCK_API):
     raise Refused(f'lock helper {LOCK_HELPER}: protected reasons are not {sorted(PROTECTED)}, its CI reason is not '
-                  f"'hil_test.py', its cleanup role is not {HOLDER_ROLE!r}, it has no LockUnavailable, RecoveryBlocked or "
-                  'ReleaseRefused, no pending-session record, no takeover journal, hold kind and token release, or no '
-                  'recovery-blocker check; recheck this contract')
+                  "'hil_test.py', it has no LockUnavailable, BoardLocked, RecoveryBlocked, BoardBusy, SessionBusy or "
+                  f'PendingRefused, or one of {list(LOCK_API)} is not callable; recheck this contract')
   return mod
 
 
@@ -1719,24 +1722,14 @@ def holds_flock(pid, lock_file):
   return False
 
 
-def flock_free(lock_file):
-  """No FLOCK on the lock file's inode in /proc/locks. A holder's fd goes before the kernel's deferred
-  release of its lock, so recovery waits on this rather than on the holder's fds, without probing."""
-  st = os.stat(lock_file)
-  dev = f'{os.major(st.st_dev):02x}:{os.minor(st.st_dev):02x}:{st.st_ino}'
-  return not any(' FLOCK ' in l and l.split()[5] == dev for l in Path('/proc/locks').read_text().splitlines())
-
-
-def prove_hold(helper, board, pid, reason=None, role=None):
+def prove_hold(helper, board, pid, reason):
   """Refuse unless `pid` really holds the board's flock under the expected record."""
   path = helper.lock_path(board)
   rec = helper.read_record(board)
   if not isinstance(rec, dict) or rec.get('pid') != pid:
     raise Refused(f'{board}: lock record {rec} does not name pid {pid}')
-  if reason is not None and rec.get('reason') != reason:
+  if rec.get('reason') != reason:
     raise Refused(f'{board}: held for {rec.get("reason")!r}, not {reason!r}')
-  if role is not None and rec.get('role') != role:
-    raise Refused(f'{board}: holder role {rec.get("role")!r}, not {role!r}')
   try:
     os.kill(pid, 0)
   except OSError:
@@ -1751,47 +1744,6 @@ def prove_hold(helper, board, pid, reason=None, role=None):
   raise Refused(f'{board}: the flock on {path} is free')
 
 
-def recovery_lock(helper, board):
-  """An exclusive flock on `<lock file>.recover`, kept until the caller drops it: one recovery per board, so
-  none releases the holder while another is still between its probe sessions. The lock helper lists `*.lock`
-  only, so it never reports this file as a holder."""
-  path = helper.lock_path(board) + '.recover'
-  flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
-  try:
-    try:   # existing first: fs.protected_regular refuses O_CREAT on another account's file in the sticky lock dir
-      fd = os.open(path, flags)
-    except FileNotFoundError:
-      try:
-        fd = os.open(path, flags | os.O_CREAT | os.O_EXCL, 0o666)
-        try:
-          os.fchmod(fd, 0o666)   # whatever the umask, so the other account can open it
-        except OSError:
-          os.close(fd)
-          raise
-      except FileExistsError:
-        fd = os.open(path, flags)
-    fh = os.fdopen(fd)
-  except OSError as e:
-    raise Refused(f'cannot open {path}: {e}')
-  try:
-    fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-  except OSError as e:
-    fh.close()
-    raise Refused(f'{board}: another recovery holds {path}: {e}')
-  return fh
-
-
-def prove_cleanup_holder(helper, board, pid):
-  rec = prove_hold(helper, board, pid, reason='hil_test.py', role=HOLDER_ROLE)
-  try:
-    cmdline = Path(f'/proc/{pid}/cmdline').read_bytes()
-  except OSError as e:
-    raise Refused(f'pid {pid}: {e}') from None
-  if b'hil_test.py' not in cmdline:
-    raise Refused(f'pid {pid} is not a hil_test.py cleanup holder')
-  return rec
-
-
 def manual_holder(helper, board, reason):
   if reason in PROTECTED:
     raise Refused(f'{reason!r} is a protected holder; --under-hold takes the reason of your own manual hold')
@@ -1802,81 +1754,8 @@ def manual_holder(helper, board, reason):
   prove_hold(helper, board, pid, reason=reason)
 
 
-def takeover_predecessor(helper, board, token):
-  """The battery record that `token`'s live takeover holder replaced (`hil_lock.py hold --take-over`), from the
-  board's journal chain: refused unless the holder is proven and that record is this runner's, a battery's
-  protected record or its cleanup holder's, left on this board alone."""
-  rec = helper.read_record(board)
-  if not isinstance(rec, dict) or rec.get('token') != token or rec.get('holder') != helper.HOLD_KIND:
-    raise Refused(f'{board}: lock record {rec} is not the takeover holder of token {token}')
-  if rec.get('locks') != [board]:
-    raise Refused(f'{board}: takeover {token} covers {rec.get("locks")}, not this board alone')
-  prove_hold(helper, board, rec.get('pid'), role=HOLDER_ROLE)
-  if helper.proc_start(rec['pid']) != rec.get('start'):
-    raise Refused(f'{board}: pid {rec["pid"]} is not the takeover holder that wrote the record')
-  try:   # the oldest journal's: a takeover of a dead taker names the original holder
-    _, pred = helper.takeover_predecessor(board, token)
-  except LookupError as e:
-    raise Refused(f'{board}: {e}: the record it replaced is unknown') from None
-  if not isinstance(pred, dict) or pred.get('reason') != 'hil_test.py' or \
-     not helper.is_recovery_blocker(pred) or \
-     pred.get('role') == HOLDER_ROLE and pred.get('board') != board:
-    raise Refused(f'{board}: the takeover replaced {pred!r}, not a battery record of this runner on {board}: recover '
-                  'it by hand')
-  return pred
-
-
-def run_dir_sessions(run_dir):
-  """The openocd_esp sessions a dead battery's run dir holds (OPENOCD_SESSIONS), every listing's error raised: a
-  run dir or session dir that cannot be listed, a session dir without its receipt or a receipt that cannot be read
-  hides what the battery left."""
-  pattern, receipt = OPENOCD_SESSIONS.split('/')
-  found = []
-  for name in sorted(os.listdir(run_dir)):
-    if fnmatch.fnmatchcase(name, pattern):
-      path = Path(run_dir) / name
-      if receipt not in os.listdir(path):
-        raise OSError(errno.ENOENT, f'{path} holds no {receipt}')
-      found.append(session_entry(path / receipt))
-  return found
-
-
-def predecessor_evidence(pred, reported, reviewed):
-  """What a battery that died left on the host: a cleanup holder's survivors, from its record and its report's row
-  (`reported`), or a protected record's run dir with its openocd_esp receipts. Refused while any lives or is not
-  ended, and when the record names neither or its run dir cannot be read: missing evidence keeps the blocker."""
-  if pred.get('role') == HOLDER_ROLE:
-    survivors = pred.get('survivors')
-    survivors = survivors + reported if isinstance(survivors, list) else None
-  elif isinstance(pred.get('runDir'), str):
-    try:
-      survivors = run_dir_sessions(pred['runDir'])
-    except OSError as e:
-      raise Refused(f"the dead battery's run dir {pred['runDir']} cannot be read: {e}; what it left is unknown")
-  else:
-    survivors = None
-  if not isinstance(survivors, list):
-    raise Refused(f'the replaced record {pred} names neither survivors nor a run dir: what the battery left is unknown')
-  refuse_live(survivors, reviewed, "the dead battery's")
-  return survivors
-
-
-def refuse_live(survivors, reviewed, whose):
-  """Refused while any of `whose` openocd_esp sessions is not ended, outside the `reviewed` receipts, or any of its
-  children lives: recovery never overlaps them."""
-  pending = [s['receipt'] for s in survivors
-             if 'receipt' in s and session_state(s) != 'ended' and s['receipt'] not in reviewed]
-  if pending:
-    raise Refused(f'{whose} openocd_esp sessions {pending} are not ended: end each with '
-                  '`hil_openocd_esp.py end --receipt <receipt>`, or clear-pending after a separately reviewed '
-                  'recovery (SKILL.md Recovery)')
-  alive = still_alive(survivors)
-  if alive:
-    raise Refused(f'{whose} children {alive} are still alive; recovery may not overlap them')
-
-
 def read_report(report):
-  """A failed run's hil_report.json, read through the report core before any recovery lock or probe: a legacy one
+  """A failed run's hil_report.json, read through the report core before any session mutex or probe: a legacy one
   (no `_hil`) by this runner's adapter; a missing or corrupt one, or an unknown `_hil` or body version, is refused."""
   core = report_core()
   reading = core.read_document(report, run_report.schema(core))
@@ -1885,205 +1764,117 @@ def read_report(report):
   return reading.body
 
 
-def failed_row(body, report, board, holder):
-  """The row of `body` (read_report of `report`) whose cleanup holder is pid `holder` on `board`."""
-  failed = [x for x in body['results'] if isinstance(x.get('cleanup'), dict) and
-            ((x['cleanup'].get('holder') or {}).get('pid') == holder and x.get('board') == board['name'])]
-  if len(failed) != 1:
-    raise Refused(f'{report} names no cleanup holder {holder} of {board["name"]}')
-  return failed[0]
+def failed_row(body, report, board):
+  """The one row of `body` (read_report of `report`) for `board` whose cleanup did not pass or whose lock did not end
+  cleanly (exit 4 either way): the failed run's."""
+  def failed(x, key, field):
+    return isinstance(x.get(key), dict) and x[key].get(field) is False
+  rows = [x for x in body['results'] if (failed(x, 'cleanup', 'pass') or failed(x, 'lock', 'endedCleanly'))
+          and x.get('board') == board['name']]
+  if len(rows) != 1:
+    raise Refused(f'{report} names {len(rows)} rows of {board["name"]} whose cleanup failed or lock did not end '
+                  'cleanly, not one')
+  return rows[0]
 
 
-def probe_users(board):
-  """Processes using this board's probe: for J-Link one opened by serial (a JLinkExe or GDB server from an
-  earlier session), for ST-LINK any STM32CubeProgrammer CLI (its script names the probe, not its command line), for
-  openocd any holding the CMSIS-DAP probe's usbfs node open and any openocd naming its serial, which may not have
-  opened it yet, for esptool any process holding its tty open, for openocd_esp or an esptool USJ also any holding
-  the USJ's usbfs node. Devices are resolved first, then one /proc walk."""
-  if board['flasher'] in ('esptool', 'openocd_esp'):
-    usj = board['flasher'] == 'openocd_esp' or cb.USJ_SERIAL.fullmatch(board['probe'])
-    devs = [esp_port(board['probe'])] + ([usj_node(board['probe'])] if usj else [])
-    return tty_users(*devs)
-  node = probe_node(board) if board['flasher'] == 'openocd' else None
-  probe, users = board['probe'].encode(), []
-  for d in Path('/proc').iterdir():
-    if not d.name.isdigit() or int(d.name) == os.getpid():
-      continue
-    try:   # bytes: an argument need not decode, and must still name the probe
-      cmd = (d / 'cmdline').read_bytes().split(b'\0')
-    except OSError:
-      cmd = [b'']
-    name = Path(cmd[0].decode(errors='replace')).name
-    if board['flasher'] == 'stlink' and name == STM32_PROGRAMMER_CLI or \
-       board['flasher'] == 'jlink' and b'JLink' in cmd[0] and any(probe in c for c in cmd) or \
-       board['flasher'] == 'openocd' and (name == 'openocd' and any(probe in c for c in cmd) or
-                                          node is not None and holds_open(d, (node,))):
-      users.append(int(d.name))
-  return users
+# ------------------------------------------------------------------ board admission
+
+class InUse(Refused):
+  """The board is in use: a process on its probe (probe_busy), or a session an older tinyuf2 left still runs
+  (legacy_pending). `fields` for the row, `found` the open failures read meanwhile."""
+  def __init__(self, msg, found, **fields):
+    super().__init__(msg)
+    self.found, self.fields = found, fields
 
 
-PROBE_SERIAL_TIMEOUT = 2   # s for one bounded `serial` read of a device of the probe's USB ID that udev has no record of
+def flasher_of(board):
+  """The board's roster flasher as agentrc's flash provider names it: its probe serial, an openocd probe's vid_pid."""
+  return {'name': board['flasher'], 'uid': board['probe'],
+          **({'vid_pid': board['entry']['vid_pid']} if board['flasher'] == 'openocd' else {})}
 
 
-def probe_node(board):
-  """The usbfs node of the CMSIS-DAP probe with the roster's serial and USB ID, or None when none is enumerated. Each
-  device of that USB ID is named by udev's record, else a bounded read of `serial`, which the kernel serves under the
-  device lock a stuck usbfs ioctl holds (usb_observe): a peer whose serial does not answer is a StepFail unless this
-  probe was found, since it may be this probe. A device that re-enumerated while it was named may have handed its
-  bus and device number to another: the walk runs once more, and a second change is a StepFail."""
-  for _ in range(2):
-    node, moved = probe_scan(board)
-    if not moved:
-      return node
-  raise StepFail(f'probe {board["probe"]}: {moved} re-enumerated while their serial was read, in two walks')
-
-
-def probe_scan(board):
-  """One walk of probe_node: (the node, the devices whose enumeration changed across their serial's lookup)."""
-  obs, (vid, pid) = usb_observe(), (x.removeprefix('0x').lower() for x in board['entry']['vid_pid'].split())
-  mine, silent, moved = [], [], []
-  for dev in obs.usb_devices(vid_pid=(vid, pid)):
-    bus, num = dev['busnum'], dev['devnum']
-    # without its numbers a device is named through its directory, still refused below when its serial matches
-    sn = obs.usb_node_serial(usbfs_node(bus, num), PROBE_SERIAL_TIMEOUT) if None not in (bus, num) else \
-        obs.read_sysfs(os.path.join(dev['dir'], 'serial'), PROBE_SERIAL_TIMEOUT)
-    if obs.enumeration_id(dev['dir']) != dev['ino']:   # the serial, or the numbers it was found by, may be another's
-      moved.append(dev['busport'])
-    elif sn is None:
-      silent.append(dev['busport'])
-    elif sn.lower() == board['probe'].lower():
-      mine.append(dev)
-  if moved:
-    return None, moved
-  if len(mine) > 1 or not mine and silent:
-    raise StepFail(f'probe {board["probe"]}: {len(mine)} devices {vid}:{pid} with its serial, and {silent} did not '
-                   'answer for theirs')
-  if mine and None in (mine[0]['busnum'], mine[0]['devnum']):
-    raise StepFail(f'probe {board["probe"]} at {mine[0]["busport"]}: no bus or device number')
-  return usbfs_node(mine[0]['busnum'], mine[0]['devnum']) if mine else None, []
-
-
-def usbfs_node(bus, num):
-  return f'/dev/bus/usb/{bus:03d}/{num:03d}'
-
-
-def usj_node(serial):
-  """The USJ's usbfs node, which an openocd from an earlier session holds open, the provider's (usj_node)."""
+def probe_busy(board):
+  """The busy check of a board's task (`hil` Board locks): the processes agentrc's hil_flash.probe_users sees using the
+  board's probe, [{pid, cmd}] (any STM32_Programmer_CLI for an ST-LINK board, by agentrc's rule); a StepFail when the
+  check cannot decide."""
   try:
-    return openocd_esp().usj_node(serial)
-  except (RuntimeError, OSError) as e:
-    raise StepFail(f'USJ {serial}: {e}')
+    return provider().probe_users(flasher_of(board))
+  except (provider().ProbeCheckInconclusive, ValueError) as e:
+    raise StepFail(str(e)) from None
 
 
-def tty_users(*devs):
-  """Processes holding any of `devs` open, each once."""
-  return [int(d.name) for d in Path('/proc').iterdir()
-          if d.name.isdigit() and int(d.name) != os.getpid() and holds_open(d, devs)]
+def probe_in_use(board, users):
+  return f'probe {board["probe"]} is still in use by pids {users}; no session may overlap them'
 
 
-def holds_open(proc, devs):
-  """Whether the /proc/<pid> `proc` holds any of `devs` open; False once its fds cannot be listed."""
-  try:
-    return any(readlink(fd) in devs for fd in list((proc / 'fd').iterdir()))
-  except OSError:
-    return False
-
-
-def readlink(fd):
-  """A /proc fd's target, or None once it has closed: one closing fd must not hide the process's others."""
-  try:
-    return os.readlink(fd)
-  except OSError:
-    return None
-
-
-def holder_record(helper, fh, board, detail, survivors):
-  """The cleanup holder's record over the battery's, through the helper's interruption-safe rewrite: a death
-  midway leaves the protected record or an unreadable one, a recovery blocker either way, never an empty one."""
-  helper.write_record(fh, 'hil_test.py', role=HOLDER_ROLE, board=board, detail=detail, survivors=survivors)
-
-
-HELD_IN_PROCESS = []
-# the GitHub Actions runner kills every process whose environment carries the job's tracking id when the job
-# ends (actions/runner JobExtension.FinalizeJob), so a holder forked under it would free a board that was
-# never cleaned up: the holder re-executes itself without that variable
-JOB_TRACKING = 'RUNNER_TRACKING_ID'
-HOLDER_SCRIPT = Path(__file__).resolve()
-
-
-def exec_holder(fh, ack):
-  """Replace this process with `hil_test.py keep-held <fd> <ack>`: the same open file description (and its
-  flock) and the acknowledgement pipe passed on, the job tracking variable dropped. The replacement
-  acknowledges only once it runs, so a holder that dies at startup is never acknowledged. Returns only
-  when the exec itself fails, to keep holding in this process."""
-  for fd in (fh.fileno(), ack):
-    os.set_inheritable(fd, True)
-  env = {k: v for k, v in os.environ.items() if k != JOB_TRACKING}
-  with contextlib.suppress(OSError):
-    os.execve(sys.executable, [sys.executable, str(HOLDER_SCRIPT), 'keep-held', str(fh.fileno()), str(ack)], env)
-
-
-def keep_held(fh):
-  """Hold until recovery's SIGUSR1, taken by sigwait with SIGUSR1 blocked since hand_off: a handler and
-  pause() lose a signal that lands between the interpreter's check and the syscall. SIGTERM and SIGINT
-  are ignored: an operator's timeout kill must not free a board that was never cleaned up. Meanwhile each build lock
-  this process kept (HELD_BUILD) is released once its survivors end, as restore() needs it before recovery signals."""
-  for sig in (signal.SIGTERM, signal.SIGINT):
-    signal.signal(sig, signal.SIG_IGN)
-  signal.pthread_sigmask(signal.SIG_SETMASK, {signal.SIGUSR1})
-  for std in (0, 1, 2):   # closed, not reopened on /dev/null: holding must not need a free descriptor
-    with contextlib.suppress(OSError):
-      os.close(std)
-  signalled = False
-  with contextlib.suppress(Exception):   # a failed look keeps the build locks, never frees the board
-    while not signalled and release_ended_builds():
-      signalled = signal.sigtimedwait({signal.SIGUSR1}, KEEPER_POLL) is not None
-  if not signalled:
-    signal.sigwait({signal.SIGUSR1})
-  fh.truncate(0)
-  os._exit(0)
-
-
-def hand_off(fh, board, detail, survivors=(), *, helper):
-  """Keep the board held after a failed cleanup, by a forked holder that shares the open file
-  description, so the flock is never dropped, and keeps none of the caller's stdio, so the caller's
-  wait ends with this process. When no holder starts, this process keeps the lock itself and main()
-  stays alive holding it after reporting."""
-  survivors = list(survivors)
-  signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGUSR1})   # pending, not lost, until keep_held waits
-  try:
-    r, w = os.pipe()
-    pid = os.fork()
-  except OSError:
-    pid = None
-  if pid == 0:
+@contextlib.contextmanager
+def session_mutex(helper, lock):
+  """The board's session mutex (agentrc hil_lock.session_mutex) for the block: one install or restore at a time under
+  a manual hold, whichever tree or user runs it. Refused when another command holds it or it cannot be taken."""
+  with contextlib.ExitStack() as stack:
     try:
-      for sig in (signal.SIGTERM, signal.SIGINT):   # before the ack: the caller may be killed right after it
-        signal.signal(sig, signal.SIG_IGN)
-      os.close(r)
-      os.setsid()
-      holder_record(helper, fh, board, detail, survivors)
-      exec_holder(fh, w)   # the replacement acknowledges once it runs; a failed exec acknowledges here
-      os.write(w, b'ok')
-      os.close(w)
-      keep_held(fh)
-    finally:
-      os._exit(1)
-  if pid:
-    os.close(w)
-    ready, _, _ = select.select([r], [], [], 10)
-    ack = os.read(r, 16) if ready else b''
-    os.close(r)
-    if ack == b'ok':
-      fh.close()   # never LOCK_UN or truncate: the description and its record are the holder's now
-      return {'pid': pid, 'reason': 'hil_test.py', 'ready': True}
-    with contextlib.suppress(ProcessLookupError):
-      os.kill(pid, signal.SIGKILL)
-    with contextlib.suppress(ChildProcessError):
-      os.waitpid(pid, 0)
-  holder_record(helper, fh, board, detail, survivors)
-  HELD_IN_PROCESS.append(fh)
-  return {'pid': os.getpid(), 'reason': 'hil_test.py', 'ready': True, 'inProcess': True}
+      stack.enter_context(helper.session_mutex(lock))
+    except (helper.SessionBusy, helper.LockUnavailable) as e:
+      raise Refused(f'{lock}: {e}') from None
+    yield
+
+
+def with_logged(found, fresh):
+  """`found` plus each failure of `fresh` (the log read now) it lacks, by id; one whose id is not a string whole."""
+  ids = {f['id'] for f in found if isinstance(f.get('id'), str)}
+  return found + [f for f in fresh if (f['id'] not in ids if isinstance(f.get('id'), str) else f not in found)]
+
+
+def retained_paths(sessions):
+  """The receipts of openocd_esp session entries (session_entry): a path, or the record the provider could not write."""
+  return [s['receipt'] for s in sessions]
+
+
+def unrecheckable(survivors):
+  """The cleanup log's `receipts` for raw survivors (settle_children's, by pid and start): none can be rechecked, so the
+  failure they are logged with stays open after any restore (hil_lock.resolve_restored)."""
+  return [{'unrecheckable': s.get('cmd') or 'a child that survived SIGKILL', 'survivors': [s.get('pid')]}
+          for s in survivors]
+
+
+def add_note(d, key, why):
+  """Append `why`, when there is one, to `d[key]`."""
+  if why:
+    d[key] = '; '.join(filter(None, (d.get(key), why)))
+
+
+def legacy_pending(helper, board, found):
+  """The pending mark an older tinyuf2 left (PENDING_KIND), migrated under this invocation's lock or hold: each
+  session it lists rechecked, those not proven ended reported (`legacyPending`) and logged once in the board's cleanup
+  log as retained, so a restore resolves their failure only once `hil_openocd_esp.py end --receipt` proved them ended;
+  the mark cleared once every one is ended, which resolves nothing. Never a refusal but InUse while one reads running.
+  (the row's fields, `found` with what it logged)."""
+  mark, fields = pending_mark(helper, board['lock']), {}
+  try:
+    sessions = mark.read()
+  except OSError as e:
+    return {'legacyPending': f'{mark} cannot be read: {e}'}, found
+  if sessions is None:
+    return {'legacyPending': f'{mark} is unreadable: kept for `clear-pending` after a reviewed recovery'}, found
+  states = [session_state(s) for s in sessions]
+  if running := [s['receipt'] for s, st in zip(sessions, states) if st == 'running']:
+    raise InUse(f'an openocd_esp session an older tinyuf2 left on {board["name"]} still runs: {running}', found,
+                pendingSessions=running)
+  if left := [s['receipt'] for s, st in zip(sessions, states) if st != 'ended']:
+    fields['legacyPending'] = left
+    logged = [r for f in found if isinstance(f.get('retained'), list) for r in f['retained']]
+    if new := [r for r in left if r not in logged]:
+      if not_logged := log_failure(helper, board['lock'], 'an older tinyuf2 left openocd_esp sessions not proven '
+                                   'ended (its pending mark)', [], new):
+        fields['legacyNote'] = not_logged
+      else:
+        found = with_logged(found, helper.open_cleanup_failures(board['lock']))
+  elif sessions:
+    try:
+      mark.clear(lambda s: session_state(s) == 'ended')
+    except (OSError, RuntimeError) as e:   # PendingRefused: a session listed meanwhile
+      fields['legacyNote'] = f'{mark} not cleared: {e}'
+  return fields, found
 
 
 # ------------------------------------------------------------------ the battery
@@ -2181,8 +1972,7 @@ def admit_flash(record_path, row, root, board):
   """The record's flash binding (check_build --hil-config: its flash target checked against this roster flasher at
   the build), with every file the install reads hash-checked; the install reads them under the build dir's lock,
   through the provider, never the target."""
-  want = {'name': board['flasher'], 'uid': board['probe'], 'device': board['device'],
-          **({'vid_pid': board['entry']['vid_pid']} if board['flasher'] == 'openocd' else {})}
+  want = dict(flasher_of(board), device=board['device'])
   if board['flasher'] in cb.ROUTE_ARGS:   # a further route: the esptool binding's segments, bound to this route
     fl, (target, inputs) = (row.get('flashRoutes') or {}).get(board['flasher']) or {}, cb.FLASH['esptool']
     bound = (fl.get('flasher'), fl.get('inputs')) == (want, list(inputs))
@@ -2406,9 +2196,9 @@ class Battery:
     the inputs still hash as recorded before it, and again after it; judged(). Touched from
     the tool's start; only attempts that all ended before any target connect leave the board as it was. The lock
     is released only once every child the operation started has ended, reaped here when interrupted; one that
-    survives SIGKILL keeps it through a keeper (#579), and the board through cleanup's; so does an openocd_esp
+    survives SIGKILL keeps it through a keeper (#579), and the board's cleanup fails; so does an openocd_esp
     session left running. The flash then fails however it went, so nothing follows it while either lives."""
-    refuse_pending(self.dir, self.b.get('pendingMark'))
+    refuse_pending(self.dir)
     started, lock = list(CHILDREN), take_build_lock(flash['root'])
     flashed = False
     try:
@@ -2432,7 +2222,7 @@ class Battery:
           lock.close()
       if left and flashed:
         raise CleanupPending(f'{what}: children survived SIGKILL or a session still runs; the build lock stays with a '
-                             'keeper and the board with cleanup', {'survivors': left})
+                             'keeper and the board\'s cleanup fails', {'survivors': left})
 
   @staticmethod
   def check_inputs(flash, when, ev=None):
@@ -2556,7 +2346,7 @@ class Battery:
     # TinyUF2 resets within ms of the last WRITE10 (src/msc.c), so the flush's open can find the device gone; that
     # alone passes, and only once DFU has left
     try:
-      wait_for(lambda: usb_device(f['vid'], f['pid'], self.b['uid']) is None, USB_TIMEOUT, 'the DFU device leaving')
+      wait_for(lambda: usb_absent(f['vid'], f['pid'], self.b['uid']), USB_TIMEOUT, 'the DFU device leaving')
     except StepFail as e:
       if code:
         raise StepFail(f'{dev} disappeared before its flush and {e}', {'flush': flush}) from None
@@ -2590,7 +2380,7 @@ class Battery:
       window = 2 * f['dblTapDelayMs'] / 1000 + 0.5
       time.sleep(window)
       ev = dict(self.observe_app(app_bin), waitedS=window)
-      stays_away(lambda: usb_device(f['vid'], f['pid'], self.b['uid']), QUIET_TIME,
+      stays_away(lambda: not usb_absent(f['vid'], f['pid'], self.b['uid']), QUIET_TIME,
                  'the DFU device came back while the app should run', ev)
       return ev
     self.step('app-ran', app_ran)
@@ -2731,7 +2521,7 @@ class Battery:
     if 'flush' in ev['copy']:
       ev['copy']['flush']['detail'] += '; restored image not independently verified'
     ev.update(self.after_copy())
-    stays_away(lambda: usb_device(self.f['vid'], self.f['pid'], self.b['uid']), QUIET_TIME,
+    stays_away(lambda: not usb_absent(self.f['vid'], self.f['pid'], self.b['uid']), QUIET_TIME,
                'the DFU device came back after the blinky copy', ev)
     return {'pass': True, 'state': 'blinky copied', 'evidence': ev}
 
@@ -2816,7 +2606,8 @@ class Battery:
     f = self.f
     self.sysreset()
     watch = 2 * f['dblTapDelayMs'] / 1000 + USB_TIMEOUT
-    stays_away(lambda: usb_device(f['vid'], f['pid'], self.b['uid']), watch, 'the reset without the magic entered DFU',
+    stays_away(lambda: not usb_absent(f['vid'], f['pid'], self.b['uid']), watch,
+               'the reset without the magic entered DFU',
                {'controlBootedApp': False})
     return {'control': self.observe_app(app_bin), 'controlWatchedS': watch, 'controlBootedApp': True}
 
@@ -3237,10 +3028,9 @@ class EspBattery(Battery):
           raise
         if op is None:
           raise StepFail(f'openocd_esp refused the flash before starting: {e}') from None
-      finally:   # before anything propagates: every receipt kept and marked
+      finally:   # before anything propagates: every receipt kept
         protect(op)
         left = outstanding_sessions(self.dir)
-        mark_pending(self.b.get('pendingMark'), left)
       seen.append(op)
       if op.cleanup == 'pending' or left:
         raise CleanupPending(f'the openocd_esp session is not ended ({op.session.get("failure")}): cleanup pending, '
@@ -3285,7 +3075,7 @@ class EspBattery(Battery):
     ev['string'] = self.usb_dfu('string')['string']
     if ev['string'] != f'HIL {self.nonce.hex()}':
       raise StepFail('the app does not report this copy\'s nonce', ev)
-    stays_away(lambda: usb_device(f['vid'], f['pid'], self.b['uid']), QUIET_TIME,
+    stays_away(lambda: not usb_absent(f['vid'], f['pid'], self.b['uid']), QUIET_TIME,
                'the DFU device came back while the app should run', ev)
     if self.app() != path:
       raise StepFail('the app left the bus', ev)
@@ -3363,7 +3153,7 @@ def check_stlink():
 
 
 def check_openocd():
-  """openocd on PATH, and the bounded USB observation the probe check needs (probe_node), loaded before the lock."""
+  """openocd on PATH, and the bounded USB observation, loaded before the lock."""
   if shutil.which('openocd') is None:
     raise Refused('openocd must be on PATH')
   usb_observe()
@@ -3429,7 +3219,7 @@ def reentry_decision(row):
   observation of the tried method held, the board was cleaned up and released, and the run passed or failed
   only at reenter's CURRENT.UF2 readback."""
   cleanup = row.get('cleanup') or {}
-  if not row.get('commissioning') or not cleanup.get('pass') or cleanup.get('heldAfter'):
+  if not row.get('commissioning') or not cleanup.get('pass'):
     return None
   steps = row.get('steps', [])
   failed = [x for x in steps if not x['pass']]
@@ -3469,34 +3259,9 @@ def trial_reentry(board, method):
   return dict(board, reentry=method)
 
 
-def keep_blocker(helper, fh, workdir, detail):
-  """Leave this run's protected record on the board as a recovery blocker naming why: closed, never cleared. A
-  failed rewrite leaves the old record or an unreadable one, a blocker either way."""
-  with contextlib.suppress(OSError):
-    helper.write_record(fh, 'hil_test.py', protected=True, runDir=str(workdir), detail=detail)
-  fh.close()
-
-
-def release(helper, fh):
-  if fh is not None:
-    helper.clear_record(fh)
-    fh.close()
-
-
-def release_finished(helper, fh, row, code, done):
-  """Release the board, touching CI's `done` marker (hil_ci.py's `<board>.done`) first when the row is no blocker:
-  a run that takes the lock next never sees CI's finished battery as unfinished. hil_ci.py touches it again after
-  its own verdict."""
-  if done is not None and not MARK_ERRORS and \
-     run_report.verdict(code, {'results': [row]}, row['board'])[0] != 'blocker':
-    with contextlib.suppress(OSError):
-      done.touch()
-  release(helper, fh)
-
-
 def run_board(args, board, facts, helper, workdir):
-  row = {'board': board['name'], 'lock': board['lock'], 'ran': False, 'pass': False, 'locked': False,
-         'lockBypassed': False, 'steps': [], 'cleanup': None, 'detail': ''}
+  row = {'board': board['name'], 'lock': {'name': board['lock']}, 'ran': False, 'pass': False, 'locked': False,
+         'steps': [], 'cleanup': None, 'detail': ''}
   if board['route']:
     row['route'] = board['flasher']
   methods = REENTRY[board['kind']]
@@ -3515,36 +3280,61 @@ def run_board(args, board, facts, helper, workdir):
     files['update'], row['update'] = admit_update(update, board, facts, workdir, files, row['firmware'])
   if board['kind'] == 'esp':
     check_pyusb()
-  # blocked from here until the process exits or becomes the holder (keep_held): a signal acts only
-  # inside the battery, and the report and any hold are settled first
+  # blocked from here until the process exits, but for the take: a signal ends a --lock-wait without taking the board,
+  # then acts only inside the battery, and the report and the lock's end are settled first
   signal.pthread_sigmask(signal.SIG_BLOCK, TERM_SIGNALS)
-  deadline = time.monotonic() + args.lock_wait
-  while True:
-    try:
-      # protected: a battery that dies holding the board leaves this record as a recovery blocker (SKILL.md Recovery)
-      fh = helper.acquire_board_lock(board['lock'], protected=True, runDir=str(workdir))
-      break
-    except helper.LockUnavailable as e:
-      raise Refused(f'{board["name"]}: {e}; refusing to run unlocked')
-    except helper.RecoveryBlocked as e:   # a cleanup holder, a stale record or a takeover journal (SKILL.md Recovery)
-      row.update(locked=True, recoveryBlocker=True, detail=str(e))
-      return deferred(row), 1
-    except RuntimeError as e:
-      held, left = str(e), deadline - time.monotonic()
-      if left <= 0:
-        row.update(locked=True, recoveryBlocker=False, detail=held)
-        return deferred(row), 1
+  # protected: a battery that dies holding the board leaves its record for the next taker to log as a failed cleanup
+  task = helper.board_task(board['lock'], 'hil_test.py', busy=lambda: probe_busy(board), wait=args.lock_wait,
+                           allow_bypass=True, runDir=str(workdir))
+  try:
+    code = take(args, board, facts, helper, workdir, task, row, files, update)
+  except Refused as e:
+    if task.ended_cleanly:
+      raise
+    row['detail'], code = str(e), 2   # the row keeps the refusal beside the lock's failed end
+  if not task.ended_cleanly:   # its record not cleared, its failure not logged, or its handle kept
+    code = 4
+  row['lock'].update(taken=task.taken, released=task.released, bypassed=task.bypassed, endedCleanly=task.ended_cleanly,
+                     failureLogged=task.failure_logged, errors=task.errors, describe=task.describe(),
+                     restoreNotes=task.restore_notes)
+  return deferred(row), code
+
+
+def take(args, board, facts, helper, workdir, task, row, files, update):
+  """run_board's board task entered, a refusal its row, else run_task under it: the exit."""
+  with contextlib.ExitStack() as stack:
     try:
       with signals(signal.SIG_UNBLOCK):
-        time.sleep(min(LOCK_POLL, left))
-    except Interrupted as e:   # nothing taken yet: the board's row is a locked one
-      row.update(locked=True, recoveryBlocker=False, detail=f'{held}; {e} while waiting for the lock')
-      return deferred(row), 1
-    if time.monotonic() >= deadline:   # no try past the budget, whatever the lock does meanwhile
-      row.update(locked=True, recoveryBlocker=False, detail=held)
-      return deferred(row), 1
-  row['lockBypassed'] = fh is None
-  try:
+        stack.enter_context(task)
+    except helper.BoardBusy as e:   # a session from an earlier run, left on this probe: nothing may overlap it
+      row.update(helper.failure_report(e.cleanup_failures), probeUsers=e.users, detail=probe_in_use(board, e.users))
+      return 2
+    except helper.RecoveryBlocked as e:   # an older helper's cleanup holder (SKILL.md Recovery)
+      row.update(locked=True, recoveryBlocker=True, detail=str(e))
+      return 1
+    except helper.BoardLocked as e:
+      row.update(locked=True, recoveryBlocker=False, detail=str(e))
+      return 1
+    except helper.LockUnavailable as e:
+      raise Refused(f'{board["name"]}: {e}; refusing to run unlocked')
+    except StepFail as e:   # an Espressif board without exactly one tty: not run, nothing touched
+      row.update(helper.failure_report(task.cleanup_failures), detail=f'probe check: {e}')
+      return 1
+    except Interrupted as e:   # nothing touched: the board's row is a locked one
+      with contextlib.suppress(RuntimeError):   # only an entered task takes a verdict
+        task.clean()
+      if not task.ended:   # entered before the ExitStack registered its exit, which then never runs
+        task.__exit__(type(e), e, e.__traceback__)
+      row.update(locked=True, recoveryBlocker=False, detail=f'{e} while waiting for the lock')
+      return 1
+    return run_task(args, board, facts, helper, workdir, task, row, files, update)
+
+
+def run_task(args, board, facts, helper, workdir, task, row, files, update):
+  """run_board's body under its board task: the run admitted (CI's markers, an older tinyuf2's pending mark), the
+  battery, its cleanup, then the task's verdict (end_board). Its exit."""
+  row.update(helper.failure_report(task.cleanup_failures))
+  try:   # nothing is touched before the battery runs: every end here is clean
     if args.started_marker is not None:   # under the lock: a run waiting on the board is never seen started
       try:
         args.started_marker.touch()
@@ -3556,26 +3346,21 @@ def run_board(args, board, facts, helper, workdir):
     except OSError as e:
       raise Refused(f'CI state root {args.ci_state_root} cannot be read: {e}')
     if earlier:
-      detail = (f'CI run {", ".join(earlier)} under {args.ci_state_root} started a battery on {board["name"]} and has '
-                'no .done: an unfinished attempt')
-      if fh is not None:
-        keep_blocker(helper, fh, workdir, detail)
-      row.update(recoveryBlocker=True, unfinishedAttempts=earlier, detail=detail)
-      return deferred(row), 1
-    try:
-      users = probe_users(board)
-    except StepFail as e:   # an Espressif board without exactly one tty: not run, nothing touched
-      row['detail'] = f'probe check: {e}'
-      release_finished(helper, fh, row, 1, args.done_marker)
-      return deferred(row), 1
-    if users:   # a session from an earlier run, left on this probe: nothing may overlap it (SKILL.md Recovery)
-      row.update(probeUsers=users, detail=f'probe {board["probe"]} is still in use by pids {users}; no session may overlap them')
-      release(helper, fh)
-      return deferred(row), 2
+      row.update(recoveryBlocker=True, unfinishedAttempts=earlier,
+                 detail=f'CI run {", ".join(earlier)} under {args.ci_state_root} started a battery on {board["name"]} '
+                        'and has no .done: an unfinished attempt')
+      task.clean()
+      return 1
+    legacy, found = legacy_pending(helper, board, task.cleanup_failures)
+    row.update(helper.failure_report(found), **legacy)
     bat = BATTERIES[board['kind']](board, facts, workdir, args.fail_at, row.get('commissioning', False))
-  except BaseException:   # nothing touched yet: no recovery blocker
-    if fh is not None and not fh.closed:
-      release(helper, fh)
+  except InUse as e:
+    row.update(locked=True, recoveryBlocker=False, detail=f'board in use: {e}', **e.fields,
+               **helper.failure_report(e.found))
+    task.clean()
+    return 2
+  except BaseException:
+    task.clean()
     raise
   code = 0
   try:
@@ -3587,27 +3372,57 @@ def run_board(args, board, facts, helper, workdir):
     row['detail'] = f'{bat.at}: {e}' if isinstance(e, StepFail) else f'{bat.at}: {type(e).__name__}: {e}'
     code = 1
   row['steps'] = bat.steps
-  code = clean_up(row, code, bat, fh, board, helper, files, args.done_marker)
+  code = clean_up(row, code, bat, files)
   row.update(bat.report_fields())   # after the cleanup, whose install may take the snapshot a recovery needs
   if row.get('commissioning'):
     row['reentryDecision'] = reentry_decision(row)
-  return deferred(row), code
+  end_board(task, row, code, args.done_marker)
+  return code
 
 
 def deferred(row):
   pending = sorted(signal.Signals(s).name for s in signal.sigpending() & TERM_SIGNALS)
   if pending:
-    row['detail'] = '; '.join(filter(None, (row['detail'], f'{", ".join(pending)} deferred until the board was settled')))
+    row['detail'] = '; '.join(filter(None, (row.get('detail'), f'{", ".join(pending)} deferred until the board was settled')))
   return row
 
 
-def clean_up(row, code, bat, fh, board, helper, files, done=None):
-  """Restore a touched board to the record's TinyUF2 with blinky copied, then release it (release_finished(), `done`
-  CI's marker). A child that survived SIGKILL, or any unsuccessful cleanup, leaves the board held (exit 4), touched or
-  not."""
+def end_board(task, row, code, done):
+  """The task's verdict on the board, its last action there (SKILL.md Verdicts): CI's `done` marker (hil_ci.py's
+  `<board>.done`) touched first when the row is no blocker, so a run that takes the lock next never sees CI's finished
+  battery as unfinished (hil_ci.py touches it again after its own verdict); then clean for an untouched board,
+  restored after a cleanup that restored it, whatever the battery did, and failed with the children and openocd_esp
+  sessions it could not prove ended when the cleanup failed, the board released and the failure logged."""
+  if done is not None and run_report.verdict(code, {'results': [row]}, row['board'])[0] != 'blocker':
+    with contextlib.suppress(OSError):
+      done.touch()
+  c = row['cleanup']
+  if c['pass'] and c['state'] == 'untouched':
+    task.clean()
+  elif c['pass']:
+    task.restored(evidence=f'{row["board"]}: {c["state"]}')
+  else:
+    task.failed(detail=c['detail'], receipts=unrecheckable([s for s in c['survivors'] if 'receipt' not in s]),
+                retained=c.get('receipts', []))
+
+
+def log_failure(helper, lock, detail, receipts, retained, **extra):
+  """A cleanup this invocation could not prove, logged without ending a flock (a manual hold's); '' or why it was not
+  logged."""
+  try:
+    helper.log_cleanup_failure(lock, 'hil_test.py', detail=detail, receipts=receipts, retained=retained, **extra)
+  except Exception as e:
+    return f'cleanup log not written: {type(e).__name__}: {e}'
+  return ''
+
+
+def clean_up(row, code, bat, files):
+  """Restore a touched board to the record's TinyUF2 with blinky copied: the row's cleanup, and the run's exit, 4 when
+  the cleanup failed. A child that survived SIGKILL, or an openocd_esp session of this run not ended, fails it, touched
+  or not: no flash may overlap them."""
   stuck = []
   try:
-    refuse_pending(bat.dir, board.get('pendingMark'))
+    refuse_pending(bat.dir)
     stuck = settle_children()
     if stuck:
       raise StepFail('children survived SIGKILL; no flash may overlap them')   # their pids are in survivors
@@ -3615,36 +3430,110 @@ def clean_up(row, code, bat, fh, board, helper, files, done=None):
       if bat.fail_at == 'cleanup':
         raise StepFail('--fail-at cleanup: injected cleanup failure (acceptance only)')
       release_ended_builds()   # the restore's flash would block on a build lock this process still keeps
-      row['cleanup'] = dict(bat.restore(files, row['firmware']['version']), heldAfter=False)
+      row['cleanup'] = bat.restore(files, row['firmware']['version'])
       stuck = settle_children()   # the restore's own children, before the lock is released
       if stuck:
         raise StepFail('the restore left children that survived SIGKILL')
     else:
-      row['cleanup'] = {'pass': True, 'state': 'untouched', 'evidence': {}, 'heldAfter': False}
+      row['cleanup'] = {'pass': True, 'state': 'untouched', 'evidence': {}}
   except BaseException as e:
     pending = outstanding_sessions(bat.dir)   # kept, never reaped: recovery ends each by its receipt
-    mark_pending(board.get('pendingMark'), pending)   # contained: a failure must not cost the hand-off below
     stuck += [x for x in settle_children() + pending if x not in stuck]
     row['cleanup'] = {'pass': False, 'state': 'pending' if pending else 'unknown' if bat.touched else 'untouched',
-                       'evidence': getattr(e, 'evidence', {}), 'detail': f'{type(e).__name__}: {e}',
-                       'survivors': stuck, 'heldAfter': fh is not None,
-                       **({'receipts': [s['receipt'] for s in pending]} if pending else {}),
-                       **({'markErrors': MARK_ERRORS[:]} if MARK_ERRORS else {})}
+                      'evidence': getattr(e, 'evidence', {}), 'detail': f'{type(e).__name__}: {e}',
+                      'survivors': stuck, **({'receipts': retained_paths(pending)} if pending else {})}
     row['pass'] = False
-    if fh is not None:
-      row['cleanup']['holder'] = hand_off(fh, board['lock'], row['cleanup']['detail'], stuck, helper=helper)
-      fh = None
     return 4
-  release_finished(helper, fh, row, code, done)
   return code
 
 
-def settle_manual(result, bat, board, run_dir):
-  """A manual install's or restore's survivors however it went: children left, sessions not ended (marked for later
-  invocations) and the build locks a keeper holds."""
+def settle_manual(result, bat, run_dir):
+  """A manual install's or restore's survivors however it went: children left, sessions not ended and the build locks
+  a keeper holds."""
   result['survivors'] = settle_children() + outstanding_sessions(run_dir)
-  mark_pending(board['pendingMark'], [x for x in result['survivors'] if 'receipt' in x])
   result.update(bat.kept and {'buildLocksKept': bat.kept} or {})
+
+
+def manual(args, board, facts, helper, run_dir, result):
+  """`install` or `restore` under the caller's own hold, which it never releases: serialized by the board's session
+  mutex, taken before the hold is proven, and refused while a process uses the board's probe (probe_busy); then the
+  record's TinyUF2 installed (restore: and its blinky copied, checked on an Espressif board against the snapshot in the
+  failed run's `--report`). What it touched and failed, or a child or session it left, is logged in the board's cleanup
+  log; a restore that passed marks restored the open failures whose own evidence resolves. Its exit."""
+  board = trial_reentry(board, args.try_reentry)
+  snapshot = None
+  if args.cmd == 'restore' and args.report:   # read before any probe
+    failed = failed_row(read_report(args.report), args.report, board)
+    if board['kind'] == 'esp':
+      snapshot = report_snapshot(failed, board['regions']['preserved'])
+  with session_mutex(helper, board['lock']):
+    manual_holder(helper, board['lock'], args.under_hold)
+    files, fw = admit_record(args.build_record, board, facts, run_dir)
+    found = helper.open_cleanup_failures(board['lock'])
+    try:
+      users = probe_busy(board)
+    except StepFail as e:   # inconclusive: nothing touched
+      raise StepFail(f'probe check: {e}') from None
+    if users:
+      raise InUse(probe_in_use(board, users), found, probeUsers=users)
+    legacy, found = legacy_pending(helper, board, found)
+    result.update(helper.failure_report(found), **legacy)
+    code = operate(args, board, facts, helper, run_dir, result, files, fw, snapshot, found)
+  deferred(result)
+  return code
+
+
+def operate(args, board, facts, helper, run_dir, result, files, fw, snapshot, found):
+  """manual()'s install or restore, admitted: its exit."""
+  bat, failed, code = None, '', 0
+  # blocked from here until the process exits, but for the operation: a signal acts only inside it, and its settling,
+  # failure log and report come first
+  signal.pthread_sigmask(signal.SIG_BLOCK, TERM_SIGNALS)
+  try:
+    with signals(signal.SIG_UNBLOCK):
+      bat = BATTERIES[board['kind']](board, facts, run_dir)
+      if args.cmd == 'install':
+        ev = bat.install(files)
+        ev['dfu'] = bat.dfu_after_install(fw['version'])
+        row = {'board': board['name'], 'installed': fw, 'evidence': ev}
+      else:
+        if snapshot:
+          bat.preserved = snapshot
+        row = {'board': board['name'], 'firmware': fw, 'cleanup': bat.restore(files, fw['version'])}
+  except Exception as e:   # an unexpected error too: reported and logged, the hold kept
+    failed = f'{type(e).__name__}: {e}'
+    result['error'] = str(e) if isinstance(e, (StepFail, Interrupted)) else failed
+    code = 4 if bat is not None and bat.touched else 1   # a failed restore keeps the hold
+  except BaseException as e:
+    failed = f'{type(e).__name__}: {e}'
+    raise
+  finally:
+    if bat is not None:
+      settle_manual(result, bat, run_dir)
+      left = result['survivors']
+      if bat.touched and failed or left:
+        not_logged = log_failure(
+          helper, board['lock'], failed or f'{args.cmd} left children or sessions running',
+          unrecheckable([s for s in left if 'receipt' not in s]), retained_paths(s for s in left if 'receipt' in s),
+          command=args.cmd, hold=args.under_hold)
+        result['failureLogged'] = not not_logged
+        add_note(result, 'logError', not_logged)
+  if result.get('survivors'):   # keep your hold until they are gone
+    if not code:
+      result['results'].append(row)
+      result['error'] = f'{args.cmd} left children or sessions running: keep your hold'
+    return 4
+  if code:
+    return code
+  result['results'].append(row)
+  if args.cmd == 'restore' and found:
+    try:
+      add_note(result, 'restoredNote', '; '.join(helper.resolve_restored(board['lock'], found,
+                                                                         evidence=f'{board["name"]}: restore')))
+    except Exception as e:
+      result['restoredNote'] = f'restorations not logged: {type(e).__name__}: {e}'
+  result['pass'] = True
+  return 0
 
 
 def build_provenance(result):
@@ -3659,7 +3548,7 @@ def build_provenance(result):
 def publish_report(result, run_dir, args, argv):
   """`result` as the run dir's hil_report.json and .md through the report core (`hil` Reporting): `_hil` beside
   the native fields, attempt id the run dir's own unique name. A failure never raises: it sets `reportError`, and
-  `reportPath` to None unless the JSON was written, for the stdout report and the holder that follow."""
+  `reportPath` to None unless the JSON was written, for the stdout report that follows."""
   try:
     core = report_core()
     schema = run_report.schema(core)
@@ -3673,7 +3562,7 @@ def publish_report(result, run_dir, args, argv):
                           roster=roster,
                           build=build_provenance(result) or None)
     core.publish(run_dir, schema, result, meta)
-  except Exception as e:   # the run's own outcome, its stdout report and any hold stand whatever failed here
+  except Exception as e:   # the run's own outcome and its stdout report stand whatever failed here
     if result['reportPath'] not in getattr(e, 'published', ()):
       result['reportPath'] = None
     result['reportError'] = f'report not published: {type(e).__name__}: {e}'
@@ -3687,12 +3576,12 @@ def main(argv=None):
   r.add_argument('--build-record', required=True, help='check_build.py --board B --shared --hil-config ROSTER '
                  'JSON, under cmake-build/')
   r.add_argument('--fail-at', choices=(*STEPS['esp'], *STEPS['update'][2:], 'cleanup'),
-                 help='acceptance only: fail this step, or the cleanup, to exercise cleanup and its holder')
+                 help='acceptance only: fail this step, or the cleanup, to exercise cleanup and its logging')
   r.add_argument('--try-reentry', choices=REENTRY_METHODS, help="commissioning only, while the roster's reentry is unset")
   r.add_argument('--update-record', help='the update battery in place of the app battery: the check_build --variant '
                  "record whose updater the board takes before the candidate's (SKILL.md Execution, Update)")
   r.add_argument('--lock-wait', type=int, default=0,
-                 help='seconds to keep trying a held board; a cleanup holder or a recovery blocker is never waited for')
+                 help="seconds to keep trying a held board; an older helper's cleanup holder is never waited for")
   r.add_argument('--run-root', type=Path, help="where this run's directory goes (default cmake-build/hil)")
   r.add_argument('--route', help="an install route from the board's tinyuf2.routes (default its roster flasher)")
   r.add_argument('--ci-state-root', type=Path, help="transition only, from a driver: CI's state directory, whose "
@@ -3710,29 +3599,22 @@ def main(argv=None):
                  help="commissioning only, while the roster's reentry is unset: DFU's fallback after the install")
   i.add_argument('--route', help="an install route from the board's tinyuf2.routes (default its roster flasher)")
   i.add_argument('config')
-  s = sub.add_parser('restore', help="install the record's TinyUF2 and copy its blinky, under your hold or to "
-                     'recover a holder')
+  s = sub.add_parser('restore', help="install the record's TinyUF2 and copy its blinky under your manual hold")
   s.add_argument('-b', '--board', required=True)
   s.add_argument('--build-record', required=True, help='the build record whose TinyUF2 and apps/blinky.uf2 are installed')
-  g = s.add_mutually_exclusive_group(required=True)
-  g.add_argument('--under-hold', metavar='REASON')
-  g.add_argument('--recover-holder', type=int, metavar='PID')
-  g.add_argument('--recover-takeover', metavar='TOKEN', help='the `hil_lock.py hold --take-over` of a stale battery '
-                 'record: restore, then release that token')
-  s.add_argument('--report', help="the failed run's hil_report.json (with --recover-holder, or --recover-takeover of a dead cleanup holder)")
+  s.add_argument('--under-hold', required=True, metavar='REASON')
+  s.add_argument('--report', help="the failed run's hil_report.json: its row of the board, whose preserved-region "
+                 'snapshot an Espressif restore checks against')
   s.add_argument('--try-reentry', choices=REENTRY_METHODS,
-                 help="commissioning only, under your hold, while the roster's reentry is unset")
+                 help="commissioning only, while the roster's reentry is unset")
   s.add_argument('--route', help="an install route from the board's tinyuf2.routes (default its roster flasher)")
   s.add_argument('config')
-  cp = sub.add_parser('clear-pending', help="remove a board's pending mark: every session it lists ended, or after a "
-                      'separately reviewed recovery')
+  cp = sub.add_parser('clear-pending', help="legacy maintenance: remove the pending mark an older tinyuf2 left, every "
+                      'session it lists ended, or after a separately reviewed recovery')
   cp.add_argument('-b', '--board', required=True)
   cp.add_argument('--after-reviewed-recovery', metavar='NOTE',
                   help='the reviewed recovery that ended the sessions some other way; recorded, then the mark removed')
-  ch = cp.add_mutually_exclusive_group()
-  ch.add_argument('--under-hold', metavar='REASON', help='with --after-reviewed-recovery: your manual hold of the board')
-  ch.add_argument('--recover-holder', type=int, metavar='PID',
-                  help="with --after-reviewed-recovery: the failed run's cleanup holder")
+  cp.add_argument('--under-hold', metavar='REASON', help='with --after-reviewed-recovery: your manual hold of the board')
   cp.add_argument('config')
   fr = sub.add_parser('fat-read')
   fr.add_argument('--dev', required=True)
@@ -3745,13 +3627,11 @@ def main(argv=None):
   uw.add_argument('--dev', required=True)
   uw.add_argument('--file', required=True)
   uw.add_argument('--offset', type=int, required=True)
-  kh = sub.add_parser('keep-held', help='internal: the re-executed cleanup holder (exec_holder)')
-  kh.add_argument('fd', type=int)
-  kh.add_argument('ack', type=int)
   kb = sub.add_parser('keep-build', help="internal: the re-executed keeper of a build dir's lock (keep_build_lock)")
   kb.add_argument('fd', type=int)
   kb.add_argument('ack', type=int)
   kb.add_argument('survivors', type=json.loads)
+  kb.add_argument('--exit', type=int, default=0, help='its exit status, the runner\'s it replaced (keep_out_of_job)')
   args = ap.parse_args(argv)
   if args.cmd == 'fat-read':
     return fat_read_main(args)
@@ -3761,18 +3641,13 @@ def main(argv=None):
     return uf2_write_main(args)
   if args.cmd == 'clear-pending':
     return clear_pending_main(args)
-  if args.cmd == 'keep-held':
-    fh = os.fdopen(args.fd, 'r+')
-    os.write(args.ack, b'ok')
-    os.close(args.ack)
-    keep_held(fh)
   if args.cmd == 'keep-build':
     if any('receipt' in x for x in args.survivors):   # its runner loaded it through the bootstrap before this exec
       with contextlib.suppress(Exception):   # else session_state loads it, or reads every session unreadable
         OPENOCD.append(agentrc.load(OPENOCD_ESP, 'agentrc_hil_openocd_esp'))
     os.write(args.ack, b'ok')
     os.close(args.ack)
-    keep_build(args.survivors)
+    keep_build(args.survivors, args.exit)
   for sig in TERM_SIGNALS:
     signal.signal(sig, on_signal)
   INTERRUPTS.clear()
@@ -3780,7 +3655,7 @@ def main(argv=None):
   run_dir = ((getattr(args, 'run_root', None) or cb.BUILD_DIR / 'hil') /
              f'run-{time.strftime("%Y%m%d-%H%M%S")}-{os.getpid()}').resolve()
   result = {'pass': False, 'caveat': '', 'results': [], 'reportPath': str(run_dir / 'hil_report.json')}
-  code, recovery, bat = 2, None, None
+  code = 2
   try:
     run_dir.mkdir(parents=True)
     board = select_route(load_board(args.config, args.board), args.route, run=args.cmd == 'run')
@@ -3789,112 +3664,34 @@ def main(argv=None):
     apply_layout(board, facts)
     helper = load_helper()
     provider()
-    board['pendingMark'] = pending_mark(helper, board['lock'])
-    clear_pending_mark(board['pendingMark'])   # refused while an earlier invocation's session, any run dir, is not ended
     if args.cmd == 'run':
       row, code = run_board(args, board, facts, helper, run_dir)
       result['results'].append(row)
       result['pass'] = code == 0 and row['pass']
-    elif args.cmd == 'install':
-      board = trial_reentry(board, args.try_reentry)
-      manual_holder(helper, board['lock'], args.under_hold)
-      files, fw = admit_record(args.build_record, board, facts, run_dir)
-      users = probe_users(board)
-      if users:
-        raise Refused(f'probe {board["probe"]} is still in use by pids {users}; no session may overlap them')
-      bat = BATTERIES[board['kind']](board, facts, run_dir)
-      try:
-        ev = bat.install(files)
-        ev['dfu'] = bat.dfu_after_install(fw['version'])
-      finally:
-        settle_manual(result, bat, board, run_dir)
-      result['results'].append({'board': board['name'], 'installed': fw, 'evidence': ev})
-      result['pass'], code = True, 0
     else:
-      files, fw = admit_record(args.build_record, board, facts, run_dir)
-      rec = snapshot = None
-      if args.try_reentry and (args.recover_holder is not None or args.recover_takeover):
-        raise Refused('--try-reentry is for a restore under your own hold, not a recovery')
-      if args.recover_holder is not None:
-        if not args.report:
-          raise Refused("--recover-holder needs --report, the failed run's report naming that holder")
-        failed = failed_row(read_report(args.report), args.report, board, args.recover_holder)
-        held = [failed['cleanup']]
-        if board['kind'] == 'esp':
-          snapshot = report_snapshot(failed, board['regions']['preserved'])
-        recovery = recovery_lock(helper, board['lock'])
-        rec = prove_cleanup_holder(helper, board['lock'], args.recover_holder)
-        # the pending mark may be missing (markErrors); the report still names the sessions
-        refuse_live(held[0].get('survivors', []) + rec.get('survivors', []), reviewed_receipts(board['pendingMark']),
-                    "the failed run's")
-      elif args.recover_takeover:
-        body = read_report(args.report) if args.report else None
-        recovery = recovery_lock(helper, board['lock'])
-        rec = takeover_predecessor(helper, board['lock'], args.recover_takeover)
-        reported = []
-        if rec.get('role') == HOLDER_ROLE:   # its run's report names it: that run's evidence, snapshot included
-          if not args.report:
-            raise Refused("a dead cleanup holder's recovery needs --report, the failed run's report naming it")
-          failed = failed_row(body, args.report, board, rec.get('pid'))
-          reported = failed['cleanup'].get('survivors') or []
-          if board['kind'] == 'esp':
-            snapshot = report_snapshot(failed, board['regions']['preserved'])
-        elif args.report:
-          raise Refused('a battery that died holding the board printed no report: --report is for a dead cleanup holder')
-        predecessor_evidence(rec, reported, reviewed_receipts(board['pendingMark']))
-      else:
-        board = trial_reentry(board, args.try_reentry)
-        manual_holder(helper, board['lock'], args.under_hold)
-      users = probe_users(board)
-      if users:
-        raise Refused(f'probe {board["probe"]} is still in use by pids {users}; recovery may not overlap them')
-      bat = BATTERIES[board['kind']](board, facts, run_dir)
-      try:
-        if snapshot:
-          bat.preserved = snapshot
-        cleanup = bat.restore(files, fw['version'])
-      finally:
-        settle_manual(result, bat, board, run_dir)
-      if result['survivors']:
-        raise StepFail('restore left children that survived SIGKILL')
-      if args.recover_holder is not None:
-        os.kill(args.recover_holder, signal.SIGUSR1)
-        wait_for(lambda: flock_free(helper.lock_path(board['lock'])), 10,
-                 f'cleanup holder {args.recover_holder} releasing {board["name"]}')
-        cleanup['recovered'] = {'holder': args.recover_holder, 'record': rec}
-      elif args.recover_takeover:
-        try:   # its records and journal gone and its flock dropped, or ReleaseRefused
-          pid, _ = helper.release_token(args.recover_takeover)
-        except helper.ReleaseRefused as e:
-          raise StepFail(f'restored, but the takeover holder was not released: {e}')
-        wait_for(lambda: flock_free(helper.lock_path(board['lock'])), 10,
-                 f'takeover holder {pid} releasing {board["name"]}')
-        cleanup['recovered'] = {'takeover': args.recover_takeover, 'holder': pid, 'record': rec}
-      result['results'].append({'board': board['name'], 'firmware': fw, 'cleanup': cleanup})
-      result['pass'], code = True, 0
+      code = manual(args, board, facts, helper, run_dir, result)
   except Refused as e:
     result['error'] = str(e)
+    if isinstance(e, InUse):
+      result.update(e.fields, **helper.failure_report(e.found))
     if args.cmd == 'run' and not result['results']:
       result['results'].append({'board': args.board, 'ran': False, 'pass': False, 'locked': False,
                                 'detail': str(e)})
     code = 2
-  except (StepFail, Interrupted) as e:
+  except (StepFail, Interrupted) as e:   # before any board access
     result['error'] = str(e)
-    code = 4 if bat is not None and bat.touched else 1   # a failed restore keeps the hold
+    code = 1
   RECORDS.clear()
-  if recovery:
-    recovery.close()
-  if result.get('survivors'):   # a manual operation's survivor: keep your hold until it is gone
-    result['pass'], code = False, 4
-  if MARK_ERRORS:   # the board stays a blocker however the operation went: no later invocation sees its sessions
-    result.update(markErrors=MARK_ERRORS[:], **{'pass': False})
-    code = max(code, 4)
-  result.update(exitCode=code, heldInProcess=bool(HELD_IN_PROCESS))
+  result.update(exitCode=code)
+  if release_ended_builds():   # no keeper started: this process keeps them, its report's reader never waiting on it
+    result['inProcessKeeper'] = os.getpid()
   publish_report(result, run_dir, args, sys.argv[1:] if argv is None else argv)
   print(json.dumps(result), flush=True)
-  if HELD_IN_PROCESS:
-    keep_held(HELD_IN_PROCESS[0])
-  while release_ended_builds():   # no keeper started: keep them here
+  if result.get('inProcessKeeper'):
+    if JOB_TRACKING in os.environ:
+      keep_out_of_job(code)
+    close_stdio()   # the reader's EOF (hil_ci.launch)
+  while release_ended_builds():
     time.sleep(KEEPER_POLL)
   return code
 

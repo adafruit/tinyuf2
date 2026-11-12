@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 # The CI job's orchestration of the battery (hil_ci.py): record, one run per board, verdicts, markers, pruning
 # and the exit. The hosted build's admission is stubbed; the battery is a stand-in script that prints a canned report
-# into the run root it is given, so the streaming, the run directory and the in-process holder path run for real.
+# into the run root it is given, so the streaming and the run directory run for real.
 import contextlib
 import io
 import json
@@ -38,7 +38,7 @@ def report_notice():
   return hil_ci.agentrc.load(hil_ci.REPORT_NOTICE, 'tinyuf2_hil_report_notice')
 
 STAND_IN = '''
-import json, os, sys, time
+import json, os, sys
 one = json.load(open(os.environ["HIL_STAND_IN"]))
 if "--started-marker" in sys.argv and not one["row"].get("locked"):   # the battery's own touch once it holds the board
     open(sys.argv[sys.argv.index("--started-marker") + 1], "w").close()
@@ -59,21 +59,31 @@ if one.get("unlistable"):   # its run root left unlistable: names still open, a 
     os.chmod(os.path.dirname(run_dir), 0o300)
 print("noise", " ".join(sys.argv[1:]))
 print(json.dumps(report), flush=True)
-if one.get("hang"):
-    open(os.environ["HIL_STAND_IN"] + ".pid", "w").write(str(os.getpid()))
-    os.close(1); time.sleep(30)
 sys.exit(one.get("exit", 0 if report["pass"] else 1))
 '''
 
 
-# run_report.verdict() before it moved into the report adapter (tinyuf2 dbe43d3), over the report core's tinyuf2 inputs
-# (agentrc's tests/data/hil_report_core/inputs.json) and phase A's unfinished-attempt row: (exit, report, verdict)
+# run_report.verdict() over the report core's tinyuf2 inputs (agentrc's tests/data/hil_report_core/inputs.json), whose
+# older runner's cleanup holders a report may still name, phase A's unfinished-attempt row and the rows of a runner
+# whose lock ends with its task (agentrc#464): (exit, report, verdict)
 HELD_ROW = {'board': 'B', 'ran': True, 'pass': False, 'steps': [{'step': 'install', 'pass': True}]}
+ENDED = {'pass': False, 'state': 'unknown', 'detail': 'StepFail: verify'}
+LOGGED = {'name': 'B', 'taken': True, 'released': True, 'endedCleanly': True, 'failureLogged': True,
+          'describe': 'B: lock released, failure logged in /l/B.cleanup.jsonl'}
 GOLDEN = {
   'no_report': (137, None, ('blocker', 'run ended without a report (exit 137)')),
   'no_row': (1, {'results': [], 'error': 'boom'}, ('blocker', 'report has no row for B (exit 1): boom')),
   'ran_none': (1, {'results': [{'board': 'B', 'ran': None, 'pass': False}]},
-               ('blocker', 'cleanup failed or no report; board held: None {}')),
+               ('blocker', 'cleanup failed or no report; board lock end not recorded: None {}')),
+  'released_cleanup_failure': (4, {'results': [dict(HELD_ROW, cleanup=ENDED, lock=LOGGED)]},
+                               ('blocker', f'cleanup failed or no report; {LOGGED["describe"]}: None {ENDED}')),
+  'lock_end_failed_after_a_pass': (4, {'results': [dict(HELD_ROW, cleanup={'pass': True, 'state': 'blinky copied'},
+                                                        lock=dict(LOGGED, endedCleanly=False))]},
+                                   ('blocker', f'cleanup failed or no report; {LOGGED["describe"]}: None '
+                                               "{'pass': True, 'state': 'blinky copied'}")),
+  'earlier_session_runs': (2, {'results': [{'board': 'B', 'ran': False, 'pass': False, 'locked': True,
+                                            'recoveryBlocker': False, 'pendingSessions': ['/r/receipt.json'],
+                                            'detail': 'still runs'}]}, ('blocker', 'still runs')),
   'refused_before_hardware': (2, {'results': [{'board': 'B', 'ran': False, 'detail': 'no probe'}]}, ('not-run', 'no probe')),
   'probe_users': (2, {'results': [{'board': 'B', 'ran': False, 'probeUsers': [5], 'detail': 'p'}]}, ('blocker', 'p')),
   'untouched_failure': (1, {'results': [{'board': 'B', 'ran': True, 'pass': False,
@@ -128,15 +138,6 @@ class Stubbed(unittest.TestCase):
     mock.patch.object(hil_ci, 'hosted_record', self.fake_admit).start()
     mock.patch.dict(os.environ, {'HIL_STAND_IN': str(self.spec)}).start()
     self.addCleanup(mock.patch.stopall)
-    self.addCleanup(self.reap_hung_stand_in)
-
-  def reap_hung_stand_in(self):
-    """A stand-in left hanging as the in-process holder would be a stale hil_test.py on the host."""
-    pid_file = self.spec.with_suffix('.json.pid')
-    if pid_file.exists():
-      pid = int(pid_file.read_text())
-      os.kill(pid, 9)
-      os.waitpid(pid, 0)
 
   def fake_admit(self, board, roster, out, hosted):
     self.admitted.append((board, roster, hosted))
@@ -198,30 +199,50 @@ class Stubbed(unittest.TestCase):
     self.assertFalse((out / f'{BOARD}.done').exists())
 
   def test_a_failed_cleanup_is_a_blocker_that_keeps_its_marker_and_blocks_the_next_run(self):
-    held = {'row': {'ran': True, 'pass': False, 'steps': [{'step': 'install', 'pass': True}],
-                    'cleanup': {'pass': False, 'state': 'blinky copied', 'heldAfter': True, 'holder': {'pid': 9}}},
-            'exit': 4}
-    self.assertEqual(self.main('--board', BOARD, battery=held), 2)
+    # its lock ended with it, the failure in the board's cleanup log; CI's marker still refuses the board (SKILL.md
+    # Recovery) until the runner-cancellation gate lets an unfinished attempt be only reported
+    unlogged = dict(LOGGED, endedCleanly=False, failureLogged=False, errors=['TimeoutError: mutex'],
+                    describe='B: lock released, failure NOT logged in /l, errors: TimeoutError: mutex')
+    ended = {'row': {'ran': True, 'pass': False, 'steps': [{'step': 'install', 'pass': True}], 'cleanup': ENDED,
+                     'lock': unlogged}, 'exit': 4}
+    self.assertEqual(self.main('--board', BOARD, battery=ended), 2)
+    r = self.rows()[0]
+    self.assertEqual((r['verdict'], r['cleanupPass'], r['notes']),
+                     ('blocker', False, [f'lock: {unlogged["describe"]}']))
+    self.assertIn(unlogged['describe'], r['detail'])
+    self.assertNotIn('heldInProcess', r)
     self.assertTrue((self.out / f'{BOARD}.started').exists())
     self.assertFalse((self.out / f'{BOARD}.done').exists())
     later = self.state / 'run-2'
-    self.assertEqual(self.main('--board', BOARD, battery=held, out=later), 2)
+    self.assertEqual(self.main('--board', BOARD, battery=ended, out=later), 2)
     r = self.rows(later)[0]
     self.assertIn('run-1', r['detail'])
     self.assertFalse((later / BOARD).exists())   # no battery ran
 
-  def test_a_holder_kept_in_process_is_not_waited_for(self):
-    held = {'row': {'ran': True, 'pass': False, 'steps': [{'step': 'install', 'pass': True}],
-                    'cleanup': {'pass': False, 'state': 'blinky copied', 'heldAfter': True,
-                                'holder': {'pid': 9, 'inProcess': True}}},
-            'hang': True}
-    t0 = time.monotonic()
-    self.assertEqual(self.main('--board', BOARD, battery=held), 2)
-    self.assertLess(time.monotonic() - t0, 20)
-    self.assertEqual(self.rows()[0]['verdict'], 'blocker')
-    self.assertFalse((self.out / f'{BOARD}.done').exists())
+  def test_a_refusals_lock_end_reaches_the_summary_and_its_detail(self):
+    lock = dict(LOGGED, endedCleanly=False, failureLogged=None, describe='B: lock released, errors: record not cleared')
+    row = {'ran': False, 'detail': 'probe in use', 'probeUsers': [5], 'cleanup': None, 'lock': lock}
+    self.assertEqual(self.main('--board', BOARD, battery={'row': row, 'exit': 4}), 2)
+    r = self.rows()[0]
+    self.assertEqual(r['notes'], [f'lock: {lock["describe"]}'])
+    self.assertIn(f'Notes: lock: {lock["describe"]}', hil_ci.summary_detail(r))
 
-  def test_the_verdicts_are_the_report_adapters_and_unchanged(self):
+  def test_the_open_cleanup_failures_a_battery_found_reach_the_summary(self):
+    found = {'v': 1, 'event': 'failed', 'id': 'f2', 'how': 'found-left', 'reason': 'hil_test.py', 'pid': 7,
+             'at': '2026-11-11T10:00:00+0000', 'detail': 'its task ended without its cleanup'}
+    ok = {'row': {'ran': True, 'pass': True, 'cleanup': {'pass': True, 'state': 'blinky copied'}, 'lock': LOGGED,
+                  'previousCleanupFailure': found, 'openCleanupFailures': 2}}
+    with mock.patch.object(sys, 'stdout', io.StringIO()) as table:
+      self.spec.write_text(json.dumps(ok))
+      code = hil_ci.main(['--roster', 'ci.json', '--out', str(self.out), '--hosted', str(self.tmp / 'hosted'),
+                          '--board', BOARD])
+    self.assertEqual(code, 0)   # what an earlier task left is reported, never this run's verdict
+    r = self.rows()[0]
+    self.assertEqual((r['verdict'], r['previousCleanupFailure'], r['openCleanupFailures']), ('pass', found, 2))
+    self.assertIn('Previous cleanup failure: 2026-11-11T10:00:00+0000 (found-left, hil_test.py pid 7, id f2): its task '
+                  'ended without its cleanup (1 earlier still open)', table.getvalue())
+
+  def test_the_verdicts_are_the_report_adapters(self):
     for name, (code, report, want) in GOLDEN.items():
       with self.subTest(name):
         self.assertEqual(run_report.verdict(code, report, 'B'), want)
@@ -237,6 +258,54 @@ class Stubbed(unittest.TestCase):
     self.assertEqual(self.main('--board', BOARD, battery=ok), 0)   # the run's own outcome stands
     r = self.rows()[0]
     self.assertEqual((r['verdict'], r['reportError']), ('pass', ok['report']['reportError']))
+
+  def test_what_a_passing_battery_could_not_record_reaches_the_summary_and_its_markdown(self):
+    noted = {'ran': True, 'pass': True, 'legacyPending': ['/r/receipt.json'], 'legacyNote': 'mark not cleared: x',
+             'cleanup': {'pass': True, 'state': 'blinky copied'},
+             'lock': {'released': True, 'endedCleanly': True, 'restoreNotes': ['restorations not logged: OSError: x']}}
+    with mock.patch.object(sys, 'stdout', io.StringIO()) as table:
+      self.spec.write_text(json.dumps({'row': noted, 'meta': self.meta()}))
+      code = hil_ci.main(['--roster', 'ci.json', '--out', str(self.out), '--hosted', str(self.tmp / 'hosted'),
+                          '--board', BOARD])
+    want = ["legacyPending: ['/r/receipt.json']",
+            'legacyNote: mark not cleared: x', 'restoredNote: restorations not logged: OSError: x']
+    r = self.rows()[0]
+    self.assertEqual((code, r['verdict'], r['sharedVerdict'], r['notes']), (0, 'pass', 'pass', want))   # never a verdict
+    self.assertIn(f'Notes: {"; ".join(want)}', table.getvalue())
+    md = (self.out / BOARD / 'run-1' / 'hil_report.md').read_text(encoding='utf-8')
+    self.assertIn(f'\nNotes: {"; ".join(want)}\n', md)
+
+  def test_a_lock_end_that_failed_renders_beside_a_passing_cleanup(self):
+    passed = {'board': 'B', 'ran': True, 'pass': True, 'steps': [{'step': 'install', 'pass': True}],
+              'cleanup': {'pass': True, 'state': 'blinky copied'}, 'lock': dict(LOGGED, endedCleanly=False)}
+    refused = {'board': 'C', 'ran': False, 'pass': False, 'cleanup': None, 'detail': 'started marker m cannot be written',
+               'lock': dict(LOGGED, endedCleanly=False, describe='C: lock released, failure logged in /l')}
+    clean = {'board': 'D', 'ran': True, 'pass': True, 'steps': [], 'cleanup': {'pass': True, 'state': 'untouched'},
+             'lock': dict(LOGGED, failureLogged=None, describe='D: lock released')}
+    md = run_report.render(report_core(), {'pass': False, 'caveat': '', 'results': [passed, refused, clean]})
+    self.assertIn(f'Notes: lock: {LOGGED["describe"]}', md)
+    self.assertIn('Notes: lock: C: lock released, failure logged in /l', md)
+    self.assertNotIn('D: lock released', md)   # a clean end is no note
+
+  def test_an_older_runners_held_board_keeps_its_warning_in_the_regenerated_markdown(self):
+    core = report_core()
+    held = dict(HELD_ROW, cleanup={'pass': False, 'state': 'unknown', 'heldAfter': True, 'holder': {'pid': 9}})
+    body = {'pass': False, 'caveat': '', 'exitCode': 4, 'heldInProcess': False, 'results': [held]}
+    doc = json.dumps({'_hil': self.meta(), **body}).encode()   # an _hil v1 report as master's runner wrote it
+    reading = core.parse(doc, run_report.schema(core))
+    self.assertEqual(reading.outcome, 'valid', reading.detail)
+    self.assertEqual(run_report.verdict(run_report.exit_of(reading.body), reading.body, 'B')[0], 'blocker')
+    md = run_report.render(core, reading.body)
+    self.assertIn("Notes: lock: board held by an older runner's cleanup holder {'pid': 9}", md)
+
+  def test_a_manual_reports_findings_and_notes_render_at_its_top(self):
+    body = {'pass': True, 'caveat': '', 'results': [], 'legacyNote': 'mark not cleared: x',
+            'restoredNote': 'kept open: f1', 'logError': 'cleanup log not written: y',
+            'previousCleanupFailure': {'unavailable': 'cleanup log unreadable: z'}}
+    self.assertEqual(run_report.render(report_core(), body).splitlines()[1:3],
+                     ['Previous cleanup failure: cleanup log unreadable: z',
+                      'Notes: legacyNote: mark not cleared: x; restoredNote: kept open: f1; '
+                      'logError: cleanup log not written: y'])
 
   def meta(self, termination='completed'):
     core = report_core()
@@ -509,23 +578,66 @@ class Stubbed(unittest.TestCase):
     self.assertEqual(hil_ci.STEPS, (*ht.STEPS['esp'], 'cleanup'))
 
   def test_fail_at_reaches_the_battery(self):
-    held = {'row': {'ran': True, 'pass': False, 'steps': [{'step': 'install', 'pass': True}],
-                    'cleanup': {'pass': False, 'state': 'blinky copied', 'heldAfter': True}}, 'exit': 4}
-    self.assertEqual(self.main('--board', BOARD, '--fail-at', 'cleanup', battery=held), 2)
+    ended = {'row': {'ran': True, 'pass': False, 'steps': [{'step': 'install', 'pass': True}], 'cleanup': ENDED},
+             'exit': 4}
+    self.assertEqual(self.main('--board', BOARD, '--fail-at', 'cleanup', battery=ended), 2)
     self.assertIn('--fail-at cleanup', (self.out / BOARD / 'stdout.txt').read_text())
 
-  def test_launch_returns_the_report_the_exit_and_whether_the_runner_stayed_a_holder(self):
+  def test_launch_returns_the_report_and_the_exit(self):
     def cmd(where):
       where.mkdir()
       return [sys.executable, self.stand_in, 'run', '-b', BOARD, '--run-root', where]
     self.spec.write_text(json.dumps({'row': {'ran': True, 'pass': True}}))
-    report, code, held = hil_ci.launch(cmd(self.tmp / 'a'), self.tmp / 'a', BOARD)
-    self.assertEqual((report['results'][0]['board'], code, held), (BOARD, 0, False))
-    self.spec.write_text(json.dumps({'row': {'ran': True, 'cleanup': {'holder': {'pid': 9, 'inProcess': True}}},
-                                     'hang': True}))
-    report, code, held = hil_ci.launch(cmd(self.tmp / 'b'), self.tmp / 'b', BOARD)
-    self.assertEqual((code, held), (None, True))
+    report, code = hil_ci.launch(cmd(self.tmp / 'a'), self.tmp / 'a')
+    self.assertEqual((report['results'][0]['board'], code), (BOARD, 0))
+    self.spec.write_text(json.dumps({'row': {'ran': True, 'cleanup': ENDED}, 'exit': 4}))
+    report, code = hil_ci.launch(cmd(self.tmp / 'b'), self.tmp / 'b')
+    self.assertEqual(code, 4)
     self.assertTrue((self.tmp / 'b' / 'stdout.txt').read_text().endswith(json.dumps(report) + '\n'))
+
+  def test_launch_returns_without_waiting_for_a_runner_that_keeps_a_build_lock_itself(self):
+    gate = self.tmp / 'gate'
+    runner = self.tmp / 'keeps.py'   # hil_test.main's end: its report, stdio closed, then the wait for a survivor
+    runner.write_text(textwrap.dedent('''
+      import json, os, sys, time
+      row = {'board': sys.argv[2], 'ran': True, 'pass': True, 'cleanup': {'pass': True, 'state': 'blinky copied'}}
+      print(json.dumps({'pass': True, 'results': [row], 'inProcessKeeper': os.getpid()}), flush=True)
+      for std in (0, 1, 2):
+        os.close(std)
+      end = time.monotonic() + 30
+      while not os.path.exists(sys.argv[1]) and time.monotonic() < end:
+        time.sleep(0.05)
+    '''))
+    self.addCleanup(gate.touch)
+    (self.tmp / 'k').mkdir()
+    t0 = time.monotonic()
+    report, code = hil_ci.launch([sys.executable, runner, gate, BOARD], self.tmp / 'k')
+    self.assertLess(time.monotonic() - t0, 20)
+    self.assertEqual((code, run_report.verdict(code, report, BOARD)[0]), (None, 'blocker'))
+    self.assertIsInstance(report['inProcessKeeper'], int)
+
+  def test_a_keeper_that_dies_other_than_with_the_runners_exit_keeps_its_cleanup_blocker(self):
+    runner = self.tmp / 'keeper_died.py'   # its keeper exec'd, then dead at startup (exit 127) before the survivor
+    runner.write_text(textwrap.dedent('''
+      import json, os, sys, time
+      a = sys.argv
+      for marker in ('--started-marker', '--done-marker'):
+        open(a[a.index(marker) + 1], 'w').close()
+      row = {'board': a[a.index('-b') + 1], 'ran': True, 'pass': False, 'steps': [{'step': 'flash', 'pass': False}],
+             'cleanup': {'pass': False, 'state': 'unknown'}}
+      print(json.dumps({'pass': False, 'results': [row], 'exitCode': 4, 'inProcessKeeper': os.getpid()}), flush=True)
+      me = os.getpid()
+      if os.fork() == 0:   # holds the output until its parent is dead, so launch() reads EOF after the exit
+        while os.getppid() == me:
+          time.sleep(0.01)
+        os._exit(0)
+      os._exit(127)
+    '''))
+    mock.patch.object(hil_ci, 'HIL_TEST', runner).start()
+    self.assertEqual(self.main('--board', BOARD), 2)
+    r = self.rows()[0]
+    self.assertEqual((r['verdict'], r['exit']), ('blocker', None))
+    self.assertFalse((self.out / f'{BOARD}.done').exists())
 
   def test_a_recovery_blocker_row_is_a_blocker_locked_or_not(self):
     for row in ({'ran': False, 'locked': True, 'recoveryBlocker': True, 'detail': 'stale record'},
@@ -663,6 +775,14 @@ def workflow_job(name):
   return re.search(rf'\n  {name}:\n((?:    .*\n|\n)+)', text).group(1)
 
 
+class Roster(unittest.TestCase):
+  def test_max32666fthr_is_pending_commissioning_on_its_jlink(self):
+    """The Feather moved to a J-Link whose battery is not commissioned: CI never runs it, a dispatch only builds it."""
+    self.assertEqual(hil_ci.split('test/hil/ci.json', ['max32666fthr']), ([], [], ['max32666fthr']))
+    self.assertEqual(hil_ci.split('test/hil/ci.json', ['max32666fthr'], build_pending=True),
+                     ([], ['max32666fthr'], ['max32666fthr']))
+
+
 class Workflow(unittest.TestCase):
   def test_each_board_builds_in_its_own_leg_that_replaces_its_earlier_artifact(self):
     """A leg per board, named for it, whose upload replaces an earlier attempt's artifact of its board; a leg that
@@ -754,13 +874,13 @@ import importlib.util, json, os, sys, time
 spec = importlib.util.spec_from_file_location('hil_test', os.environ['HIL_RUNNER'])
 ht = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ht)
-ht.LOCK_POLL = float(os.environ.get('HIL_LOCK_POLL', ht.LOCK_POLL))
 load = ht.load_helper
 
 
 def load_helper():
   helper = load()
   helper.BOARD_LOCK_DIR = os.environ['HIL_LOCKS']
+  helper.TASK_POLL = float(os.environ.get('HIL_LOCK_POLL', helper.TASK_POLL))
   acquire = helper.acquire_board_lock
 
   def acquire_noted(lock, *a, **k):   # each try at the board, for a test to order a contender after it
@@ -782,7 +902,7 @@ def run(bat, files, version):
 ht.load_helper = load_helper
 ht.record_facts = lambda record, board, workdir: json.loads(os.environ['HIL_FACTS'])
 ht.admit_record = lambda *a: ({}, {'version': 'v'})
-ht.probe_users = lambda board: []
+ht.probe_busy = lambda board: []
 ht.Battery.run = run
 ht.Battery.restore = lambda bat, files, version: {'pass': True, 'state': 'blinky copied', 'evidence': {}}
 sys.exit(ht.main(sys.argv[1:]))
@@ -844,7 +964,7 @@ class RealRunner(unittest.TestCase):
     self.assertEqual(self.helper.record_state(LPC)[0], 'empty')
     self.helper.release_board_lock(self.helper.take_board_lock(LPC, 'next'))
 
-  def test_a_battery_killed_mid_run_leaves_a_blocker_the_next_run_reports_without_waiting(self):
+  def test_a_battery_killed_mid_run_is_a_blocker_whose_record_the_next_run_logs_and_reports(self):
     def kill_the_battery():
       end = time.monotonic() + 30
       while not self.pid_file.exists() and time.monotonic() < end:
@@ -857,27 +977,28 @@ class RealRunner(unittest.TestCase):
     row = self.row(self.out)
     self.assertEqual(row['verdict'], 'blocker')
     self.assertIn('without a report', row['detail'])
-    # it died holding the board: its start stands without a .done, a blocker for every later run
+    # it died on the board: its start stands without a .done, a blocker for every later run of this state dir
     self.assertEqual(((self.out / f'{LPC}.started').exists(), (self.out / f'{LPC}.done').exists()), (True, False))
     self.assertEqual(hil_ci.unfinished(self.state, LPC), ['run-1'])
     run_dir, = (self.out / LPC).glob('run-*')   # the dead battery's dir uploads an explicit notice, no view
     self.assertTrue((run_dir / 'hil_report.md').read_text(encoding='utf-8').startswith(
       report_core().NOTICE))
     self.assertIn('report missing', row['sharedDetail'])
-    rec = self.helper.read_record(LPC)
-    self.assertTrue(self.helper.is_recovery_blocker(rec))   # the shared helper's view: every project refuses the board
-    self.assertEqual((rec['reason'], rec['protected']), ('hil_test.py', True))
+    rec = self.helper.read_record(LPC)   # its flock went with it; its record owes the cleanup it never did
+    self.assertEqual((rec['reason'], rec[self.helper.CLEANUP_OWED]), ('hil_test.py', True))
     self.assertEqual(Path(rec['runDir']).parent, self.out / LPC)
-    # a later CI run with no marker of its own (another state dir) meets the record: a blocker at once, never waited for
+    # a later CI run with no marker of its own (another state dir) takes the free board at once, the record logged as
+    # a found-left cleanup failure and reported, and its restore resolves it
     later = self.tmp / 'state-2' / 'run-1'
     t0 = time.monotonic()
-    self.assertEqual(self.main('pass', later, 600), 2)
+    self.assertEqual(self.main('pass', later, 600), 0)
     self.assertLess(time.monotonic() - t0, 20)
     row = self.row(later)
-    self.assertEqual(row['verdict'], 'blocker')
-    self.assertIn('stale record', row['detail'])
-    self.assertFalse((later / f'{LPC}.done').exists())
-    self.assertEqual(self.helper.read_record(LPC), rec)
+    found = row['previousCleanupFailure']
+    self.assertEqual((row['verdict'], found['how'], found['reason'], found['pid'], 'openCleanupFailures' in row),
+                     ('pass', 'found-left', 'hil_test.py', rec['pid'], False))
+    self.assertTrue((later / f'{LPC}.done').exists())
+    self.assertEqual((self.helper.record_state(LPC)[0], self.helper.open_cleanup_failures(LPC)), ('empty', []))
 
   def test_a_ci_battery_waiting_on_the_board_is_not_unfinished_to_a_runner_that_takes_it_meanwhile(self):
     tries, ended = self.tmp / 'tries', {}
@@ -893,15 +1014,15 @@ class RealRunner(unittest.TestCase):
       waiting = ((self.out / f'{LPC}.started').exists(), hil_ci.unfinished(self.state, LPC))
       self.helper.release_board_lock(third)
       # a remote driver's runner takes the board before CI's battery tries again
-      report, code, _ = hil_ci.battery(LPC, 'ci.json', self.out / f'{LPC}.build.json', self.tmp / 'remote' / LPC, 0,
+      report, code = hil_ci.battery(LPC, 'ci.json', self.out / f'{LPC}.build.json', self.tmp / 'remote' / LPC, 0,
                                        ci_state_root=self.state)
-      ci.join()
+      ci.join()   # its last pause over, CI's battery takes the board once more (agentrc board_task) and runs
     remote = run_report.row_of(report, LPC) or {}
     self.assertEqual((waiting, run_report.verdict(code, report, LPC), remote.get('unfinishedAttempts'),
                       ended['code'], self.row(self.out)['verdict'],
                       (self.out / f'{LPC}.started').exists(), (self.out / f'{LPC}.done').exists(),
                       self.helper.record_state(LPC)[0]),
-                     ((False, []), ('pass', ''), None, 1, 'not-run', False, False, 'empty'))
+                     ((False, []), ('pass', ''), None, 0, 'pass', True, True, 'empty'))
 
 
 

@@ -113,7 +113,9 @@ if __name__ == '__main__':
 # `hil_test.py run` on the rig. It appends its argv and HIL_* environment to FAKE_ARGV, then either runs the real runner (from
 # FAKE_REAL_RUNNER over the checkout's staged agentrc, its lock in FAKE_LOCKS, admission and the probe steps stubbed; FAKE_BATTERY=die leaves the battery
 # to be killed, FAKE_CI_RACE starts a CI battery's marker just before the lock is taken) or prints a canned report:
-# FAKE_BATTERY pass, fail (after a write), die (no report), holder (stays the in-process cleanup holder) or unpublished
+# FAKE_BATTERY pass, fail (after a write), die (no report), ended (its cleanup failed, the board released, the log
+# append failed, after an earlier failure it found), noted (a pass whose legacy mark and restoration were not recorded) or
+# unpublished
 # (a pass whose report the core could not publish: reportPath null, reportError). Before its report it sleeps
 # FAKE_SLEEP s (only on board FAKE_SLEEP_BOARD when set) and waits up to 30 s for the file FAKE_GATE; FAKE_MD is a
 # Markdown view left beside the JSON, FAKE_READONLY leaves the run dir read-only and FAKE_UNLISTABLE its run root
@@ -155,7 +157,7 @@ if os.environ.get('FAKE_REAL_RUNNER'):
   ht.load_helper = load_helper
   ht.record_facts = lambda record, board, workdir: json.loads(os.environ['FAKE_FACTS'])
   ht.admit_record = lambda *a: ({}, {'version': 'v'})
-  ht.probe_users = lambda board: []
+  ht.probe_busy = lambda board: []
   ht.Battery.run = run
   ht.Battery.restore = lambda bat, files, version: {'pass': True, 'state': 'blinky copied', 'evidence': {}}
   sys.exit(ht.main(argv))
@@ -171,14 +173,21 @@ while gate and not os.path.exists(gate) and time.monotonic() < end:
 if mode == 'die':
   sys.exit(137)
 steps = [{'step': 'install', 'pass': True}, {'step': 'dfu', 'pass': mode != 'fail', 'detail': 'no DFU'}]
-cleanup = {'pass': True, 'state': 'blinky copied', 'heldAfter': False}
-if mode == 'holder':
-  cleanup = {'pass': False, 'state': 'unknown', 'heldAfter': True, 'holder': {'pid': os.getpid(), 'inProcess': True}}
-code = {'pass': 0, 'unpublished': 0, 'fail': 1, 'holder': 4}[mode]
-passed = mode in ('pass', 'unpublished')
+cleanup = {'pass': True, 'state': 'blinky copied'}
+lock = {'released': True, 'endedCleanly': True, 'failureLogged': None, 'describe': 'b: lock released'}
+found = {}
+if mode == 'ended':
+  cleanup = {'pass': False, 'state': 'unknown'}
+  lock.update(endedCleanly=False, failureLogged=False, describe='b: lock released, failure NOT logged in /l')
+  found = {'previousCleanupFailure': {'how': 'found-left', 'id': 'f1'}, 'openCleanupFailures': 2}
+if mode == 'noted':
+  lock['restoreNotes'] = ['restorations not logged: OSError: x']
+  found = {'legacyNote': 'mark not cleared: TimeoutError: mutex'}
+code = {'pass': 0, 'unpublished': 0, 'fail': 1, 'ended': 4, 'noted': 0}[mode]
+passed = mode in ('pass', 'unpublished', 'noted')
 report = {'pass': passed, 'caveat': '', 'reportPath': str(run_dir / 'hil_report.json'), 'exitCode': code,
-          'heldInProcess': mode == 'holder', 'results': [{'board': board, 'ran': True, 'pass': passed,
-                                                          'locked': False, 'steps': steps, 'cleanup': cleanup, 'detail': ''}]}
+          'results': [{'board': board, 'ran': True, 'pass': passed, 'locked': False, 'steps': steps, 'cleanup': cleanup,
+                       'lock': lock, 'detail': '', **found}]}
 if mode == 'unpublished':
   report.update(reportPath=None, reportError='report not published: OSError: disk full')
 else:
@@ -191,10 +200,6 @@ if os.environ.get('FAKE_UNLISTABLE'):
   run_dir.parent.chmod(0o300)
 print('noise')
 print(json.dumps(report), flush=True)
-if mode == 'holder':
-  Path(os.environ['FAKE_PID']).write_text(str(os.getpid()))
-  os.close(1)
-  time.sleep(60)
 sys.exit(code)
 '''
 
@@ -350,7 +355,7 @@ class Refusals(Project):
                        (('restore', '-b', LPC), 'manual or recovery operation'),
                        (('clear-pending', '-b', LPC), 'manual or recovery operation')):
       self.refused(*argv, text=text)
-    for flag in ('--under-hold=x', '--recover-holder', '--recover-takeover', '--try-reentry', '--route', '--run-root',
+    for flag in ('--under-hold=x', '--report', '--try-reentry', '--route', '--run-root',
                  '--ci-state-root', '--done-marker', '--started-marker', '--build-record', '--update-record'):
       self.refused('run', '-b', LPC, flag, 'v', text='takes no manual, recovery, commissioning or override option')
 
@@ -746,14 +751,23 @@ class Attempt(Project):
     self.assertEqual((code, out['outcome'], out['boards'][0]['verdict']), (2, 'blocker', 'blocker'))
     self.assertIn('without a report', out['boards'][0]['detail'])
 
-  def test_an_in_process_holder_is_left_running_and_reported_as_a_blocker(self):
-    os.environ['FAKE_BATTERY'] = 'holder'
+  def test_a_failed_cleanup_is_a_blocker_with_its_release_and_the_failures_it_found(self):
+    os.environ['FAKE_BATTERY'] = 'ended'
     code, out = self.run_()
     row, = out['boards']
-    self.assertEqual((code, row['verdict'], row['heldInProcess']), (2, 'blocker', True))
-    pid = int((self.tmp / 'battery.pid').read_text())
-    self.assertEqual(row['holder']['pid'], pid)
-    os.kill(pid, 0)   # the attempt completed; the holder keeps the board, untouched by the driver's end
+    self.assertEqual((code, row['verdict'], row['exit'], row['notes'], row['previousCleanupFailure'],
+                      row['openCleanupFailures'], 'heldInProcess' in row),
+                     (2, 'blocker', 4, ['lock: b: lock released, failure NOT logged in /l'],
+                      {'how': 'found-left', 'id': 'f1'}, 2, False))
+    self.assertIn('b: lock released, failure NOT logged in /l', row['detail'])
+
+  def test_what_a_passing_battery_could_not_record_comes_home_with_its_pass(self):
+    os.environ['FAKE_BATTERY'] = 'noted'
+    code, out = self.run_()
+    row, = out['boards']
+    self.assertEqual((code, row['verdict'], row['notes']),
+                     (0, 'pass', ['legacyNote: mark not cleared: TimeoutError: mutex',
+                                  'restoredNote: restorations not logged: OSError: x']))
 
   def test_an_abandoned_ci_marker_is_a_blocker_before_any_build(self):
     (self.state / 'ci-run').mkdir()
@@ -892,12 +906,10 @@ class RealRunner(Project):
     row, = out['boards']
     self.assertEqual((code, row['verdict'], row['phase']), (2, 'blocker', 'battery'))
     self.assertIn('ci-old', row['detail'])
-    rec = self.helper.read_record(LPC)
-    self.assertTrue(self.helper.is_recovery_blocker(rec))   # every project's helper refuses the board
-    self.assertEqual((rec['reason'], rec['protected']), ('hil_test.py', True))
-    self.assertEqual(Path(rec['runDir']).parent, self.attempt() / 'out' / LPC)
+    # refused untouched: the board released, nothing logged; CI's marker alone keeps it a blocker
+    self.assertEqual((self.helper.record_state(LPC)[0], self.helper.open_cleanup_failures(LPC)), ('empty', []))
 
-  def test_a_battery_killed_mid_run_leaves_a_stale_protected_record(self):
+  def test_a_battery_killed_mid_run_leaves_a_record_the_next_attempt_logs_and_reports(self):
     os.environ['FAKE_BATTERY'] = 'die'
     pid = self.tmp / 'battery.pid'
 
@@ -913,9 +925,16 @@ class RealRunner(Project):
     row, = out['boards']
     self.assertEqual((code, row['verdict']), (2, 'blocker'))
     self.assertIn('without a report', row['detail'])
-    rec = self.helper.read_record(LPC)
-    self.assertTrue(self.helper.is_recovery_blocker(rec))
-    self.assertEqual((rec['reason'], rec['protected']), ('hil_test.py', True))
+    rec = self.helper.read_record(LPC)   # its flock went with it; its record owes the cleanup it never did
+    self.assertEqual((rec['reason'], rec[self.helper.CLEANUP_OWED]), ('hil_test.py', True))
+    self.assertEqual(Path(rec['runDir']).parent, self.attempt() / 'out' / LPC)
+    os.environ['FAKE_BATTERY'] = 'pass'
+    code, out = self.run_(run_id='r2')   # takes the free board at once, the record logged and reported
+    row, = out['boards']
+    found = row['previousCleanupFailure']
+    self.assertEqual((code, row['verdict'], found['how'], found['reason'], found['pid']),
+                     (0, 'pass', 'found-left', 'hil_test.py', rec['pid']))
+    self.assertEqual((self.helper.record_state(LPC)[0], self.helper.open_cleanup_failures(LPC)), ('empty', []))
 
 
 class Hosts(unittest.TestCase):

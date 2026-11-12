@@ -62,11 +62,10 @@ HOSTS = {'ci.lan': {'hostname': 'ci', 'roster': 'test/hil/ci.json', 'base': '~/h
                     'ciStateRoot': '/opt/actions-runner/tinyuf2/_work/tinyuf2/hil-state'}}
 LOCK_WAIT_MAX = 3600
 INCOMPLETE, REFUSED = 6, 7
-MANUAL = ('install', 'restore', 'clear-pending', 'fat-read', 'keep-held', 'keep-build')
+MANUAL = ('install', 'restore', 'clear-pending', 'fat-read', 'keep-build')
 # hil_test.py's manual, recovery and commissioning options and the overrides a remote run never takes
-REFUSED_FLAGS = ('--under-hold', '--recover-holder', '--recover-takeover', '--report', '--try-reentry', '--route',
-                 '--build-record', '--run-root', '--ci-state-root', '--done-marker', '--started-marker',
-                 '--after-reviewed-recovery', '--update-record')
+REFUSED_FLAGS = ('--under-hold', '--report', '--try-reentry', '--route', '--build-record', '--run-root',
+                 '--ci-state-root', '--done-marker', '--started-marker', '--after-reviewed-recovery', '--update-record')
 
 core = None   # the provider, loaded by provider()
 
@@ -363,9 +362,11 @@ def board_rows(tree, manifest, dest, result):
       boards.append({'board': b, 'verdict': 'blocker' if result.get('error') else 'incomplete',
                      'detail': result.get('error') or 'no row in the result'})
       continue
+    # heldInProcess and holder: only an older driver's result, collected again
     got = {k: row.get(k) for k in ('board', 'phase', 'verdict', 'detail', 'exit', 'heldInProcess', 'holder',
-                                   'reportError', 'unfinishedAttempts', 'sharedVerdict', 'sharedDetail',
-                                   'unsafeArtifacts') if row.get(k) is not None}
+                                   'previousCleanupFailure', 'openCleanupFailures', 'notes', 'reportError',
+                                   'unfinishedAttempts', 'sharedVerdict', 'sharedDetail', 'unsafeArtifacts')
+           if row.get(k) is not None}
     lost = artifacts_missing(row, b, dest)
     if lost:
       got.update(copyBack='incomplete', missing=lost)
