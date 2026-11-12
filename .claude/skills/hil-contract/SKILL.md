@@ -150,7 +150,7 @@ Locks are taken through agentrc's `hil` helper, `skills/hil/scripts/hil_lock.py`
 
   | Verdict | When | Exit |
   |---|---|---|
-  | failed | `cleanup.pass` false: a child that survived SIGKILL (logged `unrecheckable`), an `openocd_esp` session not ended (logged `retained`), a failed or injected restore | 4 |
+  | failed | `cleanup.pass` false: a child that survived SIGKILL (logged `unrecheckable`), an `openocd_esp` session not ended (logged `retained`), a failed or injected restore; a cleanup that raised after the battery ran (logged `unrecheckable`) | 4 |
   | restored | the cleanup passed on a touched board, whatever the battery did | the battery's |
   | clean | `cleanup.state` `untouched`; a refusal after the take (an unfinished CI attempt, a live legacy session, a marker or state root it cannot use); or the battery's setup raised before any hardware access | the battery's, or the refusal's |
 

@@ -3384,10 +3384,12 @@ def deferred(row):
 def end_board(task, row):
   """The board task's verdict collector (SKILL.md Verdicts), from the row's cleanup: clean for a board the battery
   never touched or never ran on, restored after a cleanup that restored it, whatever the battery did, and failed with
-  the children and openocd_esp sessions it could not prove ended when the cleanup failed, the board released and the
-  failure logged."""
-  c = row['cleanup'] or {'pass': True, 'state': 'untouched'}
-  if c['pass'] and c['state'] == 'untouched':
+  the children and openocd_esp sessions it could not prove ended when the cleanup failed, or unrecheckable when a
+  battery that ran has no cleanup (clean_up itself raised), the board released and the failure logged."""
+  c = row['cleanup']
+  if c is None and row['ran']:
+    task.failed(detail='cleanup did not finish', receipts=[{'unrecheckable': 'a cleanup that did not finish'}])
+  elif c is None or c['pass'] and c['state'] == 'untouched':
     task.clean()
   elif c['pass']:
     task.restored(evidence=f'{row["board"]}: {c["state"]}')

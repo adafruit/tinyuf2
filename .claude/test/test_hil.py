@@ -3148,6 +3148,17 @@ class RunBoard(BoardRun):
                      (4, [], True, row['cleanup']['detail']))
     self.assertIn('--fail-at cleanup', row['cleanup']['detail'])
 
+  def test_a_cleanup_that_raises_after_the_battery_touched_the_board_is_logged_unrecheckable(self):
+    with mock.patch.object(ht, 'settle_children', side_effect=OSError('reap failed')), \
+         self.assertRaisesRegex(OSError, 'reap failed'):
+      self.run_board(touches)
+    last = self.failures()[-1]
+    self.assertEqual((last['detail'], last['receipts']),
+                     ('cleanup did not finish; then OSError: reap failed',
+                      [{'unrecheckable': 'a cleanup that did not finish'}]))
+    self.assertRegex(self.helper.resolve_restored(BOARD, [last], evidence='restored')[0], 'stays open')
+    self.helper.flock_nb(BOARD).close()   # released
+
   def test_try_reentry_is_for_an_uncommissioned_board_only_and_reports_its_decision(self):
     self.args.try_reentry = 'retained-register'
     with self.assertRaisesRegex(ht.Refused, 'already commissioned'):
