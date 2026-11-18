@@ -187,7 +187,7 @@ BENCH = {
       "name": "imxrt1060_evk",
       "uid": "4629F865D2291713E000005002004200",
       "flasher": {"name": "jlink", "uid": "000726129165", "args": "-device MIMXRT1062xxx6A"},
-      "tinyuf2": {"lock": "mimxrt1060_evk", "reentry": "retained-register"}
+      "tinyuf2": {"reentry": "retained-register"}
     },
     {
       "name": "metro_m7_1011",
@@ -218,13 +218,13 @@ BENCH = {
       "name": "stm32f411ve_discovery",
       "uid": "3A002A001051363332383332",
       "flasher": {"name": "jlink", "uid": "000770880814", "args": "-device stm32f411ve"},
-      "tinyuf2": {"lock": "stm32f411disco", "reentry": "retained-register"}
+      "tinyuf2": {"reentry": "retained-register"}
     },
     {
       "name": "stm32h563_nucleo",
       "uid": "620041000751323237363130",
       "flasher": {"name": "stlink", "uid": "002300273232510239353236"},
-      "tinyuf2": {"lock": "stm32h563nucleo", "device": "stm32h563zi", "reentry": "retained-register"}
+      "tinyuf2": {"device": "stm32h563zi", "reentry": "retained-register"}
     },
     {
       "name": "espressif_esp32s31_func_core",
@@ -357,7 +357,6 @@ class Roster(Tmp):
       'args': {'flasher': {'name': 'jlink', 'uid': '1', 'args': '-device LPC55S69_M33_0 -if SWD'}},
       'int uid': {'flasher': {'name': 'jlink', 'uid': 1, 'args': '-device LPC55S69_M33_0'}},
       'unknown device': {'flasher': {'name': 'jlink', 'uid': '1', 'args': '-device NRF52840_XXAA'}},
-      'bad lock name': {'tinyuf2': {'lock': '../x'}},
       'usbPower without a port': {'tinyuf2': {'usbPower': {'hub': 'PA40004'}}},
       'usbPower port out of range': {'tinyuf2': {'usbPower': {'hub': 'PA40004', 'port': 16}}},
       'usbPower port as text': {'tinyuf2': {'usbPower': {'hub': 'PA40004', 'port': '3'}}},
@@ -367,6 +366,10 @@ class Roster(Tmp):
     for what, over in cases.items():
       with self.subTest(what), self.assertRaises(ht.Refused):
         ht.load_board(roster(self.tmp, **over), over.get('name', BOARD))
+
+  def test_a_bench_name_that_is_no_lock_name_is_refused(self):
+    with self.assertRaisesRegex(ht.Refused, 'is not a board lock name'):
+      ht.load_board(roster(self.tmp, name='../x'), '../x')
 
   def test_usb_power_is_for_jlink_boards_only(self):
     with self.assertRaisesRegex(ht.Refused, 'usbPower is for J-Link boards only'):
@@ -396,17 +399,18 @@ class Roster(Tmp):
       with self.subTest(what), self.assertRaisesRegex(ht.Refused, err):
         ht.load_board(cfg, 'max32666fthr')
 
-  def test_a_registered_board_locks_as_the_registrys_name_and_refuses_another(self):
+  def test_a_registered_board_locks_as_the_registrys_name(self):
     cfg = self.tmp / 'max.json'
-    for lock, err in ((None, None), ('max32666fthr', None), ('other', "lock 'other' is not its registered board's")):
-      with self.subTest(lock):
-        cfg.write_text(json.dumps({'boards': [dict(MAX_ENTRY, tinyuf2={'reentry': 'retained-register',
-                                                                       **({'lock': lock} if lock else {})})]}))
-        if err:
-          with self.assertRaisesRegex(ht.Refused, err):
-            ht.load_board(cfg, 'max32666fthr')
-        else:
-          self.assertEqual(ht.load_board(cfg, 'max32666fthr')['lock'], 'max32666fthr')
+    cfg.write_text(json.dumps({'boards': [dict(MAX_ENTRY, tinyuf2={'reentry': 'retained-register'})]}))
+    self.assertEqual(ht.load_board(cfg, 'max32666fthr')['lock'], 'max32666fthr')
+
+  def test_a_tinyuf2_lock_is_refused_as_retired(self):
+    registered = self.tmp / 'max.json'
+    registered.write_text(json.dumps({'boards': [dict(MAX_ENTRY, tinyuf2={'lock': 'max32666fthr'})]}))
+    bench = roster(self.tmp, tinyuf2={'lock': 'mimxrt1060_evk'})
+    for path, name in ((registered, 'max32666fthr'), (bench, BOARD)):
+      with self.subTest(name), self.assertRaisesRegex(ht.Refused, f'{name}: tinyuf2.lock is retired'):
+        ht.load_board(path, name)
 
   def test_the_rigs_max32666fthr_loads_the_registrys_jlink(self):
     cfg = self.tmp / 'max.json'
@@ -492,11 +496,9 @@ class Roster(Tmp):
            self.assertRaisesRegex(ht.Refused, 'older than test/hil/agentrc.json.*recheck this contract'):
         ht.load_helper()
 
-  def test_the_lock_defaults_to_the_board_name_and_the_port_comes_from_it(self):
+  def test_a_bench_boards_lock_is_its_name_and_the_port_comes_from_it(self):
     b = ht.load_board(roster(self.tmp), BOARD)
-    self.assertEqual((b['lock'], b['port']), (BOARD, 'lpc55'))
-    b = ht.load_board(roster(self.tmp, tinyuf2={'lock': 'other'}), BOARD)
-    self.assertEqual((b['name'], b['lock']), (BOARD, 'other'))
+    self.assertEqual((b['name'], b['lock'], b['port']), (BOARD, BOARD, 'lpc55'))
 
   def test_layout_refusals(self):
     b = ht.load_board(roster(self.tmp), BOARD)
@@ -510,7 +512,7 @@ class Roster(Tmp):
 
   def test_the_bench_and_ci_rosters_are_well_formed_and_commissioned(self):
     b = self.load(bench_roster(self.tmp), 'imxrt1060_evk')
-    self.assertEqual((b['lock'], b['reentry']), ('mimxrt1060_evk', 'retained-register'))
+    self.assertEqual((b['lock'], b['reentry']), ('imxrt1060_evk', 'retained-register'))
     self.assertEqual(b['install'], (0x60000000, 0x6000C000))
     f3 = self.load(bench_roster(self.tmp), 'stm32f303disco')
     self.assertEqual((f3['reentry'], f3['usbPower'], f3['install'], f3['app']),
@@ -518,7 +520,7 @@ class Roster(Tmp):
     self.assertIsNone(b['usbPower'])
     f4 = self.load(bench_roster(self.tmp), 'stm32f411ve_discovery')
     self.assertEqual((f4['lock'], f4['reentry'], f4['usbPower'], f4['install'], f4['app']),
-                     ('stm32f411disco', 'retained-register', None, (0x08000000, 0x08010000), (0x08010000, 0x08080000)))
+                     ('stm32f411ve_discovery', 'retained-register', None, (0x08000000, 0x08010000), (0x08010000, 0x08080000)))
     ci = self.load(ROOT / 'test' / 'hil' / 'ci.json', 'imxrt1064_evk')
     self.assertEqual((ci['lock'], ci['reentry'], ci['usbPower'], ci['install'], ci['app']),
                      ('mimxrt1064_evk', 'retained-register', None, (0x70000000, 0x7000C000), (0x7000C000, 0x70400000)))
@@ -656,12 +658,11 @@ class Admission(Tmp):
       ht.check_bootloader_bin(bootloader_bin(self.tmp / 'a.bin', size=0x10001), self.board, self.facts, 'c')
 
 def rt_roster(tmp):
-  return roster(tmp, name='imxrt1060_evk', flasher={'name': 'jlink', 'uid': '2', 'args': '-device MIMXRT1062xxx6A'},
-                tinyuf2={'lock': 'mimxrt1060_evk'})
+  return roster(tmp, name='imxrt1060_evk', flasher={'name': 'jlink', 'uid': '2', 'args': '-device MIMXRT1062xxx6A'})
 
 
 class Rt1060(Tmp):
-  """The RT1060 entry: board imxrt1060_evk, lock mimxrt1060_evk (tinyusb's name), flash from 0x60000000."""
+  """The RT1060 entry: bench board imxrt1060_evk, locked by that name, flash from 0x60000000."""
 
   def setUp(self):
     super().setUp()
@@ -3426,11 +3427,14 @@ class RunBoard(BoardRun):
     self.assertEqual(ht.run_report.verdict(code, {'results': [row]}, BOARD)[0], 'blocker')
 
   def test_the_board_is_locked_and_reported_under_its_lock_name(self):
-    self.board = self.load(roster(self.tmp, tinyuf2={'lock': 'tinyusb_name'}))
-    held = self.helper.acquire_board_lock('tinyusb_name', reason='someone')
+    self.board = self.load(ROOT / 'test' / 'hil' / 'ci.json', 'imxrt1064_evk')   # registered as mimxrt1064_evk
+    self.facts = board_facts(self.board)
+    self.enterContext(mock.patch.object(ht, 'parse_hex', lambda p: {self.board['install'][0]: 1}))
+    held = self.helper.acquire_board_lock('mimxrt1064_evk', reason='someone')
     self.addCleanup(held.close)
     row, code, _ = self.run_board(lambda *a: self.fail('ran'))
-    self.assertEqual((code, row['board'], row['lock']['name'], row['locked']), (1, BOARD, 'tinyusb_name', True))
+    self.assertEqual((code, row['board'], row['lock']['name'], row['locked']),
+                     (1, 'imxrt1064_evk', 'mimxrt1064_evk', True))
 
   def test_an_unusable_lock_dir_is_refused_not_run_unlocked(self):
     (self.tmp / 'file').write_text('')

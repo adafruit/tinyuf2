@@ -704,7 +704,7 @@ class Stubbed(unittest.TestCase):
   def test_the_plan_runs_commissioned_boards_each_from_a_hosted_build(self):
     self.roster.write_text(json.dumps({'boards': [
       {'name': 'jlink_ok', 'tinyuf2': {'reentry': 'retained-register'}}, {'name': 'esp_ok', 'tinyuf2': {'reentry': 'dfu-detach'}},
-      {'name': 'esp_pending', 'tinyuf2': {'lock': 'x'}}, {'name': 'jlink_pending'}]}))
+      {'name': 'esp_pending', 'tinyuf2': {'device': 'esp32s3'}}, {'name': 'jlink_pending'}]}))
     boards = ['esp_ok', 'esp_pending', 'jlink_ok', 'jlink_pending']
     rig, pending = ['esp_ok', 'jlink_ok'], ['esp_pending', 'jlink_pending']
     self.assertEqual(hil_ci.split('ci.json', boards), (rig, rig, pending))

@@ -180,13 +180,15 @@ def load_board(config, name):
   except cb.Fail as e:
     raise Refused(str(e))
   t = b.get('tinyuf2') or {}
+  if 'lock' in t:
+    raise Refused(f"{name}: tinyuf2.lock is retired: the lock is agentrc's registry name, or the roster name")
   registry = board_registry()
   try:   # a registered board's lock is agentrc's registry name for it, whatever this roster calls it
-    lock = registry.lock_name(b, t.get('lock'))
+    lock = registry.lock_name(b)
   except ValueError as e:
     raise Refused(str(e))
-  if not (isinstance(lock, str) and registry.LOCK_NAME_RE.match(lock)):
-    raise Refused(f'{name}: tinyuf2.lock must be the board lock name')
+  if not registry.LOCK_NAME_RE.match(lock):
+    raise Refused(f'{name}: {lock!r} is not a board lock name')
   try:
     port = cb.port_of(name)
   except cb.Fail as e:
