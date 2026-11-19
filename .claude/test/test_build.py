@@ -733,7 +733,7 @@ class HilSelection(unittest.TestCase):
     self.assertEqual((h['boards'], [u['target'] for u in h['uncovered']]), ([], ['stm32f401_blackpill']))
 
   def test_a_roster_entry_is_named_by_its_tinyuf2_board(self):
-    self.roster.write_text(json.dumps({'boards': [{'name': 'imxrt1060_evk', 'tinyuf2': {'lock': 'mimxrt1060_evk'}}]}))
+    self.roster.write_text(json.dumps({'boards': [{'name': 'imxrt1060_evk'}]}))
     self.assertEqual(self.hil('ports/mimxrt10xx/boards/imxrt1060_evk/board.h')['boards'], ['imxrt1060_evk'])
     self.assertEqual(self.hil('ports/mimxrt10xx/board_flash.c')['boards'], ['imxrt1060_evk'])
     self.assertNotIn('mimxrt10xx', [u['target'] for u in self.hil('src/main.c')['uncovered']])
