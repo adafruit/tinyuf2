@@ -56,8 +56,6 @@
 #define I2C_MASTER_SDA_IO           40
 #define I2C_MASTER_NUM              0
 #define I2C_MASTER_FREQ_HZ          400000
-#define I2C_MASTER_TX_BUF_DISABLE   0
-#define I2C_MASTER_RX_BUF_DISABLE   0
 #define I2C_MASTER_TIMEOUT_MS       1000
 #define I2C_WAIT                    40      //Timing (in microseconds) for I2C
 

@@ -7,7 +7,7 @@
 #include "esp_log.h"
 #include "sdkconfig.h"
 #include "driver/gpio.h"
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"
 
 
 #include "ssd1306.h"
@@ -31,17 +31,36 @@ static XPowersPMU PMU;
 #define I2C_MASTER_SDA_IO               (gpio_num_t) 8
 #define I2C_MASTER_SCL_IO               (gpio_num_t) 9
 
-
-#define I2C_MASTER_TX_BUF_DISABLE       0                           /*!< I2C master doesn't need buffer */
-#define I2C_MASTER_RX_BUF_DISABLE       0                           /*!< I2C master doesn't need buffer */
 #define I2C_MASTER_TIMEOUT_MS           1000
 
-#define WRITE_BIT                       I2C_MASTER_WRITE            /*!< I2C master write */
-#define READ_BIT                        I2C_MASTER_READ             /*!< I2C master read */
-#define ACK_CHECK_EN                    0x1                         /*!< I2C master will check ack from slave*/
-#define ACK_CHECK_DIS                   0x0                         /*!< I2C master will not check ack from slave */
-#define ACK_VAL                         (i2c_ack_type_t)0x0         /*!< I2C ack value */
-#define NACK_VAL                        (i2c_ack_type_t)0x1         /*!< I2C nack value */
+static i2c_master_bus_handle_t i2c_bus_new(i2c_port_num_t port, gpio_num_t sda, gpio_num_t scl)
+{
+  i2c_master_bus_config_t bus_config;
+  memset(&bus_config, 0, sizeof(bus_config));
+  bus_config.i2c_port = port;
+  bus_config.sda_io_num = sda;
+  bus_config.scl_io_num = scl;
+  bus_config.clk_source = I2C_CLK_SRC_DEFAULT;
+  bus_config.glitch_ignore_cnt = 7;
+  bus_config.flags.enable_internal_pullup = 1;
+  i2c_master_bus_handle_t bus;
+  ESP_ERROR_CHECK(i2c_new_master_bus(&bus_config, &bus));
+  return bus;
+}
+
+static i2c_master_bus_handle_t pmu_bus;
+
+// a device per call: the callbacks also get addresses other than the PMU's
+static i2c_master_dev_handle_t pmu_device_add(uint8_t devAddr)
+{
+    i2c_device_config_t dev_config;
+    memset(&dev_config, 0, sizeof(dev_config));
+    dev_config.dev_addr_length = I2C_ADDR_BIT_LEN_7;
+    dev_config.device_address = devAddr;
+    dev_config.scl_speed_hz = I2C_MASTER_FREQ_HZ;
+    i2c_master_dev_handle_t dev;
+    return i2c_master_bus_add_device(pmu_bus, &dev_config, &dev) == ESP_OK ? dev : NULL;
+}
 
 /**
  * @brief Read a sequence of bytes from a pmu registers
@@ -54,32 +73,18 @@ int pmu_register_read(uint8_t devAddr, uint8_t regAddr, uint8_t *data, uint8_t l
     if (data == NULL) {
         return ESP_FAIL;
     }
-    i2c_cmd_handle_t cmd;
-
-    cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (devAddr << 1) | WRITE_BIT, ACK_CHECK_EN);
-    i2c_master_write_byte(cmd, regAddr, ACK_CHECK_EN);
-    i2c_master_stop(cmd);
-    esp_err_t ret =  i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_PERIOD_MS);
-    i2c_cmd_link_delete(cmd);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "PMU i2c_master_cmd_begin FAILED! > ");
+    i2c_master_dev_handle_t dev = pmu_device_add(devAddr);
+    if (dev == NULL) {
         return ESP_FAIL;
     }
-    cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (devAddr << 1) | READ_BIT, ACK_CHECK_EN);
-    if (len > 1) {
-        i2c_master_read(cmd, data, len - 1, ACK_VAL);
-    }
-    i2c_master_read_byte(cmd, &data[len - 1], NACK_VAL);
-    i2c_master_stop(cmd);
-    ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_PERIOD_MS);
-    i2c_cmd_link_delete(cmd);
+    // register write and data read are separate transactions, STOP between them
+    esp_err_t ret = i2c_master_transmit(dev, &regAddr, 1, I2C_MASTER_TIMEOUT_MS);
     if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "PMU i2c_master_transmit FAILED! > ");
+    } else if ((ret = i2c_master_receive(dev, data, len, I2C_MASTER_TIMEOUT_MS)) != ESP_OK) {
         ESP_LOGE(TAG, "PMU READ FAILED! > ");
     }
+    i2c_master_bus_rm_device(dev);
     return ret == ESP_OK ? 0 : -1;
 }
 
@@ -91,14 +96,16 @@ int pmu_register_write_byte(uint8_t devAddr, uint8_t regAddr, uint8_t *data, uin
     if (data == NULL) {
         return ESP_FAIL;
     }
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (devAddr << 1) |  I2C_MASTER_WRITE, ACK_CHECK_EN);
-    i2c_master_write_byte(cmd, regAddr, ACK_CHECK_EN);
-    i2c_master_write(cmd, data, len, ACK_CHECK_EN);
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_PERIOD_MS);
-    i2c_cmd_link_delete(cmd);
+    i2c_master_dev_handle_t dev = pmu_device_add(devAddr);
+    if (dev == NULL) {
+        return ESP_FAIL;
+    }
+    i2c_master_transmit_multi_buffer_info_t buffers[] = {
+        { .write_buffer = &regAddr, .buffer_size = 1 },
+        { .write_buffer = data, .buffer_size = len },
+    };
+    esp_err_t ret = i2c_master_multi_buffer_transmit(dev, buffers, 2, I2C_MASTER_TIMEOUT_MS);
+    i2c_master_bus_rm_device(dev);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "PMU WRITE FAILED! < ");
     }
@@ -109,17 +116,7 @@ extern "C" bool board_init_extension()
 {
   SSD1306_t dev;
 
-  i2c_config_t i2c_conf ;
-  memset(&i2c_conf, 0, sizeof(i2c_conf));
-  i2c_conf.mode = I2C_MODE_MASTER;
-  i2c_conf.sda_io_num = I2C_MASTER_SDA_IO;
-  i2c_conf.scl_io_num = I2C_MASTER_SCL_IO;
-  i2c_conf.sda_pullup_en = GPIO_PULLUP_ENABLE;
-  i2c_conf.scl_pullup_en = GPIO_PULLUP_ENABLE;
-  i2c_conf.master.clk_speed = I2C_MASTER_FREQ_HZ;
-  i2c_param_config(I2C_MASTER_NUM, &i2c_conf);
-  i2c_driver_install(I2C_MASTER_NUM, i2c_conf.mode,
-                     I2C_MASTER_RX_BUF_DISABLE, I2C_MASTER_TX_BUF_DISABLE, 0);
+  pmu_bus = i2c_bus_new(I2C_MASTER_NUM, I2C_MASTER_SDA_IO, I2C_MASTER_SCL_IO);
 
   if (PMU.begin(AXP2101_SLAVE_ADDRESS, pmu_register_read, pmu_register_write_byte)) {
 
@@ -176,7 +173,7 @@ extern "C" bool board_init_extension()
   }
 
 #if CONFIG_I2C_INTERFACE
-  i2c_master_init(&dev, I2C_MASTER_SDA_IO, I2C_MASTER_SCL_IO, -1, oled_addr);
+  i2c_master_init(&dev, pmu_bus, -1, oled_addr);
 #endif // CONFIG_I2C_INTERFACE
 
 #if CONFIG_FLIP

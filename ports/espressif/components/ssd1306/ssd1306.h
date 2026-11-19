@@ -2,6 +2,7 @@
 #define MAIN_SSD1306_H_
 
 #include "driver/spi_master.h"
+#include "driver/i2c_master.h"
 
 // Following definitions are bollowed from
 // http://robotcantalk.blogspot.com/2015/03/interfacing-arduino-with-ssd1306-driven.html
@@ -92,6 +93,7 @@ typedef struct {
 	int _pages;
 	int _dc;
 	spi_device_handle_t _SPIHandle;
+	i2c_master_dev_handle_t _i2c_dev;
 	bool _scEnable;
 	int _scStart;
 	int _scEnd;
@@ -135,7 +137,7 @@ void ssd1306_fadeout(SSD1306_t * dev);
 void ssd1306_dump(SSD1306_t dev);
 void ssd1306_dump_page(SSD1306_t * dev, int page, int seg);
 
-void i2c_master_init(SSD1306_t * dev, int16_t sda, int16_t scl, int16_t reset,int address);
+void i2c_master_init(SSD1306_t * dev, i2c_master_bus_handle_t bus, int16_t reset, int address);
 void i2c_init(SSD1306_t * dev, int width, int height);
 void i2c_display_image(SSD1306_t * dev, int page, int seg, uint8_t * images, int width);
 void i2c_contrast(SSD1306_t * dev, int contrast);
