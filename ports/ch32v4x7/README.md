@@ -2,7 +2,10 @@
 
 This port supports the Rev A Metro boards with CH32V407RET6 or CH32V467RET6,
 512 KB code flash, 200 KB SRAM, a 25 MHz crystal, USBHS1 on PA11/PA12 and
-the D13 LED on PB12. External PSRAM is not used by the bootloader.
+the D13 LED on PB12. The Metro NeoPixel on PC14 shows red before USB
+enumeration, green when mounted, orange during writes, and purple during the
+double-reset window. It is turned off before starting an application. External
+PSRAM is not used by the bootloader.
 
 | Board | Build name | USB VID:PID | Drive |
 | --- | --- | --- | --- |

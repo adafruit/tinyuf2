@@ -10,7 +10,7 @@ void SysTick_Handler(void) __attribute__((interrupt, used));
 void USBHS1_IRQHandler(void) __attribute__((interrupt, used));
 void SW_Handler(void) __attribute__((interrupt, used));
 
-/** @brief Enable the backup domain and initialize the activity LED. */
+/** @brief Enable the backup domain and initialize the status LEDs. */
 void board_init(void) {
   __disable_irq();
   RCC_PB1PeriphClockCmd(RCC_PB1Periph_BKP | RCC_PB1Periph_PWR, ENABLE);
@@ -23,6 +23,18 @@ void board_init(void) {
   };
   GPIO_Init(LED_PORT, &led);
   board_led_write(0);
+#ifdef NEOPIXEL_PIN
+  RCC_PB2PeriphClockCmd(NEOPIXEL_CLOCK, ENABLE);
+  GPIO_ResetBits(NEOPIXEL_PORT, NEOPIXEL_PIN);
+  GPIO_InitTypeDef pixel = {
+    .GPIO_Pin   = NEOPIXEL_PIN,
+    .GPIO_Mode  = GPIO_Mode_Out_PP,
+    .GPIO_Speed = GPIO_Speed_High,
+  };
+  GPIO_Init(NEOPIXEL_PORT, &pixel);
+  const uint8_t off[3] = {0, 0, 0};
+  board_rgb_write(off);
+#endif
   __enable_irq();
 }
 
@@ -133,9 +145,67 @@ void board_led_write(uint32_t state) {
   GPIO_WriteBit(LED_PORT, LED_PIN, (state ? LED_STATE_ON : !LED_STATE_ON) ? Bit_SET : Bit_RESET);
 }
 
-/** @brief Ignore RGB updates because this bootloader uses only its activity LED. */
+#ifdef NEOPIXEL_PIN
+/** @brief Count HCLK ticks across the bootloader's SysTick period boundary. */
+static inline uint32_t pixel_elapsed(uint32_t start, uint32_t wrap) {
+  const uint32_t now = SysTick->CNT;
+  return now >= start ? now - start : now + wrap - start;
+}
+#endif
+
+/** @brief Send the status color to the Metro's single GRB NeoPixel. */
 void board_rgb_write(const uint8_t rgb[]) {
+#ifdef NEOPIXEL_PIN
+  const uint32_t green        = (rgb[1] * NEOPIXEL_BRIGHTNESS) >> 8;
+  const uint32_t red          = (rgb[0] * NEOPIXEL_BRIGHTNESS) >> 8;
+  const uint32_t blue         = (rgb[2] * NEOPIXEL_BRIGHTNESS) >> 8;
+  const uint32_t frame        = (green << 16) | (red << 8) | blue;
+  const uint32_t ticks_per_us = SystemCoreClock / 1000000;
+  // GPIO/polling overhead is included in the measured Arduino CH32 timings.
+  const uint32_t period    = ticks_per_us * 1150 / 1000;
+  const uint32_t zero_high = ticks_per_us * 250 / 1000;
+  const uint32_t one_high  = ticks_per_us * 700 / 1000;
+
+  // QingKe V3V uses GINTENR, not mstatus, for global interrupt enables.
+  // Preserve it because RGB updates can also occur inside the timer ISR.
+  uint32_t irq_state;
+  __asm volatile("csrrc %0, 0x800, %1" : "=r"(irq_state) : "r"(0x88) : "memory");
+  __asm volatile("fence.i" ::: "memory");
+  const uint32_t control = SysTick->CTLR;
+  const uint32_t compare = SysTick->CMP;
+  const uint32_t counter = SysTick->CNT;
+  // RGB_OFF is sent after board_timer_stop(), and initialization has no timer.
+  // Borrow the stopped counter without enabling its interrupt, then restore it.
+  if (!(control & 1)) {
+    SysTick->CNT  = 0;
+    SysTick->CMP  = UINT32_MAX;
+    SysTick->CTLR = 5; // STE | STCLK: run at HCLK, no interrupt or auto-reload.
+  }
+  const uint32_t wrap = SysTick->CMP + 1;
+  NEOPIXEL_PORT->BCR  = NEOPIXEL_PIN;
+  uint32_t start      = SysTick->CNT;
+  while (pixel_elapsed(start, wrap) < ticks_per_us * 300) {}
+  for (uint32_t mask = 1u << 23; mask; mask >>= 1) {
+    const uint32_t high = (frame & mask) ? one_high : zero_high;
+    NEOPIXEL_PORT->BSHR = NEOPIXEL_PIN;
+    start               = SysTick->CNT;
+    while (pixel_elapsed(start, wrap) < high) {}
+    NEOPIXEL_PORT->BCR = NEOPIXEL_PIN;
+    while (pixel_elapsed(start, wrap) < period) {}
+  }
+  // Latch even the last OFF frame before handing GPIO control to an application.
+  start = SysTick->CNT;
+  while (pixel_elapsed(start, wrap) < ticks_per_us * 300) {}
+  if (!(control & 1)) {
+    SysTick->CTLR = 0;
+    SysTick->CMP  = compare;
+    SysTick->CNT  = counter;
+    SysTick->CTLR = control;
+  }
+  __asm volatile("csrw 0x800, %0" : : "r"(irq_state) : "memory");
+#else
   (void)rgb;
+#endif
 }
 
 /** @brief Start the SysTick interval used for indicators and double-reset detection. */
