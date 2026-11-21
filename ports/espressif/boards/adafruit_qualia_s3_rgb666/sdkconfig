@@ -5,3 +5,10 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-16MB.csv"
 
 # Serial flasher config
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+
+# CircuitPython runs this board's flash at 120 MHz in high-performance mode
+# (HPM), which changes the number of dummy cycles the flash expects in a read.
+# A software reset doesn't reset the flash chip, so without this option the
+# bootloader misreads flash and the board boot-loops. With it, the bootloader
+# resets the flash at startup.
+CONFIG_BOOTLOADER_FLASH_DC_AWARE=y
