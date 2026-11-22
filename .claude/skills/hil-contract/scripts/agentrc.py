@@ -40,6 +40,7 @@ API = 1   # agentrc_source.py's API this bootstrap speaks
 SCRIPTS = (
   'skills/code-size/scripts/code_size.py',
   'skills/hil/scripts/esptool_session.py',
+  'skills/hil/scripts/gh_pr_comment.py',
   'skills/hil/scripts/hil_boards.py',
   'skills/hil/scripts/hil_flash.py',
   'skills/hil/scripts/hil_lock.py',

@@ -247,9 +247,11 @@ class Bootstrap(unittest.TestCase):
   def test_scripts_cover_every_agentrc_file_tinyuf2_loads_or_runs(self):
     import hil_test as ht
     import hil_ci
+    import hil_comment
     import hil_remote
     used = {ht.LOCK_HELPER, ht.FLASH_PROVIDER, ht.OPENOCD_ESP, ht.BOARD_REGISTRY, ht.USB_OBSERVE, ht.REPORT_CORE,
             ht.ESP_SESSION, ht.USB_DFU, hil_ci.REPORT_CORE, hil_ci.REPORT_NOTICE, hil_remote.REMOTE_CORE,
+            hil_comment.GH_PR_COMMENT,
             'skills/code-size/scripts/code_size.py'}
     self.assertEqual(used, set(agentrc.SCRIPTS))
     self.assertLessEqual(used, set(agentrc.identity()['files']))
