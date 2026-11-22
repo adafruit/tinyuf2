@@ -4,6 +4,7 @@ unverified until a real run on the rig (commissioning.md)."""
 import argparse
 import contextlib
 import errno
+import fcntl
 import importlib.util
 import io
 import json
@@ -332,7 +333,7 @@ class Tmp(unittest.TestCase):
     reap_detached(self)
     self.mark_helper = mark_helper(self, self.tmp / 'marks')
     for p in (mock.patch.object(ht, 'record_facts', lambda record, board, workdir: board_facts(board)),
-              mock.patch.object(ht, 'PROTECTED_SESSIONS', []),
+              mock.patch.object(ht, 'RUN_LEFT', {}),
               # absence as each test's fake usb_device reads it; UsbAbsence runs the real one at its call sites
               mock.patch.object(ht, 'usb_absent', lambda vid, pid, serial: ht.usb_device(vid, pid, serial) is None),
               mock.patch.object(ht, 'pending_mark', lambda helper, lock: self.mark_helper.PendingSessions(lock, ht.PENDING_KIND))):
@@ -1072,8 +1073,11 @@ class EspP4(EspCase):
 
 
 FAKE_ESP = textwrap.dedent('''
-  import hashlib, json, os, sys
+  import hashlib, json, os, sys, time
   args, ops = sys.argv[1:-1], json.load(open(sys.argv[-1]))
+  if os.environ.get('FAKE_ESP_GATE'):   # waits, as a session still running, until the gate file exists
+    open(os.environ['FAKE_ESP_GATE'] + '.waiting', 'w').close()
+    while not os.path.exists(os.environ['FAKE_ESP_GATE']): time.sleep(0.01)
   img = os.environ['FAKE_ESP_FLASH']
   data = bytearray(open(img, 'rb').read())
   if os.environ.get('FAKE_ESP_FAIL'):
@@ -1500,6 +1504,18 @@ class RouteRoster(Tmp):
       ht.check_flasher(b)
 
 
+  def test_the_openocd_esp_api_admits_every_name_the_runner_uses_and_an_older_provider_is_refused(self):
+    # load_agentrc refuses a provider lacking OPENOCD_API before the lock; one missing here would fail under it instead
+    used = set(re.findall(r'\b(?:oe|openocd_esp\(\))\.(\w+)', SCRIPT.read_text()))
+    self.assertTrue({'read_security', 'pending_refusal', 'pending_entries', 'pending_main', 'describe'} <= used)
+    self.assertLessEqual(used, set(ht.OPENOCD_API))
+    oe = ht.openocd_esp()
+    with mock.patch.object(ht, 'OPENOCD', []), mock.patch.object(oe, 'read_security'), \
+         self.assertRaisesRegex(ht.Refused, "lacks \\['read_security'\\]; recheck this contract"):
+      del oe.read_security   # the patch restores it
+      ht.openocd_esp()
+
+
 class UsjAddressing(Tmp):
   """An esptool flasher whose uid is a USJ serial (MAC form) reaches the chip through its own USB-Serial/JTAG: the
   provider's tty of the one 303a:1001 with exactly that serial (usj_tty)."""
@@ -1606,13 +1622,19 @@ class JtagRoute(EspFake):
     self.board = ht.select_route(self.load(route_roster(self.tmp), S3), 'openocd_esp')
     self.mark = ht.pending_mark(None, self.board['lock'])
     exe, _ = AG.fake_install(self.tmp / 'oocd', chips=('esp32s3',), tool=AG.FAKE_OPENOCD)
-    with mock.patch.object(AG, 'oe', ht.openocd_esp()):
+    oe = ht.openocd_esp()
+    with mock.patch.object(AG, 'oe', oe):
       AG.FakeBus(self).add('5-3.4', USJ)
+    # read_security's child is the fake session helper, tracked as the provider runs it
     for p in (mock.patch.dict(os.environ, {'HIL_OPENOCD_ESP': str(exe), 'FAKE_BANNER': AG.BANNER,
                                            'FAKE_EVENTS': str(self.flash) + '.sessions', 'FAKE_FLASH': str(self.flash),
                                            'FAKE_BANK_SIZE': hex(0x800000)}),
-              mock.patch.object(ht, 'OPENOCD_TIMEOUT', 3), mock.patch.object(ht.openocd_esp(), 'BOOT_SETTLE', 0),
-              mock.patch.object(ht.openocd_esp(), 'CLEANUP_TIMEOUT', 3)):
+              mock.patch.object(ht, 'OPENOCD_TIMEOUT', 3), mock.patch.object(oe, 'BOOT_SETTLE', 0),
+              mock.patch.object(oe, 'CLEANUP_TIMEOUT', 3), mock.patch.object(oe, 'SECURITY_SETTLE', 0.1),
+              mock.patch.object(oe, 'ESPTOOL_SESSION', str(self.tmp / 'fake_esp.py')),
+              mock.patch.object(oe, '_UNLISTED', {}),   # what a test's failed latch held in this process
+              mock.patch.object(oe, 'usj_tty', lambda serial: str(self.tmp / 'ttyUSB0')),
+              mock.patch.object(oe.hil_flash, 'tool_python', lambda tool: sys.executable)):
       p.start()
       self.addCleanup(p.stop)
     self.addCleanup(self.kill_fakes)
@@ -1633,6 +1655,11 @@ class JtagRoute(EspFake):
   def install(self):
     self.bat = ht.EspBattery(self.board, self.facts, self.work)
     return self.bat.install(self.files())
+
+  @staticmethod
+  def server_pid(receipt):
+    """The openocd stand-in's pid from a session receipt: its path, or the record itself."""
+    return (receipt if isinstance(receipt, dict) else json.loads(Path(receipt).read_text()))['pid']
 
   def test_a_jtag_install_whose_agentrc_closure_changed_leaves_the_board_untouched(self):
     assert_closure_change_leaves_board_untouched(self)
@@ -1661,7 +1688,11 @@ class JtagRoute(EspFake):
     self.assertEqual((ev['security']['flashEncryption'], ev['security']['secureBoot']), ('off', 'off'))
     self.assertIn('esptool 5.2.0 on ', ev['security']['source'])   # the session's version, not the runtime check's
     self.assertIn('ROM loader: GET_SECURITY_INFO flags 0x00000000', ev['security']['source'])   # the provider's reading
-    self.assertEqual(ht.outstanding_sessions(self.work), [])
+    self.assertEqual((ht.outstanding_sessions(self.board), ht.openocd_esp().pending(USJ).read(), ht.CHILDREN), ([], [], []))
+    log = (self.work / 'hil.log').read_text()   # the security read's command, ops and output, as spawn logs its own
+    self.assertIn(f'fake_esp.py --port {self.tmp / "ttyUSB0"} --chip esp32s3 --baud 921600 --after hard-reset', log)
+    self.assertIn('# ops: [{"op": "security"}, {"op": "md5"', log)
+    self.assertIn('"esptool": "5.2.0"', log)
 
   def test_a_segment_whose_bytes_do_not_hash_as_recorded_programs_nothing(self):
     files = self.files()
@@ -1691,11 +1722,12 @@ class JtagRoute(EspFake):
     root = self.files()['flash']['root']
     with mock.patch.dict(os.environ, env), self.assertRaisesRegex(ht.CleanupPending, err) as cm:
       self.install()
-    left = ht.outstanding_sessions(self.work)
+    left = ht.outstanding_sessions(self.board)
     self.assertEqual(len(left), 1)
-    self.assertIsNotNone(ht.proc_stat(left[0]['pid']))   # never signalled, never reaped
+    pid = self.server_pid(left[0]['receipt'])
+    self.assertIsNotNone(ht.proc_stat(pid))   # never signalled, never reaped
     self.assertEqual(ht.settle_children(), [])
-    self.assertIsNotNone(ht.proc_stat(left[0]['pid']))
+    self.assertIsNotNone(ht.proc_stat(pid))
     self.assertFalse([e for e in self.events() if 'signal' in e])
     # the build dir stays locked, by a keeper, while the session runs (#579)
     self.assertEqual([k['survivors'] for k in self.bat.kept], [left])
@@ -1706,24 +1738,31 @@ class JtagRoute(EspFake):
                   lambda: self.bat.install(self.files())):
       with self.assertRaisesRegex(ht.CleanupPending, 'no session may overlap it'):
         later()
-    self.assertEqual(self.mark.read(), [])   # no pending mark: the board's cleanup log carries it
-    os.kill(left[0]['pid'], signal.SIGKILL)   # stands for the server exiting, reaped as a runner's exit leaves it
+    self.assertEqual(self.mark.read(), [])   # no legacy mark: the provider lists it under the USJ's serial
+    self.assertEqual(ht.openocd_esp().pending(USJ).read(), [{'receipt': s['receipt']} for s in left])
+    os.kill(pid, signal.SIGKILL)   # stands for the server exiting, reaped as a runner's exit leaves it
     with contextlib.suppress(ChildProcessError):   # a zombie is still `running` to the provider
-      os.waitpid(left[0]['pid'], 0)
+      os.waitpid(pid, 0)
     ht.wait_for(lambda: flock_free(Path(str(root) + '.lock')), 10, 'the keeper releasing the build lock')
     # gone without the reviewed end: still not ended, for a separately reviewed recovery
-    self.assertEqual([ht.session_state(e) for e in ht.outstanding_sessions(self.work)], ['unresolved'])
-    if isinstance(left[0]['receipt'], str):   # what `hil_openocd_esp.py end` leaves: closed after the reviewed end
+    self.assertEqual([ht.session_state(e) for e in ht.outstanding_sessions(self.board)], ['unresolved'])
+    # what `hil_openocd_esp.py end` leaves: closed after the reviewed end
+    if isinstance(left[0]['receipt'], str):
       rec = json.loads(Path(left[0]['receipt']).read_text())
       Path(left[0]['receipt']).write_text(json.dumps(dict(rec, closed=True, cleanup='done')))
-      self.assertEqual(ht.outstanding_sessions(self.work), [])
+      self.assertEqual(ht.outstanding_sessions(self.board), [])
+      with self.assertRaisesRegex(ht.CleanupPending, 'this run left on USJ'):   # ended, but never in the run that left it
+        ht.refuse_pending(self.board)
+      ht.RUN_LEFT.clear()   # a later run
+      ht.refuse_pending(self.board)   # the record, all it lists ended, is cleared
+      self.assertFalse(Path(ht.openocd_esp().pending(USJ)).exists())
     return cm.exception
 
   def test_the_provider_starts_at_least_the_settle_time_after_the_esptool_session(self):
     # the provider's own BOOT_SETTLE, from its call to resolving the USJ, is the wait after the session's hard reset
     oe, ended, flashing, started = ht.openocd_esp(), [], [], []
-    run, flash, usj = ht.Esptool.run, oe.flash_openocd_esp, oe.usj_location
-    with mock.patch.object(ht.Esptool, 'run', lambda *a: (run(*a), ended.append(time.monotonic()))[0]), \
+    read, flash, usj = oe.read_security, oe.flash_openocd_esp, oe.usj_location
+    with mock.patch.object(oe, 'read_security', lambda *a, **k: (read(*a, **k), ended.append(time.monotonic()))[0]), \
          mock.patch.object(oe, 'flash_openocd_esp', lambda *a, **k: (flashing.append(1), flash(*a, **k))[1]), \
          mock.patch.object(oe, 'usj_location', lambda *a: (flashing and started.append(time.monotonic()), usj(*a))[1]), \
          mock.patch.object(oe, 'BOOT_SETTLE', 0.2):
@@ -1731,7 +1770,7 @@ class JtagRoute(EspFake):
       self.assertGreaterEqual(started[0] - max(e for e in ended if e < started[0]), oe.BOOT_SETTLE)
 
   def test_a_ci_job_is_refused_before_the_security_and_snapshot_session(self):
-    with mock.patch.dict(os.environ, {'GITHUB_ACTIONS': ''}), mock.patch.object(ht.Esptool, 'run') as run, \
+    with mock.patch.dict(os.environ, {'GITHUB_ACTIONS': ''}), mock.patch.object(ht.openocd_esp(), 'read_security') as run, \
          self.assertRaisesRegex(ht.Refused, 'under a CI job'):
       self.install()
     self.assertEqual((run.call_count, self.bat.touched, self.events()), (0, False, []))
@@ -1755,9 +1794,218 @@ class JtagRoute(EspFake):
       return write(path, rec)
     with mock.patch.object(es, 'write_receipt', failing):
       e = self.pending('cleanup pending')
-    self.assertEqual(ht.outstanding_sessions(self.work)[0]['receipt']['tool'], 'hil_openocd_esp')   # the record
-    self.assertFalse(list(self.work.glob(ht.OPENOCD_SESSIONS)))
+    (record,) = ht.outstanding_sessions(self.board)   # listed by its record, its path ahead of the spawn withdrawn
+    self.assertEqual(record['receipt']['tool'], 'hil_openocd_esp')
+    self.assertFalse(list(self.work.glob('hil_openocd_esp_*/receipt.json')))
     self.assertEqual(e.evidence['operation']['cleanup'], 'pending')
+    rc, out = ht.openocd_esp().pending_main(USJ, 'reviewed recovery: the stand-in is gone')   # no `end` takes a record
+    self.assertEqual((rc, ht.outstanding_sessions(self.board)), (0, []))
+    ht.RUN_LEFT.clear()   # a later run
+    ht.refuse_pending(self.board)
+
+  def test_a_security_read_not_proven_ended_is_cleanup_pending_listed_and_logged_rechecked(self):
+    oe = ht.openocd_esp()
+    receipt = {'token': 'r1', 'supervisor': {'pid': 9}, 'lock': str(self.tmp / 'hil_op_r1.lock'),
+               'record': str(self.tmp / 'hil_op_r1.json')}
+
+    def tracked(cmd, cwd=None, **kw):   # a usable result line from a child whose recheck is not done
+      r = subprocess.CompletedProcess(cmd, 0, json.dumps({'ok': True, 'results': []}) + '\n', None)
+      r.cleanup, r.receipt = 'pending', receipt
+      return r
+    with mock.patch.object(oe.hil_process, 'run_tracked', tracked), \
+         self.assertRaisesRegex(ht.CleanupPending, 'security read is not proven ended'):
+      self.install()
+    left = ht.outstanding_sessions(self.board)
+    self.assertEqual((left, self.events()),
+                     ([{'cmd': oe.describe(receipt), 'receipt': receipt, 'serial': USJ, 'evidence': 'receipts'}], []))
+    self.assertEqual(ht.cleanup_evidence(left), ([receipt], []))   # rechecked by the restore, never retained
+    with self.assertRaisesRegex(ht.CleanupPending, 'no session may overlap it'):
+      self.bat.tool.run(ht.preserved_ops(self.board['regions']['preserved']), 'hard-reset')
+    with mock.patch.object(oe.hil_process, 'recheck', return_value='done'):
+      self.assertEqual(ht.outstanding_sessions(self.board), [])
+      # its child since proven ended clears the provider's record, never this run's latch: no restore follows (P2a)
+      with self.assertRaisesRegex(ht.CleanupPending, 'this run left on USJ .*cleanup pending: esptool child'):
+        ht.refuse_pending(self.board)
+      self.assertFalse(Path(oe.pending(USJ)).exists())
+      ht.RUN_LEFT.clear()   # a later run
+      ht.refuse_pending(self.board)
+
+  def full_record_from(self, n):
+    """PendingSessions.add failing with ENOSPC from its n-th call on: 1 the security read's write-ahead, 2 the
+    session's, 3 the latch of what the session left."""
+    add, calls = ht.openocd_esp().hil_lock.PendingSessions.add, []
+
+    def adding(record, sessions):
+      calls.append(sessions)
+      if len(calls) >= n:
+        raise OSError(errno.ENOSPC, 'No space left')
+      return add(record, sessions)
+    return mock.patch.object(ht.openocd_esp().hil_lock.PendingSessions, 'add', adding)
+
+  def test_an_operation_the_record_cannot_list_ahead_never_starts(self):
+    oe = ht.openocd_esp()
+    for n, err in ((1, r'the security read failed: \[Errno 28\]'), (2, r'refused the flash before starting: \[Errno 28\]')):
+      with self.subTest(n), self.full_record_from(n), self.assertRaisesRegex(ht.StepFail, err):
+        self.install()
+      self.assertEqual(([e for e in self.events() if 'pid' in e], ht.outstanding_sessions(self.board), self.bat.kept),
+                       ([], [], []))
+      self.assertEqual(len([e for e in self.events() if 'ops' in e]), n - 1)   # the read ran only once listed
+      self.assertFalse(Path(oe.pending(USJ)).exists())
+      Path(self.tmp / 'flash.img.sessions').unlink(missing_ok=True)
+
+  def test_a_session_the_latch_cannot_list_is_cleanup_pending_retained_and_keeps_the_build_lock(self):
+    oe, root = ht.openocd_esp(), self.files()['flash']['root']
+    full = self.full_record_from(3)
+    with full, mock.patch.object(oe, 'CLEANUP_TIMEOUT', 0.7), mock.patch.dict(os.environ, {'FAKE_IGNORE_SHUTDOWN': '1'}):
+      with self.assertRaisesRegex(ht.CleanupPending, r'not ended \(\[Errno 28\] No space left\)') as cm:
+        self.install()   # never "refused before starting": the latch failed after the session started
+      self.assertEqual(cm.exception.evidence['operation']['cleanup'], 'pending')
+      left = ht.outstanding_sessions(self.board)   # held unlisted by the provider, and listed ahead of its start
+      self.assertEqual([e['evidence'] for e in left], ['retained'])
+      self.assertEqual(oe.pending(USJ).read(), [{'receipt': left[0]['receipt']}])
+      self.assertEqual([k['survivors'] for k in self.bat.kept], [left])
+      with self.assertRaises(BlockingIOError), ht.cb.build_lock(root, wait=False):
+        pass
+      with self.assertRaisesRegex(ht.CleanupPending, 'could not list'):
+        self.bat.tool.run(ht.preserved_ops(self.board['regions']['preserved']), 'hard-reset')
+    with self.assertRaisesRegex(ht.CleanupPending, 'not proven ended'):   # listed by the next access
+      ht.refuse_pending(self.board)
+    self.assertEqual(oe.pending(USJ).read(), [{'receipt': left[0]['receipt']}])
+
+  def test_the_operations_own_write_ahead_entries_never_refuse_it_or_what_follows(self):
+    oe, seen = ht.openocd_esp(), {}
+    tracked, write = oe.hil_process.run_tracked, oe.esp_session.write_receipt
+
+    def reading(cmd, cwd=None, **kw):   # the security read's child, about to start
+      seen.setdefault('read', oe.pending(USJ).read())
+      return tracked(cmd, cwd, **kw)
+
+    def spawned(path, rec):   # the session, just spawned
+      seen.setdefault('session', (path, oe.pending(USJ).read()))
+      return write(path, rec)
+    with mock.patch.object(oe.hil_process, 'run_tracked', reading), \
+         mock.patch.object(oe.esp_session, 'write_receipt', spawned):
+      ev = self.install()
+    self.assertEqual([oe.receipt_kind(e['receipt']) for e in seen['read']], ['trackedDir'])
+    path, listed = seen['session']
+    self.assertEqual(listed, [{'receipt': path}])   # the read's entry, ended, already cleared
+    self.assertEqual(ev['operation']['cleanup'], 'done')
+    self.assertEqual(len([e for e in self.events() if 'ops' in e]), 2)   # the preservation check followed it
+    self.assertEqual((ht.outstanding_sessions(self.board), Path(oe.pending(USJ)).exists(), ht.RUN_LEFT), ([], False, {}))
+    ht.refuse_pending(self.board)
+    self.bat.tool.run(ht.preserved_ops(self.board['regions']['preserved']), 'hard-reset')
+
+  def test_a_killed_run_leaves_its_session_listed_refusing_the_next_until_it_is_ended(self):
+    oe, gate = ht.openocd_esp(), self.tmp / 'gate'
+    child = os.fork()
+    if child == 0:   # stands for `hil_test.py install`, SIGKILLed while its session programs
+      try:
+        with mock.patch.dict(os.environ, {'FAKE_SCRIPT': json.dumps({'flash#3': f'gate:{gate}'})}), \
+             mock.patch.object(ht, 'OPENOCD_TIMEOUT', 60), contextlib.redirect_stderr(io.StringIO()):
+          self.install()
+      finally:
+        os._exit(0)
+    try:
+      ht.wait_for(lambda: any('gated' in e for e in self.events()), 20, 'the session at its first write')
+    finally:
+      os.kill(child, signal.SIGKILL)
+      os.waitpid(child, 0)
+      gate.touch()
+    (left,) = ht.outstanding_sessions(self.board)
+    self.assertEqual((left['evidence'], ht.session_state(left)), ('retained', 'running'))
+    self.assertEqual(oe.pending(USJ).read(), [{'receipt': left['receipt']}])   # listed ahead of its spawn
+    reads = len([e for e in self.events() if 'ops' in e])
+    with self.assertRaisesRegex(ht.CleanupPending, 'not proven ended'):
+      self.install()
+    with self.assertRaisesRegex(ht.InUse, 'not proven ended') as cm:
+      ht.pending_in_use(self.board, {})
+    self.assertEqual(cm.exception.fields['pendingSessions'], [left['receipt']])
+    self.assertEqual(len([e for e in self.events() if 'ops' in e]), reads)   # no session followed it
+    rc, out = oe.end_session(left['receipt'], timeout=10)   # `hil_openocd_esp.py end --receipt`
+    self.assertEqual((rc, out['outcome']), (0, 'ended'))
+    ht.refuse_pending(self.board)   # nothing this run left: the record, all it lists ended, is cleared
+    self.assertFalse(Path(oe.pending(USJ)).exists())
+    self.assertEqual(self.install()['operation']['cleanup'], 'done')
+
+  def test_a_run_killed_in_the_security_read_leaves_its_state_dir_listed_until_the_child_ends(self):
+    oe, gate = ht.openocd_esp(), self.tmp / 'esp-gate'
+    child = os.fork()
+    if child == 0:   # stands for `hil_test.py install`, SIGKILLed while the security read's child runs
+      try:
+        with mock.patch.dict(os.environ, {'FAKE_ESP_GATE': str(gate)}), contextlib.redirect_stderr(io.StringIO()):
+          self.install()
+      finally:
+        os._exit(0)
+    try:
+      ht.wait_for(lambda: Path(f'{gate}.waiting').exists(), 20, 'the security read')
+    finally:
+      os.kill(child, signal.SIGKILL)
+      os.waitpid(child, 0)
+    (entry,) = oe.pending(USJ).read()
+    self.assertEqual(oe.receipt_kind(entry['receipt']), 'trackedDir')   # listed ahead of the child
+    (left,) = ht.outstanding_sessions(self.board)   # the open operation its state dir holds
+    self.assertEqual((left['evidence'], ht.receipt_alive(left)), ('receipts', True))
+    with self.assertRaisesRegex(ht.CleanupPending, 'clears by itself'):
+      ht.refuse_pending(self.board)
+    gate.touch()
+    ht.wait_for(lambda: not ht.outstanding_sessions(self.board), 20, 'the esptool child proven ended')
+    ht.refuse_pending(self.board)
+    self.assertFalse(Path(oe.pending(USJ)).exists())
+
+  def test_a_listed_security_state_dir_since_removed_needs_a_reviewed_recovery(self):
+    oe = ht.openocd_esp()
+    oe.pending(USJ).add([{'receipt': {'stateDir': str(self.tmp / 'run-gone' / 'security-ops'), 'what': 'read_security'}}])
+    (left,) = ht.outstanding_sessions(self.board)
+    self.assertEqual((left['evidence'], left['cmd'].split(': ')[0]), ('unrecheckable', 'esptool child that cannot be rechecked'))
+    self.assertEqual(ht.cleanup_evidence([left]), ([left['receipt']], []))   # recheck_dir's diagnostic as it is
+    self.assertFalse(ht.receipt_alive(left))   # names no process: no keeper waits on it
+    with self.assertRaisesRegex(ht.CleanupPending, 'not proven ended'):
+      ht.refuse_pending(self.board)
+    self.assertEqual(oe.pending_main(USJ, 'reviewed recovery: no esptool child runs')[0], 0)
+    ht.refuse_pending(self.board)
+
+  @staticmethod
+  def reap(pid):
+    with contextlib.suppress(ProcessLookupError, ChildProcessError):
+      os.kill(pid, signal.SIGKILL)
+      os.waitpid(pid, 0)
+
+  def test_a_keeper_held_for_a_listed_receipt_never_written_exits_once_the_record_drops_it(self):
+    oe, lock = ht.openocd_esp(), self.tmp / 'build.lock'
+    receipt = str(self.work / 'hil_openocd_esp_x' / 'receipt.json')   # its runner SIGKILLed before the first write
+    oe.pending(USJ).add([{'receipt': receipt}])
+    left = ht.outstanding_sessions(self.board)
+    self.assertEqual([(s['evidence'], ht.session_state(s)) for s in left], [('retained', 'unreadable')])
+    fh = open(lock, 'w')
+    fcntl.flock(fh, fcntl.LOCK_EX)
+    keeper = ht.keep_build_lock(fh, left)['pid']
+    self.addCleanup(self.reap, keeper)
+    time.sleep(2 * ht.KEEPER_POLL)
+    self.assertFalse(flock_free(lock))   # it may still run, unidentified
+    self.assertEqual(oe.pending_main(USJ, 'reviewed recovery: no server runs')[0], 0)
+    ht.wait_for(lambda: flock_free(lock), 10, 'the keeper exiting by itself')
+    self.assertEqual(os.waitpid(keeper, 0)[1], 0)
+
+  def test_an_interrupt_as_the_session_is_listed_is_delivered_once_it_is(self):
+    handler = signal.signal(signal.SIGTERM, ht.on_signal)
+    mask = signal.pthread_sigmask(signal.SIG_UNBLOCK, ht.TERM_SIGNALS)
+    self.addCleanup(signal.pthread_sigmask, signal.SIG_SETMASK, mask)
+    self.addCleanup(signal.signal, signal.SIGTERM, handler)
+    oe = ht.openocd_esp()
+    latch = oe.latch
+
+    def signalled(serial, op, what):   # just before the provider lists what the session left
+      if op is not None and op.cleanup != 'done':
+        os.kill(os.getpid(), signal.SIGTERM)
+      return latch(serial, op, what)
+    with mock.patch.object(oe, 'latch', signalled), mock.patch.object(oe, 'CLEANUP_TIMEOUT', 0.7), \
+         mock.patch.dict(os.environ, {'FAKE_IGNORE_SHUTDOWN': '1'}), self.assertRaises(ht.Interrupted) as cm:
+      self.install()
+    self.assertEqual(cm.exception.operation.cleanup, 'pending')   # the interrupt carries the listed Operation
+    left = ht.outstanding_sessions(self.board)
+    self.assertEqual(oe.pending(USJ).read(), [{'receipt': left[0]['receipt']}])
+    self.assertEqual(([e['evidence'] for e in left], [k['survivors'] for k in self.bat.kept]), (['retained'], [left]))
+    self.assertEqual(ht.RUN_LEFT[USJ], ['cleanup pending: ' + left[0]['cmd']])   # kept for the run: no later access
 
   def test_a_failed_shutdown_leaves_cleanup_pending(self):
     with mock.patch.object(ht.openocd_esp(), 'CLEANUP_TIMEOUT', 0.7):   # the bound the ignored shutdown expires
@@ -1770,7 +2018,7 @@ class JtagRoute(EspFake):
       self.install()
     self.assertNotIsInstance(cm.exception, ht.CleanupPending)
     self.assertEqual([e['tcl'] for e in self.events() if e.get('tcl') in ('reset run', 'shutdown')], ['reset run', 'shutdown'])
-    self.assertEqual((ht.outstanding_sessions(self.work), self.bat.kept), ([], []))
+    self.assertEqual((ht.outstanding_sessions(self.board), self.bat.kept), ([], []))
 
   def test_only_a_clean_exit_with_every_segment_verified_and_read_back_passes(self):
     seg = {'offset': 0, 'program': {'verified': True}, 'readBack': {'match': True}}
@@ -1798,7 +2046,7 @@ class JtagRoute(EspFake):
          self.assertRaises(ht.Interrupted) as cm:
       self.install()
     self.assertEqual(cm.exception.operation.cleanup, 'pending')
-    left = ht.outstanding_sessions(self.work)
+    left = ht.outstanding_sessions(self.board)
     self.assertEqual(([k['survivors'] for k in self.bat.kept], len(left)), ([left], 1))
     self.assertFalse([e for e in self.events() if 'signal' in e])
 
@@ -1815,7 +2063,7 @@ class JtagRoute(EspFake):
       return start_time(pid)
     with mock.patch.object(oe.esp_session, 'start_time', signal_at_registration), self.assertRaises(ht.Interrupted):
       self.install()
-    left = ht.outstanding_sessions(self.work)
+    left = ht.outstanding_sessions(self.board)
     self.assertEqual(len(left), 1)
     self.assertEqual([k['survivors'] for k in self.bat.kept], [left])
 
@@ -3274,25 +3522,35 @@ class RunBoard(BoardRun):
     server = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], start_new_session=True)
     self.addCleanup(lambda: (server.kill(), server.wait()))
     receipt = self.tmp / 'hil_openocd_esp_x' / 'receipt.json'
+    self.board = dict(self.board, routes={'openocd_esp': {'flasher': ROUTE['flasher'], 'pending': False}})
 
-    def fail(bat, files, version):   # as flash_openocd_esp leaves it: its receipt open, its server alive
+    def fail(bat, files, version):   # as flash_openocd_esp leaves it: its receipt open, its server alive, listed
       bat.touched = True
       receipt.parent.mkdir()
-      receipt.write_text(json.dumps({'pid': server.pid, 'startTime': str(ht.proc_start(server.pid)), 'closed': False,
-                                     'argv': ['openocd'], 'ports': [None, None, 1], 'token': 't', 'log': 'l'}))
+      receipt.write_text(json.dumps({'tool': 'hil_openocd_esp', 'pid': server.pid, 'startTime': str(ht.proc_start(server.pid)),
+                                     'closed': False, 'argv': ['openocd'], 'ports': [None, None, 1], 'token': 't', 'log': 'l'}))
+      ht.openocd_esp().pending(USJ).add([{'receipt': str(receipt)}])
       raise ht.CleanupPending('the openocd_esp session is still running: cleanup pending')
     row, code, cleaned = self.run_board(fail)
-    want = [{'pid': server.pid, 'start': ht.proc_start(server.pid), 'cmd': 'openocd', 'receipt': str(receipt)}]
+    want = [{'cmd': f'openocd_esp session, receipt {receipt}', 'receipt': str(receipt), 'serial': USJ,
+             'evidence': 'retained'}]
     self.assertEqual((code, cleaned, row['cleanup']['state'], row['cleanup']['receipts'], row['cleanup']['survivors']),
                      (4, [], 'pending', [str(receipt)], want))   # no restore
     self.assertEqual((self.failures()[-1]['retained'], self.failures()[-1]['receipts']), ([str(receipt)], []))
-    self.assertEqual(ht.pending_mark(None, BOARD).read(), [])   # the log carries it, never a pending mark
+    self.assertEqual(ht.pending_mark(None, BOARD).read(), [])   # no legacy mark: the provider's record lists it
+    # whichever run comes next is refused before its battery, the board untouched and nothing more logged
+    row, code, cleaned = self.run_board(lambda *a: self.fail('ran'))
+    self.assertEqual((code, row['locked'], row['pendingSessions'], cleaned, len(self.failures())),
+                     (2, True, [str(receipt)], [], 1))
+    self.assertIn('not proven ended', row['detail'])
     self.assertEqual((server.poll(), ht.still_alive(want)), (None, want))   # recovery refuses while it runs
     good = receipt.read_text()
     receipt.write_text('{')   # an unreadable receipt blocks recovery and keeps a build lock's keeper, reread each check
     self.assertEqual(ht.still_alive(want), want)
     receipt.write_text(json.dumps(dict(json.loads(good), closed=True, cleanup='done')))   # ended by `end`
-    self.assertEqual((ht.still_alive(want), ht.outstanding_sessions(self.tmp)), ([], []))
+    self.assertEqual((ht.still_alive(want), ht.outstanding_sessions(self.board)), ([], []))
+    row, code, cleaned = self.run_board(touches)   # the record cleared, the restore resolves the logged failure
+    self.assertEqual((code, cleaned, self.failures(), Path(ht.openocd_esp().pending(USJ)).exists()), (0, [True], [], False))
 
   def test_a_survivor_on_an_untouched_board_still_fails_its_cleanup(self):
     def fail(bat, files, version):
@@ -3872,7 +4130,7 @@ class ManualHold(Tmp):
     self.held()
 
   def test_an_install_that_leaves_a_session_reports_it_logs_it_retained_and_writes_no_pending_mark(self):
-    left = [{'cmd': 'openocd', 'receipt': str(self.tmp / 'r' / 'receipt.json')}]
+    left = [{'cmd': 'openocd', 'receipt': str(self.tmp / 'r' / 'receipt.json'), 'evidence': 'retained'}]
     with mock.patch.object(ht, 'outstanding_sessions', lambda d: left), \
          mock.patch.object(ht.Battery, 'install', lambda bat, f: {}), \
          mock.patch.object(ht.Battery, 'dfu_after_install', lambda bat, v: {}):
@@ -5094,6 +5352,29 @@ class PendingMark(Tmp):
     self.assertEqual([(x['note'], x['notEnded'], x['hold']['reason'], x['hold']['pid']) for x in log],
                      [('server ended by the reviewed recovery in #123', [self.unresolved['receipt']], 'mine',
                        os.getpid())])
+
+
+  def test_clear_pending_clears_each_usj_record_once_ended_or_after_a_reviewed_recovery(self):
+    cfg = route_roster(self.tmp)
+    record = ht.openocd_esp().pending(USJ)
+    unreceipted = {'unreceipted': f'openocd_esp on USJ {USJ}: cleanup unknown', 'serial': USJ}
+    record.add([{'receipt': self.unresolved['receipt']}, {'receipt': unreceipted}])
+
+    def clear(*extra):
+      out = io.StringIO()
+      with contextlib.redirect_stdout(out), mock.patch.object(ht, 'load_helper', lambda: self.mark_helper):
+        code = ht.main(['clear-pending', '-b', S3, *extra, str(cfg)])
+      return code, json.loads(out.getvalue())
+    code, out = clear()
+    self.assertEqual((code, Path(record).exists()), (2, True))
+    self.assertIn(self.unresolved['receipt'], out['error'])
+    fh = self.mark_helper.flock_nb(ht.load_board(cfg, S3)['lock'])
+    self.addCleanup(fh.close)
+    self.mark_helper.write_record(fh, 'mine')
+    code, out = clear('--after-reviewed-recovery', 'server ended and board power-cycled in #9', '--under-hold', 'mine')
+    self.assertEqual((code, out['usjCleared'][USJ]['notEnded'], Path(record).exists()),
+                     (0, [self.unresolved['receipt'], unreceipted], False))
+    self.assertEqual(ht.openocd_esp().pending_refusal(USJ), '')
 
 
 class RecordFacts(Tmp):
