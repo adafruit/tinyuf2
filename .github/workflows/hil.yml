@@ -266,6 +266,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # hil_comment.py loads agentrc's gh_pr_comment.py at its pin
+      - name: Fetch agentrc
+        run: python3 .claude/skills/hil-contract/scripts/agentrc.py fetch
+
       - name: Download the selection
         continue-on-error: true
         uses: actions/download-artifact@v4

@@ -182,6 +182,12 @@ class Render(unittest.TestCase):
     self.assertIn('@​hathach and @​org/team, mail a@​b', body)
     self.assertIn('ask @​someone', body)
 
+  def test_a_body_past_a_comments_size_is_cut_at_a_line_end(self):
+    rows = [row(f'b{i}', 'fail', 'fail', detail='copy: ' + 'x' * 250, steps={'copy': False}) for i in range(400)]
+    body = hc.render({'boards': rows}, selection(400), META)
+    self.assertLessEqual(len(body), hc.gpc().MAX_COMMENT)
+    self.assertTrue(body.endswith("…truncated: see the run's artifacts.\n"), body[-200:])
+
   def test_report_text_cannot_break_the_table_or_a_bullet(self):
     r = row('p|q', 'fail', 'fail', detail='copy: a | b\nc\r\nd', steps={'copy': False})
     body = hc.render({'boards': [r]}, selection(), META)
@@ -203,12 +209,6 @@ class Render(unittest.TestCase):
     self.assertIn('(upload-views: `<script>`)', body)
     self.assertIn('- `` ports/`x` ``: `<b>none</b>`\n', body)
 
-  def test_a_literal_is_one_code_span_whatever_its_backticks_and_spaces(self):
-    for text, want in (('a', '`a`'), ('a`b', '``a`b``'), ('`a`', '`` `a` ``'), ('a ``` b', '````a ``` b````'),
-                       (' a', '`  a `'), ('a\nb', '`a b`'), ('', ''), (None, '`None`')):
-      self.assertEqual(hc.literal(text), want, text)
-    self.assertEqual(hc.literal('a|b', table=True), '`a\\|b`')
-
   def test_durations(self):
     for s, want in ((None, '—'), (0, '0s'), (49, '49s'), (60, '1m'), (270, '4m30s'), (1200, '20m'), (3600, '1h'),
                     (3720, '1h2m'), (3725, '1h2m')):
@@ -216,39 +216,6 @@ class Render(unittest.TestCase):
 
 
 class Fresh(unittest.TestCase):
-  HEAD = 'a' * 40
-
-  def api(self, head=None, newest=7, attempt=2, others=()):
-    """`others` are newer runs listed for the same head, as (id, display_title)."""
-    runs = [{'id': i, 'run_attempt': 1, 'display_title': t} for i, t in others]
-    replies = {'repos/o/r/pulls/5': {'head': {'sha': head or self.HEAD}},
-               f'repos/o/r/actions/workflows/hil.yml/runs?event=pull_request&head_sha={self.HEAD}&per_page=100':
-               {'workflow_runs': runs + [{'id': newest, 'run_attempt': attempt, 'display_title': 'HIL PR #5'}]}}
-    return lambda path: replies[path]
-
-  def fresh(self, **kw):
-    return hc.fresh(self.api(**kw), 'o/r', '5', self.HEAD, '7', '2')
-
-  def test_only_the_newest_attempt_of_the_newest_run_for_the_current_head_is_fresh(self):
-    self.assertEqual(self.fresh(), (True, 'fresh'))
-    for what, kw, why in (('head moved', {'head': 'b' * 40}, 'head moved to bbbbbbb'),
-                          ('an older run', {'newest': 9}, 'run 9 is newer'),
-                          ('an older attempt', {'attempt': 3}, 'attempt 3 is newer')):
-      with self.subTest(what):
-        ok, reason = self.fresh(**kw)
-        self.assertFalse(ok)
-        self.assertIn(why, reason)
-
-  def test_another_prs_run_on_the_same_head_does_not_make_this_one_stale(self):
-    # one branch into two bases: both PRs' runs share the head, and each lists both PRs in its pull_requests
-    self.assertEqual(self.fresh(others=[(9, 'HIL PR #6'), (8, 'HIL PR #50')]), (True, 'fresh'))
-    ok, reason = self.fresh(newest=9, others=[(10, 'HIL PR #6')])
-    self.assertEqual((ok, reason), (False, 'run 9 is newer than run 7 for aaaaaaa'))
-    ok, reason = hc.fresh(lambda path: {'head': {'sha': self.HEAD}} if 'pulls' in path else
-                          {'workflow_runs': [{'id': 7, 'run_attempt': 2, 'display_title': 'HIL PR #6'}]},
-                          'o/r', '5', self.HEAD, '7', '2')
-    self.assertEqual((ok, reason), (False, 'no HIL run of PR #5 listed for aaaaaaa'))
-
   def test_the_workflow_names_a_pull_request_run_as_fresh_expects(self):
     text = (ROOT / '.github' / 'workflows' / 'hil.yml').read_text()
     name = re.search(r"^run-name: .*format\('([^']*)', github\.event\.pull_request\.number\)", text, re.M)
@@ -256,13 +223,18 @@ class Fresh(unittest.TestCase):
     self.assertEqual(name.group(1).replace('{0}', '{}'), hc.RUN_NAME)
 
 
+# gh api [-H ...] [--paginate --jq .<key>[]] PATH: a paginated list one JSON item per line, as `--jq` prints it
 GH = '''#!/usr/bin/env python3
 import json, os, sys
 replies = json.load(open(os.environ["GH_REPLIES"]))
-path = sys.argv[2]
+path = sys.argv[-1]
 if path not in replies:
     sys.exit("HTTP 502: " + path)
-print(json.dumps(replies[path]))
+if "--jq" in sys.argv:
+    for item in replies[path][sys.argv[sys.argv.index("--jq") + 1][1:-2]]:
+        print(json.dumps(item))
+else:
+    print(json.dumps(replies[path]))
 '''
 
 
@@ -277,9 +249,9 @@ class Cli(unittest.TestCase):
     gh.chmod(0o755)
     self.replies = self.tmp / 'replies.json'
     head = 'a' * 40
-    self.ok = {'repos/o/r/pulls/5': {'head': {'sha': head}},
-               f'repos/o/r/actions/workflows/hil.yml/runs?event=pull_request&head_sha={head}&per_page=100':
-               {'workflow_runs': [{'id': 7, 'run_attempt': 1, 'display_title': 'HIL PR #5'}]}}
+    self.runs = f'repos/o/r/actions/workflows/hil.yml/runs?event=pull_request&head_sha={head}&per_page=100'
+    self.ok = {'repos/o/r/pulls/5': {'head': {'sha': head}}, 'repos/o/r/actions/runs/7': {'run_attempt': 1},
+               self.runs: {'workflow_runs': [{'id': 7, 'run_number': 3, 'display_title': 'HIL PR #5'}]}}
     self.env = dict(os.environ, PATH=f'{self.tmp / "bin"}:{os.environ["PATH"]}', GH_REPLIES=str(self.replies),
                     GITHUB_REPOSITORY='o/r', PR='5', HEAD_SHA=head, GITHUB_RUN_ID='7', GITHUB_RUN_ATTEMPT='1')
 
@@ -302,6 +274,13 @@ class Cli(unittest.TestCase):
                                 '--attempt', '1', '--out', str(out)]), 0)
     self.assertIn('upload-views: missing', out.read_text(encoding='utf-8'))
     self.assertIn('**HIL report unavailable', body)
+    (self.tmp / 'link.json').symlink_to(self.tmp / 'summary.json')   # an artifact's link is never followed
+    with mock.patch.object(sys, 'stdout', io.StringIO()):
+      self.assertEqual(hc.main(['render', '--summary', str(self.tmp / 'link.json'), '--selection',
+                                str(self.tmp / 'bad.json'), '--views', str(self.tmp / 'views'), '--roster', 'ci.json',
+                                '--head', 'h' * 40, '--tested', 't' * 40, '--run-url', 'https://x', '--run-id', '7',
+                                '--attempt', '1', '--out', str(out)]), 0)
+    self.assertIn('**HIL report unavailable', out.read_text(encoding='utf-8'))
 
   def fresh_step(self, replies):
     """The workflow's fresh step run as the runner runs it: (exit, its GITHUB_OUTPUT, its stdout)."""
@@ -316,13 +295,22 @@ class Cli(unittest.TestCase):
 
   def test_the_workflow_posts_when_fresh_skips_when_stale_and_fails_when_the_api_cannot_tell(self):
     self.assertEqual(self.fresh_step(self.ok)[:2], (0, 'post=true\n'))
-    runs = f'repos/o/r/actions/workflows/hil.yml/runs?event=pull_request&head_sha={"a" * 40}&per_page=100'
-    stale = dict(self.ok, **{runs: {'workflow_runs': [{'id': 7, 'run_attempt': 2, 'display_title': 'HIL PR #5'}]}})
-    code, output, stdout = self.fresh_step(stale)
+    code, output, stdout = self.fresh_step(dict(self.ok, **{'repos/o/r/actions/runs/7': {'run_attempt': 2}}))
     self.assertEqual((code, output), (0, ''))
     self.assertIn('::notice title=HIL report not posted::run 7 attempt 2 is newer than attempt 1', stdout)
     broken = {k: v for k, v in self.ok.items() if 'pulls' not in k}
     self.assertEqual(self.fresh_step(broken)[:2], (2, ''))
+
+  def test_fresh_asks_for_this_workflows_runs_of_this_prs_run_name(self):
+    # gh_pr_comment's fresh decides by run_number over every page (its tests); hil_comment names hil.yml and RUN_NAME
+    other = {'id': 9, 'run_number': 4, 'display_title': 'HIL PR #6'}   # another PR's newer run on the same head
+    newer = {'id': 8, 'run_number': 4, 'display_title': 'HIL PR #5'}
+    self.assertEqual(self.fresh_step(dict(self.ok, **{self.runs: {'workflow_runs': [
+      other, *self.ok[self.runs]['workflow_runs']]}}))[:2], (0, 'post=true\n'))
+    code, output, stdout = self.fresh_step(dict(self.ok, **{self.runs: {'workflow_runs': [
+      *self.ok[self.runs]['workflow_runs'], newer]}}))   # listed last, still newer
+    self.assertEqual((code, output), (0, ''))
+    self.assertIn('not posted::run 8 is newer than run 7', stdout)
 
   def test_the_rig_artifact_is_the_rig_jobs_attempts_and_fresh_checks_this_one(self):
     # re-running failed jobs keeps a passed rig job's outputs and artifact, so the pr-comment job's own attempt has none

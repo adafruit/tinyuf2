@@ -9,16 +9,16 @@ as Markdown, and the check that this run is still the newest for the PR's head b
 
 A missing or unreadable `--summary` or `--selection` renders as such, never as a pass or as no affected boards.
 `fresh` exits 0 when the run is the newest attempt of the PR's newest HIL run for its current head, 1 when it is
-stale (the reason on stdout), 2 when the API cannot tell. Stdlib only: it runs on a hosted runner.
+stale (the reason on stdout), 2 when the API cannot tell. Stdlib only, it runs on a hosted runner, with agentrc's
+gh_pr_comment.py, the plumbing a CI report posted on a PR shares, from the agentrc the bootstrap selects (agentrc.py).
 """
 import argparse
-import json
-import re
-import subprocess
+import functools
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import agentrc  # noqa: E402   where gh_pr_comment loads from
 import hil_ci  # noqa: E402   its battery steps
 import hil_run_report as run_report  # noqa: E402   its step marks and cell escaping
 
@@ -29,19 +29,18 @@ cell = run_report.cell   # report text kept on one Markdown line and out of the 
 KINDS = (('passed', '✅'), ('failed', '❌'), ('blocked', '⛔'), ('not run', '⚪'))
 LEGEND = "✅ passed · ❌ failed · blank not run · — not in this board's run · run time includes lock wait and blinky"
 RUN_NAME = 'HIL PR #{}'   # hil.yml's run-name: a run's pull_requests lists every PR on its head, not the one it is for
+GH_PR_COMMENT = 'skills/hil/scripts/gh_pr_comment.py'
+
+
+@functools.cache
+def gpc():
+  """agentrc's gh_pr_comment.py, through the bootstrap, once per process (a load checks the closure's bytes)."""
+  return agentrc.load_file(GH_PR_COMMENT)
 
 
 def literal(v, table=False):
-  """Report text on one line as an inline code span, so no Markdown, HTML, link or image in it renders; in a table
-  cell its pipes are escaped, which GFM unescapes inside the span."""
-  text = ' '.join(str(v).splitlines())
-  if not text:
-    return ''
-  fence = '`' * (max(map(len, re.findall('`+', text)), default=0) + 1)
-  pad = ' ' if text[0] in '` ' or text[-1] in '` ' else ''   # one space each side is stripped (CommonMark 6.1)
-  if table:
-    text = text.replace('|', '\\|')
-  return f'{fence}{pad}{text}{pad}{fence}'
+  """Report text as gh_pr_comment's inline code span: one line, bounded, nothing in it rendering."""
+  return gpc().literal(v, table)
 
 
 def duration(s):
@@ -166,44 +165,17 @@ def render(summary, selection, meta, views='upload'):
 
 
 def finish(lines):
-  """The body with every @mention neutralised: report text never pings anyone."""
+  """The body with every @mention neutralised, so report text never pings anyone, cut within a comment's size."""
   while lines and not lines[-1]:
     lines.pop()
-  return re.sub(r'@(?=\w)', '@\u200b', '\n'.join(lines)) + '\n'
-
-
-def fresh(api, repo, pr, head, run_id, attempt):
-  """(fresh, reason): this run is the newest attempt of the PR's newest HIL run for its current head. `api(path)`
-  returns the parsed JSON of a GitHub REST GET; its errors propagate."""
-  now = api(f'repos/{repo}/pulls/{pr}')['head']['sha']
-  if now != head:
-    return False, f'PR #{pr} head moved to {now[:7]}; this run tested {head[:7]}'
-  runs = api(f'repos/{repo}/actions/workflows/hil.yml/runs?event=pull_request&head_sha={head}&per_page=100')
-  runs = [r for r in runs['workflow_runs'] if r.get('display_title') == RUN_NAME.format(pr)]   # newest first
-  if not runs:
-    return False, f'no HIL run of PR #{pr} listed for {head[:7]}'
-  if int(runs[0]['id']) != int(run_id):
-    return False, f'run {runs[0]["id"]} is newer than run {run_id} for {head[:7]}'
-  latest = runs[0]['run_attempt']
-  if int(latest) != int(attempt):
-    return False, f'run {run_id} attempt {latest} is newer than attempt {attempt}'
-  return True, 'fresh'
-
-
-def gh_api(path):
-  r = subprocess.run(['gh', 'api', path], capture_output=True, text=True)
-  if r.returncode:
-    raise RuntimeError(f'gh api {path}: exit {r.returncode}: {r.stderr.strip()}')
-  return json.loads(r.stdout)
+  return gpc().cap(gpc().neutralize_mentions('\n'.join(lines)) + '\n')
 
 
 def read_json(path, key):
-  """The parsed file, or None when it is missing, unreadable or not the expected object."""
-  try:
-    with open(path, encoding='utf-8') as f:
-      doc = json.load(f)
-  except (OSError, ValueError):
-    return None
+  """The artifact file as gh_pr_comment's read_artifact_json reads it (a regular file in its dir, no link, bounded),
+  or None when it is missing, unreadable or not the expected object."""
+  path = Path(path)
+  doc = gpc().read_artifact_json(path.parent, path.name)
   return doc if isinstance(doc, dict) and isinstance(doc.get(key), list) else None
 
 
@@ -241,9 +213,15 @@ def main(argv=None):
       out.write(body)
     return 0
   try:
-    ok, why = fresh(gh_api, args.repo, args.pr, args.head, args.run_id, args.attempt)
-  except (RuntimeError, OSError, ValueError, KeyError, TypeError, IndexError) as e:
-    print(f'cannot tell whether run {args.run_id} is fresh: {type(e).__name__}: {e}', file=sys.stderr)
+    helper = gpc()
+  except ImportError as e:
+    print(f'cannot tell whether run {args.run_id} is fresh: {e}', file=sys.stderr)
+    return 2
+  try:   # every run listed for the head, newest by run_number, of this PR by its run-name
+    ok, why = helper.fresh(args.repo, pr=args.pr, head_sha=args.head, run_id=args.run_id, attempt=args.attempt,
+                           workflow='hil.yml', run_name=RUN_NAME.format(args.pr))
+  except helper.ApiError as e:
+    print(f'cannot tell whether run {args.run_id} is fresh: {e}', file=sys.stderr)
     return 2
   print(why)
   return 0 if ok else 1

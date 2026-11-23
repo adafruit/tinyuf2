@@ -632,47 +632,54 @@ def proc_start(pid):
 
 
 def still_alive(survivors):
-  """The survivors still alive: a process by its pid and start time; a container, which only a report from a runner
-  that still ran the IDF flash target or its dry runs names, unless docker has listed it no more for check_build's
-  settle (cb.container_left), and never while a process of the same report lives, which may still create it (#580)."""
-  sessions = [s for s in survivors if 'receipt' in s and session_state(s) in ('running', 'unreadable')]
+  """The survivors still alive: a process by its pid and start time; an openocd_esp operation's receipt while its process
+  may run (receipt_alive); a container, which only a report from a runner that still ran the IDF flash target or its dry
+  runs names, unless docker has listed it no more for check_build's settle (cb.container_left), and never while a
+  process of the same report lives, which may still create it (#580)."""
+  sessions = [s for s in survivors if 'receipt' in s and receipt_alive(s)]
   procs = [s for s in survivors if 'container' not in s and 'receipt' not in s and s.get('start') is not None
            and proc_start(s['pid']) == s['start']]
   return procs + sessions + [s for s in survivors if 'container' in s and (procs or cb.container_left(s['container']))]
 
 
+def receipt_alive(s):
+  """Whether the process a provider entry (outstanding_sessions) names may still run, for build-lock retention: a
+  session while its pid with its start time runs (the provider's session_state `running`, reread on every call), or
+  while its receipt is `unreadable` and its USJ's pending record still lists it (pending_entries; an unreadable record
+  lists everything), so the end or a reviewed recovery's note that clears it releases the lock; the security read's
+  esptool child until its recheck is done; and anything while the provider cannot be loaded. An unrecheckable entry
+  names none."""
+  try:
+    oe = openocd_esp()
+  except Refused:
+    return True
+  if s.get('evidence') == 'receipts':
+    return not oe.receipt_ended(s['receipt'])
+  if s.get('evidence') != 'retained':
+    return False
+  state = oe.session_state(s['receipt'])
+  return state == 'running' or state == 'unreadable' and still_listed(oe, s)
+
+
+def still_listed(oe, s):
+  """Whether the pending record of the entry's USJ lists it, or cannot be read."""
+  entries = oe.pending_entries(s['serial'])
+  return s['receipt'] in entries['retained'] or any('unreadable' in r for r in entries['unrecheckable'])
+
+
 class CleanupPending(StepFail):
-  """A flash left a child or an openocd_esp session running: no session may follow or overlap it, its build lock stays
-  held until it ends, and the board's cleanup fails (a session: until recovery ends it by its receipt)."""
+  """An operation left a child, an openocd_esp session or the security read's esptool child not proven ended: no session
+  may follow or overlap it, its build lock stays held until it ends, and the board's cleanup fails (an openocd_esp one:
+  until recovery ends it by its receipt)."""
 
 
-OPENOCD_SESSIONS = 'hil_openocd_esp_*/receipt.json'   # flash_openocd_esp's session dirs under the run dir
-PROTECTED_SESSIONS = []   # every receipt an openocd_esp operation of this process returned, by path or record
 # an older tinyuf2's pending mark, <lock>.tinyuf2-openocd-pending.json beside its lock (hil_lock.PendingSessions): no
 # longer written, its sessions migrated to the board's cleanup log (legacy_pending)
 PENDING_KIND = 'tinyuf2-openocd'
 
 
-def session_entry(receipt):
-  """A survivor entry for one openocd_esp receipt: its path, or the record itself when the provider could not write
-  it; its pid and start time for the report only, as session_state (the provider's) alone decides liveness."""
-  rec = receipt if isinstance(receipt, dict) else read_receipt(receipt) or {}
-  e = {'cmd': 'openocd', 'receipt': receipt if isinstance(receipt, dict) else str(receipt)}
-  with contextlib.suppress(KeyError, TypeError, ValueError):
-    e.update(pid=rec['pid'], start=int(rec['startTime']))
-  return e
-
-
-def read_receipt(path):
-  try:
-    rec = json.loads(Path(path).read_text())
-  except (OSError, ValueError):
-    return None
-  return rec if isinstance(rec, dict) else None
-
-
 def session_state(e):
-  """An openocd_esp session's state from its receipt, the provider's session_state reread on every call, and
+  """A legacy mark's openocd_esp session state from its receipt, the provider's session_state reread on every call, and
   'unreadable' while the provider cannot be loaded: every hold stays."""
   try:
     oe = openocd_esp()
@@ -681,29 +688,52 @@ def session_state(e):
   return oe.session_state(e['receipt'])
 
 
-def merge_sessions(old, new):
-  """`old`, then each entry of `new` whose receipt no earlier entry has; compared by equality, as a receipt may be
-  the provider's record itself."""
-  merged = list(old)
-  for e in new:
-    if all(e['receipt'] != m['receipt'] for m in merged):
-      merged.append(e)
-  return merged
+def usj_serials(board):
+  """The board's USJ serials, whose provider pending record (pending) lists what an openocd_esp operation on it left
+  not proven ended, whichever run, process or project left it: its roster esptool flasher's uid in USJ (MAC) form, and
+  its openocd_esp route's, once each. Its roster entry, never `probe`, which select_route sets to the route's; a
+  bridge serial names no USJ, so no record."""
+  entry, route = board.get('entry') or {}, board.get('routes', {}).get('openocd_esp')
+  serials = [entry['uid']] if entry.get('name') == 'esptool' and cb.USJ_SERIAL.fullmatch(entry.get('uid') or '') else []
+  if route and route['flasher']['uid'] not in serials:
+    serials.append(route['flasher']['uid'])
+  return serials
 
 
-def protect(op):
-  """Keep every receipt an openocd_esp operation reports, on disk or in memory, whatever the run dir holds."""
-  PROTECTED_SESSIONS[:] = merge_sessions(PROTECTED_SESSIONS, [session_entry(a.receipt) for a in
-                                                              getattr(op, 'attempts', ()) if a.receipt is not None])
+RUN_LEFT = {}   # USJ serial: what this run's openocd_esp operations left not proven ended (keep_left)
 
 
-def outstanding_sessions(workdir):
-  """The openocd_esp sessions of this run not ended by the reviewed end: the receipts under `workdir`, which the
-  provider writes before an interrupt can be acted on, and every receipt an operation returned (protect()), the
-  record itself when the provider could not write it. Never children to reap: a killed openocd can leave the chip
-  in its Breakpoint boot loop."""
-  found = merge_sessions([session_entry(r) for r in sorted(Path(workdir).glob(OPENOCD_SESSIONS))], PROTECTED_SESSIONS)
-  return [e for e in found if session_state(e) != 'ended']
+def keep_left(board, op):
+  """Keep what an openocd_esp operation on the board's route left not proven ended for the rest of this run: the
+  provider's record drops an entry once it has ended, and no later session, restore or retry of a run follows one it
+  left (SKILL.md Results). `op` None: it raised with no attempt recorded, so what the record has open now is kept."""
+  if op is None:
+    left = [s['cmd'] for s in outstanding_sessions(board)]
+  elif op.cleanup != 'done':
+    left = [f'cleanup {op.cleanup}: ' + ('; '.join(openocd_esp().describe(r) for r in op.receipts) or 'no receipt')]
+  else:
+    return
+  if left:
+    RUN_LEFT.setdefault(board['probe'], []).extend(left)
+
+
+def outstanding_sessions(board):
+  """What the provider's pending records of the board's USJs have open (pending_entries, its own unlisted ones
+  included), each {cmd, receipt, serial, evidence}: `cmd` the provider's description, `evidence` where the board's
+  cleanup log takes it, `retained` (an openocd_esp session), `receipts` (the security read's esptool child) or
+  `unrecheckable` (an operation that left no receipt, or the security read's state dir holding what nothing can
+  recheck); an unreadable record is an entry without a receipt. Never children to reap: a killed openocd can leave the
+  chip in its Breakpoint boot loop."""
+  left = []
+  for serial in usj_serials(board):
+    oe = openocd_esp()
+    for evidence, items in oe.pending_entries(serial).items():
+      for r in items:
+        if isinstance(r, dict) and 'unreadable' in r:
+          left.append({'cmd': f'pending record {r["unreadable"]} unreadable: {r["error"]}', 'serial': serial})
+        else:
+          left.append({'cmd': oe.describe(r), 'receipt': r, 'serial': serial, 'evidence': evidence})
+  return left
 
 
 def pending_mark(helper, lock):
@@ -713,26 +743,31 @@ def pending_mark(helper, lock):
 
 
 def clear_pending_mark(mark, note=None, hold=None):
-  """`clear-pending`, legacy maintenance: remove the mark once every session it lists reads ended (as
-  `hil_openocd_esp.py end` leaves its receipt), or,
-  given the note of a separately reviewed recovery, whatever it holds, the note and `hold` logged first. Refuses
-  otherwise, naming the receipts. Returns what was cleared."""
+  """`clear-pending`, a legacy mark: remove it once every openocd_esp session it lists reads ended (as
+  `hil_openocd_esp.py end` leaves its receipt), or, given the note of a separately reviewed recovery, whatever it holds,
+  the note and `hold` logged first. Refuses otherwise, naming the receipts. Returns what was cleared."""
   ended = lambda e: session_state(e) == 'ended'   # noqa: E731
   try:
     return mark.clear(ended) if note is None else mark.clear(ended, note=note, hold=hold)
   except RuntimeError as e:   # PendingRefused: kept as it is
-    raise Refused(f'{e}: end each openocd_esp session with `hil_openocd_esp.py end --receipt <receipt>`, or clear the '
-                  'mark after a separately reviewed recovery (SKILL.md Recovery)') from None
+    raise Refused(f'{e}: a legacy mark lists openocd_esp sessions only: end each with `hil_openocd_esp.py end '
+                  '--receipt <receipt>`, or clear the mark after a separately reviewed recovery (SKILL.md Recovery)') \
+      from None
   except OSError as e:
     raise Refused(f'the pending mark {mark} could not be checked: {e}') from None
 
 
-def refuse_pending(workdir):
-  """Refuse any session while one of this run's openocd_esp sessions is not ended."""
-  left = outstanding_sessions(workdir)
-  if left:
-    raise CleanupPending(f'openocd_esp session {[s["receipt"] for s in left]} is still running: cleanup pending, no '
-                         'session may overlap it', {'survivors': left})
+def refuse_pending(board):
+  """Refuse any session on the board while a provider pending record of its USJs lists an operation not proven ended
+  (pending_refusal, which clears a record once all it lists has ended, and names what ends its refusal), or this run
+  left one (RUN_LEFT), even ended since."""
+  for serial in usj_serials(board):
+    why = openocd_esp().pending_refusal(serial)
+    if not why and RUN_LEFT.get(serial):
+      why = f'this run left on USJ {serial}: {"; ".join(RUN_LEFT[serial])}; a later run restores the board'
+    if why:
+      raise CleanupPending(f'{why}: cleanup pending, no session may overlap it',
+                           {'survivors': outstanding_sessions(board)})
 
 
 # ------------------------------------------------------------------ the flash provider
@@ -742,8 +777,9 @@ PROVIDER_API = ('flash_jlink', 'flash_stlink', 'flash_openocd', 'run_jlink_comma
                 'run_openocd_commands', 'sysresetreq_jlink', 'sysresetreq_stlink', 'sysresetreq_openocd', 'esptool_problem',
                 'Operation', 'Attempt', 'probe_users', 'ProbeCheckInconclusive')
 OPENOCD = []    # and its openocd_esp module (openocd_esp())
-OPENOCD_API = ('admit', 'find_openocd', 'usj_tty', 'session_state', 'security_evidence', 'admit_security',
-               'SECURITY_CHIPS', 'flash_openocd_esp', 'refusal')
+OPENOCD_API = ('admit', 'find_openocd', 'usj_tty', 'session_state', 'admit_security', 'SECURITY_CHIPS', 'read_security',
+               'flash_openocd_esp', 'refusal', 'pending_refusal', 'pending_entries', 'pending_main',
+               'describe', 'receipt_ended', 'hil_lock')
 OBSERVE = []    # and its bounded USB observation (usb_observe())
 REGISTRY = []   # and agentrc's board registry (board_registry())
 OBSERVE_API = ('usb_scan', 'usb_absent')
@@ -779,8 +815,18 @@ def provider():
 def openocd_esp():
   """hil_openocd_esp.py, once per process, only for a board with a route through it."""
   if not OPENOCD:
-    OPENOCD.append(load_agentrc(OPENOCD_ESP, 'agentrc_hil_openocd_esp', OPENOCD_API))
+    OPENOCD.append(in_keeper_lock_dir(load_agentrc(OPENOCD_ESP, 'agentrc_hil_openocd_esp', OPENOCD_API)))
   return OPENOCD[0]
+
+
+KEEPER_LOCK_DIR = []   # a keeper's --lock-dir
+
+
+def in_keeper_lock_dir(oe):
+  """The provider reading pending records where the keeper's runner did (keep-build --lock-dir)."""
+  if KEEPER_LOCK_DIR:
+    oe.hil_lock.BOARD_LOCK_DIR = KEEPER_LOCK_DIR[0]
+  return oe
 
 
 def usb_observe():
@@ -840,6 +886,17 @@ def operation_record(op):
   transcripts are in hil.log), its cleanup and any outstanding session's receipt."""
   return {'attempts': [{'kind': a.kind, 'exit': a.result.returncode} for a in op.attempts], 'cleanup': op.cleanup,
           **({'receipts': [str(r) for r in op.receipts]} if op.receipts else {})}
+
+
+def log_operation(log, op, ops):
+  """A provider esptool_session operation in the harness log as spawn logs a child: each attempt's command line, the
+  session's ops (its ops file is gone with the call) and its output."""
+  if op is None:
+    return
+  with open(log, 'a') as f:
+    for a in op.attempts:
+      f.write('$ ' + ' '.join(map(str, a.cmd)) + f'\n# ops: {json.dumps([{"op": "security"}, *ops])}\n'
+              + text(a.result.stdout))
 
 
 def before_target(attempts, before):
@@ -935,7 +992,7 @@ def keep_build_lock(fh, survivors):
       env = {k: v for k, v in os.environ.items() if k != JOB_TRACKING}
       with contextlib.suppress(OSError):
         os.execve(sys.executable, [sys.executable, '-B', str(HOLDER_SCRIPT), 'keep-build', str(fh.fileno()), str(w),
-                                   json.dumps(survivors)], env)
+                                   json.dumps(survivors), *lock_dir_args(survivors)], env)
     finally:
       os._exit(1)
   if pid:
@@ -984,14 +1041,21 @@ def keep_out_of_job(code):
     for fd in [fh.fileno() for fh, _ in HELD_BUILD] + [ack]:
       os.set_inheritable(fd, True)
     env = {k: v for k, v in os.environ.items() if k != JOB_TRACKING}
+    survivors = [s for _, left in HELD_BUILD for s in left]
     os.execve(sys.executable, [sys.executable, '-B', str(HOLDER_SCRIPT), 'keep-build', '--exit', str(code),
-                               str(HELD_BUILD[0][0].fileno()), str(ack),
-                               json.dumps([s for _, left in HELD_BUILD for s in left])], env)
+                               str(HELD_BUILD[0][0].fileno()), str(ack), json.dumps(survivors),
+                               *lock_dir_args(survivors)], env)
   except OSError as e:
     for sig, handler in old.items():
       signal.signal(sig, handler)
     print(f'cannot re-execute as the build locks\' keeper ({e}); they may end with the CI job', file=sys.stderr,
           flush=True)
+
+
+def lock_dir_args(survivors):
+  """The keeper's `--lock-dir` for survivors with a receipt: where this process's provider reads pending records
+  (receipt_alive)."""
+  return ['--lock-dir', OPENOCD[0].hil_lock.BOARD_LOCK_DIR] if OPENOCD and any('receipt' in s for s in survivors) else []
 
 
 def keep_build(survivors, code=0):
@@ -1251,7 +1315,7 @@ class Esptool:
     self.b, self.dir, self.log = board, workdir, log
 
   def run(self, ops, after):
-    refuse_pending(self.dir)
+    refuse_pending(self.b)
     spec = self.dir / f'esp-{time.monotonic_ns()}.json'
     spec.write_text(json.dumps(ops))
     return child_json([esptool_runtime()['python'], '-B', child_path(ESP_SESSION), '--port',
@@ -1297,11 +1361,15 @@ def write_span(what, addr, length, block=0x1000):
 def report_snapshot(row, keep):
   """The preserved-region MD5s a failed esptool run took before its install wrote, from its report row, over the
   regions `keep` this checkout preserves. A board whose flash was written always has them (the snapshot precedes
-  the writes), so a touched row without them is refused, never recovered blind."""
+  the writes), so a touched row without them is refused, never recovered blind, unless the row says no flash write
+  ever started (`flashStarted` false: a security read or snapshot session that failed or was left pending), when the
+  restore takes a fresh one; what it left pending refuses that restore at admission until proven ended."""
   ev = row.get('snapshot') or {}
   regions, md5 = ev.get('preservedRegions'), ev.get('preserved')
   never_ran = row.get('ran') is False and row.get('cleanup') is None   # a setup refusal: the battery never started
-  if regions is None and md5 is None and (never_ran or (row.get('cleanup') or {}).get('state') == 'untouched'):
+  unwritten = row.get('flashStarted') is False   # absent, as in an older report, is never taken as unwritten
+  if regions is None and md5 is None and (never_ran or unwritten or
+                                          (row.get('cleanup') or {}).get('state') == 'untouched'):
     return None
   if regions is None or md5 is None:
     raise Refused('the failed run touched the board but its report has no preserved-region snapshot to check')
@@ -1579,27 +1647,35 @@ def fat_read(dev, name, length, log, offset=0, timeout=USB_TIMEOUT):
 
 
 def clear_pending_main(args):
-  """`clear-pending`, legacy maintenance: remove the pending mark an older tinyuf2 left once each session it lists is
-  ended, or after a separately reviewed recovery whose note is recorded (SKILL.md Recovery). Exit 0 cleared or none, 2
-  refused."""
-  note = args.after_reviewed_recovery
+  """`clear-pending`: remove the pending mark an older tinyuf2 left, then the provider's pending record of each of the
+  board's USJs (usj_serials), each once every session it lists is ended, or after a separately reviewed recovery whose
+  note is recorded (SKILL.md Recovery). Exit 0 cleared or none, 2 refused."""
+  note, out = args.after_reviewed_recovery, {'pass': True}
   try:
     if note is not None and not note.strip():
       raise Refused('--after-reviewed-recovery needs the note of the reviewed recovery')
     if note is not None and args.under_hold is None:
       raise Refused("--after-reviewed-recovery needs proof of the board's hold: --under-hold <reason>")
-    lock = load_board(args.config, args.board)['lock']
-    helper = load_helper()
+    board = load_board(args.config, args.board)
+    lock, helper = board['lock'], load_helper()
+
+    def clear(hold):
+      out['cleared'] = clear_pending_mark(pending_mark(helper, lock), note, hold)
+      for serial in usj_serials(board):   # the provider's `pending` command; the hold proven here, as for the mark
+        rc, result = openocd_esp().pending_main(serial, note)
+        out.setdefault('usjCleared', {})[serial] = result
+        if rc:
+          raise Refused(result.get('refusal') or result.get('error') or f'USJ {serial}: {result["outcome"]}')
     if note is None:
-      cleared = clear_pending_mark(pending_mark(helper, lock), None, None)
+      clear(None)
     else:   # the note alone proves nothing: the board's existing hold does, never a new flock
       with session_mutex(helper, lock):
         manual_holder(helper, lock, args.under_hold)
-        cleared = clear_pending_mark(pending_mark(helper, lock), note, helper.read_record(lock))
+        clear(helper.read_record(lock))
   except Refused as e:
-    print(json.dumps({'pass': False, 'error': str(e)}), flush=True)
+    print(json.dumps({**out, 'pass': False, 'error': str(e)}), flush=True)
     return 2
-  print(json.dumps({'pass': True, 'cleared': cleared}), flush=True)
+  print(json.dumps(out), flush=True)
   return 0
 
 
@@ -1789,8 +1865,9 @@ def failed_row(body, report, board):
 # ------------------------------------------------------------------ board admission
 
 class InUse(Refused):
-  """The board is in use: a process on its probe (probe_busy), or a session an older tinyuf2 left still runs
-  (legacy_pending). `fields` for the row, `found` the open failures read meanwhile."""
+  """The board is in use: a process on its probe (probe_busy), an operation its USJ's pending record lists not proven
+  ended (pending_in_use), or a session an older tinyuf2 left still runs (legacy_pending). `fields` for the row, `found`
+  the open failures read meanwhile."""
   def __init__(self, msg, found, **fields):
     super().__init__(msg)
     self.found, self.fields = found, fields
@@ -1834,16 +1911,38 @@ def with_logged(found, fresh):
   return found + [f for f in fresh if (f['id'] not in ids if isinstance(f.get('id'), str) else f not in found)]
 
 
-def retained_paths(sessions):
-  """The receipts of openocd_esp session entries (session_entry): a path, or the record the provider could not write."""
-  return [s['receipt'] for s in sessions]
-
-
 def unrecheckable(survivors):
-  """The cleanup log's `receipts` for raw survivors (settle_children's, by pid and start): none can be rechecked, so the
-  failure they are logged with stays open after any restore (hil_lock.resolve_restored)."""
-  return [{'unrecheckable': s.get('cmd') or 'a child that survived SIGKILL', 'survivors': [s.get('pid')]}
-          for s in survivors]
+  """The cleanup log's `receipts` for raw survivors (settle_children's, by pid and start, or what names no process):
+  none can be rechecked, so the failure they are logged with stays open after any restore (hil_lock.resolve_restored)."""
+  return [{'unrecheckable': s.get('cmd') or 'a child that survived SIGKILL',
+           **({'survivors': [s['pid']]} if 'pid' in s else {})} for s in survivors]
+
+
+def cleanup_evidence(survivors):
+  """(receipts, retained) the board's cleanup log takes for `survivors`: an openocd_esp session's receipt retained, which
+  a restore resolves once `hil_openocd_esp.py end` proved it ended; the security read's run_tracked receipt, resolved
+  once it rechecks done; anything else unrecheckable."""
+  receipts, retained = [], []
+  for s in survivors:
+    if s.get('evidence') == 'retained':
+      retained.append(s['receipt'])
+    elif isinstance(s.get('receipt'), dict) and 'unrecheckable' in s['receipt']:   # recheck_dir's diagnostic
+      receipts.append(s['receipt'])
+    else:
+      receipts += [s['receipt']] if s.get('evidence') == 'receipts' else unrecheckable([s])
+  return receipts, retained
+
+
+def pending_in_use(board, found):
+  """InUse while a provider pending record of the board's USJs lists an operation not proven ended: an earlier run's,
+  logged in the board's cleanup log by the run that left it, which nothing may overlap (Recovery, Cleanup pending).
+  The survivors are a later read than the refusal's: one that finds the entry ended since keeps the refusal itself,
+  so the row stays a blocker."""
+  try:
+    refuse_pending(board)
+  except CleanupPending as e:
+    raise InUse(str(e), found, pendingSessions=[s.get('receipt', s['cmd']) for s in e.evidence['survivors']] or
+                [str(e)]) from None
 
 
 def add_note(d, key, why):
@@ -2181,6 +2280,7 @@ class Battery:
     self.probe = Probe(board, workdir, self.log)
     self.power = PortPower(board.get('usbPower'), self.log)
     self.steps, self.usb_path, self.touched, self.at, self.kept = [], None, False, 'setup', []
+    self.flash_started = False   # whether flash_target ever ran its op: a write may have begun
     # where CURRENT.UF2 starts and the flash size INFO_UF2.TXT reports
     # the drive's flash: from BOARD_FLASH_ADDR_ZERO, the app start where UF2 addresses start there (ch32v4x7)
     self.app_start = facts.get('appStart')
@@ -2207,12 +2307,13 @@ class Battery:
     is released only once every child the operation started has ended, reaped here when interrupted; one that
     survives SIGKILL keeps it through a keeper (#579), and the board's cleanup fails; so does an openocd_esp
     session left running. The flash then fails however it went, so nothing follows it while either lives."""
-    refuse_pending(self.dir)
+    refuse_pending(self.b)
     started, lock = list(CHILDREN), take_build_lock(flash['root'])
     flashed = False
     try:
       self.check_inputs(flash, 'before the flash')
       was, self.touched = self.touched, True
+      self.flash_started = True
       try:
         ev = judged(op(tool_runner(self.log)), judge, before, what, timeout)
       except StepFail as e:
@@ -2224,7 +2325,7 @@ class Battery:
       return ev
     finally:
       with signals(signal.SIG_BLOCK):
-        left = settle_children(started) + outstanding_sessions(self.dir)
+        left = settle_children(started) + outstanding_sessions(self.b)
         if left:
           self.kept.append({'buildDir': flash['root'].name, 'survivors': left, 'keeper': keep_build_lock(lock, left)})
         else:
@@ -2931,16 +3032,6 @@ def esp_app_chunks(uf2_path, facts, board):
   return {'appChunks': [bl['data'] for bl in blocks], 'nonceOffset': off}
 
 
-def security_evidence(res, chip, source):
-  """The `security` the provider requires: its reading of the esptool_session security op (security_evidence), admitted
-  by its admit_security; anything else refuses the JTAG flash before it starts."""
-  try:
-    return openocd_esp().admit_security(openocd_esp().security_evidence(res, chip=chip, source=source))
-  except ValueError as e:
-    raise StepFail(f'flash encryption or secure boot is not read off on this chip: {e}; openocd_esp writes plaintext, '
-                   'so nothing was programmed', {'security': res}) from None
-
-
 def judge_openocd_esp(op):
   """flash_openocd_esp's own record: every segment written, its bank hash verified and read back byte for byte,
   then the reviewed end (reset run, shutdown, exit confirmed), so cleanup done."""
@@ -3002,58 +3093,88 @@ class EspBattery(Battery):
             'operation': ev['operation']}
 
   def jtag(self, files):
-    """The JTAG route under the one board lock, each step only after the previous one's cleanup completed: an esptool
-    session over the USJ's tty reads the security state on the ROM loader, takes the snapshot (a restore reuses
-    the run's) and hard-resets the chip out of the loader; agentrc's flash_openocd_esp programs the record's segments with verify, reads each back and ends
-    with reset run and a confirmed shutdown; then the runner's esptool read-back and preservation check. A session
-    left running is cleanup pending, and nothing follows it."""
-    refuse_openocd(self.b['flasher'])   # before the security and snapshot session, as the provider before its own
-    tty = esp_port(self.b['probe'])
-    child_path(ESP_SESSION)   # a changed agentrc closure fails here, untouched
+    """The JTAG route under the one board lock, each step only after the previous one's cleanup completed: agentrc's
+    read_security reads the security state on the ROM loader in one esptool session over the USJ's tty, the snapshot
+    in it (a restore reuses the run's), and hard-resets the chip out of the loader; its flash_openocd_esp, given that
+    read, programs the record's segments with verify, reads each back and ends with reset run and a confirmed shutdown;
+    then the runner's esptool read-back and preservation check. What either leaves not proven ended the provider lists
+    under the USJ's serial (pending): cleanup pending, and nothing follows it."""
+    refuse_openocd(self.b['flasher'])   # before the security read, as the provider before its own
+    try:   # no tty fails here, untouched, resolved as read_security resolves it
+      openocd_esp().usj_tty(self.b['probe'])
+    except RuntimeError as e:
+      raise StepFail(str(e)) from None
+    child_path(ESP_SESSION)   # so does a changed agentrc closure
+    refuse_pending(self.b)
     self.touched = True
     keep = self.b['regions']['preserved']
     # hard-reset: a chip left in the ROM loader faults openocd's flash stub after its reset init (PMP Load access fault);
     # the provider starts openocd no earlier than its BOOT_SETTLE after the flash call, so no wait of the runner's
-    ops = [{'op': 'security'}] + (preserved_ops(keep) if self.preserved is None else [])
-    session = self.tool.run(ops, 'hard-reset')
-    res = session['results']
-    security = security_evidence(res[0], self.b['device'],
-                                 f'esptool {session["esptool"]} on {tty}, USJ {self.b["probe"]}, ROM loader')
+    read = self.read_security(preserved_ops(keep) if self.preserved is None else [])
     if self.preserved is None:
-      self.preserved = preserved_md5(keep, res[1:])
+      self.preserved = preserved_md5(keep, read.results)
     recorded = files['flash']['sha256']   # the provider admits only bytes that hash as the build record says
     segments = [{'offset': off, 'file': str(p), 'size': p.stat().st_size, 'sha256': recorded[esp.NATIVE[p.name]]}
                 for off, p in files['segments']]
     seen = []
 
     def flash(run):   # the provider runs its own server, never a tracked child: run is unused
-      op = None
+      error = None
       try:
-        op = openocd_esp().flash_openocd_esp(self.b['route'], segments, security=security, workdir=str(self.dir),
+        op = openocd_esp().flash_openocd_esp(self.b['route'], segments, security=read, workdir=str(self.dir),
                                              timeout=OPENOCD_TIMEOUT, retains_lock=True)
       except BaseException as e:
-        op = getattr(e, 'operation', None)
+        keep_left(self.b, getattr(e, 'operation', None))
         if isinstance(e, Interrupted) or not isinstance(e, Exception):
           raise
-        if op is None:
+        if (op := getattr(e, 'operation', None)) is None:
           raise StepFail(f'openocd_esp refused the flash before starting: {e}') from None
-      finally:   # before anything propagates: every receipt kept
-        protect(op)
-        left = outstanding_sessions(self.dir)
+        error = e   # after the start: a failed session, or a latch the record could not take (the provider holds it)
+      keep_left(self.b, op)
       seen.append(op)
-      if op.cleanup == 'pending' or left:
-        raise CleanupPending(f'the openocd_esp session is not ended ({op.session.get("failure")}): cleanup pending, '
-                             f'receipt {op.session["receipt"]}', {'operation': operation_record(op)})
+      if op.cleanup != 'done' or outstanding_sessions(self.b):
+        raise CleanupPending(f'the openocd_esp session is not ended ({error or op.session.get("failure")}): cleanup '
+                             f'pending, receipt {op.session.get("receipt")}', {'operation': operation_record(op)})
       return op
     ev = self.flash_target(files['flash'], flash, lambda code, out: judge_openocd_esp(seen[-1]), lambda code, out: False,
                            'openocd_esp', OPENOCD_TIMEOUT)
     ev.update(esp_verify(self.tool, self.b, files['segments'], self.dir, self.preserved))
-    return {'route': 'openocd_esp', 'wrote': ev['wrote'], 'writes': ev['writes'], 'readBack': True, 'security': security,
-            'jtag': ev['jtag'], **esptool_evidence(), 'operation': ev['operation']}
+    return {'route': 'openocd_esp', 'wrote': ev['wrote'], 'writes': ev['writes'], 'readBack': True,
+            'security': read.security, 'jtag': ev['jtag'], **esptool_evidence(), 'operation': ev['operation']}
+
+  def read_security(self, ops):
+    """The provider's read_security of the route's USJ with `ops` in its session, the runner's esptool: the Operation
+    flash_openocd_esp takes, its evidence admitted. One not proven ended, which the provider listed under the serial,
+    is cleanup pending; a failed read, or a chip whose flash encryption or secure boot is not read off, fails the step
+    with nothing programmed."""
+    oe, serial = openocd_esp(), self.b['probe']
+    try:
+      read = oe.read_security(serial, chip=self.b['device'], workdir=str(self.dir), timeout=ESP_TIMEOUT,
+                              retains_lock=True, esptool=esptool_runtime()['exe'], ops=ops, quiet=True)
+    except BaseException as e:
+      op = getattr(e, 'operation', None)
+      keep_left(self.b, op)
+      log_operation(self.log, op, ops)
+      if isinstance(e, Interrupted) or not isinstance(e, Exception):
+        raise
+      record = {'operation': operation_record(op)} if op is not None else {}
+      if op is not None and op.cleanup != 'done':
+        raise CleanupPending(f'the security read is not proven ended ({e}): cleanup pending', record) from None
+      if isinstance(e, ValueError) and op is not None:   # its child ended: the evidence is unknown or contradictory
+        raise StepFail(f'flash encryption or secure boot is not read off on this chip: {e}; nothing was programmed',
+                       record) from None
+      raise StepFail(f'the security read failed: {e}; nothing was programmed', record) from None
+    log_operation(self.log, read, ops)
+    try:
+      oe.admit_security(read.security)
+    except ValueError as e:
+      raise StepFail(f'flash encryption or secure boot is not read off on this chip: {e}; openocd_esp writes plaintext, '
+                     'so nothing was programmed', {'security': read.security}) from None
+    return read
 
   def report_fields(self):
     keep = self.b['regions']['preserved']
-    return {**({'buildLocksKept': self.kept} if self.kept else {}),
+    return {**({'buildLocksKept': self.kept} if self.kept else {}), 'flashStarted': self.flash_started,
             'snapshot': self.preserved and {'preserved': self.preserved,
                                             'preservedRegions': {n: list(r) for n, r in keep.items()}}}
 
@@ -3356,6 +3477,7 @@ def run_task(args, board, facts, helper, workdir, task, row, files, update):
       return 1
     legacy, found = legacy_pending(helper, board, task.cleanup_failures)
     row.update(helper.failure_report(found), **legacy)
+    pending_in_use(board, found)
     bat = BATTERIES[board['kind']](board, facts, workdir, args.fail_at, row.get('commissioning', False))
   except InUse as e:
     row.update(locked=True, recoveryBlocker=False, detail=f'board in use: {e}', **e.fields,
@@ -3403,8 +3525,8 @@ def end_board(task, row):
   elif c['pass']:
     task.restored(evidence=f'{row["board"]}: {c["state"]}')
   else:
-    task.failed(detail=c['detail'], receipts=unrecheckable([s for s in c['survivors'] if 'receipt' not in s]),
-                retained=c.get('receipts', []))
+    receipts, retained = cleanup_evidence(c['survivors'])
+    task.failed(detail=c['detail'], receipts=receipts, retained=retained)
 
 
 def log_failure(helper, lock, detail, receipts, retained, **extra):
@@ -3423,7 +3545,7 @@ def clean_up(row, code, bat, files):
   or not: no flash may overlap them."""
   stuck = []
   try:
-    refuse_pending(bat.dir)
+    refuse_pending(bat.b)
     stuck = settle_children()
     if stuck:
       raise StepFail('children survived SIGKILL; no flash may overlap them')   # their pids are in survivors
@@ -3439,20 +3561,20 @@ def clean_up(row, code, bat, files):
     else:
       row['cleanup'] = {'pass': True, 'state': 'untouched', 'evidence': {}}
   except BaseException as e:
-    pending = outstanding_sessions(bat.dir)   # kept, never reaped: recovery ends each by its receipt
+    pending = outstanding_sessions(bat.b)   # kept, never reaped: recovery ends each by its receipt
     stuck += [x for x in settle_children() + pending if x not in stuck]
     row['cleanup'] = {'pass': False, 'state': 'pending' if pending else 'unknown' if bat.touched else 'untouched',
                       'evidence': getattr(e, 'evidence', {}), 'detail': f'{type(e).__name__}: {e}',
-                      'survivors': stuck, **({'receipts': retained_paths(pending)} if pending else {})}
+                      'survivors': stuck, **({'receipts': [s.get('receipt') for s in pending]} if pending else {})}
     row['pass'] = False
     return 4
   return code
 
 
-def settle_manual(result, bat, run_dir):
+def settle_manual(result, bat):
   """A manual install's or restore's survivors however it went: children left, sessions not ended and the build locks
   a keeper holds."""
-  result['survivors'] = settle_children() + outstanding_sessions(run_dir)
+  result['survivors'] = settle_children() + outstanding_sessions(bat.b)
   result.update(bat.kept and {'buildLocksKept': bat.kept} or {})
 
 
@@ -3480,6 +3602,7 @@ def manual(args, board, facts, helper, run_dir, result):
       raise InUse(probe_in_use(board, users), found, probeUsers=users)
     legacy, found = legacy_pending(helper, board, found)
     result.update(helper.failure_report(found), **legacy)
+    pending_in_use(board, found)
     code = operate(args, board, facts, helper, run_dir, result, files, fw, snapshot, found)
   deferred(result)
   return code
@@ -3511,13 +3634,12 @@ def operate(args, board, facts, helper, run_dir, result, files, fw, snapshot, fo
     raise
   finally:
     if bat is not None:
-      settle_manual(result, bat, run_dir)
+      settle_manual(result, bat)
       left = result['survivors']
       if bat.touched and failed or left:
         not_logged = log_failure(
           helper, board['lock'], failed or f'{args.cmd} left children or sessions running',
-          unrecheckable([s for s in left if 'receipt' not in s]), retained_paths(s for s in left if 'receipt' in s),
-          command=args.cmd, hold=args.under_hold)
+          *cleanup_evidence(left), command=args.cmd, hold=args.under_hold)
         result['failureLogged'] = not not_logged
         add_note(result, 'logError', not_logged)
   if result.get('survivors'):   # keep your hold until they are gone
@@ -3611,11 +3733,12 @@ def main(argv=None):
                  help="commissioning only, while the roster's reentry is unset")
   s.add_argument('--route', help="an install route from the board's tinyuf2.routes (default its roster flasher)")
   s.add_argument('config')
-  cp = sub.add_parser('clear-pending', help="legacy maintenance: remove the pending mark an older tinyuf2 left, every "
-                      'session it lists ended, or after a separately reviewed recovery')
+  cp = sub.add_parser('clear-pending', help="remove the pending mark an older tinyuf2 left and the provider's pending "
+                      "record of each of the board's USJs, every session each lists ended, or after a separately "
+                      'reviewed recovery')
   cp.add_argument('-b', '--board', required=True)
   cp.add_argument('--after-reviewed-recovery', metavar='NOTE',
-                  help='the reviewed recovery that ended the sessions some other way; recorded, then the mark removed')
+                  help='the reviewed recovery that ended the sessions some other way; recorded, then each record removed')
   cp.add_argument('--under-hold', metavar='REASON', help='with --after-reviewed-recovery: your manual hold of the board')
   cp.add_argument('config')
   fr = sub.add_parser('fat-read')
@@ -3634,6 +3757,7 @@ def main(argv=None):
   kb.add_argument('ack', type=int)
   kb.add_argument('survivors', type=json.loads)
   kb.add_argument('--exit', type=int, default=0, help='its exit status, the runner\'s it replaced (keep_out_of_job)')
+  kb.add_argument('--lock-dir', help="the lock dir of the provider's pending records, its runner's")
   args = ap.parse_args(argv)
   if args.cmd == 'fat-read':
     return fat_read_main(args)
@@ -3644,9 +3768,10 @@ def main(argv=None):
   if args.cmd == 'clear-pending':
     return clear_pending_main(args)
   if args.cmd == 'keep-build':
+    KEEPER_LOCK_DIR.extend([args.lock_dir] if args.lock_dir else [])
     if any('receipt' in x for x in args.survivors):   # its runner loaded it through the bootstrap before this exec
-      with contextlib.suppress(Exception):   # else session_state loads it, or reads every session unreadable
-        OPENOCD.append(agentrc.load(OPENOCD_ESP, 'agentrc_hil_openocd_esp'))
+      with contextlib.suppress(Exception):   # else receipt_alive loads it, or reads every receipt alive
+        OPENOCD.append(in_keeper_lock_dir(agentrc.load(OPENOCD_ESP, 'agentrc_hil_openocd_esp')))
     os.write(args.ack, b'ok')
     os.close(args.ack)
     keep_build(args.survivors, args.exit)
