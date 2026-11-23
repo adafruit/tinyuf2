@@ -45,9 +45,12 @@ board's zip and write its `combined.bin`, which also erases the application and 
 esptool -p /dev/ttyUSB0 -b 460800 write-flash 0x0 combined.bin
 ```
 
-To keep them, write the images separately at the offsets the zip's `flash_args` lists. Either way leave out
-`--flash-mode`, `--flash-freq` and `--flash-size`, and the `ESPTOOL_FM`, `ESPTOOL_FF` and `ESPTOOL_FS` environment
-variables, so esptool keeps the flash settings built into the bootloader.
+To keep them, write the images separately at the offsets the zip's `flash_args` lists, except `ota_data_initial.bin`
+(0xe000), which clears the OTA selection so TinyUF2 starts instead of the application. Write `partition-table.bin` only
+when the device's partition table matches it, else keep the device's: a 4 MB board flashed from `combined-ota.bin` has
+the zip's `partitions-table-ota.bin` instead. Either way leave out `--flash-mode`, `--flash-freq` and `--flash-size`,
+and the `ESPTOOL_FM`, `ESPTOOL_FF` and `ESPTOOL_FS` environment variables, so esptool keeps the flash settings built
+into the bootloader.
 
 ## Usage
 
