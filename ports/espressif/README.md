@@ -38,13 +38,16 @@ or write the merged image once built, which esptool can also write by itself (`e
 idf.py -C ports/espressif -DBOARD=adafruit_feather_esp32s2 combined-flash
 ```
 
-You could also use pre-built binaries from [release page](https://github.com/adafruit/tinyuf2/releases). Extract and run following esptool commands
+You could also use pre-built binaries from [release page](https://github.com/adafruit/tinyuf2/releases): extract the
+board's zip and write its `combined.bin`, which also erases the application and NVS
 
 ```
-esptool --chip esp32s2 -p /dev/ttyUSB0 -b 460800 --before default-reset --after hard-reset write-flash --flash-mode dio --flash-freq 80m --flash-size 4MB 0x8000 partition-table.bin 0xe000 ota_data_initial.bin 0x1000 bootloader.bin 0x2d0000 tinyuf2.bin
+esptool -p /dev/ttyUSB0 -b 460800 write-flash 0x0 combined.bin
 ```
 
-Note: you may need to change the `--flash-size` and offset of `tinyuf2.bin` if your board is not 4MB.
+To keep them, write the images separately at the offsets the zip's `flash_args` lists. Either way leave out
+`--flash-mode`, `--flash-freq` and `--flash-size`, and the `ESPTOOL_FM`, `ESPTOOL_FF` and `ESPTOOL_FS` environment
+variables, so esptool keeps the flash settings built into the bootloader.
 
 ## Usage
 
