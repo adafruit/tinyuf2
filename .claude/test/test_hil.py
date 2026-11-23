@@ -1523,6 +1523,7 @@ class UsjAddressing(Tmp):
 
   def setUp(self):
     super().setUp()
+    no_ci_job(self)
     self.dev = self.tmp / 'dev'
     self.dev.mkdir()
     self.enterContext(mock.patch.object(ht.openocd_esp(), 'DEV_ROOT', str(self.dev)))
