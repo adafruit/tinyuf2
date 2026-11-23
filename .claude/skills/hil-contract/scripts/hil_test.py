@@ -689,10 +689,15 @@ def session_state(e):
 
 
 def usj_serials(board):
-  """The USJ serial of the board's openocd_esp route, if it has one, whose provider pending record (pending) lists what
-  an openocd_esp operation on it left not proven ended, whichever run, process or project left it."""
-  route = board.get('routes', {}).get('openocd_esp')
-  return [route['flasher']['uid']] if route else []
+  """The board's USJ serials, whose provider pending record (pending) lists what an openocd_esp operation on it left
+  not proven ended, whichever run, process or project left it: its roster esptool flasher's uid in USJ (MAC) form, and
+  its openocd_esp route's, once each. Its roster entry, never `probe`, which select_route sets to the route's; a
+  bridge serial names no USJ, so no record."""
+  entry, route = board.get('entry') or {}, board.get('routes', {}).get('openocd_esp')
+  serials = [entry['uid']] if entry.get('name') == 'esptool' and cb.USJ_SERIAL.fullmatch(entry.get('uid') or '') else []
+  if route and route['flasher']['uid'] not in serials:
+    serials.append(route['flasher']['uid'])
+  return serials
 
 
 RUN_LEFT = {}   # USJ serial: what this run's openocd_esp operations left not proven ended (keep_left)
@@ -1356,11 +1361,15 @@ def write_span(what, addr, length, block=0x1000):
 def report_snapshot(row, keep):
   """The preserved-region MD5s a failed esptool run took before its install wrote, from its report row, over the
   regions `keep` this checkout preserves. A board whose flash was written always has them (the snapshot precedes
-  the writes), so a touched row without them is refused, never recovered blind."""
+  the writes), so a touched row without them is refused, never recovered blind, unless the row says no flash write
+  ever started (`flashStarted` false: a security read or snapshot session that failed or was left pending), when the
+  restore takes a fresh one; what it left pending refuses that restore at admission until proven ended."""
   ev = row.get('snapshot') or {}
   regions, md5 = ev.get('preservedRegions'), ev.get('preserved')
   never_ran = row.get('ran') is False and row.get('cleanup') is None   # a setup refusal: the battery never started
-  if regions is None and md5 is None and (never_ran or (row.get('cleanup') or {}).get('state') == 'untouched'):
+  unwritten = row.get('flashStarted') is False   # absent, as in an older report, is never taken as unwritten
+  if regions is None and md5 is None and (never_ran or unwritten or
+                                          (row.get('cleanup') or {}).get('state') == 'untouched'):
     return None
   if regions is None or md5 is None:
     raise Refused('the failed run touched the board but its report has no preserved-region snapshot to check')
@@ -1926,11 +1935,14 @@ def cleanup_evidence(survivors):
 
 def pending_in_use(board, found):
   """InUse while a provider pending record of the board's USJs lists an operation not proven ended: an earlier run's,
-  logged in the board's cleanup log by the run that left it, which nothing may overlap (Recovery, Cleanup pending)."""
+  logged in the board's cleanup log by the run that left it, which nothing may overlap (Recovery, Cleanup pending).
+  The survivors are a later read than the refusal's: one that finds the entry ended since keeps the refusal itself,
+  so the row stays a blocker."""
   try:
     refuse_pending(board)
   except CleanupPending as e:
-    raise InUse(str(e), found, pendingSessions=[s.get('receipt', s['cmd']) for s in e.evidence['survivors']]) from None
+    raise InUse(str(e), found, pendingSessions=[s.get('receipt', s['cmd']) for s in e.evidence['survivors']] or
+                [str(e)]) from None
 
 
 def add_note(d, key, why):
@@ -2268,6 +2280,7 @@ class Battery:
     self.probe = Probe(board, workdir, self.log)
     self.power = PortPower(board.get('usbPower'), self.log)
     self.steps, self.usb_path, self.touched, self.at, self.kept = [], None, False, 'setup', []
+    self.flash_started = False   # whether flash_target ever ran its op: a write may have begun
     # where CURRENT.UF2 starts and the flash size INFO_UF2.TXT reports
     # the drive's flash: from BOARD_FLASH_ADDR_ZERO, the app start where UF2 addresses start there (ch32v4x7)
     self.app_start = facts.get('appStart')
@@ -2300,6 +2313,7 @@ class Battery:
     try:
       self.check_inputs(flash, 'before the flash')
       was, self.touched = self.touched, True
+      self.flash_started = True
       try:
         ev = judged(op(tool_runner(self.log)), judge, before, what, timeout)
       except StepFail as e:
@@ -3160,7 +3174,7 @@ class EspBattery(Battery):
 
   def report_fields(self):
     keep = self.b['regions']['preserved']
-    return {**({'buildLocksKept': self.kept} if self.kept else {}),
+    return {**({'buildLocksKept': self.kept} if self.kept else {}), 'flashStarted': self.flash_started,
             'snapshot': self.preserved and {'preserved': self.preserved,
                                             'preservedRegions': {n: list(r) for n, r in keep.items()}}}
 

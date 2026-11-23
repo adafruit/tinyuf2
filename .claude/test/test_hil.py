@@ -1381,9 +1381,10 @@ class EspFlash(EspFake):
         ht.report_snapshot(json.loads(json.dumps(row)), good[0])
 
   def test_a_touched_run_without_a_snapshot_is_not_recovered(self):
-    for state, want in (('unknown', ht.Refused), ('untouched', None)):
-      row = {'snapshot': None, 'cleanup': {'state': state}}
-      with self.subTest(state):
+    for state, started, want in (('unknown', None, ht.Refused), ('untouched', None, None), ('pending', True, ht.Refused),
+                                 ('unknown', True, ht.Refused), ('pending', False, None), ('unknown', False, None)):
+      row = {'snapshot': None, 'cleanup': {'state': state}, **({} if started is None else {'flashStarted': started})}
+      with self.subTest(state=state, flashStarted=started):
         if want:
           with self.assertRaisesRegex(ht.Refused, 'no preserved-region snapshot'):
             ht.report_snapshot(row, {})
@@ -1558,6 +1559,42 @@ class UsjAddressing(Tmp):
     with mock.patch.object(ht.openocd_esp(), 'usj_tty', side_effect=AssertionError('walked')), \
          mock.patch.object(ht.provider(), 'SERIAL_BY_ID', str(byid)):
       self.assertEqual(real_esp_port('cp2102n'), '/dev/null')
+
+  def test_a_usj_primary_board_is_refused_while_its_usj_record_lists_an_operation_not_proven_ended(self):
+    b = self.load(s3_roster(self.tmp, flasher={'name': 'esptool', 'uid': USJ}), S3)   # no openocd_esp route
+    self.assertEqual(ht.usj_serials(b), [USJ])
+    ht.openocd_esp().pending(USJ).add([{'receipt': {'unreceipted': 'another project: cleanup unknown', 'serial': USJ}}])
+    self.assertEqual([(s['serial'], s['evidence']) for s in ht.outstanding_sessions(b)], [(USJ, 'unrecheckable')])
+    with self.assertRaisesRegex(ht.InUse, 'not proven ended') as cm:
+      ht.pending_in_use(b, {})
+    self.assertTrue(cm.exception.fields['pendingSessions'])
+    with self.assertRaisesRegex(ht.CleanupPending, 'not proven ended'):
+      ht.refuse_pending(b)
+
+  def test_a_usj_is_looked_up_once_and_a_bridge_serial_never(self):
+    usj_route = {'reentry': 'dfu-detach', 'routes': [ROUTE]}
+    both = self.load(s3_roster(self.tmp, flasher={'name': 'esptool', 'uid': USJ}, tinyuf2=usj_route), S3)
+    self.assertEqual((ht.usj_serials(both), ht.usj_serials(ht.select_route(both, 'openocd_esp'))), ([USJ], [USJ]))
+    routed = self.load(route_roster(self.tmp), S3)   # a bridge primary: only its route's USJ
+    self.assertEqual(ht.usj_serials(routed), [USJ])
+    bridge = self.load(s3_roster(self.tmp), S3)
+    oe = ht.openocd_esp()
+    with mock.patch.object(oe, 'pending_refusal', side_effect=AssertionError('looked up')), \
+         mock.patch.object(oe, 'pending_entries', side_effect=AssertionError('looked up')):
+      self.assertEqual((ht.usj_serials(bridge), ht.outstanding_sessions(bridge)), ([], []))
+      ht.refuse_pending(bridge)
+
+  def test_a_refusal_whose_entry_ends_before_the_survivors_are_read_stays_a_blocker(self):
+    b = self.load(s3_roster(self.tmp, flasher={'name': 'esptool', 'uid': USJ}), S3)
+    why = f'USJ {USJ} has 1 operation(s) not proven ended'
+    with mock.patch.object(ht.openocd_esp(), 'pending_refusal', lambda serial: why), \
+         mock.patch.object(ht, 'outstanding_sessions', lambda board: []), \
+         self.assertRaisesRegex(ht.InUse, re.escape(why)) as cm:
+      ht.pending_in_use(b, {})
+    self.assertEqual(len(cm.exception.fields['pendingSessions']), 1)
+    self.assertIn(why, cm.exception.fields['pendingSessions'][0])
+    row = {'board': S3, 'ran': False, 'locked': True, 'recoveryBlocker': False, **cm.exception.fields}
+    self.assertEqual(ht.run_report.verdict(2, {'results': [row]}, S3)[0], 'blocker')
 
   def test_a_malformed_serial_is_refused_at_load(self):
     for uid in (USJ.lower(), 'AA:BB:CC:DD:EE', 'AA:BB:CC:DD:EE:FF:00', 'AA:BB:CC:DD:EE:FG', 'a b', ''):
@@ -1819,6 +1856,9 @@ class JtagRoute(EspFake):
     self.assertEqual((left, self.events()),
                      ([{'cmd': oe.describe(receipt), 'receipt': receipt, 'serial': USJ, 'evidence': 'receipts'}], []))
     self.assertEqual(ht.cleanup_evidence(left), ([receipt], []))   # rechecked by the restore, never retained
+    row = dict(self.bat.report_fields(), ran=True, cleanup={'pass': False, 'state': 'pending'})
+    self.assertEqual((row['flashStarted'], row['snapshot']), (False, None))   # no flash write: a restore snapshots afresh
+    self.assertIsNone(ht.report_snapshot(json.loads(json.dumps(row)), self.board['regions']['preserved']))
     with self.assertRaisesRegex(ht.CleanupPending, 'no session may overlap it'):
       self.bat.tool.run(ht.preserved_ops(self.board['regions']['preserved']), 'hard-reset')
     with mock.patch.object(oe.hil_process, 'recheck', return_value='done'):
@@ -1964,12 +2004,6 @@ class JtagRoute(EspFake):
     self.assertEqual(oe.pending_main(USJ, 'reviewed recovery: no esptool child runs')[0], 0)
     ht.refuse_pending(self.board)
 
-  @staticmethod
-  def reap(pid):
-    with contextlib.suppress(ProcessLookupError, ChildProcessError):
-      os.kill(pid, signal.SIGKILL)
-      os.waitpid(pid, 0)
-
   def test_a_keeper_held_for_a_listed_receipt_never_written_exits_once_the_record_drops_it(self):
     oe, lock = ht.openocd_esp(), self.tmp / 'build.lock'
     receipt = str(self.work / 'hil_openocd_esp_x' / 'receipt.json')   # its runner SIGKILLed before the first write
@@ -1978,8 +2012,10 @@ class JtagRoute(EspFake):
     self.assertEqual([(s['evidence'], ht.session_state(s)) for s in left], [('retained', 'unreadable')])
     fh = open(lock, 'w')
     fcntl.flock(fh, fcntl.LOCK_EX)
-    keeper = ht.keep_build_lock(fh, left)['pid']
-    self.addCleanup(self.reap, keeper)
+    kept = ht.keep_build_lock(fh, left)
+    self.assertNotIn('inProcess', kept, 'the keeper did not acknowledge its handoff')   # else its pid is ours
+    keeper = kept['pid']
+    self.addCleanup(end_child, keeper)
     time.sleep(2 * ht.KEEPER_POLL)
     self.assertFalse(flock_free(lock))   # it may still run, unidentified
     self.assertEqual(oe.pending_main(USJ, 'reviewed recovery: no server runs')[0], 0)
@@ -2167,7 +2203,7 @@ class EspBatteryRun(EspFake):
       with self.subTest(what), ctx, self.assertRaises(err):
         bat.run(files, 'v1')
       row = dict(bat.report_fields(), cleanup={'state': 'unknown'})
-      self.assertTrue(bat.touched)
+      self.assertTrue(bat.touched and row['flashStarted'])
       self.assertEqual(ht.report_snapshot(json.loads(json.dumps(row)), self.board['regions']['preserved']), bat.preserved)
 
   def test_no_bridge_is_untouched_but_a_failed_snapshot_session_is_not(self):
