@@ -5,3 +5,11 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-16MB.csv"
 
 # Serial flasher config
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+
+# CircuitPython runs this board's flash at 120 MHz in high-performance mode
+# (HPM), which changes the dummy cycles of DIO/QIO reads and survives a
+# software reset. This option builds the bootloader header and flash_args as
+# dout, whose dummy cycles HPM keeps, so the ROM can load the bootloader, which
+# then resets the flash before switching to QIO. Write the bootloader in its
+# built mode: an explicit --flash-mode dio or qio brings the boot loop back.
+CONFIG_BOOTLOADER_FLASH_DC_AWARE=y
