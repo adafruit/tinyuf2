@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 # The HIL workflow's sticky PR comment (hil_comment.py): the body rendered from summary.json and the selection, the
-# freshness check over a stubbed API, and the workflow's fresh step run as the runner runs it over a stand-in `gh`.
+# freshness check over a stubbed API, and the workflow's fresh step run as the runner runs it over a stand-in `gh`, and
+# its post step over a stand-in gh_pr_comment.py.
 import io
 import json
 import os
@@ -236,6 +237,13 @@ if "--jq" in sys.argv:
 else:
     print(json.dumps(replies[path]))
 '''
+# agentrc's gh_pr_comment.py as the post step runs it: its argv kept, G_SAYS printed, exiting G_EXIT
+G = '''#!/usr/bin/env python3
+import json, os, sys
+json.dump(sys.argv[1:], open(os.environ["G_ARGV"], "w"))
+print(os.environ["G_SAYS"])
+sys.exit(int(os.environ["G_EXIT"]))
+'''
 
 
 class Cli(unittest.TestCase):
@@ -282,16 +290,28 @@ class Cli(unittest.TestCase):
                                 '--attempt', '1', '--out', str(out)]), 0)
     self.assertIn('**HIL report unavailable', out.read_text(encoding='utf-8'))
 
-  def fresh_step(self, replies):
-    """The workflow's fresh step run as the runner runs it: (exit, its GITHUB_OUTPUT, its stdout)."""
-    self.replies.write_text(json.dumps(replies))
+  def step(self, name, **env):
+    """The workflow's step `name` run as the runner runs it: (exit, its GITHUB_OUTPUT, its stdout)."""
     text = (ROOT / '.github' / 'workflows' / 'hil.yml').read_text()
-    body = re.search(r'\n        id: fresh\n(?:        .*\n)*?        run: \|\n((?:          .*\n)+)', text).group(1)
+    body = re.search(rf'\n      - name: {re.escape(name)}\n(?:        .*\n)*?        run: \|\n((?:          .*\n)+)',
+                     text).group(1)
     output = self.tmp / 'github-output'
     output.write_text('')
     p = subprocess.run(['bash', '--noprofile', '--norc', '-eo', 'pipefail', '-c', textwrap.dedent(body)], cwd=ROOT,
-                       env=dict(self.env, GITHUB_OUTPUT=str(output)), capture_output=True, text=True)
+                       env=dict(self.env, GITHUB_OUTPUT=str(output), **env), capture_output=True, text=True)
     return p.returncode, output.read_text(), p.stdout
+
+  def fresh_step(self, replies):
+    self.replies.write_text(json.dumps(replies))
+    return self.step('Check this run is the newest for the PR head')
+
+  def post_step(self, code, says):
+    """The post step over a stand-in gh_pr_comment.py exiting `code` after printing `says`: (exit, its stdout, the
+    stand-in's argv)."""
+    g, argv = self.tmp / 'gh_pr_comment.py', self.tmp / 'argv.json'
+    g.write_text(G)
+    code, _, stdout = self.step('Post the report', G=str(g), G_ARGV=str(argv), G_SAYS=says, G_EXIT=str(code))
+    return code, stdout, json.loads(argv.read_text())
 
   def test_the_workflow_posts_when_fresh_skips_when_stale_and_fails_when_the_api_cannot_tell(self):
     self.assertEqual(self.fresh_step(self.ok)[:2], (0, 'post=true\n'))
@@ -312,6 +332,20 @@ class Cli(unittest.TestCase):
     self.assertEqual((code, output), (0, ''))
     self.assertIn('not posted::run 8 is newer than run 7', stdout)
 
+  def test_the_post_is_agentrcs_sticky_post_of_the_rendered_body_under_the_existing_marker_for_this_prs_runs(self):
+    code, stdout, argv = self.post_step(0, 'updated https://c/11')
+    self.assertEqual((code, stdout), (0, 'updated https://c/11\n'))
+    self.assertEqual(argv[0], 'post')
+    self.assertEqual(dict(zip(argv[1::2], argv[2::2])), {
+      '--repo': 'o/r', '--pr': '5', '--header': 'hil-report', '--body-file': 'comment.md', '--run-id': '7',
+      '--attempt': '1', '--head-sha': 'a' * 40, '--workflow': 'hil.yml', '--run-name': hc.RUN_NAME.format(5)})
+
+  def test_the_post_notes_a_stale_run_and_fails_on_anything_else(self):
+    self.assertEqual(self.post_step(1, 'stale: run 8 is newer than run 7')[:2],
+                     (0, '::notice title=HIL report not posted::stale: run 8 is newer than run 7\n'))
+    self.assertEqual(self.post_step(2, 'unknown: gh api graphql: HTTP 502')[:2],
+                     (2, '::error title=HIL report not posted::unknown: gh api graphql: HTTP 502\n'))
+
   def test_the_rig_artifact_is_the_rig_jobs_attempts_and_fresh_checks_this_one(self):
     # re-running failed jobs keeps a passed rig job's outputs and artifact, so the pr-comment job's own attempt has none
     text = (ROOT / '.github' / 'workflows' / 'hil.yml').read_text()
@@ -324,7 +358,8 @@ class Cli(unittest.TestCase):
     self.assertIn('/attempts/$RIG_ATTEMPT" \\\n', comment)
     self.assertIn('--attempt "$RIG_ATTEMPT" --out comment.md', comment)
     self.assertIn('--run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT")', comment)   # fresh
-    self.assertEqual(comment.count('github.run_attempt') + comment.count('GITHUB_RUN_ATTEMPT'), 2)
+    self.assertIn('--run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --head-sha', comment)   # post
+    self.assertEqual(comment.count('github.run_attempt') + comment.count('GITHUB_RUN_ATTEMPT'), 3)
 
   def test_the_rig_artifact_is_downloaded_only_once_the_run_may_post(self):
     text = (ROOT / '.github' / 'workflows' / 'hil.yml').read_text()
