@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 # The HIL workflow's sticky PR comment (hil_comment.py): the body rendered from summary.json and the selection, the
-# freshness check over a stubbed API, and the workflow's fresh step run as the runner runs it over a stand-in `gh`.
+# freshness check over a stubbed API, and the workflow's fresh and post steps run as the runner runs them over a
+# stand-in `gh`.
 import io
 import json
 import os
@@ -223,11 +224,19 @@ class Fresh(unittest.TestCase):
     self.assertEqual(name.group(1).replace('{0}', '{}'), hc.RUN_NAME)
 
 
-# gh api [-H ...] [--paginate --jq .<key>[]] PATH: a paginated list one JSON item per line, as `--jq` prints it
+# gh api [-H ...] [--paginate --jq .<key>[]] PATH: a paginated list one JSON item per line, as `--jq` prints it; a
+# write (--method M, its body on stdin) is logged and answered as "M PATH"; GraphQL's viewer and comments queries are
+# "graphql viewer" and "graphql comments"
 GH = '''#!/usr/bin/env python3
 import json, os, sys
 replies = json.load(open(os.environ["GH_REPLIES"]))
 path = sys.argv[-1]
+if "--method" in sys.argv:
+    path = sys.argv[sys.argv.index("--method") + 1] + " " + path
+    with open(os.environ["GH_WRITES"], "a") as log:
+        log.write(json.dumps([path, json.load(sys.stdin)]) + "\\n")
+elif path == "graphql":
+    path += " comments" if "--jq" in sys.argv else " viewer"
 if path not in replies:
     sys.exit("HTTP 502: " + path)
 if "--jq" in sys.argv:
@@ -248,11 +257,13 @@ class Cli(unittest.TestCase):
     gh.write_text(GH)
     gh.chmod(0o755)
     self.replies = self.tmp / 'replies.json'
+    self.writes = self.tmp / 'writes.jsonl'
     head = 'a' * 40
     self.runs = f'repos/o/r/actions/workflows/hil.yml/runs?event=pull_request&head_sha={head}&per_page=100'
     self.ok = {'repos/o/r/pulls/5': {'head': {'sha': head}}, 'repos/o/r/actions/runs/7': {'run_attempt': 1},
                self.runs: {'workflow_runs': [{'id': 7, 'run_number': 3, 'display_title': 'HIL PR #5'}]}}
     self.env = dict(os.environ, PATH=f'{self.tmp / "bin"}:{os.environ["PATH"]}', GH_REPLIES=str(self.replies),
+                    GH_WRITES=str(self.writes),
                     GITHUB_REPOSITORY='o/r', PR='5', HEAD_SHA=head, GITHUB_RUN_ID='7', GITHUB_RUN_ATTEMPT='1')
 
   def test_render_reads_missing_or_unreadable_files_as_unavailable(self):
@@ -282,16 +293,37 @@ class Cli(unittest.TestCase):
                                 '--attempt', '1', '--out', str(out)]), 0)
     self.assertIn('**HIL report unavailable', out.read_text(encoding='utf-8'))
 
-  def fresh_step(self, replies):
-    """The workflow's fresh step run as the runner runs it: (exit, its GITHUB_OUTPUT, its stdout)."""
+  def step(self, step, replies, cwd=ROOT):
+    """The workflow's step `step` run as the runner runs it: (exit, its GITHUB_OUTPUT, its stdout)."""
     self.replies.write_text(json.dumps(replies))
     text = (ROOT / '.github' / 'workflows' / 'hil.yml').read_text()
-    body = re.search(r'\n        id: fresh\n(?:        .*\n)*?        run: \|\n((?:          .*\n)+)', text).group(1)
+    body = re.search(rf'\n        id: {step}\n(?:        .*\n)*?        run: \|\n((?:          .*\n)+)', text).group(1)
     output = self.tmp / 'github-output'
     output.write_text('')
-    p = subprocess.run(['bash', '--noprofile', '--norc', '-eo', 'pipefail', '-c', textwrap.dedent(body)], cwd=ROOT,
+    p = subprocess.run(['bash', '--noprofile', '--norc', '-eo', 'pipefail', '-c', textwrap.dedent(body)], cwd=cwd,
                        env=dict(self.env, GITHUB_OUTPUT=str(output)), capture_output=True, text=True)
     return p.returncode, output.read_text(), p.stdout
+
+  def fresh_step(self, replies):
+    return self.step('fresh', replies)
+
+  def post_step(self, replies, comments=()):
+    """The post step over `replies` and the PR's `comments` (author, body), run where the job left comment.md:
+    (exit, its stdout, the writes it sent)."""
+    job = self.tmp / 'job'
+    job.mkdir(exist_ok=True)
+    if not (job / '.claude').exists():
+      (job / '.claude').symlink_to(ROOT / '.claude')
+    (job / 'comment.md').write_text('## report\n', encoding='utf-8')
+    self.writes.write_text('')
+    nodes = [{'databaseId': 10 + i, 'author': {'login': who}, 'isMinimized': False, 'body': body}
+             for i, (who, body) in enumerate(comments)]
+    replies = dict({'graphql viewer': {'data': {'viewer': {'login': 'github-actions'}}},
+                    'graphql comments': {'data.repository.pullRequest.comments.nodes': nodes},
+                    'POST repos/o/r/issues/5/comments': {'html_url': 'https://c/new'},
+                    'PATCH repos/o/r/issues/comments/11': {'html_url': 'https://c/11'}}, **replies)
+    code, _, stdout = self.step('post', replies, cwd=job)
+    return code, stdout, [json.loads(ln) for ln in self.writes.read_text().splitlines()]
 
   def test_the_workflow_posts_when_fresh_skips_when_stale_and_fails_when_the_api_cannot_tell(self):
     self.assertEqual(self.fresh_step(self.ok)[:2], (0, 'post=true\n'))
@@ -312,6 +344,23 @@ class Cli(unittest.TestCase):
     self.assertEqual((code, output), (0, ''))
     self.assertIn('not posted::run 8 is newer than run 7', stdout)
 
+  def test_the_post_creates_the_report_or_updates_its_own_under_the_marker_it_was_first_posted_under(self):
+    marker = '<!-- Sticky Pull Request Commenthil-report -->'   # marocchino's for header hil-report
+    code, stdout, writes = self.post_step(self.ok)
+    self.assertEqual((code, stdout), (0, 'created https://c/new\n'))
+    self.assertEqual(writes, [['POST repos/o/r/issues/5/comments', {'body': f'## report\n\n{marker}'}]])
+    code, stdout, writes = self.post_step(self.ok, [('someone', f'quoting {marker}'), ('github-actions', marker)])
+    self.assertEqual((code, stdout), (0, 'updated https://c/11\n'))
+    self.assertEqual([w[0] for w in writes], ['PATCH repos/o/r/issues/comments/11'])
+
+  def test_the_post_writes_nothing_once_stale_and_fails_when_the_api_cannot_tell(self):
+    code, stdout, writes = self.post_step(dict(self.ok, **{'repos/o/r/actions/runs/7': {'run_attempt': 2}}))
+    self.assertEqual((code, writes), (0, []))
+    self.assertIn('::notice title=HIL report not posted::run 7 attempt 2 is newer than attempt 1', stdout)
+    ours = ('github-actions', '<!-- Sticky Pull Request Commenthil-report -->')
+    code, _, writes = self.post_step(self.ok, [ours, ours])
+    self.assertEqual((code, writes), (2, []))   # two of ours carry the marker: which is the report is ambiguous
+
   def test_the_rig_artifact_is_the_rig_jobs_attempts_and_fresh_checks_this_one(self):
     # re-running failed jobs keeps a passed rig job's outputs and artifact, so the pr-comment job's own attempt has none
     text = (ROOT / '.github' / 'workflows' / 'hil.yml').read_text()
@@ -324,7 +373,8 @@ class Cli(unittest.TestCase):
     self.assertIn('/attempts/$RIG_ATTEMPT" \\\n', comment)
     self.assertIn('--attempt "$RIG_ATTEMPT" --out comment.md', comment)
     self.assertIn('--run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT")', comment)   # fresh
-    self.assertEqual(comment.count('github.run_attempt') + comment.count('GITHUB_RUN_ATTEMPT'), 2)
+    self.assertIn('--run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \\\n', comment)   # post
+    self.assertEqual(comment.count('github.run_attempt') + comment.count('GITHUB_RUN_ATTEMPT'), 3)
 
   def test_the_rig_artifact_is_downloaded_only_once_the_run_may_post(self):
     text = (ROOT / '.github' / 'workflows' / 'hil.yml').read_text()
