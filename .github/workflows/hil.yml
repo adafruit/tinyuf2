@@ -1,5 +1,5 @@
 name: HIL
-# a pull request's run names its PR: hil_comment.py's fresh tells apart PRs that share a head (RUN_NAME)
+# a pull request's run names its PR: hil_comment.py's fresh and the post tell apart PRs that share a head (RUN_NAME)
 run-name: "${{ github.event.pull_request && format('HIL PR #{0}', github.event.pull_request.number) || 'HIL' }}"
 
 # The battery on the ci.lan rig (.claude/skills/hil-contract/SKILL.md, roster test/hil/ci.json) for the commissioned
@@ -266,9 +266,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # hil_comment.py loads agentrc's gh_pr_comment.py at its pin
+      # hil_comment.py loads agentrc's gh_pr_comment.py at its pin, and the post runs it
       - name: Fetch agentrc
-        run: python3 .claude/skills/hil-contract/scripts/agentrc.py fetch
+        run: |
+          dir=$(python3 .claude/skills/hil-contract/scripts/agentrc.py fetch)
+          echo "G=$dir/skills/hil/scripts/gh_pr_comment.py" >> "$GITHUB_ENV"
 
       - name: Download the selection
         continue-on-error: true
@@ -309,19 +311,19 @@ jobs:
             --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$RIG_ATTEMPT" \
             --run-id "$GITHUB_RUN_ID" --attempt "$RIG_ATTEMPT" --out comment.md
 
-      # rechecks fresh right before the write; not atomic, so it relies on the workflow's concurrency group
+      # created or updated under marocchino/sticky-pull-request-comment's hil-report marker, so the comment it posted
+      # is kept; fresh is rechecked right before the write, not atomically, so it relies on the concurrency group
       - name: Post the report
-        id: post
         if: steps.fresh.outputs.post == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if why=$(python3 .claude/skills/hil-contract/scripts/hil_comment.py post --repo "$GITHUB_REPOSITORY" \
-                     --pr "$PR" --head "$HEAD_SHA" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
-                     --body comment.md); then
+          if why=$(python3 "$G" post --repo "$GITHUB_REPOSITORY" --pr "$PR" --header hil-report --body-file comment.md \
+                     --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --head-sha "$HEAD_SHA" \
+                     --workflow hil.yml --run-name "HIL PR #$PR" 2>&1); then
             echo "$why"
           else
             code=$?
-            [ "$code" = 1 ] || exit "$code"
+            [ "$code" = 1 ] || { echo "::error title=HIL report not posted::$why"; exit "$code"; }
             echo "::notice title=HIL report not posted::$why"
           fi
