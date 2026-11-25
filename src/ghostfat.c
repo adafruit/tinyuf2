@@ -38,6 +38,7 @@
 
 // ota0 partition size
 static uint32_t _flash_size;
+static uint32_t _uf2_sector_count;
 
 #define STATIC_ASSERT(_exp) _Static_assert(_exp, "static assert failed")
 
@@ -139,7 +140,7 @@ STATIC_ASSERT(BPB_BYTES_PER_CLUSTER                        <= (32*1024)); // FAT
 STATIC_ASSERT(FAT_ENTRIES_PER_SECTOR                       ==       256); // FAT requirement
 
 #define UF2_FIRMWARE_BYTES_PER_SECTOR   256
-#define UF2_SECTOR_COUNT                (_flash_size / UF2_FIRMWARE_BYTES_PER_SECTOR)
+#define UF2_SECTOR_COUNT                (_uf2_sector_count)
 #define UF2_BYTE_COUNT                  (UF2_SECTOR_COUNT * BPB_SECTOR_SIZE) // always a multiple of sector size, per UF2 spec
 
 
@@ -289,8 +290,18 @@ static void u32_to_hexstr(uint32_t value, char* buffer) {
 }
 
 void uf2_init(void) {
-  // TODO maybe limit to application size only if possible board_flash_app_size()
   _flash_size = board_flash_size();
+  _uf2_sector_count = 0;
+
+  // CURRENT.UF2 starts at the application, not at the start of flash.
+  uint32_t const flash_start = BOARD_FLASH_ADDR_ZERO;
+  uint32_t const app_start = BOARD_FLASH_APP_START;
+  if (app_start >= flash_start) {
+    uint32_t const app_offset = app_start - flash_start;
+    if (app_offset < _flash_size) {
+      _uf2_sector_count = (_flash_size - app_offset) / UF2_FIRMWARE_BYTES_PER_SECTOR;
+    }
+  }
 
   // update CURRENT.UF2 file size
   info[FID_UF2].size = UF2_BYTE_COUNT;
@@ -461,8 +472,8 @@ void uf2_read_block (uint32_t block_no, uint8_t *data) {
     }
     else {
       // CURRENT.UF2: generate data on-the-fly
-      uint32_t addr = BOARD_FLASH_APP_START + (fileRelativeSector * UF2_FIRMWARE_BYTES_PER_SECTOR);
-      if ( addr < (BOARD_FLASH_ADDR_ZERO + _flash_size) ) {
+      if ( fileRelativeSector < UF2_SECTOR_COUNT ) {
+        uint32_t addr = BOARD_FLASH_APP_START + (fileRelativeSector * UF2_FIRMWARE_BYTES_PER_SECTOR);
         UF2_Block *bl = (void*) data;
         bl->magicStart0 = UF2_MAGIC_START0;
         bl->magicStart1 = UF2_MAGIC_START1;

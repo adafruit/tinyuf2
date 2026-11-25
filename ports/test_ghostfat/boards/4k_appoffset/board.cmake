@@ -1,0 +1,10 @@
+set(CFG_UF2_FLASH_SIZE 0x00100000)
+
+function(update_board TARGET)
+  target_compile_definitions(${TARGET} PUBLIC
+    CFG_UF2_NUM_BLOCKS=33000
+    CFG_UF2_SECTORS_PER_CLUSTER=8
+    BOARD_FLASH_ADDR_ZERO=0x08000000
+    BOARD_FLASH_APP_START=0x08010000
+    )
+endfunction()
