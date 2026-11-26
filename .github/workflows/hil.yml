@@ -1,5 +1,5 @@
 name: HIL
-# a pull request's run names its PR: hil_comment.py's fresh and the post tell apart PRs that share a head (RUN_NAME)
+# a pull request's run names its PR: gh_pr_comment.py's fresh and post (--run-name) tell apart PRs that share a head
 run-name: "${{ github.event.pull_request && format('HIL PR #{0}', github.event.pull_request.number) || 'HIL' }}"
 
 # The battery on the ci.lan rig (.claude/skills/hil-contract/SKILL.md, roster test/hil/ci.json) for the commissioned
@@ -266,7 +266,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # hil_comment.py loads agentrc's gh_pr_comment.py at its pin, and the post runs it
+      # hil_comment.py loads agentrc's gh_pr_comment.py at its pin, and the fresh and post steps run it
       - name: Fetch agentrc
         run: |
           dir=$(python3 .claude/skills/hil-contract/scripts/agentrc.py fetch)
@@ -284,8 +284,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if why=$(python3 .claude/skills/hil-contract/scripts/hil_comment.py fresh --repo "$GITHUB_REPOSITORY" \
-                     --pr "$PR" --head "$HEAD_SHA" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT"); then
+          if why=$(python3 "$G" fresh --repo "$GITHUB_REPOSITORY" --pr "$PR" --run-id "$GITHUB_RUN_ID" \
+                     --attempt "$GITHUB_RUN_ATTEMPT" --head-sha "$HEAD_SHA" --workflow hil.yml \
+                     --run-name "HIL PR #$PR"); then
             echo "post=true" >> "$GITHUB_OUTPUT"
           else
             code=$?
