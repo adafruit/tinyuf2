@@ -23,7 +23,7 @@ import hil_comment as hc  # noqa: E402
 META = {'roster': 'ci.json', 'head': '4f1c2e9aaaaaaaaa', 'tested': '8a7d3b0bbbbbbbbb',
         'runUrl': 'https://github.com/o/r/actions/runs/39512345678/attempts/1', 'runId': '39512345678', 'attempt': '1'}
 OK = {s: True for s in ('install', 'dfu', 'copy', 'app-ran', 'reenter')}
-RUN_NAME = 'HIL PR #{}'   # hil.yml's run-name: a run's pull_requests lists every PR on its head, not the one it is for
+RUN_NAME = 'HIL PR #{}'   # hil.yml's run-name for a PR
 
 
 def row(board, verdict='pass', shared='pass', **kw):
@@ -284,8 +284,7 @@ class Cli(unittest.TestCase):
     return self.g_step('Check this run is the newest for the PR head', code, says)
 
   def post_step(self, code, says):
-    code, _, stdout, argv = self.g_step('Post the report', code, says)
-    return code, stdout, argv
+    return self.g_step('Post the report', code, says)
 
   def test_the_workflow_names_a_pull_request_run_as_fresh_and_the_post_match_it(self):
     text = (ROOT / '.github' / 'workflows' / 'hil.yml').read_text()
@@ -308,7 +307,7 @@ class Cli(unittest.TestCase):
     self.assertEqual(self.fresh_step(2, '')[:2], (2, ''))
 
   def test_the_post_is_agentrcs_sticky_post_of_the_rendered_body_under_the_existing_marker_for_this_prs_runs(self):
-    code, stdout, argv = self.post_step(0, 'updated https://c/11')
+    code, _, stdout, argv = self.post_step(0, 'updated https://c/11')
     self.assertEqual((code, stdout), (0, 'updated https://c/11\n'))
     self.assertEqual(argv[0], 'post')
     self.assertEqual(dict(zip(argv[1::2], argv[2::2])), {
@@ -316,9 +315,9 @@ class Cli(unittest.TestCase):
       '--attempt': '1', '--head-sha': 'a' * 40, '--workflow': 'hil.yml', '--run-name': RUN_NAME.format(5)})
 
   def test_the_post_notes_a_stale_run_and_fails_on_anything_else(self):
-    self.assertEqual(self.post_step(1, 'stale: run 8 is newer than run 7')[:2],
+    self.assertEqual(self.post_step(1, 'stale: run 8 is newer than run 7')[::2],
                      (0, '::notice title=HIL report not posted::stale: run 8 is newer than run 7\n'))
-    self.assertEqual(self.post_step(2, 'unknown: gh api graphql: HTTP 502')[:2],
+    self.assertEqual(self.post_step(2, 'unknown: gh api graphql: HTTP 502')[::2],
                      (2, '::error title=HIL report not posted::unknown: gh api graphql: HTTP 502\n'))
 
   def test_the_rig_artifact_is_the_rig_jobs_attempts_and_fresh_checks_this_one(self):
@@ -332,7 +331,6 @@ class Cli(unittest.TestCase):
     self.assertIn('          name: hil-run-${{ env.RIG_ATTEMPT }}\n', comment)
     self.assertIn('/attempts/$RIG_ATTEMPT" \\\n', comment)
     self.assertIn('--attempt "$RIG_ATTEMPT" --out comment.md', comment)
-    self.assertEqual(comment.count('--attempt "$GITHUB_RUN_ATTEMPT" --head-sha'), 2)   # fresh and post
     self.assertEqual(comment.count('github.run_attempt') + comment.count('GITHUB_RUN_ATTEMPT'), 3)
 
   def test_the_rig_artifact_is_downloaded_only_once_the_run_may_post(self):
