@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""The HIL workflow's sticky pull request comment: hil_ci.py's summary.json and the select job's selection rendered
-as Markdown, and the check that this run is still the newest for the PR's head before it is posted.
+"""The HIL workflow's sticky pull request comment body: hil_ci.py's summary.json and the select job's selection
+rendered as Markdown. The workflow checks freshness and posts it with agentrc's gh_pr_comment.py.
 
-  hil_comment.py render --summary PATH --selection PATH --roster NAME --head SHA --tested SHA --run-url URL
-                        --run-id N --attempt N --out FILE
-  hil_comment.py fresh --repo R --pr N --head SHA --run-id N --attempt N
+  hil_comment.py render --summary PATH --selection PATH --views PATH --roster NAME --head SHA --tested SHA
+                        --run-url URL --run-id N --attempt N --out FILE
 
 A missing or unreadable `--summary` or `--selection` renders as such, never as a pass or as no affected boards.
-`fresh` exits 0 when the run is the newest attempt of the PR's newest HIL run for its current head, 1 when it is
-stale (the reason on stdout), 2 when the API cannot tell. Stdlib only, it runs on a hosted runner, with agentrc's
-gh_pr_comment.py, the plumbing a CI report posted on a PR shares, from the agentrc the bootstrap selects (agentrc.py).
+Stdlib only, it runs on a hosted runner, with gh_pr_comment.py's artifact read and text handling from the agentrc
+the bootstrap selects (agentrc.py).
 """
 import argparse
 import functools
@@ -28,7 +26,6 @@ ABSENT = '—'
 cell = run_report.cell   # report text kept on one Markdown line and out of the table's column syntax
 KINDS = (('passed', '✅'), ('failed', '❌'), ('blocked', '⛔'), ('not run', '⚪'))
 LEGEND = "✅ passed · ❌ failed · blank not run · — not in this board's run · run time includes lock wait and blinky"
-RUN_NAME = 'HIL PR #{}'   # hil.yml's run-name: a run's pull_requests lists every PR on its head, not the one it is for
 GH_PR_COMMENT = 'skills/hil/scripts/gh_pr_comment.py'
 
 
@@ -193,38 +190,18 @@ def main(argv=None):
   r.add_argument('--run-id', required=True)
   r.add_argument('--attempt', required=True)
   r.add_argument('--out', required=True)
-  f = sub.add_parser('fresh', help='exit 0 when this run may post, 1 stale, 2 API error')
-  f.add_argument('--repo', required=True)
-  f.add_argument('--pr', required=True)
-  f.add_argument('--head', required=True)
-  f.add_argument('--run-id', required=True)
-  f.add_argument('--attempt', required=True)
   args = ap.parse_args(argv)
-  if args.cmd == 'render':
-    meta = {'roster': args.roster, 'head': args.head, 'tested': args.tested,
-            'runUrl': args.run_url, 'runId': args.run_id, 'attempt': args.attempt}
-    try:
-      with open(args.views, encoding='utf-8') as f:
-        views = f.read().strip()
-    except (OSError, UnicodeError):
-      views = None
-    body = render(read_json(args.summary, 'boards'), read_json(args.selection, 'boards'), meta, views)
-    with open(args.out, 'w', encoding='utf-8') as out:
-      out.write(body)
-    return 0
+  meta = {'roster': args.roster, 'head': args.head, 'tested': args.tested,
+          'runUrl': args.run_url, 'runId': args.run_id, 'attempt': args.attempt}
   try:
-    helper = gpc()
-  except ImportError as e:
-    print(f'cannot tell whether run {args.run_id} is fresh: {e}', file=sys.stderr)
-    return 2
-  try:   # every run listed for the head, newest by run_number, of this PR by its run-name
-    ok, why = helper.fresh(args.repo, pr=args.pr, head_sha=args.head, run_id=args.run_id, attempt=args.attempt,
-                           workflow='hil.yml', run_name=RUN_NAME.format(args.pr))
-  except helper.ApiError as e:
-    print(f'cannot tell whether run {args.run_id} is fresh: {e}', file=sys.stderr)
-    return 2
-  print(why)
-  return 0 if ok else 1
+    with open(args.views, encoding='utf-8') as f:
+      views = f.read().strip()
+  except (OSError, UnicodeError):
+    views = None
+  body = render(read_json(args.summary, 'boards'), read_json(args.selection, 'boards'), meta, views)
+  with open(args.out, 'w', encoding='utf-8') as out:
+    out.write(body)
+  return 0
 
 
 if __name__ == '__main__':
